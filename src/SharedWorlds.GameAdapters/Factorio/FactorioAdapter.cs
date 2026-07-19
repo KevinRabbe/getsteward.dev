@@ -11,6 +11,7 @@ public sealed class FactorioAdapter : IGameAdapter
 
     public GameAdapterCapabilities Capabilities =>
         GameAdapterCapabilities.Mods |
+        GameAdapterCapabilities.AutomaticLocalLaunch |
         GameAdapterCapabilities.AutomaticHostLaunch |
         GameAdapterCapabilities.AutomaticClientJoin |
         GameAdapterCapabilities.ExactGameVersion;
@@ -68,6 +69,11 @@ public sealed class FactorioAdapter : IGameAdapter
         CancellationToken cancellationToken = default)
         => FactorioWorldOperations.RestoreStateAsync(world, state, cancellationToken);
 
+    public Task<GameSessionHandle> LaunchLocalAsync(
+        PreparedWorld world,
+        CancellationToken cancellationToken = default)
+        => FactorioWorldOperations.LaunchLocalAsync(world, cancellationToken);
+
     public Task<GameSessionHandle> LaunchHostAsync(
         PreparedWorld world,
         CancellationToken cancellationToken = default)
@@ -116,7 +122,6 @@ public sealed class FactorioAdapter : IGameAdapter
         var parent = Directory.GetParent(fullPath)
             ?? throw new InvalidOperationException(
                 $"Cannot determine parent directory for Factorio workspace '{workingDirectory}'.");
-
         if (!Guid.TryParseExact(Path.GetFileName(fullPath), "N", out _) ||
             !string.Equals(parent.Name, "factorio", StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(parent.Parent?.Name, "SharedWorlds", StringComparison.OrdinalIgnoreCase))

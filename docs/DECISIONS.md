@@ -153,3 +153,29 @@ The first implementation focus remains Factorio until one complete lifecycle wor
 **Decision:** An adapter explicitly marks whether a captured package may be deleted by Core after durable storage.
 
 **Reason:** Core must not guess whether an adapter-returned path is a temporary copy, a cache entry, or user-owned data. Cleanup authority must be part of the contract.
+
+## D-023: Published revisions are immutable
+
+**Decision:** Environment and state revision IDs may not be overwritten after publication. Only World head metadata is mutable.
+
+**Reason:** Restore, Fork, recovery, history, and debugging all require revision identifiers to continue referring to the same historical content.
+
+**Consequence:** The local backend rejects duplicate revision IDs. State metadata and payload are staged together and published only after both writes complete.
+
+## D-024: Canonical heads advance last
+
+**Decision:** A World's current revision pointer is updated only after the new immutable revision is durably stored.
+
+**Reason:** A failed capture or storage write must leave the last known-good canonical World intact. An orphaned immutable revision is safer than a canonical head pointing at incomplete data.
+
+## D-025: Product failures use typed exceptions at stable boundaries
+
+**Decision:** Expected product failure categories such as missing Worlds, missing revisions, adapter mismatches, integrity problems, and session conflicts use dedicated exception types.
+
+**Reason:** A future desktop UI must be able to map failure categories to recovery actions without parsing human-readable exception strings.
+
+## D-026: Architecture boundaries are tested automatically
+
+**Decision:** The test suite parses project references and enforces the intended dependency direction.
+
+**Reason:** Documentation alone cannot prevent a future shortcut from making Core depend on Infrastructure or one adapter depend on another. CI should reject boundary violations automatically.

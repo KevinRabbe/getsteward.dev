@@ -1,3 +1,4 @@
+using SharedWorlds.Cli;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Worlds;
@@ -7,56 +8,75 @@ using SharedWorlds.GameAdapters.SevenDaysToDie;
 using SharedWorlds.Infrastructure.Sessions;
 using SharedWorlds.Infrastructure.Storage;
 
-IGameAdapter[] adapters =
-[
-    new FactorioAdapter(),
-    new SevenDaysToDieAdapter(),
-    new ProjectZomboidAdapter()
-];
+var localDataRoot = GetLocalDataRoot();
+var diagnosticsRoot = Path.Combine(localDataRoot, "SharedWorlds", "logs");
+using var cancellation = new CancellationTokenSource();
 
-var storageRoot = Path.Combine(
-    GetLocalDataRoot(),
-    "SharedWorlds",
-    "data");
-
-var storage = new LocalWorldStorage(storageRoot);
-var sessions = new LocalWorldSessionCoordinator();
-var recovery = new LocalWorkspaceRecoveryStore(storageRoot);
-var lifecycle = new WorldLifecycleService(storage, sessions, recovery);
-
-if (args.Length == 0 || string.Equals(args[0], "discover", StringComparison.OrdinalIgnoreCase))
+Console.CancelKeyPress += (_, eventArgs) =>
 {
-    await DiscoverAsync(adapters);
-    return;
+    eventArgs.Cancel = true;
+    cancellation.Cancel();
+};
+
+try
+{
+    return await RunAsync(args, localDataRoot, cancellation.Token);
+}
+catch (Exception exception)
+{
+    return await ConsoleExceptionHandler.HandleAsync(exception, diagnosticsRoot);
 }
 
-switch (args[0].ToLowerInvariant())
+static async Task<int> RunAsync(
+    string[] arguments,
+    string localDataRoot,
+    CancellationToken cancellationToken)
 {
-    case "import-factorio":
-        await ImportFactorioAsync(args, lifecycle);
-        break;
+    IGameAdapter[] adapters =
+    [
+        new FactorioAdapter(),
+        new SevenDaysToDieAdapter(),
+        new ProjectZomboidAdapter()
+    ];
 
-    case "continue-factorio":
-        await ContinueFactorioAsync(args, lifecycle);
-        break;
+    var storageRoot = Path.Combine(
+        localDataRoot,
+        "SharedWorlds",
+        "data");
 
-    case "recovery":
-        await ShowRecoveryAsync(recovery);
-        break;
+    var storage = new LocalWorldStorage(storageRoot);
+    var sessions = new LocalWorldSessionCoordinator();
+    var recovery = new LocalWorkspaceRecoveryStore(storageRoot);
+    var lifecycle = new WorldLifecycleService(storage, sessions, recovery);
 
-    default:
-        PrintUsage();
-        break;
+    if (arguments.Length == 0 ||
+        string.Equals(arguments[0], "discover", StringComparison.OrdinalIgnoreCase))
+    {
+        await DiscoverAsync(adapters, cancellationToken);
+        return ApplicationExitCodes.Success;
+    }
+
+    return arguments[0].ToLowerInvariant() switch
+    {
+        "import-factorio" => await ImportFactorioAsync(arguments, lifecycle, cancellationToken),
+        "continue-factorio" => await ContinueFactorioAsync(arguments, lifecycle, cancellationToken),
+        "recovery" => await ShowRecoveryAsync(recovery, cancellationToken),
+        _ => PrintUsageAndReturnError()
+    };
 }
 
-static async Task DiscoverAsync(IEnumerable<IGameAdapter> adapters)
+static async Task DiscoverAsync(
+    IEnumerable<IGameAdapter> adapters,
+    CancellationToken cancellationToken)
 {
     Console.WriteLine("SharedWorlds discovery");
     Console.WriteLine();
 
     foreach (var adapter in adapters)
     {
-        var installations = await adapter.DiscoverInstallationsAsync();
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var installations = await adapter.DiscoverInstallationsAsync(cancellationToken);
         if (installations.Count == 0)
         {
             continue;
@@ -68,7 +88,7 @@ static async Task DiscoverAsync(IEnumerable<IGameAdapter> adapters)
         {
             Console.WriteLine($"  Installation: {installation.RootPath} ({installation.Source})");
 
-            var worlds = await adapter.DiscoverWorldsAsync(installation);
+            var worlds = await adapter.DiscoverWorldsAsync(installation, cancellationToken);
             foreach (var world in worlds)
             {
                 Console.WriteLine($"    Save: {world.DisplayName}");
@@ -79,34 +99,35 @@ static async Task DiscoverAsync(IEnumerable<IGameAdapter> adapters)
     }
 }
 
-static async Task ImportFactorioAsync(
+static async Task<int> ImportFactorioAsync(
     string[] arguments,
-    WorldLifecycleService lifecycle)
+    WorldLifecycleService lifecycle,
+    CancellationToken cancellationToken)
 {
     if (arguments.Length < 2)
     {
-        Console.WriteLine("Usage: import-factorio <save-name>");
-        return;
+        Console.Error.WriteLine("Usage: import-factorio <save-name>");
+        return ApplicationExitCodes.UsageError;
     }
 
     var adapter = new FactorioAdapter();
-    var installation = (await adapter.DiscoverInstallationsAsync()).FirstOrDefault();
+    var installation = (await adapter.DiscoverInstallationsAsync(cancellationToken)).FirstOrDefault();
     if (installation is null)
     {
-        Console.WriteLine("Factorio installation not found.");
-        return;
+        Console.Error.WriteLine("Factorio installation not found.");
+        return ApplicationExitCodes.ProductFailure;
     }
 
     var saveName = string.Join(' ', arguments.Skip(1));
-    var detected = (await adapter.DiscoverWorldsAsync(installation))
+    var detected = (await adapter.DiscoverWorldsAsync(installation, cancellationToken))
         .FirstOrDefault(world =>
             string.Equals(world.DisplayName, saveName, StringComparison.OrdinalIgnoreCase) ||
             string.Equals(world.Id, saveName, StringComparison.OrdinalIgnoreCase));
 
     if (detected is null)
     {
-        Console.WriteLine($"Factorio save '{saveName}' not found.");
-        return;
+        Console.Error.WriteLine($"Factorio save '{saveName}' not found.");
+        return ApplicationExitCodes.ProductFailure;
     }
 
     var owner = GetLocalUser();
@@ -115,47 +136,54 @@ static async Task ImportFactorioAsync(
         installation,
         detected,
         detected.DisplayName,
-        owner);
+        owner,
+        cancellationToken);
 
     Console.WriteLine($"Imported '{world.Name}' as World {world.Id}.");
     Console.WriteLine("The original save was not modified.");
+    return ApplicationExitCodes.Success;
 }
 
-static async Task ContinueFactorioAsync(
+static async Task<int> ContinueFactorioAsync(
     string[] arguments,
-    WorldLifecycleService lifecycle)
+    WorldLifecycleService lifecycle,
+    CancellationToken cancellationToken)
 {
     if (arguments.Length != 2 || !Guid.TryParse(arguments[1], out var parsedWorldId))
     {
-        Console.WriteLine("Usage: continue-factorio <world-id>");
-        return;
+        Console.Error.WriteLine("Usage: continue-factorio <world-id>");
+        return ApplicationExitCodes.UsageError;
     }
 
     var adapter = new FactorioAdapter();
-    var installation = (await adapter.DiscoverInstallationsAsync()).FirstOrDefault();
+    var installation = (await adapter.DiscoverInstallationsAsync(cancellationToken)).FirstOrDefault();
     if (installation is null)
     {
-        Console.WriteLine("Factorio installation not found.");
-        return;
+        Console.Error.WriteLine("Factorio installation not found.");
+        return ApplicationExitCodes.ProductFailure;
     }
 
     var updated = await lifecycle.ContinueAsHostAsync(
         new WorldId(parsedWorldId),
         adapter,
         installation,
-        GetLocalUser());
+        GetLocalUser(),
+        cancellationToken);
 
     Console.WriteLine();
     Console.WriteLine($"Session ended. World '{updated.Name}' committed as revision {updated.CurrentStateRevisionId}.");
+    return ApplicationExitCodes.Success;
 }
 
-static async Task ShowRecoveryAsync(IWorkspaceRecoveryStore recoveryStore)
+static async Task<int> ShowRecoveryAsync(
+    IWorkspaceRecoveryStore recoveryStore,
+    CancellationToken cancellationToken)
 {
-    var records = await recoveryStore.ListAsync();
+    var records = await recoveryStore.ListAsync(cancellationToken);
     if (records.Count == 0)
     {
         Console.WriteLine("No prepared workspace recovery records exist.");
-        return;
+        return ApplicationExitCodes.Success;
     }
 
     Console.WriteLine("Prepared workspace recovery records");
@@ -163,6 +191,8 @@ static async Task ShowRecoveryAsync(IWorkspaceRecoveryStore recoveryStore)
 
     foreach (var record in records.OrderByDescending(record => record.UpdatedAt))
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var status = record.Status == WorkspaceRecoveryStatus.Active
             ? "Active (possible interrupted session after restart)"
             : record.Status.ToString();
@@ -180,6 +210,8 @@ static async Task ShowRecoveryAsync(IWorkspaceRecoveryStore recoveryStore)
 
         Console.WriteLine();
     }
+
+    return ApplicationExitCodes.Success;
 }
 
 static UserIdentity GetLocalUser()
@@ -192,6 +224,12 @@ static string GetLocalDataRoot()
 {
     var path = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
     return string.IsNullOrWhiteSpace(path) ? Path.GetTempPath() : path;
+}
+
+static int PrintUsageAndReturnError()
+{
+    PrintUsage();
+    return ApplicationExitCodes.UsageError;
 }
 
 static void PrintUsage()

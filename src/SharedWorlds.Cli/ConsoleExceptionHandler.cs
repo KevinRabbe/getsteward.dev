@@ -54,6 +54,13 @@ internal static class ConsoleExceptionHandler
                     "Use a build that supports this schema or update the application. The stored data was not rewritten.");
                 return ApplicationExitCodes.ProductFailure;
 
+            case WorldSharingRequiredException sharingRequired:
+                WriteExpected(
+                    "Sharing is not enabled",
+                    sharingRequired.Message,
+                    "Explicitly enable sharing for this World before using Host or Join. Local Continue remains available without sharing.");
+                return ApplicationExitCodes.ProductFailure;
+
             case WorldSessionConflictException sessionConflict:
                 WriteExpected(
                     "World is already active",

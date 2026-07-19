@@ -83,7 +83,10 @@ public sealed class WorldLifecycleService
                 GameAdapterId: adapter.Id,
                 Members: [owner],
                 CurrentEnvironmentRevisionId: environmentId,
-                CurrentStateRevisionId: stateId);
+                CurrentStateRevisionId: stateId)
+            {
+                SharingMode = WorldSharingMode.LocalOnly
+            };
 
             await _storage.StoreEnvironmentRevisionAsync(environmentRevision, cancellationToken);
 
@@ -101,6 +104,19 @@ public sealed class WorldLifecycleService
         {
             CleanupCapturedState(captured);
         }
+    }
+
+    public async Task<World> SetSharingModeAsync(
+        WorldId worldId,
+        WorldSharingMode sharingMode,
+        CancellationToken cancellationToken = default)
+    {
+        var world = await _storage.LoadWorldAsync(worldId, cancellationToken)
+            ?? throw new WorldNotFoundException(worldId);
+
+        var updated = world with { SharingMode = sharingMode };
+        await _storage.SaveWorldAsync(updated, cancellationToken);
+        return updated;
     }
 
     public async Task<PreparedWorldContext> PrepareAsync(
@@ -192,17 +208,60 @@ public sealed class WorldLifecycleService
         return new PreparedWorldContext(world, prepared);
     }
 
-    public async Task<World> ContinueAsHostAsync(
+    public Task<World> ContinueLocalAsync(
         WorldId worldId,
         IGameAdapter adapter,
         GameInstallation installation,
         UserIdentity user,
         CancellationToken cancellationToken = default)
+        => ContinueSessionAsync(
+            worldId,
+            adapter,
+            installation,
+            user,
+            requireSharedWorld: false,
+            adapter.LaunchLocalAsync,
+            cancellationToken);
+
+    public Task<World> ContinueAsHostAsync(
+        WorldId worldId,
+        IGameAdapter adapter,
+        GameInstallation installation,
+        UserIdentity user,
+        CancellationToken cancellationToken = default)
+        => ContinueSessionAsync(
+            worldId,
+            adapter,
+            installation,
+            user,
+            requireSharedWorld: true,
+            adapter.LaunchHostAsync,
+            cancellationToken);
+
+    private async Task<World> ContinueSessionAsync(
+        WorldId worldId,
+        IGameAdapter adapter,
+        GameInstallation installation,
+        UserIdentity user,
+        bool requireSharedWorld,
+        Func<PreparedWorld, CancellationToken, Task<GameSessionHandle>> launchSession,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(adapter);
         ArgumentNullException.ThrowIfNull(installation);
         ArgumentNullException.ThrowIfNull(user);
+        ArgumentNullException.ThrowIfNull(launchSession);
 
+        if (requireSharedWorld)
+        {
+            var world = await _storage.LoadWorldAsync(worldId, cancellationToken)
+                ?? throw new WorldNotFoundException(worldId);
+            EnsureShared(world);
+        }
+
+        // The current coordinator acts as the canonical-writer lease for both local play
+        // and shared hosting. A future distributed implementation may expose richer session modes,
+        // but only one canonical session may advance a World at a time.
         await _sessionCoordinator.AcquireHostAsync(worldId, user, cancellationToken);
         Exception? operationException = null;
         PreparedWorldContext? context = null;
@@ -216,6 +275,11 @@ public sealed class WorldLifecycleService
                 adapter,
                 installation,
                 cancellationToken);
+
+            if (requireSharedWorld)
+            {
+                EnsureShared(context.World);
+            }
 
             var baseStateRevisionId = context.World.CurrentStateRevisionId
                 ?? throw new WorldIntegrityException(
@@ -238,7 +302,7 @@ public sealed class WorldLifecycleService
             // Active record that can be surfaced as an interrupted-session candidate.
             await _workspaceRecoveryStore.SaveAsync(workspaceRecord, cancellationToken);
 
-            var session = await adapter.LaunchHostAsync(context.PreparedWorld, cancellationToken);
+            var session = await launchSession(context.PreparedWorld, cancellationToken);
             sessionStarted = true;
             await adapter.WaitForSessionEndAsync(session, cancellationToken);
 
@@ -319,8 +383,16 @@ public sealed class WorldLifecycleService
             catch when (operationException is not null)
             {
                 // Preserve the primary lifecycle failure. Remote coordinators should also
-                // use lease expiry so a failed cleanup cannot hold a host forever.
+                // use lease expiry so a failed cleanup cannot hold a canonical session forever.
             }
+        }
+    }
+
+    private static void EnsureShared(World world)
+    {
+        if (world.SharingMode != WorldSharingMode.Shared)
+        {
+            throw new WorldSharingRequiredException(world.Id);
         }
     }
 

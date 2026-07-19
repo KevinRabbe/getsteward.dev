@@ -103,6 +103,24 @@ public sealed class LocalWorldStorage : IWorldStorage
         }
     }
 
+    public async Task<StateRevision?> LoadStateRevisionAsync(
+        WorldId worldId,
+        RevisionId revisionId,
+        CancellationToken cancellationToken = default)
+    {
+        var path = Path.Combine(GetStateRevisionDirectory(worldId, revisionId), "revision.json");
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        await using var stream = OpenRead(path);
+        return await JsonSerializer.DeserializeAsync<StateRevision>(
+            stream,
+            JsonOptions,
+            cancellationToken);
+    }
+
     public Task<Stream> OpenRevisionAsync(
         WorldId worldId,
         RevisionId revisionId,

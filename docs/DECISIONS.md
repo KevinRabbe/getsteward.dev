@@ -129,3 +129,27 @@ The first implementation focus remains Factorio until one complete lifecycle wor
 **Decision:** Repository/product naming is temporary and must not become an architectural dependency.
 
 **Reason:** The project can be renamed later without changing namespaces, domain semantics, or platform contracts all at once.
+
+## D-019: Each game adapter compiles independently
+
+**Decision:** Each supported game has its own adapter project/assembly rather than sharing one monolithic game-adapter assembly.
+
+**Reason:** Game-specific dependencies, platform SDKs, parsing libraries, and failure surfaces should remain isolated. Adding a dependency for one game must not become a dependency of every adapter.
+
+## D-020: Canonical host ownership is enforced through the coordination port
+
+**Decision:** Canonical play must acquire host ownership through `IWorldSessionCoordinator` before a session can advance the World.
+
+**Reason:** A one-host rule that exists only in UI logic or documentation is not an invariant. The current local coordinator enforces the rule in-process; a future distributed coordinator can replace it without changing lifecycle semantics.
+
+## D-021: State revision metadata is readable independently of payload bytes
+
+**Decision:** `IWorldStorage` exposes state revision metadata separately from opening the opaque state payload.
+
+**Reason:** Core must be able to validate adapter identity, lineage, and future history/restore metadata without interpreting or downloading the entire game-specific payload first.
+
+## D-022: Temporary captured-package ownership is explicit
+
+**Decision:** An adapter explicitly marks whether a captured package may be deleted by Core after durable storage.
+
+**Reason:** Core must not guess whether an adapter-returned path is a temporary copy, a cache entry, or user-owned data. Cleanup authority must be part of the contract.

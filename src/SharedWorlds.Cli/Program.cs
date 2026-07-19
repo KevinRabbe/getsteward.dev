@@ -4,6 +4,7 @@ using SharedWorlds.Core.Worlds;
 using SharedWorlds.GameAdapters.Factorio;
 using SharedWorlds.GameAdapters.ProjectZomboid;
 using SharedWorlds.GameAdapters.SevenDaysToDie;
+using SharedWorlds.Infrastructure.Sessions;
 using SharedWorlds.Infrastructure.Storage;
 
 IGameAdapter[] adapters =
@@ -19,7 +20,8 @@ var storageRoot = Path.Combine(
     "data");
 
 var storage = new LocalWorldStorage(storageRoot);
-var lifecycle = new WorldLifecycleService(storage);
+var sessions = new LocalWorldSessionCoordinator();
+var lifecycle = new WorldLifecycleService(storage, sessions);
 
 if (args.Length == 0 || string.Equals(args[0], "discover", StringComparison.OrdinalIgnoreCase))
 {

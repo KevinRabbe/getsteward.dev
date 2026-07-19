@@ -6,4 +6,5 @@ public sealed record WorldSession(
     WorldId WorldId,
     SessionState State,
     UserIdentity? ActiveHost,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    UserIdentity? RequestedHost = null);

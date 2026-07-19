@@ -80,4 +80,18 @@ jobs:
           retention-days: 7
 
       - name: Test
-        run: dotnet test SharedWorlds.sln --configuration Release --no-build --logger "trx;LogFileName=test-results.trx"
+        shell: pwsh
+        run: |
+          dotnet test SharedWorlds.sln --configuration Release --no-build --nologo --verbosity minimal --logger "trx;LogFileName=test-results.trx" *> test.log
+          $testExitCode = $LASTEXITCODE
+          Get-Content test.log
+          exit $testExitCode
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-log-${{ matrix.os }}
+          path: test.log
+          if-no-files-found: ignore
+          retention-days: 7

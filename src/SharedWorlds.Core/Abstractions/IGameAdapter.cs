@@ -55,6 +55,14 @@ public interface IGameAdapter
         PreparedWorld world,
         HostConnection host,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Waits until the game-specific session represented by the handle has actually ended.
+    /// Adapters own this because launchers may spawn or hand off to other processes.
+    /// </summary>
+    Task WaitForSessionEndAsync(
+        GameSessionHandle session,
+        CancellationToken cancellationToken = default);
 }
 
 [Flags]

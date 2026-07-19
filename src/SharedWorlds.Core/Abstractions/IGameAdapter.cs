@@ -90,7 +90,15 @@ public sealed record PreparedWorld(
     string WorkingDirectory,
     EnvironmentManifest Environment);
 
-public sealed record CapturedState(StatePackage Package, DateTimeOffset CapturedAt);
+/// <summary>
+/// A captured adapter state package. When <see cref="DeletePackageAfterStore"/> is true,
+/// the package path is temporary and Core may delete it after durable storage succeeds or fails.
+/// </summary>
+public sealed record CapturedState(
+    StatePackage Package,
+    DateTimeOffset CapturedAt,
+    bool DeletePackageAfterStore = false);
+
 public sealed record StatePackage(string Id, string Path);
 public sealed record GameSessionHandle(int ProcessId, DateTimeOffset StartedAt);
 public sealed record HostConnection(string Address, int? Port = null, string? JoinToken = null);

@@ -70,6 +70,26 @@ public sealed class AdapterMismatchException : SharedWorldsException
     public string MismatchContext { get; }
 }
 
+public sealed class PersistedDataCompatibilityException : SharedWorldsException
+{
+    public PersistedDataCompatibilityException(
+        string documentType,
+        int encounteredSchemaVersion,
+        int currentSchemaVersion)
+        : base(
+            $"Persisted document '{documentType}' uses schema version {encounteredSchemaVersion}, " +
+            $"but this build supports version {currentSchemaVersion} and has no migration path.")
+    {
+        DocumentType = documentType;
+        EncounteredSchemaVersion = encounteredSchemaVersion;
+        CurrentSchemaVersion = currentSchemaVersion;
+    }
+
+    public string DocumentType { get; }
+    public int EncounteredSchemaVersion { get; }
+    public int CurrentSchemaVersion { get; }
+}
+
 public sealed class WorldSessionConflictException : SharedWorldsException
 {
     public WorldSessionConflictException(WorldId worldId, string message)

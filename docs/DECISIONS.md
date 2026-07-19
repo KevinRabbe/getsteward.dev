@@ -195,3 +195,11 @@ The first implementation focus remains Factorio until one complete lifecycle wor
 **Reason:** A hard process or OS crash can bypass in-process cleanup. A workspace may contain the newest recoverable local gameplay state even when the canonical commit did not complete.
 
 **Consequence:** Successful commits discard the adapter-owned workspace and remove the recovery record. Pre-launch failures discard it. Post-launch failures preserve it for explicit recovery. An `Active` record left after restart is treated conservatively as an interrupted-session candidate.
+
+## D-029: Exception handling is conservative and boundary-owned
+
+**Decision:** Stable application boundaries catch and classify failures; Core and adapters do not broadly swallow exceptions to keep execution moving.
+
+**Reason:** SharedWorlds handles user-owned game state. Continuing after an unknown failure can be more dangerous than stopping. Typed product failures should be recoverable by callers, while unexpected defects should terminate the current operation and produce diagnostics.
+
+**Consequence:** The CLI maps typed product failures to recovery-oriented messages and stable exit codes, converts Ctrl+C into propagated cancellation, records diagnostics for operational or unexpected failures when possible, and never exposes raw stack traces as the normal user experience. Canonical state and workspace recovery rules remain authoritative during failure handling.

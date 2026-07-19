@@ -27,7 +27,8 @@ CLI / future desktop UI
 World Core
    |-- IGameAdapter ------------> Factorio / 7DTD / Project Zomboid adapters
    |-- IWorldStorage -----------> local / Steam / future storage
-   `-- IWorldSessionCoordinator -> Steam lobby / future coordination
+   |-- IWorldSessionCoordinator -> Steam lobby / future coordination
+   `-- IWorkspaceRecoveryStore -> durable prepared-workspace recovery metadata
 ```
 
 Concrete integrations depend inward on Core contracts. Core never depends on a concrete game, storage backend, launcher, or platform SDK.
@@ -43,6 +44,8 @@ The repository now enforces a consistent engineering baseline:
 - build-time code-style enforcement
 - centralized NuGet package versions
 - independent game-adapter assemblies
+- versioned persisted-document envelopes with explicit migration paths
+- durable prepared-workspace recovery tracking
 - automated unit/integration-boundary tests
 - Linux and Windows CI build/test jobs
 - formatting verification in CI
@@ -58,6 +61,8 @@ The current CLI is deliberately a development harness. A future desktop applicat
 - [Game Adapter Guide](docs/ADAPTER_GUIDE.md) — adapter responsibilities, contract rules, and how to add a new game without contaminating Core.
 - [World Lifecycle](docs/WORLD_LIFECYCLE.md) — Import, Continue, Join, host handoff, Sandbox, Fresh Test World, Fork, Restore, and recovery semantics.
 - [Storage](docs/STORAGE.md) — local persistence layout, atomic writes, immutable revisions, and the future remote-storage boundary.
+- [Persistence Compatibility](docs/PERSISTENCE_COMPATIBILITY.md) — document envelopes, schema versions, legacy schema-0 migration, and controlled compatibility failures.
+- [Workspace Recovery](docs/WORKSPACE_RECOVERY.md) — Active, RecoveryPending, and CleanupPending workspace lifecycle semantics.
 - [Factorio Adapter](docs/FACTORIO.md) — current first vertical slice, discovery, state capture, environment inspection, launch behavior, limitations, and test checklist.
 - [Design Decisions](docs/DECISIONS.md) — durable architectural decisions and constraints that future work should preserve.
 - [Roadmap](docs/ROADMAP.md) — phased development plan from local Factorio validation to shared host coordination and recovery hardening.
@@ -86,14 +91,19 @@ discover installation
 -> Continue
 -> prepare isolated working copy
 -> restore canonical state
+-> persist Active workspace recovery record
 -> launch Factorio host
 -> wait for adapter-observed session end
 -> capture resulting save
 -> create StateRevision S2
 -> advance canonical World head
+-> discard prepared workspace
+-> remove recovery record
 ```
 
-The Factorio runtime path still requires manual end-to-end validation on a real Windows machine with Factorio installed. Automated tests cover environment fingerprint stability, local storage round-trips, and Factorio save discovery without touching real user saves.
+If a session starts but canonical commit does not complete, the prepared workspace is preserved and marked `RecoveryPending`. A hard application/OS crash can leave an `Active` record, which is treated as a conservative interrupted-session recovery candidate on the next startup.
+
+The Factorio runtime path still requires manual end-to-end validation on a real Windows machine with Factorio installed. Automated tests cover environment fingerprint stability, persistence compatibility, local storage integrity, workspace recovery semantics, and Factorio save discovery without touching real user saves.
 
 ## Development CLI
 
@@ -103,6 +113,7 @@ Current commands:
 discover
 import-factorio <save-name>
 continue-factorio <world-id>
+recovery
 ```
 
 Run them through the CLI project, for example:
@@ -110,6 +121,8 @@ Run them through the CLI project, for example:
 ```bash
 dotnet run --project src/SharedWorlds.Cli -- discover
 ```
+
+`recovery` lists durable prepared-workspace recovery records. An `Active` record discovered after process restart is a possible interrupted-session candidate; `RecoveryPending` means gameplay started but canonical commit did not complete.
 
 These commands are development interfaces, not the final product UX.
 
@@ -132,6 +145,12 @@ Changing the relevant game/mod environment creates a new environment revision:
 ```text
 E7 -> E8
 ```
+
+## Persisted data compatibility
+
+JSON metadata is stored inside a versioned outer envelope containing a stable `documentType`, `schemaVersion`, and `payload`.
+
+The pre-envelope foundation format is explicitly treated as schema version 0 and has a registered migration path into the current version. Unsupported future schema versions fail with `PersistedDataCompatibilityException`; they are never silently overwritten or interpreted as defaults.
 
 ## Canonical host rule
 
@@ -187,6 +206,8 @@ docs/
   ADAPTER_GUIDE.md
   WORLD_LIFECYCLE.md
   STORAGE.md
+  PERSISTENCE_COMPATIBILITY.md
+  WORKSPACE_RECOVERY.md
   FACTORIO.md
   DECISIONS.md
   ROADMAP.md
@@ -216,6 +237,7 @@ Validate the Factorio vertical slice on the target Windows machine:
 7. make and save an in-game change
 8. exit cleanly
 9. confirm a new canonical state revision was committed
-10. Continue again and verify the new state loads
+10. confirm the prepared workspace was cleaned and no recovery record remains
+11. Continue again and verify the new state loads
 
 Reality test first. Then automated environment synchronization and networking.

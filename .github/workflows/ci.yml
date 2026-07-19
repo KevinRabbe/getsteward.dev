@@ -63,7 +63,21 @@ jobs:
         run: dotnet restore SharedWorlds.sln
 
       - name: Build
-        run: dotnet build SharedWorlds.sln --configuration Release --no-restore
+        shell: pwsh
+        run: |
+          dotnet build SharedWorlds.sln --configuration Release --no-restore --nologo --verbosity minimal *> build.log
+          $buildExitCode = $LASTEXITCODE
+          Get-Content build.log
+          exit $buildExitCode
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: build-log-${{ matrix.os }}
+          path: build.log
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Test
         run: dotnet test SharedWorlds.sln --configuration Release --no-build --logger "trx;LogFileName=test-results.trx"

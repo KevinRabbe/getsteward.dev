@@ -93,4 +93,41 @@ public sealed class FactorioAdapter : IGameAdapter
             // The process already exited before we started observing it.
         }
     }
+
+    public Task FinalizePreparedWorldAsync(
+        PreparedWorld world,
+        PreparedWorldDisposition disposition,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (disposition == PreparedWorldDisposition.PreserveForRecovery)
+        {
+            return Task.CompletedTask;
+        }
+
+        DeleteOwnedWorkspace(world.WorkingDirectory);
+        return Task.CompletedTask;
+    }
+
+    private static void DeleteOwnedWorkspace(string workingDirectory)
+    {
+        var fullPath = Path.GetFullPath(workingDirectory);
+        var parent = Directory.GetParent(fullPath)
+            ?? throw new InvalidOperationException(
+                $"Cannot determine parent directory for Factorio workspace '{workingDirectory}'.");
+
+        if (!Guid.TryParseExact(Path.GetFileName(fullPath), "N", out _) ||
+            !string.Equals(parent.Name, "factorio", StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(parent.Parent?.Name, "SharedWorlds", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Refusing to recursively delete unrecognized Factorio workspace '{workingDirectory}'.");
+        }
+
+        if (Directory.Exists(fullPath))
+        {
+            Directory.Delete(fullPath, recursive: true);
+        }
+    }
 }

@@ -7,10 +7,10 @@ This document defines the default engineering rules for the product. These rules
 The allowed direction is:
 
 ```text
-SharedWorlds.Cli / future desktop UI
-    -> SharedWorlds.Core
-    -> SharedWorlds.Infrastructure implementations
-    -> individual game adapter assemblies
+SharedWorlds.Cli / future desktop UI   (composition root)
+    |-- references SharedWorlds.Core
+    |-- references concrete infrastructure implementations
+    `-- references selected game adapter assemblies
 
 individual game adapter -> SharedWorlds.Core
 infrastructure          -> SharedWorlds.Core
@@ -19,7 +19,7 @@ Core                    -X-> concrete storage backend
 Core                    -X-> Steam / CurseForge / Modrinth / launcher SDK
 ```
 
-`SharedWorlds.Core` owns product semantics and ports. Concrete integrations depend inward on those contracts.
+`SharedWorlds.Core` owns product semantics and ports. Concrete integrations depend inward on those contracts. The composition root is the only layer expected to know which concrete implementations are assembled for a runnable product.
 
 ## Project boundaries
 
@@ -44,6 +44,20 @@ The repository uses:
 - centralized NuGet package versions through `Directory.Packages.props`.
 
 Do not disable a warning globally to make one local problem disappear. Fix the code or suppress the warning at the narrowest justified scope with an explanation.
+
+## Continuous integration
+
+CI is required to verify the repository independently of a developer workstation.
+
+Current gates:
+
+- formatting verification on Linux
+- Release build on Linux
+- Release build on Windows
+- automated tests on Linux
+- automated tests on Windows
+
+A change is not considered integration-ready merely because one developer machine builds it.
 
 ## Dependency policy
 

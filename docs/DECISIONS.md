@@ -179,3 +179,19 @@ The first implementation focus remains Factorio until one complete lifecycle wor
 **Decision:** The test suite parses project references and enforces the intended dependency direction.
 
 **Reason:** Documentation alone cannot prevent a future shortcut from making Core depend on Infrastructure or one adapter depend on another. CI should reject boundary violations automatically.
+
+## D-027: Persisted JSON uses explicit outer schema envelopes
+
+**Decision:** Durable JSON documents are wrapped in an envelope containing a stable document type, outer schema version, and payload.
+
+**Reason:** Domain objects will evolve. The persistence layer must distinguish known historical formats from unknown future formats instead of relying on best-effort deserialization.
+
+**Consequence:** The initial unwrapped format is schema 0 with an explicit migration into schema 1. Unsupported versions fail with `PersistedDataCompatibilityException` and are never silently overwritten.
+
+## D-028: Prepared workspaces are durable recovery assets after launch
+
+**Decision:** Prepared workspaces are registered durably before game launch and have explicit `Active`, `RecoveryPending`, and `CleanupPending` lifecycle states.
+
+**Reason:** A hard process or OS crash can bypass in-process cleanup. A workspace may contain the newest recoverable local gameplay state even when the canonical commit did not complete.
+
+**Consequence:** Successful commits discard the adapter-owned workspace and remove the recovery record. Pre-launch failures discard it. Post-launch failures preserve it for explicit recovery. An `Active` record left after restart is treated conservatively as an interrupted-session candidate.

@@ -26,15 +26,19 @@ Import converts an existing game save/world into the product model.
 
 ```text
 DetectedWorld
--> adapter captures source state
 -> adapter inspects environment
--> create World
+-> validate adapter/environment identity
+-> adapter captures source state
 -> create EnvironmentRevision E1
 -> create StateRevision S1
--> persist World pointing to E1 + S1
+-> durably store E1 and S1
+-> persist World pointing to E1 + S1 last
+-> clean adapter-declared temporary capture package
 ```
 
-Import should not mutate the original source save.
+Import must not mutate the original source save.
+
+The World metadata is written last so a partially failed import cannot create a canonical World that points at incomplete revision data.
 
 ## Continue
 
@@ -43,16 +47,22 @@ Continue means: play the current canonical World.
 Current local vertical slice:
 
 ```text
-load World
+acquire canonical host role through IWorldSessionCoordinator
+-> load World
+-> validate World adapter identity
 -> load current environment revision
--> load current state revision
+-> validate environment adapter identity
+-> load current state revision metadata
+-> validate state adapter identity
 -> adapter prepares isolated workspace
 -> adapter restores state
 -> adapter launches host
 -> adapter observes session end
 -> adapter captures resulting state
--> create next StateRevision
--> move World's canonical state head forward
+-> durably store next immutable StateRevision
+-> move World's canonical state head forward last
+-> clean adapter-declared temporary capture package
+-> release canonical host role
 ```
 
 Normal clean play therefore looks like:
@@ -62,6 +72,8 @@ E1 + S1
 -> play
 -> E1 + S2
 ```
+
+If capture or durable storage fails, the previous canonical head remains unchanged.
 
 ## Join
 
@@ -73,9 +85,11 @@ The adapter receives a generic `HostConnection` and performs game-specific conne
 
 ## Host acquisition
 
-When no canonical session is active, the first member who starts canonical play acquires the host role.
+When no canonical session is active, the first member who starts canonical play acquires the host role through `IWorldSessionCoordinator`.
 
 The host role is temporary and belongs to the current session, not permanently to one person.
+
+The current `LocalWorldSessionCoordinator` enforces this rule within one application process. A future distributed coordinator must enforce the same contract across machines.
 
 ## Host handoff
 
@@ -83,16 +97,17 @@ Host handoff is a controlled restart.
 
 ```text
 1. New player requests host.
-2. Current host accepts.
-3. Current game is allowed/asked to save.
-4. Current host session closes.
-5. Adapter waits until the relevant session truly ended.
-6. Latest state is captured.
-7. New canonical state revision is committed.
-8. New host restores latest canonical state.
-9. Required environment is prepared.
-10. New host launches.
-11. Other players join the new host.
+2. Session coordinator records HandoffRequested and the requested host.
+3. Current host accepts.
+4. Current game is allowed/asked to save.
+5. Current host session closes.
+6. Adapter waits until the relevant session truly ended.
+7. Latest state is captured.
+8. New canonical state revision is committed.
+9. New host restores latest canonical state.
+10. Required environment is prepared.
+11. New host launches.
+12. Other players join the new host.
 ```
 
 No live process migration is required.
@@ -111,6 +126,8 @@ Current generic states:
 
 These states describe universal product behavior. A game adapter must not invent a separate canonical lifecycle.
 
+The current local implementation actively uses `Available`, `Hosting`, and `HandoffRequested`. The remaining states are reserved for the broader shared/recovery lifecycle and are not yet fully wired.
+
 ## Session end
 
 Session-end detection is adapter-owned.
@@ -124,6 +141,8 @@ For that reason, the Core calls `WaitForSessionEndAsync` rather than directly wa
 A temporary network or Discord disconnect must not automatically end the canonical session or release host ownership.
 
 The game/session lifecycle is authoritative for canonical state advancement.
+
+A future distributed coordinator should use lease expiry/recovery semantics rather than treating one transient network failure as proof that the game session ended.
 
 ## Crash recovery
 
@@ -140,6 +159,14 @@ World enters RecoveryPending when confidence is insufficient for automatic commi
 ```
 
 Recovery logic is not yet implemented in the first vertical slice.
+
+## Captured package ownership
+
+Adapters may create temporary portable packages when capturing game state.
+
+Core deletes a captured package only when the adapter explicitly sets `DeletePackageAfterStore = true`. Core must never infer from a path that the file is disposable.
+
+This prevents cleanup logic from accidentally deleting user-owned saves, caches, or launcher-managed files.
 
 ## Sandbox Copy
 
@@ -189,6 +216,8 @@ A Fork is not automatically merged back.
 Restore makes an older state revision become the current canonical head through an explicit controlled operation.
 
 History should remain available rather than deleting later revisions silently.
+
+`IWorldStorage` exposes state revision metadata separately from opening payload bytes so future history and restore workflows can inspect lineage without interpreting game-specific payloads.
 
 ## Revision policy
 

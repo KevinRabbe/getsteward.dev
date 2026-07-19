@@ -46,6 +46,7 @@ The repository now enforces a consistent engineering baseline:
 - independent game-adapter assemblies
 - versioned persisted-document envelopes with explicit migration paths
 - durable prepared-workspace recovery tracking
+- top-level exception handling with typed user-facing failures and local incident diagnostics
 - automated unit/integration-boundary tests
 - Linux and Windows CI build/test jobs
 - formatting verification in CI
@@ -57,6 +58,7 @@ The current CLI is deliberately a development harness. A future desktop applicat
 
 - [Architecture](docs/ARCHITECTURE.md) — system boundaries, dependency direction, platform neutrality, host model, and architecture philosophy.
 - [Engineering Standards](docs/ENGINEERING.md) — build, dependency, testing, filesystem-safety, compatibility, and definition-of-done rules.
+- [Error Handling](docs/ERROR_HANDLING.md) — exception boundaries, cancellation, diagnostics, exit codes, and conservative failure semantics.
 - [Domain Model](docs/DOMAIN_MODEL.md) — World, environment revisions, state revisions, manifests, packages, sessions, and identities.
 - [Game Adapter Guide](docs/ADAPTER_GUIDE.md) — adapter responsibilities, contract rules, and how to add a new game without contaminating Core.
 - [World Lifecycle](docs/WORLD_LIFECYCLE.md) — Import, Continue, Join, host handoff, Sandbox, Fresh Test World, Fork, Restore, and recovery semantics.
@@ -123,6 +125,8 @@ dotnet run --project src/SharedWorlds.Cli -- discover
 ```
 
 `recovery` lists durable prepared-workspace recovery records. An `Active` record discovered after process restart is a possible interrupted-session candidate; `RecoveryPending` means gameplay started but canonical commit did not complete.
+
+The CLI catches failures at its application boundary. Expected product failures receive recovery-oriented messages, operational and unexpected failures receive a local incident ID and diagnostic log when possible, and Ctrl+C propagates cancellation through the lifecycle instead of bypassing recovery handling.
 
 These commands are development interfaces, not the final product UX.
 
@@ -202,6 +206,7 @@ tests/
 docs/
   ARCHITECTURE.md
   ENGINEERING.md
+  ERROR_HANDLING.md
   DOMAIN_MODEL.md
   ADAPTER_GUIDE.md
   WORLD_LIFECYCLE.md

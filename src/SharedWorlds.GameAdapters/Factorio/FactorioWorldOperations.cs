@@ -102,6 +102,24 @@ internal static class FactorioWorldOperations
             DateTimeOffset.UtcNow);
     }
 
+    public static Task<GameSessionHandle> LaunchLocalAsync(
+        PreparedWorld world,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var savePath = GetPreparedSavePath(world);
+        if (!File.Exists(savePath))
+        {
+            throw new FileNotFoundException(
+                "RestoreStateAsync must be called before launching a local Factorio session.",
+                savePath);
+        }
+
+        var process = StartFactorio(world.Installation, "--load-game", savePath);
+        return Task.FromResult(new GameSessionHandle(process.Id, DateTimeOffset.UtcNow));
+    }
+
     public static Task<GameSessionHandle> LaunchHostAsync(
         PreparedWorld world,
         CancellationToken cancellationToken)

@@ -57,17 +57,17 @@ public sealed class AdapterMismatchException : SharedWorldsException
     public AdapterMismatchException(
         string expectedAdapterId,
         string actualAdapterId,
-        string source)
-        : base($"The {source} belongs to adapter '{actualAdapterId}', not '{expectedAdapterId}'.")
+        string mismatchContext)
+        : base($"The {mismatchContext} belongs to adapter '{actualAdapterId}', not '{expectedAdapterId}'.")
     {
         ExpectedAdapterId = expectedAdapterId;
         ActualAdapterId = actualAdapterId;
-        Source = source;
+        MismatchContext = mismatchContext;
     }
 
     public string ExpectedAdapterId { get; }
     public string ActualAdapterId { get; }
-    public string Source { get; }
+    public string MismatchContext { get; }
 }
 
 public sealed class WorldSessionConflictException : SharedWorldsException

@@ -12,4 +12,10 @@ public readonly record struct RevisionId(Guid Value)
     public override string ToString() => Value.ToString("N");
 }
 
+public readonly record struct WorkspaceId(Guid Value)
+{
+    public static WorkspaceId New() => new(Guid.NewGuid());
+    public override string ToString() => Value.ToString("N");
+}
+
 public sealed record UserIdentity(string Provider, string ExternalId, string? DisplayName = null);

@@ -21,7 +21,11 @@ public sealed class LocalWorldStorage : IWorldStorage
     }
 
     public Task SaveWorldAsync(World world, CancellationToken cancellationToken = default)
-        => WriteJsonAtomicAsync(GetWorldMetadataPath(world.Id), world, cancellationToken);
+        => WriteJsonAtomicAsync(
+            GetWorldMetadataPath(world.Id),
+            world,
+            overwrite: true,
+            cancellationToken);
 
     public async Task<World?> LoadWorldAsync(
         WorldId worldId,
@@ -43,6 +47,7 @@ public sealed class LocalWorldStorage : IWorldStorage
         => WriteJsonAtomicAsync(
             GetEnvironmentRevisionPath(revision.WorldId, revision.Id),
             revision,
+            overwrite: false,
             cancellationToken);
 
     public async Task<EnvironmentRevision?> LoadEnvironmentRevisionAsync(
@@ -70,21 +75,31 @@ public sealed class LocalWorldStorage : IWorldStorage
     {
         ArgumentNullException.ThrowIfNull(package);
 
-        var directory = GetStateRevisionDirectory(revision.WorldId, revision.Id);
-        Directory.CreateDirectory(directory);
+        var finalDirectory = GetStateRevisionDirectory(revision.WorldId, revision.Id);
+        var parentDirectory = Path.GetDirectoryName(finalDirectory)
+            ?? throw new InvalidOperationException(
+                $"Cannot resolve parent directory for state revision '{revision.Id}'.");
 
-        await WriteJsonAtomicAsync(
-            Path.Combine(directory, "revision.json"),
-            revision,
-            cancellationToken);
+        Directory.CreateDirectory(parentDirectory);
 
-        var destination = Path.Combine(directory, "payload.bin");
-        var temporary = destination + $".{Guid.NewGuid():N}.tmp";
+        if (Directory.Exists(finalDirectory))
+        {
+            throw new IOException(
+                $"State revision '{revision.Id}' for World '{revision.WorldId}' already exists and is immutable.");
+        }
+
+        var temporaryDirectory = finalDirectory + $".{Guid.NewGuid():N}.tmp";
+        Directory.CreateDirectory(temporaryDirectory);
 
         try
         {
+            await WriteJsonFileAsync(
+                Path.Combine(temporaryDirectory, "revision.json"),
+                revision,
+                cancellationToken);
+
             await using (var output = new FileStream(
-                             temporary,
+                             Path.Combine(temporaryDirectory, "payload.bin"),
                              FileMode.CreateNew,
                              FileAccess.Write,
                              FileShare.None,
@@ -95,11 +110,12 @@ public sealed class LocalWorldStorage : IWorldStorage
                 await output.FlushAsync(cancellationToken);
             }
 
-            File.Move(temporary, destination, overwrite: true);
+            // Publish metadata and payload together only after both are fully written.
+            Directory.Move(temporaryDirectory, finalDirectory);
         }
         finally
         {
-            TryDelete(temporary);
+            TryDeleteDirectory(temporaryDirectory);
         }
     }
 
@@ -143,6 +159,7 @@ public sealed class LocalWorldStorage : IWorldStorage
     private async Task WriteJsonAtomicAsync<T>(
         string destination,
         T value,
+        bool overwrite,
         CancellationToken cancellationToken)
     {
         var directory = Path.GetDirectoryName(destination)
@@ -153,24 +170,30 @@ public sealed class LocalWorldStorage : IWorldStorage
 
         try
         {
-            await using (var stream = new FileStream(
-                             temporary,
-                             FileMode.CreateNew,
-                             FileAccess.Write,
-                             FileShare.None,
-                             bufferSize: 64 * 1024,
-                             useAsync: true))
-            {
-                await JsonSerializer.SerializeAsync(stream, value, JsonOptions, cancellationToken);
-                await stream.FlushAsync(cancellationToken);
-            }
-
-            File.Move(temporary, destination, overwrite: true);
+            await WriteJsonFileAsync(temporary, value, cancellationToken);
+            File.Move(temporary, destination, overwrite);
         }
         finally
         {
             TryDelete(temporary);
         }
+    }
+
+    private static async Task WriteJsonFileAsync<T>(
+        string destination,
+        T value,
+        CancellationToken cancellationToken)
+    {
+        await using var stream = new FileStream(
+            destination,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 64 * 1024,
+            useAsync: true);
+
+        await JsonSerializer.SerializeAsync(stream, value, JsonOptions, cancellationToken);
+        await stream.FlushAsync(cancellationToken);
     }
 
     private string GetWorldDirectory(WorldId worldId)
@@ -207,6 +230,25 @@ public sealed class LocalWorldStorage : IWorldStorage
             if (File.Exists(path))
             {
                 File.Delete(path);
+            }
+        }
+        catch (IOException)
+        {
+            // Best-effort cleanup only.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Best-effort cleanup only.
+        }
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
             }
         }
         catch (IOException)

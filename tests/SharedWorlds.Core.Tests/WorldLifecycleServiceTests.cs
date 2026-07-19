@@ -36,6 +36,44 @@ public sealed class WorldLifecycleServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Import_DefaultsToLocalOnly()
+    {
+        var storage = new InMemoryWorldStorage();
+        var sessions = new RecordingSessionCoordinator();
+        var recovery = new RecordingWorkspaceRecoveryStore();
+        var adapter = new FakeGameAdapter(_root);
+        var lifecycle = new WorldLifecycleService(storage, sessions, recovery);
+
+        var world = await lifecycle.ImportAsync(
+            adapter,
+            adapter.Installation,
+            adapter.DetectedWorld,
+            "Private World",
+            TestUser());
+
+        Assert.Equal(WorldSharingMode.LocalOnly, world.SharingMode);
+        Assert.Equal(WorldSharingMode.LocalOnly, storage.Worlds[world.Id].SharingMode);
+    }
+
+    [Fact]
+    public async Task SetSharingMode_RequiresExplicitChange()
+    {
+        var storage = new InMemoryWorldStorage();
+        var sessions = new RecordingSessionCoordinator();
+        var recovery = new RecordingWorkspaceRecoveryStore();
+        var adapter = new FakeGameAdapter(_root);
+        var user = TestUser();
+        var world = SeedPlayableWorld(storage, adapter, user, WorldSharingMode.LocalOnly);
+        var lifecycle = new WorldLifecycleService(storage, sessions, recovery);
+
+        var shared = await lifecycle.SetSharingModeAsync(world.Id, WorldSharingMode.Shared);
+        Assert.Equal(WorldSharingMode.Shared, shared.SharingMode);
+
+        var localOnly = await lifecycle.SetSharingModeAsync(world.Id, WorldSharingMode.LocalOnly);
+        Assert.Equal(WorldSharingMode.LocalOnly, localOnly.SharingMode);
+    }
+
+    [Fact]
     public async Task Prepare_RejectsWorldOwnedByDifferentAdapter_BeforePreparation()
     {
         var storage = new InMemoryWorldStorage();
@@ -88,6 +126,51 @@ public sealed class WorldLifecycleServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ContinueLocal_AllowsLocalOnlyWorld_AndUsesLocalLaunch()
+    {
+        var storage = new InMemoryWorldStorage();
+        var sessions = new RecordingSessionCoordinator();
+        var recovery = new RecordingWorkspaceRecoveryStore();
+        var adapter = new FakeGameAdapter(_root);
+        var user = TestUser();
+        var world = SeedPlayableWorld(storage, adapter, user, WorldSharingMode.LocalOnly);
+        var lifecycle = new WorldLifecycleService(storage, sessions, recovery);
+
+        var updated = await lifecycle.ContinueLocalAsync(
+            world.Id,
+            adapter,
+            adapter.Installation,
+            user);
+
+        Assert.NotEqual(world.CurrentStateRevisionId, updated.CurrentStateRevisionId);
+        Assert.Equal(1, adapter.LocalLaunchCount);
+        Assert.Equal(0, adapter.HostLaunchCount);
+        Assert.Equal(1, sessions.AcquireCount);
+        Assert.Equal(1, sessions.ReleaseCount);
+    }
+
+    [Fact]
+    public async Task ContinueAsHost_RejectsLocalOnlyWorld_BeforeSessionAcquisition()
+    {
+        var storage = new InMemoryWorldStorage();
+        var sessions = new RecordingSessionCoordinator();
+        var recovery = new RecordingWorkspaceRecoveryStore();
+        var adapter = new FakeGameAdapter(_root);
+        var user = TestUser();
+        var world = SeedPlayableWorld(storage, adapter, user, WorldSharingMode.LocalOnly);
+        var lifecycle = new WorldLifecycleService(storage, sessions, recovery);
+
+        await Assert.ThrowsAsync<WorldSharingRequiredException>(() => lifecycle.ContinueAsHostAsync(
+            world.Id,
+            adapter,
+            adapter.Installation,
+            user));
+
+        Assert.Equal(0, sessions.AcquireCount);
+        Assert.Equal(0, adapter.HostLaunchCount);
+    }
+
+    [Fact]
     public async Task Continue_PreservesWorkspaceForRecovery_WhenPostLaunchCommitFails()
     {
         var storage = new InMemoryWorldStorage();
@@ -95,7 +178,7 @@ public sealed class WorldLifecycleServiceTests : IDisposable
         var recovery = new RecordingWorkspaceRecoveryStore();
         var adapter = new FakeGameAdapter(_root);
         var user = TestUser();
-        var world = SeedPlayableWorld(storage, adapter, user);
+        var world = SeedPlayableWorld(storage, adapter, user, WorldSharingMode.Shared);
         var originalHead = world.CurrentStateRevisionId;
         storage.FailStoreRevision = true;
 
@@ -129,7 +212,7 @@ public sealed class WorldLifecycleServiceTests : IDisposable
         var recovery = new RecordingWorkspaceRecoveryStore();
         var adapter = new FakeGameAdapter(_root);
         var user = TestUser();
-        var world = SeedPlayableWorld(storage, adapter, user);
+        var world = SeedPlayableWorld(storage, adapter, user, WorldSharingMode.Shared);
 
         var lifecycle = new WorldLifecycleService(storage, sessions, recovery);
 
@@ -140,6 +223,7 @@ public sealed class WorldLifecycleServiceTests : IDisposable
             user);
 
         Assert.NotEqual(world.CurrentStateRevisionId, updated.CurrentStateRevisionId);
+        Assert.Equal(1, adapter.HostLaunchCount);
         Assert.Equal(PreparedWorldDisposition.Discard, adapter.LastFinalizationDisposition);
         Assert.NotNull(adapter.LastPreparedWorkspacePath);
         Assert.False(Directory.Exists(adapter.LastPreparedWorkspacePath));
@@ -149,7 +233,8 @@ public sealed class WorldLifecycleServiceTests : IDisposable
     private static World SeedPlayableWorld(
         InMemoryWorldStorage storage,
         FakeGameAdapter adapter,
-        UserIdentity user)
+        UserIdentity user,
+        WorldSharingMode sharingMode)
     {
         var worldId = WorldId.New();
         var environmentId = RevisionId.New();
@@ -178,7 +263,10 @@ public sealed class WorldLifecycleServiceTests : IDisposable
             adapter.Id,
             [user],
             environmentId,
-            stateId);
+            stateId)
+        {
+            SharingMode = sharingMode
+        };
 
         storage.Worlds[worldId] = world;
         storage.EnvironmentRevisions[(worldId, environmentId)] = environment;
@@ -235,11 +323,15 @@ public sealed class WorldLifecycleServiceTests : IDisposable
 
         public string Id => "fake";
         public string DisplayName => "Fake Game";
-        public GameAdapterCapabilities Capabilities => GameAdapterCapabilities.AutomaticHostLaunch;
+        public GameAdapterCapabilities Capabilities =>
+            GameAdapterCapabilities.AutomaticLocalLaunch |
+            GameAdapterCapabilities.AutomaticHostLaunch;
         public GameInstallation Installation { get; }
         public DetectedWorld DetectedWorld { get; }
         public EnvironmentManifest Manifest { get; }
         public bool PrepareCalled { get; private set; }
+        public int LocalLaunchCount { get; private set; }
+        public int HostLaunchCount { get; private set; }
         public string? LastCapturedPackagePath { get; private set; }
         public string? LastPreparedWorkspacePath { get; private set; }
         public PreparedWorldDisposition? LastFinalizationDisposition { get; private set; }
@@ -291,10 +383,21 @@ public sealed class WorldLifecycleServiceTests : IDisposable
             CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
+        public Task<GameSessionHandle> LaunchLocalAsync(
+            PreparedWorld world,
+            CancellationToken cancellationToken = default)
+        {
+            LocalLaunchCount++;
+            return Task.FromResult(new GameSessionHandle(12345, DateTimeOffset.UtcNow));
+        }
+
         public Task<GameSessionHandle> LaunchHostAsync(
             PreparedWorld world,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(new GameSessionHandle(12345, DateTimeOffset.UtcNow));
+        {
+            HostLaunchCount++;
+            return Task.FromResult(new GameSessionHandle(12345, DateTimeOffset.UtcNow));
+        }
 
         public Task<GameSessionHandle> LaunchClientAsync(
             PreparedWorld world,

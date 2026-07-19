@@ -21,7 +21,8 @@ var storageRoot = Path.Combine(
 
 var storage = new LocalWorldStorage(storageRoot);
 var sessions = new LocalWorldSessionCoordinator();
-var lifecycle = new WorldLifecycleService(storage, sessions);
+var recovery = new LocalWorkspaceRecoveryStore(storageRoot);
+var lifecycle = new WorldLifecycleService(storage, sessions, recovery);
 
 if (args.Length == 0 || string.Equals(args[0], "discover", StringComparison.OrdinalIgnoreCase))
 {
@@ -37,6 +38,10 @@ switch (args[0].ToLowerInvariant())
 
     case "continue-factorio":
         await ContinueFactorioAsync(args, lifecycle);
+        break;
+
+    case "recovery":
+        await ShowRecoveryAsync(recovery);
         break;
 
     default:
@@ -144,6 +149,39 @@ static async Task ContinueFactorioAsync(
     Console.WriteLine($"Session ended. World '{updated.Name}' committed as revision {updated.CurrentStateRevisionId}.");
 }
 
+static async Task ShowRecoveryAsync(IWorkspaceRecoveryStore recoveryStore)
+{
+    var records = await recoveryStore.ListAsync();
+    if (records.Count == 0)
+    {
+        Console.WriteLine("No prepared workspace recovery records exist.");
+        return;
+    }
+
+    Console.WriteLine("Prepared workspace recovery records");
+    Console.WriteLine();
+
+    foreach (var record in records.OrderByDescending(record => record.UpdatedAt))
+    {
+        var status = record.Status == WorkspaceRecoveryStatus.Active
+            ? "Active (possible interrupted session after restart)"
+            : record.Status.ToString();
+
+        Console.WriteLine($"- Workspace: {record.Id}");
+        Console.WriteLine($"  World: {record.WorldId}");
+        Console.WriteLine($"  Adapter: {record.AdapterId}");
+        Console.WriteLine($"  Status: {status}");
+        Console.WriteLine($"  Directory: {record.WorkingDirectory}");
+        Console.WriteLine($"  Updated: {record.UpdatedAt:O}");
+        if (!string.IsNullOrWhiteSpace(record.Reason))
+        {
+            Console.WriteLine($"  Reason: {record.Reason}");
+        }
+
+        Console.WriteLine();
+    }
+}
+
 static UserIdentity GetLocalUser()
     => new(
         Provider: "local",
@@ -164,4 +202,5 @@ static void PrintUsage()
     Console.WriteLine("  discover");
     Console.WriteLine("  import-factorio <save-name>");
     Console.WriteLine("  continue-factorio <world-id>");
+    Console.WriteLine("  recovery");
 }

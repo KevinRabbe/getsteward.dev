@@ -36,11 +36,14 @@ public sealed class FactorioAdapter : IGameAdapter
         CancellationToken cancellationToken = default)
         => FactorioEnvironmentInspector.InspectAsync(installation, cancellationToken);
 
-    public Task<CapturedState> CaptureDetectedWorldAsync(
+    public async Task<CapturedState> CaptureDetectedWorldAsync(
         GameInstallation installation,
         DetectedWorld world,
         CancellationToken cancellationToken = default)
-        => FactorioWorldOperations.CaptureDetectedWorldAsync(world, cancellationToken);
+    {
+        var captured = await FactorioWorldOperations.CaptureDetectedWorldAsync(world, cancellationToken);
+        return captured with { DeletePackageAfterStore = true };
+    }
 
     public Task<PreparedWorld> PrepareEnvironmentAsync(
         GameInstallation installation,
@@ -51,10 +54,13 @@ public sealed class FactorioAdapter : IGameAdapter
             requiredEnvironment,
             cancellationToken);
 
-    public Task<CapturedState> CaptureStateAsync(
+    public async Task<CapturedState> CaptureStateAsync(
         PreparedWorld world,
         CancellationToken cancellationToken = default)
-        => FactorioWorldOperations.CaptureStateAsync(world, cancellationToken);
+    {
+        var captured = await FactorioWorldOperations.CaptureStateAsync(world, cancellationToken);
+        return captured with { DeletePackageAfterStore = true };
+    }
 
     public Task RestoreStateAsync(
         PreparedWorld world,

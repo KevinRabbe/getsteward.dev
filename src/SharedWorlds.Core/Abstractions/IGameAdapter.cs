@@ -1,4 +1,3 @@
-using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
 
 namespace SharedWorlds.Core.Abstractions;
@@ -21,6 +20,15 @@ public interface IGameAdapter
         CancellationToken cancellationToken = default);
 
     Task<EnvironmentManifest> InspectEnvironmentAsync(
+        GameInstallation installation,
+        DetectedWorld world,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Captures a game-specific detected world into a portable state package during import.
+    /// Core must not assume that a world is a single file or directory.
+    /// </summary>
+    Task<CapturedState> CaptureDetectedWorldAsync(
         GameInstallation installation,
         DetectedWorld world,
         CancellationToken cancellationToken = default);
@@ -61,9 +69,19 @@ public enum GameAdapterCapabilities
     EnvironmentIsolation = 1 << 5
 }
 
-public sealed record GameInstallation(string Id, string RootPath, string Source);
+public sealed record GameInstallation(
+    string Id,
+    string RootPath,
+    string Source,
+    IReadOnlyDictionary<string, string>? Metadata = null);
+
 public sealed record DetectedWorld(string Id, string DisplayName, string SourcePath);
-public sealed record PreparedWorld(string WorkingDirectory, EnvironmentManifest Environment);
+
+public sealed record PreparedWorld(
+    GameInstallation Installation,
+    string WorkingDirectory,
+    EnvironmentManifest Environment);
+
 public sealed record CapturedState(StatePackage Package, DateTimeOffset CapturedAt);
 public sealed record StatePackage(string Id, string Path);
 public sealed record GameSessionHandle(int ProcessId, DateTimeOffset StartedAt);

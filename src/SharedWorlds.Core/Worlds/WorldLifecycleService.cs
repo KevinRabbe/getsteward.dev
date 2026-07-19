@@ -4,11 +4,24 @@ using SharedWorlds.Core.Domain;
 namespace SharedWorlds.Core.Worlds;
 
 /// <summary>
-/// Owns the game-agnostic local World lifecycle.
+/// Owns the game-agnostic World lifecycle.
 /// Game-specific work is delegated entirely to the selected adapter.
 /// </summary>
-public sealed class WorldLifecycleService(IWorldStorage storage)
+public sealed class WorldLifecycleService
 {
+    private readonly IWorldStorage _storage;
+    private readonly IWorldSessionCoordinator _sessionCoordinator;
+
+    public WorldLifecycleService(
+        IWorldStorage storage,
+        IWorldSessionCoordinator sessionCoordinator)
+    {
+        ArgumentNullException.ThrowIfNull(storage);
+        ArgumentNullException.ThrowIfNull(sessionCoordinator);
+        _storage = storage;
+        _sessionCoordinator = sessionCoordinator;
+    }
+
     public async Task<World> ImportAsync(
         IGameAdapter adapter,
         GameInstallation installation,
@@ -17,6 +30,10 @@ public sealed class WorldLifecycleService(IWorldStorage storage)
         UserIdentity owner,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(adapter);
+        ArgumentNullException.ThrowIfNull(installation);
+        ArgumentNullException.ThrowIfNull(detectedWorld);
+        ArgumentNullException.ThrowIfNull(owner);
         ArgumentException.ThrowIfNullOrWhiteSpace(worldName);
 
         var worldId = WorldId.New();
@@ -28,45 +45,57 @@ public sealed class WorldLifecycleService(IWorldStorage storage)
             detectedWorld,
             cancellationToken);
 
-        var captured = await adapter.CaptureDetectedWorldAsync(
-            installation,
-            detectedWorld,
-            cancellationToken);
+        EnsureAdapterMatches(adapter.Id, environment.AdapterId, "environment manifest");
 
-        var environmentRevision = new EnvironmentRevision(
-            Id: environmentId,
-            WorldId: worldId,
-            ParentRevisionId: null,
-            CreatedAt: DateTimeOffset.UtcNow,
-            CreatedBy: owner,
-            Manifest: environment);
-
-        var stateRevision = new StateRevision(
-            Id: stateId,
-            WorldId: worldId,
-            ParentRevisionId: null,
-            CreatedAt: captured.CapturedAt,
-            CreatedBy: owner,
-            AdapterId: adapter.Id,
-            StatePackageId: captured.Package.Id);
-
-        var world = new World(
-            Id: worldId,
-            Name: worldName,
-            GameAdapterId: adapter.Id,
-            Members: [owner],
-            CurrentEnvironmentRevisionId: environmentId,
-            CurrentStateRevisionId: stateId);
-
-        await storage.StoreEnvironmentRevisionAsync(environmentRevision, cancellationToken);
-
-        await using (var package = File.OpenRead(captured.Package.Path))
+        CapturedState? captured = null;
+        try
         {
-            await storage.StoreRevisionAsync(stateRevision, package, cancellationToken);
-        }
+            captured = await adapter.CaptureDetectedWorldAsync(
+                installation,
+                detectedWorld,
+                cancellationToken);
 
-        await storage.SaveWorldAsync(world, cancellationToken);
-        return world;
+            var environmentRevision = new EnvironmentRevision(
+                Id: environmentId,
+                WorldId: worldId,
+                ParentRevisionId: null,
+                CreatedAt: DateTimeOffset.UtcNow,
+                CreatedBy: owner,
+                Manifest: environment);
+
+            var stateRevision = new StateRevision(
+                Id: stateId,
+                WorldId: worldId,
+                ParentRevisionId: null,
+                CreatedAt: captured.CapturedAt,
+                CreatedBy: owner,
+                AdapterId: adapter.Id,
+                StatePackageId: captured.Package.Id);
+
+            var world = new World(
+                Id: worldId,
+                Name: worldName,
+                GameAdapterId: adapter.Id,
+                Members: [owner],
+                CurrentEnvironmentRevisionId: environmentId,
+                CurrentStateRevisionId: stateId);
+
+            await _storage.StoreEnvironmentRevisionAsync(environmentRevision, cancellationToken);
+
+            await using (var package = File.OpenRead(captured.Package.Path))
+            {
+                await _storage.StoreRevisionAsync(stateRevision, package, cancellationToken);
+            }
+
+            // The canonical head is written last. If either revision write fails,
+            // no World points at an incomplete revision set.
+            await _storage.SaveWorldAsync(world, cancellationToken);
+            return world;
+        }
+        finally
+        {
+            CleanupCapturedState(captured);
+        }
     }
 
     public async Task<PreparedWorldContext> PrepareAsync(
@@ -75,14 +104,13 @@ public sealed class WorldLifecycleService(IWorldStorage storage)
         GameInstallation installation,
         CancellationToken cancellationToken = default)
     {
-        var world = await storage.LoadWorldAsync(worldId, cancellationToken)
+        ArgumentNullException.ThrowIfNull(adapter);
+        ArgumentNullException.ThrowIfNull(installation);
+
+        var world = await _storage.LoadWorldAsync(worldId, cancellationToken)
             ?? throw new InvalidOperationException($"World '{worldId}' does not exist.");
 
-        if (!string.Equals(world.GameAdapterId, adapter.Id, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"World '{worldId}' belongs to adapter '{world.GameAdapterId}', not '{adapter.Id}'.");
-        }
+        EnsureAdapterMatches(adapter.Id, world.GameAdapterId, "World");
 
         var environmentRevisionId = world.CurrentEnvironmentRevisionId
             ?? throw new InvalidOperationException($"World '{worldId}' has no environment revision.");
@@ -90,12 +118,26 @@ public sealed class WorldLifecycleService(IWorldStorage storage)
         var stateRevisionId = world.CurrentStateRevisionId
             ?? throw new InvalidOperationException($"World '{worldId}' has no state revision.");
 
-        var environmentRevision = await storage.LoadEnvironmentRevisionAsync(
+        var environmentRevision = await _storage.LoadEnvironmentRevisionAsync(
             worldId,
             environmentRevisionId,
             cancellationToken)
             ?? throw new InvalidOperationException(
                 $"Environment revision '{environmentRevisionId}' does not exist.");
+
+        EnsureAdapterMatches(
+            adapter.Id,
+            environmentRevision.Manifest.AdapterId,
+            "environment revision");
+
+        var stateRevision = await _storage.LoadStateRevisionAsync(
+            worldId,
+            stateRevisionId,
+            cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"State revision '{stateRevisionId}' does not exist.");
+
+        EnsureAdapterMatches(adapter.Id, stateRevision.AdapterId, "state revision");
 
         var prepared = await adapter.PrepareEnvironmentAsync(
             installation,
@@ -110,7 +152,7 @@ public sealed class WorldLifecycleService(IWorldStorage storage)
 
         Directory.CreateDirectory(Path.GetDirectoryName(materializedPackagePath)!);
 
-        await using (var source = await storage.OpenRevisionAsync(
+        await using (var source = await _storage.OpenRevisionAsync(
                          worldId,
                          stateRevisionId,
                          cancellationToken))
@@ -130,7 +172,7 @@ public sealed class WorldLifecycleService(IWorldStorage storage)
         {
             await adapter.RestoreStateAsync(
                 prepared,
-                new StatePackage(stateRevisionId.ToString(), materializedPackagePath),
+                new StatePackage(stateRevision.StatePackageId, materializedPackagePath),
                 cancellationToken);
         }
         finally
@@ -148,50 +190,112 @@ public sealed class WorldLifecycleService(IWorldStorage storage)
         UserIdentity user,
         CancellationToken cancellationToken = default)
     {
-        var context = await PrepareAsync(
-            worldId,
-            adapter,
-            installation,
-            cancellationToken);
+        ArgumentNullException.ThrowIfNull(adapter);
+        ArgumentNullException.ThrowIfNull(installation);
+        ArgumentNullException.ThrowIfNull(user);
 
-        var session = await adapter.LaunchHostAsync(context.PreparedWorld, cancellationToken);
-        await adapter.WaitForSessionEndAsync(session, cancellationToken);
+        await _sessionCoordinator.AcquireHostAsync(worldId, user, cancellationToken);
+        Exception? operationException = null;
 
-        var captured = await adapter.CaptureStateAsync(context.PreparedWorld, cancellationToken);
-        var nextRevisionId = RevisionId.New();
-
-        var revision = new StateRevision(
-            Id: nextRevisionId,
-            WorldId: context.World.Id,
-            ParentRevisionId: context.World.CurrentStateRevisionId,
-            CreatedAt: captured.CapturedAt,
-            CreatedBy: user,
-            AdapterId: adapter.Id,
-            StatePackageId: captured.Package.Id);
-
-        await using (var package = File.OpenRead(captured.Package.Path))
+        try
         {
-            await storage.StoreRevisionAsync(revision, package, cancellationToken);
+            var context = await PrepareAsync(
+                worldId,
+                adapter,
+                installation,
+                cancellationToken);
+
+            var session = await adapter.LaunchHostAsync(context.PreparedWorld, cancellationToken);
+            await adapter.WaitForSessionEndAsync(session, cancellationToken);
+
+            CapturedState? captured = null;
+            try
+            {
+                captured = await adapter.CaptureStateAsync(context.PreparedWorld, cancellationToken);
+                var nextRevisionId = RevisionId.New();
+
+                var revision = new StateRevision(
+                    Id: nextRevisionId,
+                    WorldId: context.World.Id,
+                    ParentRevisionId: context.World.CurrentStateRevisionId,
+                    CreatedAt: captured.CapturedAt,
+                    CreatedBy: user,
+                    AdapterId: adapter.Id,
+                    StatePackageId: captured.Package.Id);
+
+                await using (var package = File.OpenRead(captured.Package.Path))
+                {
+                    await _storage.StoreRevisionAsync(revision, package, cancellationToken);
+                }
+
+                var updatedWorld = context.World with
+                {
+                    CurrentStateRevisionId = nextRevisionId
+                };
+
+                // Advance the canonical head only after the new immutable revision is durable.
+                await _storage.SaveWorldAsync(updatedWorld, cancellationToken);
+                return updatedWorld;
+            }
+            finally
+            {
+                CleanupCapturedState(captured);
+            }
         }
-
-        var updatedWorld = context.World with
+        catch (Exception exception)
         {
-            CurrentStateRevisionId = nextRevisionId
-        };
+            operationException = exception;
+            throw;
+        }
+        finally
+        {
+            try
+            {
+                await _sessionCoordinator.ReleaseHostAsync(
+                    worldId,
+                    user,
+                    CancellationToken.None);
+            }
+            catch when (operationException is not null)
+            {
+                // Preserve the primary lifecycle failure. Remote coordinators should also
+                // use lease expiry so a failed cleanup cannot hold a host forever.
+            }
+        }
+    }
 
-        await storage.SaveWorldAsync(updatedWorld, cancellationToken);
-        return updatedWorld;
+    private static void EnsureAdapterMatches(
+        string expectedAdapterId,
+        string actualAdapterId,
+        string source)
+    {
+        if (!string.Equals(expectedAdapterId, actualAdapterId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"The {source} belongs to adapter '{actualAdapterId}', not '{expectedAdapterId}'.");
+        }
+    }
+
+    private static void CleanupCapturedState(CapturedState? captured)
+    {
+        if (captured?.DeletePackageAfterStore == true)
+        {
+            TryDelete(captured.Package.Path);
+        }
     }
 
     private static void TryDelete(string path)
     {
         try
         {
-            File.Delete(path);
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
         }
         catch (IOException)
         {
-            // Temporary cleanup failure must not invalidate an otherwise prepared World.
+            // Best-effort cleanup only.
         }
         catch (UnauthorizedAccessException)
         {

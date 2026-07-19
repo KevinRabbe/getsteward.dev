@@ -16,7 +16,7 @@ internal static class ConsoleExceptionHandler
         switch (exception)
         {
             case OperationCanceledException:
-                Console.Error.WriteLine("Operation cancelled. No new canonical state was committed unless storage had already completed successfully.");
+                Console.Error.WriteLine("Operation cancelled. The lifecycle stopped through normal cancellation handling. If a game session had already started, check recovery before retrying.");
                 return ApplicationExitCodes.Cancelled;
 
             case WorldNotFoundException worldNotFound:

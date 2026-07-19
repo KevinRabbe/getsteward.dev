@@ -1,5 +1,6 @@
 using System.Text;
 using SharedWorlds.Core.Domain;
+using SharedWorlds.Core.Environment;
 using SharedWorlds.Infrastructure.Storage;
 
 namespace SharedWorlds.Infrastructure.Tests;
@@ -37,14 +38,7 @@ public sealed class LocalWorldStorageTests : IDisposable
     {
         var storage = new LocalWorldStorage(_root);
         var worldId = WorldId.New();
-        var revision = new StateRevision(
-            RevisionId.New(),
-            worldId,
-            null,
-            DateTimeOffset.UtcNow,
-            new UserIdentity("local", "tester"),
-            "factorio",
-            "package-1");
+        var revision = CreateStateRevision(worldId);
 
         var expected = Encoding.UTF8.GetBytes("state-payload");
         await using var input = new MemoryStream(expected);
@@ -60,6 +54,73 @@ public sealed class LocalWorldStorageTests : IDisposable
 
         Assert.Equal(expected, output.ToArray());
     }
+
+    [Fact]
+    public async Task StateRevision_CannotBeOverwritten()
+    {
+        var storage = new LocalWorldStorage(_root);
+        var worldId = WorldId.New();
+        var revision = CreateStateRevision(worldId);
+        var originalPayload = Encoding.UTF8.GetBytes("original");
+
+        await using (var original = new MemoryStream(originalPayload))
+        {
+            await storage.StoreRevisionAsync(revision, original);
+        }
+
+        await using var replacement = new MemoryStream(Encoding.UTF8.GetBytes("replacement"));
+        await Assert.ThrowsAsync<IOException>(
+            () => storage.StoreRevisionAsync(revision, replacement));
+
+        await using var reopened = await storage.OpenRevisionAsync(worldId, revision.Id);
+        using var output = new MemoryStream();
+        await reopened.CopyToAsync(output);
+
+        Assert.Equal(originalPayload, output.ToArray());
+    }
+
+    [Fact]
+    public async Task EnvironmentRevision_CannotBeOverwritten()
+    {
+        var storage = new LocalWorldStorage(_root);
+        var worldId = WorldId.New();
+        var revisionId = RevisionId.New();
+        var user = new UserIdentity("local", "tester");
+        var original = new EnvironmentRevision(
+            revisionId,
+            worldId,
+            null,
+            DateTimeOffset.UtcNow,
+            user,
+            CreateManifest("1.0.0"));
+        var replacement = original with { Manifest = CreateManifest("2.0.0") };
+
+        await storage.StoreEnvironmentRevisionAsync(original);
+        await Assert.ThrowsAsync<IOException>(
+            () => storage.StoreEnvironmentRevisionAsync(replacement));
+
+        var loaded = await storage.LoadEnvironmentRevisionAsync(worldId, revisionId);
+        Assert.NotNull(loaded);
+        Assert.Equal("1.0.0", loaded.Manifest.GameVersion);
+    }
+
+    private static StateRevision CreateStateRevision(WorldId worldId)
+        => new(
+            RevisionId.New(),
+            worldId,
+            null,
+            DateTimeOffset.UtcNow,
+            new UserIdentity("local", "tester"),
+            "factorio",
+            "package-1");
+
+    private static EnvironmentManifest CreateManifest(string gameVersion)
+        => new(
+            1,
+            "factorio",
+            gameVersion,
+            [],
+            new Dictionary<string, string>());
 
     public void Dispose()
     {

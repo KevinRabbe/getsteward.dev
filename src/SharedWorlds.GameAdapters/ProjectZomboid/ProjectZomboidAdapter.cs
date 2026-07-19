@@ -21,6 +21,9 @@ public sealed class ProjectZomboidAdapter : IGameAdapter
     public Task<EnvironmentManifest> InspectEnvironmentAsync(GameInstallation installation, DetectedWorld world, CancellationToken cancellationToken = default)
         => throw new NotImplementedException();
 
+    public Task<CapturedState> CaptureDetectedWorldAsync(GameInstallation installation, DetectedWorld world, CancellationToken cancellationToken = default)
+        => throw new NotImplementedException();
+
     public Task<PreparedWorld> PrepareEnvironmentAsync(GameInstallation installation, EnvironmentManifest requiredEnvironment, CancellationToken cancellationToken = default)
         => throw new NotImplementedException();
 

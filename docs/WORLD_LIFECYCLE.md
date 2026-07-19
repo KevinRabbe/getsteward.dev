@@ -4,21 +4,47 @@
 
 Users should think:
 
-> I want to continue our world.
+> I want to continue this world.
 
 They should not need to think about which machine owns the save, which mod folder is active, which person is the permanent host, or where the canonical files live.
 
-The product should make this true:
+For shared Worlds, the product should make this true:
 
 > The group owns the World. Nobody permanently owns the host.
+
+For private Worlds, the product should make this true:
+
+> Nothing is shared unless I explicitly choose to share it.
 
 ## Canonical World
 
 A canonical World has one current environment revision and one current state revision.
 
-Only one canonical host may advance the canonical World at a time.
+Only one canonical session may advance the canonical World at a time. A local single-player Continue and a shared hosted session are both canonical writers, so they use the same exclusive session coordination boundary internally.
 
 This avoids conflicting save histories and impossible automatic merging.
+
+## Privacy and sharing
+
+Sharing is opt-in.
+
+A World has one of two current sharing modes:
+
+```text
+LocalOnly
+Shared
+```
+
+Rules:
+
+- discovery never shares anything
+- import creates a `LocalOnly` World
+- local Continue is allowed for `LocalOnly`
+- Host and Join are blocked for `LocalOnly`
+- changing to `Shared` requires an explicit user action
+- changing back to `LocalOnly` disables future Host / Join workflows
+
+The UI should therefore present Share / Host / Join only where the World is explicitly shared. A hidden or missing UI button is not the security boundary; Core also rejects hosted play for a `LocalOnly` World.
 
 ## Import
 
@@ -32,22 +58,22 @@ DetectedWorld
 -> create EnvironmentRevision E1
 -> create StateRevision S1
 -> durably store E1 and S1
--> persist World pointing to E1 + S1 last
+-> persist LocalOnly World pointing to E1 + S1 last
 -> clean adapter-declared temporary capture package
 ```
 
 Import must not mutate the original source save.
 
+Import also must not publish, upload, host, or otherwise share the source save merely because it was discovered or imported.
+
 The World metadata is written last so a partially failed import cannot create a canonical World that points at incomplete revision data.
 
-## Continue
+## Continue local
 
-Continue means: play the current canonical World.
-
-Current local vertical slice:
+Local Continue means: play the current canonical World without exposing it as a multiplayer host.
 
 ```text
-acquire canonical host role through IWorldSessionCoordinator
+acquire exclusive canonical-session lease
 -> load World
 -> validate World adapter identity
 -> load current environment revision
@@ -56,40 +82,78 @@ acquire canonical host role through IWorldSessionCoordinator
 -> validate state adapter identity
 -> adapter prepares isolated workspace
 -> adapter restores state
--> adapter launches host
+-> adapter launches local/single-player session
 -> adapter observes session end
 -> adapter captures resulting state
 -> durably store next immutable StateRevision
 -> move World's canonical state head forward last
 -> clean adapter-declared temporary capture package
--> release canonical host role
+-> release canonical-session lease
 ```
 
-Normal clean play therefore looks like:
+For Factorio, local Continue uses the game's single-player load path rather than the multiplayer host path.
+
+A local-only World can use this flow.
+
+## Host
+
+Host means: advance a shared canonical World while exposing the game session for multiplayer according to adapter behavior.
+
+Before the session coordinator is acquired, Core verifies that the World is explicitly `Shared`.
 
 ```text
-E1 + S1
--> play
--> E1 + S2
+verify World is Shared
+-> acquire exclusive canonical-session lease
+-> prepare canonical state
+-> adapter launches host
+-> adapter observes session end
+-> capture and commit next immutable StateRevision
+-> advance canonical head last
+-> release canonical-session lease
 ```
 
-If capture or durable storage fails, the previous canonical head remains unchanged.
+Attempting to Host a `LocalOnly` World fails with `WorldSharingRequiredException`.
 
 ## Join
 
 Future shared behavior:
 
-If another member already owns the canonical host role, Continue should become Join rather than starting a conflicting host.
+If another member already owns the canonical hosted session, the UI should offer Join rather than starting a conflicting host.
 
 The adapter receives a generic `HostConnection` and performs game-specific connection behavior.
 
+Join is only meaningful for a World whose sharing mode is `Shared`.
+
+## Sharing transitions
+
+Current development commands expose the intended domain transition:
+
+```text
+share-world <world-id>
+unshare-world <world-id>
+```
+
+These commands change the World's sharing eligibility. They do not imply that every future remote backend action is already implemented.
+
+A future desktop UI should make this a deliberate control, for example:
+
+```text
+Private / Local-only
+[ Enable sharing ]
+
+Shared
+[ Host ] [ Join active host ] [ Manage members ] [ Disable sharing ]
+```
+
+Disabling sharing must not delete the World or its revision history.
+
 ## Host acquisition
 
-When no canonical session is active, the first member who starts canonical play acquires the host role through `IWorldSessionCoordinator`.
+When no canonical session is active, the player starting canonical play acquires the exclusive writer role through `IWorldSessionCoordinator`.
 
-The host role is temporary and belongs to the current session, not permanently to one person.
+The current interface still uses host-oriented naming, but the lease is also used for local canonical play so two local processes cannot advance the same World concurrently.
 
-The current `LocalWorldSessionCoordinator` enforces this rule within one application process. A future distributed coordinator must enforce the same contract across machines.
+A future distributed coordinator may model local and hosted session modes explicitly while preserving the same one-writer invariant.
 
 ## Host handoff
 
@@ -126,7 +190,7 @@ Current generic states:
 
 These states describe universal product behavior. A game adapter must not invent a separate canonical lifecycle.
 
-The current local implementation actively uses `Available`, `Hosting`, and `HandoffRequested`. The remaining states are reserved for the broader shared/recovery lifecycle and are not yet fully wired.
+The current coordinator naming/state model is still host-centric and will likely gain an explicit local-playing state when the distributed coordinator is implemented. This is a naming/model refinement, not a change to the one-canonical-writer rule.
 
 ## Session end
 
@@ -148,17 +212,19 @@ A future distributed coordinator should use lease expiry/recovery semantics rath
 
 A crash must not blindly overwrite the last known-good canonical state.
 
-Desired behavior:
+Current behavior:
 
 ```text
 last known-good canonical revision remains intact
 +
-latest recoverable local state is preserved
+prepared workspace is registered before game launch
 +
-World enters RecoveryPending when confidence is insufficient for automatic commit
+post-launch commit failure preserves workspace
++
+RecoveryPending is recorded when possible
 ```
 
-Recovery logic is not yet implemented in the first vertical slice.
+An `Active` workspace record left after a hard application or OS crash is treated conservatively as a possible interrupted-session recovery candidate.
 
 ## Captured package ownership
 

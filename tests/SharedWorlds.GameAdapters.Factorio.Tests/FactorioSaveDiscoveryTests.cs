@@ -30,7 +30,9 @@ public sealed class FactorioSaveDiscoveryTests : IDisposable
 
         var world = Assert.Single(worlds);
         Assert.Equal("our-world", world.DisplayName);
-        Assert.EndsWith("our-world.zip", world.SourcePath, StringComparison.OrdinalIgnoreCase);
+        Assert.True(
+            world.SourcePath.EndsWith("our-world.zip", StringComparison.OrdinalIgnoreCase),
+            $"Unexpected save path: {world.SourcePath}");
     }
 
     public void Dispose()

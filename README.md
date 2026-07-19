@@ -10,11 +10,15 @@ The player-facing goal is simple:
 
 The user should not need to manage who permanently owns the host, which exact mod folder is active, where the canonical save lives, or whether a game came from Steam, CurseForge, Modrinth, Prism, or somewhere else.
 
+Privacy is also simple:
+
+> Nothing is shared unless the user explicitly enables sharing for that World.
+
 ## Core architecture rule
 
 The Core must never contain game-specific branches such as `if (game == Factorio)`.
 
-- **Core** knows *what* must happen: World lifecycle, revisions, canonical state, storage boundaries, and session semantics.
+- **Core** knows *what* must happen: World lifecycle, revisions, canonical state, storage boundaries, sharing eligibility, and session semantics.
 - **Game adapters** know *how* a specific game makes it happen.
 - **Adapters may use any ecosystem internally**: Steam, Steam Workshop, CurseForge, Modrinth, Prism, custom launchers, filesystem layouts, registry discovery, or game-specific APIs.
 - **Storage and live coordination are generic boundaries**. Steam-backed implementations may be added later without making Steam a Core dependency.
@@ -43,9 +47,12 @@ The repository now enforces a consistent engineering baseline:
 - deterministic builds
 - build-time code-style enforcement
 - centralized NuGet package versions
+- repository-local NuGet source policy
 - independent game-adapter assemblies
 - versioned persisted-document envelopes with explicit migration paths
 - durable prepared-workspace recovery tracking
+- privacy-by-default World sharing state
+- distinct local-play and multiplayer-host launch paths
 - top-level exception handling with typed user-facing failures and local incident diagnostics
 - automated unit/integration-boundary tests
 - Linux and Windows CI build/test jobs
@@ -59,9 +66,9 @@ The current CLI is deliberately a development harness. A future desktop applicat
 - [Architecture](docs/ARCHITECTURE.md) — system boundaries, dependency direction, platform neutrality, host model, and architecture philosophy.
 - [Engineering Standards](docs/ENGINEERING.md) — build, dependency, testing, filesystem-safety, compatibility, and definition-of-done rules.
 - [Error Handling](docs/ERROR_HANDLING.md) — exception boundaries, cancellation, diagnostics, exit codes, and conservative failure semantics.
-- [Domain Model](docs/DOMAIN_MODEL.md) — World, environment revisions, state revisions, manifests, packages, sessions, and identities.
+- [Domain Model](docs/DOMAIN_MODEL.md) — World, sharing mode, environment revisions, state revisions, manifests, packages, sessions, and identities.
 - [Game Adapter Guide](docs/ADAPTER_GUIDE.md) — adapter responsibilities, contract rules, and how to add a new game without contaminating Core.
-- [World Lifecycle](docs/WORLD_LIFECYCLE.md) — Import, Continue, Join, host handoff, Sandbox, Fresh Test World, Fork, Restore, and recovery semantics.
+- [World Lifecycle](docs/WORLD_LIFECYCLE.md) — Import, local Continue, Share, Host, Join, host handoff, Sandbox, Fresh Test World, Fork, Restore, and recovery semantics.
 - [Storage](docs/STORAGE.md) — local persistence layout, atomic writes, immutable revisions, and the future remote-storage boundary.
 - [Persistence Compatibility](docs/PERSISTENCE_COMPATIBILITY.md) — document envelopes, schema versions, legacy schema-0 migration, and controlled compatibility failures.
 - [Workspace Recovery](docs/WORKSPACE_RECOVERY.md) — Active, RecoveryPending, and CleanupPending workspace lifecycle semantics.
@@ -79,6 +86,32 @@ The current CLI is deliberately a development harness. A future desktop applicat
 
 Each adapter is an independently compiled project. The product intentionally focuses on one complete adapter lifecycle before expanding breadth.
 
+## Privacy-by-default sharing
+
+Discovery is read-only metadata discovery. Finding a save does not upload, publish, host, or share it.
+
+Import creates a managed World with:
+
+```text
+SharingMode = LocalOnly
+```
+
+A local-only World may be continued privately. Share / Host / Join workflows are blocked until the user explicitly enables sharing.
+
+```text
+LocalOnly
+  -> Continue locally
+  -> Enable sharing
+
+Shared
+  -> Continue locally
+  -> Host
+  -> Join active host
+  -> Disable sharing
+```
+
+`LocalOnly` is the zero/default enum value so older stored Worlds that predate the field also resolve safely to private rather than shared.
+
 ## Current Factorio vertical slice
 
 Implemented in code on the current development line:
@@ -86,15 +119,15 @@ Implemented in code on the current development line:
 ```text
 discover installation
 -> discover existing save
--> import save as World
+-> import save as LocalOnly World
 -> create EnvironmentRevision E1
 -> create StateRevision S1
 -> persist World
--> Continue
+-> Continue locally
 -> prepare isolated working copy
 -> restore canonical state
 -> persist Active workspace recovery record
--> launch Factorio host
+-> launch Factorio single-player via adapter
 -> wait for adapter-observed session end
 -> capture resulting save
 -> create StateRevision S2
@@ -103,9 +136,11 @@ discover installation
 -> remove recovery record
 ```
 
+Shared hosting is a separate path and requires the World to be explicitly marked `Shared` first.
+
 If a session starts but canonical commit does not complete, the prepared workspace is preserved and marked `RecoveryPending`. A hard application/OS crash can leave an `Active` record, which is treated as a conservative interrupted-session recovery candidate on the next startup.
 
-The Factorio runtime path still requires manual end-to-end validation on a real Windows machine with Factorio installed. Automated tests cover environment fingerprint stability, persistence compatibility, local storage integrity, workspace recovery semantics, and Factorio save discovery without touching real user saves.
+The Factorio runtime path still requires manual end-to-end validation on a real Windows machine with Factorio installed. Automated tests cover environment fingerprint stability, privacy/sharing invariants, persistence compatibility, local storage integrity, workspace recovery semantics, and Factorio save discovery without touching real user saves.
 
 ## Development CLI
 
@@ -115,6 +150,9 @@ Current commands:
 discover
 import-factorio <save-name>
 continue-factorio <world-id>
+share-world <world-id>
+unshare-world <world-id>
+host-factorio <world-id>
 recovery
 ```
 
@@ -123,6 +161,10 @@ Run them through the CLI project, for example:
 ```bash
 dotnet run --project src/SharedWorlds.Cli -- discover
 ```
+
+`continue-factorio` is the private/local single-player path.
+
+`share-world` is an explicit opt-in that makes a World eligible for Share / Host / Join workflows. `host-factorio` refuses to run against a `LocalOnly` World.
 
 `recovery` lists durable prepared-workspace recovery records. An `Active` record discovered after process restart is a possible interrupted-session candidate; `RecoveryPending` means gameplay started but canonical commit did not complete.
 
@@ -156,11 +198,15 @@ JSON metadata is stored inside a versioned outer envelope containing a stable `d
 
 The pre-envelope foundation format is explicitly treated as schema version 0 and has a registered migration path into the current version. Unsupported future schema versions fail with `PersistedDataCompatibilityException`; they are never silently overwritten or interpreted as defaults.
 
-## Canonical host rule
+Additive World fields must choose safe defaults. `WorldSharingMode.LocalOnly = 0` is deliberate so legacy World documents cannot become shared through deserialization.
 
-Only one canonical host may advance a shared World at a time.
+## Canonical session rule
 
-The group owns the World. No player permanently owns the host role.
+Only one canonical session may advance a World at a time.
+
+For a shared World, the group owns the World and no player permanently owns the host role.
+
+A private local Continue also uses the exclusive canonical-session lease internally, even though it does not launch multiplayer. This prevents two local processes from advancing the same World concurrently.
 
 Future host handoff is a controlled restart:
 
@@ -231,18 +277,21 @@ CI executes equivalent checks and builds/tests on both Linux and Windows.
 
 ## Immediate product milestone
 
-Validate the Factorio vertical slice on the target Windows machine:
+Validate the private Factorio vertical slice on the target Windows machine:
 
 1. compile the solution
 2. run `discover`
 3. verify the correct Factorio installation and saves are found
 4. import a disposable test save
-5. verify the original source save remains untouched
-6. run Continue
-7. make and save an in-game change
-8. exit cleanly
-9. confirm a new canonical state revision was committed
-10. confirm the prepared workspace was cleaned and no recovery record remains
-11. Continue again and verify the new state loads
+5. verify the imported World reports `LocalOnly`
+6. verify the original source save remains untouched
+7. run local Continue
+8. confirm Factorio launches in single-player rather than multiplayer-host mode
+9. make and save an in-game change
+10. exit cleanly
+11. confirm a new canonical state revision was committed
+12. confirm the prepared workspace was cleaned and no recovery record remains
+13. Continue again and verify the new state loads
+14. separately test that `host-factorio` is blocked until `share-world` is explicitly run
 
 Reality test first. Then automated environment synchronization and networking.

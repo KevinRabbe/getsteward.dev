@@ -1,5 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <ItemGroup>
-    <ProjectReference Include="../SharedWorlds.Core/SharedWorlds.Core.csproj" />
-  </ItemGroup>
-</Project>

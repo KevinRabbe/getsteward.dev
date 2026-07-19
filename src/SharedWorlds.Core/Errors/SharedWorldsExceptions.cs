@@ -90,6 +90,17 @@ public sealed class PersistedDataCompatibilityException : SharedWorldsException
     public int CurrentSchemaVersion { get; }
 }
 
+public sealed class WorldSharingRequiredException : SharedWorldsException
+{
+    public WorldSharingRequiredException(WorldId worldId)
+        : base($"World '{worldId}' is local-only and cannot be hosted or joined until sharing is explicitly enabled.")
+    {
+        WorldId = worldId;
+    }
+
+    public WorldId WorldId { get; }
+}
+
 public sealed class WorldSessionConflictException : SharedWorldsException
 {
     public WorldSessionConflictException(WorldId worldId, string message)

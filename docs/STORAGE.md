@@ -10,8 +10,8 @@ Current responsibilities:
 
 - save/load World metadata
 - save/load environment revisions
-- store state revisions with their payload
-- open a stored state revision payload for restore
+- store/load state revision metadata
+- store/open opaque state revision payloads
 
 Live session state is deliberately not part of this boundary. That belongs to `IWorldSessionCoordinator`.
 
@@ -45,39 +45,72 @@ SharedWorlds/
 
 ### `world.json`
 
-Stores the current `World` metadata, including references to the current environment and state revision heads.
+Stores mutable `World` metadata, including references to the current environment and state revision heads.
 
 ### `environments/<revision-id>.json`
 
-Stores one immutable `EnvironmentRevision`, including its manifest and fingerprint.
+Stores one immutable `EnvironmentRevision`, including its authoritative `EnvironmentManifest`.
 
 ### `states/<revision-id>/revision.json`
 
-Stores metadata for one `StateRevision`.
+Stores immutable metadata for one `StateRevision`.
 
 ### `states/<revision-id>/payload.bin`
 
-Stores the opaque adapter-produced state package.
+Stores the opaque adapter-produced state package belonging to that revision.
 
 The `.bin` extension is intentionally generic. The Core does not interpret the payload format.
 
 For the current Factorio adapter the payload content is effectively a copied Factorio save ZIP, but another adapter may produce a completely different package format.
 
-## Atomic writes
+## Publication and atomicity model
 
-`LocalWorldStorage` writes JSON metadata through temporary files and then moves the completed temporary file over the destination.
+World-head metadata and immutable revisions have different write semantics.
 
-State payloads are also written to a temporary file before being moved into place.
+### World metadata
 
-This reduces the chance of leaving a partially written canonical file after an interrupted write.
+`world.json` is mutable because the canonical revision heads advance over time.
 
-It does not yet provide full transactional semantics across multiple files. For example, storing a new state revision and then advancing `world.json` are separate operations.
+The local backend writes a temporary JSON file first and replaces the destination only after serialization completes.
 
-Crash-hardening and transactional commit semantics remain future work.
+### Environment revisions
+
+Environment revision IDs are immutable.
+
+The backend writes through a temporary file and publishes it without overwrite. Attempting to store the same environment revision ID again fails rather than replacing history.
+
+### State revisions
+
+State revision metadata and payload are staged together in a temporary directory:
+
+```text
+<revision-id>.<random>.tmp/
+  revision.json
+  payload.bin
+```
+
+Only after both files are fully written is the directory moved to the final revision path:
+
+```text
+states/<revision-id>/
+```
+
+An existing final revision directory is never overwritten.
+
+This means readers should not observe a published local state revision containing only metadata or only payload under normal operation.
+
+The higher-level World lifecycle still performs two durable operations when committing a new state:
+
+```text
+store immutable StateRevision
+-> update mutable world.json canonical head
+```
+
+That ordering is intentional. If revision storage fails, the canonical head remains unchanged. If the process stops after revision storage but before the head update, the result is an unreferenced immutable revision that can be garbage-collected or recovered later; the last canonical World remains valid.
 
 ## Immutability model
 
-Revisions should be treated as immutable once committed.
+Revisions are immutable once published.
 
 The mutable object is the World's current-head metadata:
 
@@ -87,7 +120,7 @@ World
   CurrentStateRevisionId       -> S144
 ```
 
-Historical revisions should remain addressable even when the current head changes.
+Historical revisions remain addressable even when the current head changes.
 
 This is important for:
 
@@ -97,18 +130,34 @@ This is important for:
 - audit/history
 - debugging
 
+The storage port exposes state revision metadata independently of payload bytes so Core can validate adapter identity and future lineage/history operations without interpreting game-specific data.
+
+## Orphan handling
+
+A failed multi-step operation can leave an immutable revision that no current World references. That is safer than advancing a canonical head to incomplete data.
+
+A future maintenance subsystem should distinguish:
+
+- referenced canonical/history revisions
+- intentional Fork/Sandbox ancestry
+- temporary transfer artifacts
+- truly orphaned revisions eligible for garbage collection
+
+Garbage collection must never infer deletion eligibility from age alone.
+
 ## Future remote storage
 
 A future Steam-backed or other remote `IWorldStorage` implementation should preserve the same logical model.
 
 Preferred properties:
 
-- immutable revision objects where practical
+- immutable revision objects
 - explicit canonical head selection
 - no assumption that all members destructively overwrite one shared object
 - local caching
 - resumable/retriable transfer
 - integrity validation at trust boundaries
+- idempotent publication where the remote API permits it
 
 The exact Steam UGC/Workshop object model must be tested with multiple real accounts before it becomes a permanent storage design.
 

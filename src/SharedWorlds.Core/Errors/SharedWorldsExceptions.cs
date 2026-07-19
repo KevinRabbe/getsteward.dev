@@ -1,0 +1,69 @@
+using SharedWorlds.Core.Domain;
+
+namespace SharedWorlds.Core.Errors;
+
+public abstract class SharedWorldsException : Exception
+{
+    protected SharedWorldsException(string message)
+        : base(message)
+    {
+    }
+}
+
+public sealed class WorldNotFoundException : SharedWorldsException
+{
+    public WorldNotFoundException(WorldId worldId)
+        : base($"World '{worldId}' does not exist.")
+    {
+        WorldId = worldId;
+    }
+
+    public WorldId WorldId { get; }
+}
+
+public sealed class RevisionNotFoundException : SharedWorldsException
+{
+    public RevisionNotFoundException(
+        WorldId worldId,
+        RevisionId revisionId,
+        string revisionKind)
+        : base($"{revisionKind} revision '{revisionId}' for World '{worldId}' does not exist.")
+    {
+        WorldId = worldId;
+        RevisionId = revisionId;
+        RevisionKind = revisionKind;
+    }
+
+    public WorldId WorldId { get; }
+    public RevisionId RevisionId { get; }
+    public string RevisionKind { get; }
+}
+
+public sealed class AdapterMismatchException : SharedWorldsException
+{
+    public AdapterMismatchException(
+        string expectedAdapterId,
+        string actualAdapterId,
+        string source)
+        : base($"The {source} belongs to adapter '{actualAdapterId}', not '{expectedAdapterId}'.")
+    {
+        ExpectedAdapterId = expectedAdapterId;
+        ActualAdapterId = actualAdapterId;
+        Source = source;
+    }
+
+    public string ExpectedAdapterId { get; }
+    public string ActualAdapterId { get; }
+    public string Source { get; }
+}
+
+public sealed class WorldSessionConflictException : SharedWorldsException
+{
+    public WorldSessionConflictException(WorldId worldId, string message)
+        : base($"World '{worldId}': {message}")
+    {
+        WorldId = worldId;
+    }
+
+    public WorldId WorldId { get; }
+}

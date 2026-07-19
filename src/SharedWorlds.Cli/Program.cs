@@ -60,6 +60,9 @@ static async Task<int> RunAsync(
     {
         "import-factorio" => await ImportFactorioAsync(arguments, lifecycle, cancellationToken),
         "continue-factorio" => await ContinueFactorioAsync(arguments, lifecycle, cancellationToken),
+        "host-factorio" => await HostFactorioAsync(arguments, lifecycle, cancellationToken),
+        "share-world" => await SetWorldSharingAsync(arguments, lifecycle, WorldSharingMode.Shared, cancellationToken),
+        "unshare-world" => await SetWorldSharingAsync(arguments, lifecycle, WorldSharingMode.LocalOnly, cancellationToken),
         "recovery" => await ShowRecoveryAsync(recovery, cancellationToken),
         _ => PrintUsageAndReturnError()
     };
@@ -141,6 +144,7 @@ static async Task<int> ImportFactorioAsync(
 
     Console.WriteLine($"Imported '{world.Name}' as World {world.Id}.");
     Console.WriteLine("The original save was not modified.");
+    Console.WriteLine("Sharing: LocalOnly (default). Nothing is shared or hosted until you explicitly enable sharing.");
     return ApplicationExitCodes.Success;
 }
 
@@ -149,9 +153,38 @@ static async Task<int> ContinueFactorioAsync(
     WorldLifecycleService lifecycle,
     CancellationToken cancellationToken)
 {
-    if (arguments.Length != 2 || !Guid.TryParse(arguments[1], out var parsedWorldId))
+    if (!TryParseWorldId(arguments, "continue-factorio", out var worldId))
     {
-        Console.Error.WriteLine("Usage: continue-factorio <world-id>");
+        return ApplicationExitCodes.UsageError;
+    }
+
+    var adapter = new FactorioAdapter();
+    var installation = (await adapter.DiscoverInstallationsAsync(cancellationToken)).FirstOrDefault();
+    if (installation is null)
+    {
+        Console.Error.WriteLine("Factorio installation not found.");
+        return ApplicationExitCodes.ProductFailure;
+    }
+
+    var updated = await lifecycle.ContinueLocalAsync(
+        worldId,
+        adapter,
+        installation,
+        GetLocalUser(),
+        cancellationToken);
+
+    Console.WriteLine();
+    Console.WriteLine($"Local session ended. World '{updated.Name}' committed as revision {updated.CurrentStateRevisionId}.");
+    return ApplicationExitCodes.Success;
+}
+
+static async Task<int> HostFactorioAsync(
+    string[] arguments,
+    WorldLifecycleService lifecycle,
+    CancellationToken cancellationToken)
+{
+    if (!TryParseWorldId(arguments, "host-factorio", out var worldId))
+    {
         return ApplicationExitCodes.UsageError;
     }
 
@@ -164,15 +197,58 @@ static async Task<int> ContinueFactorioAsync(
     }
 
     var updated = await lifecycle.ContinueAsHostAsync(
-        new WorldId(parsedWorldId),
+        worldId,
         adapter,
         installation,
         GetLocalUser(),
         cancellationToken);
 
     Console.WriteLine();
-    Console.WriteLine($"Session ended. World '{updated.Name}' committed as revision {updated.CurrentStateRevisionId}.");
+    Console.WriteLine($"Hosted session ended. World '{updated.Name}' committed as revision {updated.CurrentStateRevisionId}.");
     return ApplicationExitCodes.Success;
+}
+
+static async Task<int> SetWorldSharingAsync(
+    string[] arguments,
+    WorldLifecycleService lifecycle,
+    WorldSharingMode sharingMode,
+    CancellationToken cancellationToken)
+{
+    var command = sharingMode == WorldSharingMode.Shared ? "share-world" : "unshare-world";
+    if (!TryParseWorldId(arguments, command, out var worldId))
+    {
+        return ApplicationExitCodes.UsageError;
+    }
+
+    var updated = await lifecycle.SetSharingModeAsync(worldId, sharingMode, cancellationToken);
+    Console.WriteLine($"World '{updated.Name}' sharing mode: {updated.SharingMode}.");
+
+    if (sharingMode == WorldSharingMode.Shared)
+    {
+        Console.WriteLine("This World is now explicitly eligible for Share / Host / Join workflows.");
+    }
+    else
+    {
+        Console.WriteLine("This World is local-only. Host / Join workflows are blocked.");
+    }
+
+    return ApplicationExitCodes.Success;
+}
+
+static bool TryParseWorldId(
+    string[] arguments,
+    string command,
+    out WorldId worldId)
+{
+    if (arguments.Length != 2 || !Guid.TryParse(arguments[1], out var parsedWorldId))
+    {
+        Console.Error.WriteLine($"Usage: {command} <world-id>");
+        worldId = default;
+        return false;
+    }
+
+    worldId = new WorldId(parsedWorldId);
+    return true;
 }
 
 static async Task<int> ShowRecoveryAsync(
@@ -239,6 +315,9 @@ static void PrintUsage()
     Console.WriteLine("Commands:");
     Console.WriteLine("  discover");
     Console.WriteLine("  import-factorio <save-name>");
-    Console.WriteLine("  continue-factorio <world-id>");
+    Console.WriteLine("  continue-factorio <world-id>    # local/private single-player");
+    Console.WriteLine("  share-world <world-id>          # explicit opt-in for Share / Host / Join");
+    Console.WriteLine("  unshare-world <world-id>        # return to local-only");
+    Console.WriteLine("  host-factorio <world-id>        # requires sharing enabled");
     Console.WriteLine("  recovery");
 }

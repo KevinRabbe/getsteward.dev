@@ -4,7 +4,7 @@
 
 `World` is the main product object.
 
-A World represents the shared canonical playable reality for a group, independent of the particular game implementation.
+A World represents a canonical playable reality managed by SharedWorlds, independent of the particular game implementation. A World may remain entirely local or be explicitly opted into sharing.
 
 Current fields:
 
@@ -14,8 +14,20 @@ Current fields:
 - members
 - current environment revision id
 - current state revision id
+- `SharingMode`
 
 The World stores references to its current heads rather than embedding all game data directly.
+
+### WorldSharingMode
+
+Sharing is explicit and privacy-preserving by default:
+
+- `LocalOnly = 0`: local Continue is allowed; Share / Host / Join workflows are blocked.
+- `Shared = 1`: the owner has explicitly opted the World into sharing workflows.
+
+`LocalOnly` deliberately has the zero value. This means newly imported Worlds and older persisted Worlds that predate the property resolve to local-only rather than accidentally becoming shared.
+
+Discovery does not create a World and never shares anything. Import creates a managed World but still defaults it to `LocalOnly`. Enabling sharing is a separate explicit operation.
 
 ## EnvironmentRevision
 
@@ -110,7 +122,9 @@ It contains:
 - display name
 - source path
 
-Importing it converts adapter-owned state into a canonical `World` plus initial environment and state revisions.
+A `DetectedWorld` is discovery metadata only. Finding it does not upload, publish, host, or otherwise share the source save.
+
+Importing it converts adapter-owned state into a canonical `World` plus initial environment and state revisions. The imported World is `LocalOnly` by default.
 
 ## PreparedWorld
 
@@ -159,6 +173,8 @@ Current fields:
 - optional join token
 
 Different adapters may use these fields differently.
+
+A `HostConnection` is only relevant to a World whose sharing mode is `Shared`. Local-only Worlds are not eligible for Join.
 
 ## UserIdentity
 

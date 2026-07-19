@@ -21,6 +21,19 @@ public sealed class WorldNotFoundException : SharedWorldsException
     public WorldId WorldId { get; }
 }
 
+public sealed class WorldIntegrityException : SharedWorldsException
+{
+    public WorldIntegrityException(WorldId worldId, string problem)
+        : base($"World '{worldId}' is incomplete or inconsistent: {problem}")
+    {
+        WorldId = worldId;
+        Problem = problem;
+    }
+
+    public WorldId WorldId { get; }
+    public string Problem { get; }
+}
+
 public sealed class RevisionNotFoundException : SharedWorldsException
 {
     public RevisionNotFoundException(

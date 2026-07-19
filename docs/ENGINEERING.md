@@ -44,6 +44,9 @@ The repository uses:
 - deterministic builds.
 - code-style enforcement during build.
 - centralized NuGet package versions through `Directory.Packages.props`.
+- a repository-local `NuGet.Config` that clears inherited machine-level package sources and currently restores only from `nuget.org`.
+
+The repository-local NuGet source policy is deliberate. A developer may have unrelated global sources configured for BepInEx, private feeds, or other projects; those sources must not silently change SharedWorlds restore behavior or trigger Central Package Management source warnings. If SharedWorlds later requires another feed, add it intentionally with explicit Package Source Mapping rather than relying on a developer's global configuration.
 
 Do not disable a warning globally to make one local problem disappear. Fix the code or suppress the warning at the narrowest justified scope with an explanation.
 
@@ -143,12 +146,12 @@ Persisted manifests and future network messages must be treated as versioned con
 - Additive fields should be preferred over destructive schema changes.
 - Incompatible persisted data should fail with a controlled compatibility error rather than undefined behavior.
 - Migrations belong in infrastructure/application migration code, not scattered through UI logic.
-
-The current local storage documents themselves still need an explicit outer persistence-envelope schema before a public release. This is a tracked foundation requirement, not something to defer until after incompatible user data exists.
+- Durable JSON metadata uses an explicit outer envelope with stable `documentType`, `schemaVersion`, and `payload` fields.
+- The initial unwrapped format is treated as schema 0 with an explicit migration path into the current schema.
 
 ## Logging and observability
 
-The current foundation does not yet have a logging abstraction. When added, structured logging should be wired at the composition root and passed through standard abstractions.
+The current CLI owns the top-level diagnostic boundary and writes local incident logs for operational or unexpected failures when possible. A future structured logging abstraction should remain composition-root driven and must not leak platform-specific logging into Core.
 
 Never log secrets, authentication tokens, private join tokens, or arbitrary save contents.
 

@@ -38,4 +38,7 @@ public sealed class SevenDaysToDieAdapter : IGameAdapter
 
     public Task<GameSessionHandle> LaunchClientAsync(PreparedWorld world, HostConnection host, CancellationToken cancellationToken = default)
         => throw new NotImplementedException();
+
+    public Task WaitForSessionEndAsync(GameSessionHandle session, CancellationToken cancellationToken = default)
+        => throw new NotImplementedException();
 }

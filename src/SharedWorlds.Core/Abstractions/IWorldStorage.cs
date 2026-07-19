@@ -25,6 +25,11 @@ public interface IWorldStorage
         Stream package,
         CancellationToken cancellationToken = default);
 
+    Task<StateRevision?> LoadStateRevisionAsync(
+        WorldId worldId,
+        RevisionId revisionId,
+        CancellationToken cancellationToken = default);
+
     Task<Stream> OpenRevisionAsync(
         WorldId worldId,
         RevisionId revisionId,

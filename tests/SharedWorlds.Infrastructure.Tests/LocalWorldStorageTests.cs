@@ -29,11 +29,11 @@ public sealed class LocalWorldStorageTests : IDisposable
         Assert.Equal(world.GameAdapterId, loaded.GameAdapterId);
         Assert.Equal(world.CurrentEnvironmentRevisionId, loaded.CurrentEnvironmentRevisionId);
         Assert.Equal(world.CurrentStateRevisionId, loaded.CurrentStateRevisionId);
-        Assert.Equal(world.Members, loaded.Members);
+        Assert.Equal(world.Members.ToArray(), loaded.Members.ToArray());
     }
 
     [Fact]
-    public async Task StateRevisionPayload_IsStoredAndReopened()
+    public async Task StateRevisionAndPayload_RoundTrip()
     {
         var storage = new LocalWorldStorage(_root);
         var worldId = WorldId.New();
@@ -50,6 +50,10 @@ public sealed class LocalWorldStorageTests : IDisposable
         await using var input = new MemoryStream(expected);
 
         await storage.StoreRevisionAsync(revision, input);
+
+        var loadedRevision = await storage.LoadStateRevisionAsync(worldId, revision.Id);
+        Assert.Equal(revision, loadedRevision);
+
         await using var reopened = await storage.OpenRevisionAsync(worldId, revision.Id);
         using var output = new MemoryStream();
         await reopened.CopyToAsync(output);

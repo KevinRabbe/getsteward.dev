@@ -1,5 +1,6 @@
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
+using SharedWorlds.Core.Errors;
 
 namespace SharedWorlds.Core.Worlds;
 
@@ -108,7 +109,7 @@ public sealed class WorldLifecycleService
         ArgumentNullException.ThrowIfNull(installation);
 
         var world = await _storage.LoadWorldAsync(worldId, cancellationToken)
-            ?? throw new InvalidOperationException($"World '{worldId}' does not exist.");
+            ?? throw new WorldNotFoundException(worldId);
 
         EnsureAdapterMatches(adapter.Id, world.GameAdapterId, "World");
 
@@ -122,8 +123,10 @@ public sealed class WorldLifecycleService
             worldId,
             environmentRevisionId,
             cancellationToken)
-            ?? throw new InvalidOperationException(
-                $"Environment revision '{environmentRevisionId}' does not exist.");
+            ?? throw new RevisionNotFoundException(
+                worldId,
+                environmentRevisionId,
+                "Environment");
 
         EnsureAdapterMatches(
             adapter.Id,
@@ -134,8 +137,10 @@ public sealed class WorldLifecycleService
             worldId,
             stateRevisionId,
             cancellationToken)
-            ?? throw new InvalidOperationException(
-                $"State revision '{stateRevisionId}' does not exist.");
+            ?? throw new RevisionNotFoundException(
+                worldId,
+                stateRevisionId,
+                "State");
 
         EnsureAdapterMatches(adapter.Id, stateRevision.AdapterId, "state revision");
 
@@ -271,8 +276,10 @@ public sealed class WorldLifecycleService
     {
         if (!string.Equals(expectedAdapterId, actualAdapterId, StringComparison.Ordinal))
         {
-            throw new InvalidOperationException(
-                $"The {source} belongs to adapter '{actualAdapterId}', not '{expectedAdapterId}'.");
+            throw new AdapterMismatchException(
+                expectedAdapterId,
+                actualAdapterId,
+                source);
         }
     }
 

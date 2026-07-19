@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
+using SharedWorlds.Core.Errors;
 using SharedWorlds.Core.Sessions;
 
 namespace SharedWorlds.Infrastructure.Sessions;
@@ -41,8 +42,9 @@ public sealed class LocalWorldSessionCoordinator : IWorldSessionCoordinator
 
             if (current.State != SessionState.Available)
             {
-                throw new InvalidOperationException(
-                    $"World '{worldId}' is not available for hosting. Current state: {current.State}.");
+                throw new WorldSessionConflictException(
+                    worldId,
+                    $"Not available for hosting. Current state: {current.State}.");
             }
 
             var next = current with
@@ -73,13 +75,16 @@ public sealed class LocalWorldSessionCoordinator : IWorldSessionCoordinator
             var current = _sessions.GetOrAdd(worldId, CreateAvailable);
             if (current.State != SessionState.Hosting || current.ActiveHost is null)
             {
-                throw new InvalidOperationException(
-                    $"World '{worldId}' has no active host to hand off from.");
+                throw new WorldSessionConflictException(
+                    worldId,
+                    "There is no active host to hand off from.");
             }
 
             if (current.ActiveHost == requestedHost)
             {
-                throw new InvalidOperationException("The active host cannot request handoff to itself.");
+                throw new WorldSessionConflictException(
+                    worldId,
+                    "The active host cannot request handoff to itself.");
             }
 
             var next = current with
@@ -104,15 +109,15 @@ public sealed class LocalWorldSessionCoordinator : IWorldSessionCoordinator
     {
         ArgumentNullException.ThrowIfNull(newHost);
         cancellationToken.ThrowIfCancellationRequested();
-        _ = committedRevision;
 
         while (true)
         {
             var current = _sessions.GetOrAdd(worldId, CreateAvailable);
             if (current.State != SessionState.HandoffRequested || current.RequestedHost != newHost)
             {
-                throw new InvalidOperationException(
-                    $"World '{worldId}' has no matching handoff request for '{newHost.ExternalId}'.");
+                throw new WorldSessionConflictException(
+                    worldId,
+                    $"There is no matching handoff request for '{newHost.ExternalId}' after revision '{committedRevision}'.");
             }
 
             var next = current with
@@ -148,8 +153,9 @@ public sealed class LocalWorldSessionCoordinator : IWorldSessionCoordinator
 
             if (current.ActiveHost != user)
             {
-                throw new InvalidOperationException(
-                    $"User '{user.ExternalId}' does not own the host role for World '{worldId}'.");
+                throw new WorldSessionConflictException(
+                    worldId,
+                    $"User '{user.ExternalId}' does not own the host role.");
             }
 
             var next = new WorldSession(

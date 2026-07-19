@@ -1,6 +1,8 @@
 using System.Text;
+using System.Text.Json;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
+using SharedWorlds.Core.Errors;
 using SharedWorlds.Infrastructure.Storage;
 
 namespace SharedWorlds.Infrastructure.Tests;
@@ -13,13 +15,7 @@ public sealed class LocalWorldStorageTests : IDisposable
     public async Task WorldMetadata_RoundTrips()
     {
         var storage = new LocalWorldStorage(_root);
-        var world = new World(
-            WorldId.New(),
-            "Test World",
-            "factorio",
-            [new UserIdentity("local", "tester", "Tester")],
-            null,
-            null);
+        var world = CreateWorld();
 
         await storage.SaveWorldAsync(world);
         var loaded = await storage.LoadWorldAsync(world.Id);
@@ -31,6 +27,66 @@ public sealed class LocalWorldStorageTests : IDisposable
         Assert.Equal(world.CurrentEnvironmentRevisionId, loaded.CurrentEnvironmentRevisionId);
         Assert.Equal(world.CurrentStateRevisionId, loaded.CurrentStateRevisionId);
         Assert.Equal(world.Members.ToArray(), loaded.Members.ToArray());
+    }
+
+    [Fact]
+    public async Task WorldMetadata_IsStoredInVersionedEnvelope()
+    {
+        var storage = new LocalWorldStorage(_root);
+        var world = CreateWorld();
+
+        await storage.SaveWorldAsync(world);
+
+        var path = Path.Combine(_root, "worlds", world.Id.ToString(), "world.json");
+        await using var stream = File.OpenRead(path);
+        using var document = await JsonDocument.ParseAsync(stream);
+
+        Assert.Equal("sharedworlds.world", document.RootElement.GetProperty("documentType").GetString());
+        Assert.Equal(1, document.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(world.Name, document.RootElement.GetProperty("payload").GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public async Task LegacyUnwrappedWorldMetadata_IsMigratedOnRead()
+    {
+        var storage = new LocalWorldStorage(_root);
+        var world = CreateWorld();
+        var directory = Path.Combine(_root, "worlds", world.Id.ToString());
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "world.json");
+
+        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(world));
+
+        var loaded = await storage.LoadWorldAsync(world.Id);
+
+        Assert.NotNull(loaded);
+        Assert.Equal(world.Id, loaded.Id);
+        Assert.Equal(world.Name, loaded.Name);
+    }
+
+    [Fact]
+    public async Task UnsupportedFutureWorldSchema_ThrowsTypedCompatibilityFailure()
+    {
+        var storage = new LocalWorldStorage(_root);
+        var world = CreateWorld();
+        var directory = Path.Combine(_root, "worlds", world.Id.ToString());
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "world.json");
+
+        var json = JsonSerializer.Serialize(new
+        {
+            documentType = "sharedworlds.world",
+            schemaVersion = 999,
+            payload = world
+        });
+        await File.WriteAllTextAsync(path, json);
+
+        var exception = await Assert.ThrowsAsync<PersistedDataCompatibilityException>(
+            () => storage.LoadWorldAsync(world.Id));
+
+        Assert.Equal("sharedworlds.world", exception.DocumentType);
+        Assert.Equal(999, exception.EncounteredSchemaVersion);
+        Assert.Equal(1, exception.CurrentSchemaVersion);
     }
 
     [Fact]
@@ -103,6 +159,15 @@ public sealed class LocalWorldStorageTests : IDisposable
         Assert.NotNull(loaded);
         Assert.Equal("1.0.0", loaded.Manifest.GameVersion);
     }
+
+    private static World CreateWorld()
+        => new(
+            WorldId.New(),
+            "Test World",
+            "factorio",
+            [new UserIdentity("local", "tester", "Tester")],
+            null,
+            null);
 
     private static StateRevision CreateStateRevision(WorldId worldId)
         => new(

@@ -220,8 +220,8 @@ public sealed class WorldLifecycleService
             installation,
             user,
             requireSharedWorld: false,
-            adapter.LaunchLocalAsync,
-            cancellationToken);
+            launchSession: adapter.LaunchLocalAsync,
+            cancellationToken: cancellationToken);
 
     public Task<World> ContinueAsHostAsync(
         WorldId worldId,
@@ -235,8 +235,8 @@ public sealed class WorldLifecycleService
             installation,
             user,
             requireSharedWorld: true,
-            adapter.LaunchHostAsync,
-            cancellationToken);
+            launchSession: adapter.LaunchHostAsync,
+            cancellationToken: cancellationToken);
 
     private async Task<World> ContinueSessionAsync(
         WorldId worldId,

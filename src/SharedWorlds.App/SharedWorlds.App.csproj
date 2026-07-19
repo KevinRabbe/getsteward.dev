@@ -5,5 +5,6 @@
   <ItemGroup>
     <ProjectReference Include="../SharedWorlds.Core/SharedWorlds.Core.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/SharedWorlds.GameAdapters.csproj" />
+    <ProjectReference Include="../SharedWorlds.Infrastructure/SharedWorlds.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

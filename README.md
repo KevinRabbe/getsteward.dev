@@ -2,9 +2,9 @@
 
 > Steam is the platform. Games are adapters. Worlds are the product.
 
-This repository contains the first durable implementation of a shared-World system for games. The repository/product name is temporary and can change later without changing the architecture.
+This repository contains the durable product foundation for a shared-World system for games. The repository and product name are temporary and can change without changing the architecture.
 
-The product goal is simple from the player's perspective:
+The player-facing goal is simple:
 
 > Select the World. The system prepares the right environment and state. Then play.
 
@@ -22,17 +22,38 @@ The Core must never contain game-specific branches such as `if (game == Factorio
 The intended dependency direction is:
 
 ```text
-App / UI
+CLI / future desktop UI
    |
 World Core
-   |-- IGameAdapter --------> game-specific behavior
-   |-- IWorldStorage -------> local / Steam / future storage
+   |-- IGameAdapter ------------> Factorio / 7DTD / Project Zomboid adapters
+   |-- IWorldStorage -----------> local / Steam / future storage
    `-- IWorldSessionCoordinator -> Steam lobby / future coordination
 ```
+
+Concrete integrations depend inward on Core contracts. Core never depends on a concrete game, storage backend, launcher, or platform SDK.
+
+## Product-grade repository foundation
+
+The repository now enforces a consistent engineering baseline:
+
+- .NET 10 SDK policy through `global.json`
+- nullable reference types
+- warnings as errors
+- deterministic builds
+- build-time code-style enforcement
+- centralized NuGet package versions
+- independent game-adapter assemblies
+- automated unit/integration-boundary tests
+- Linux and Windows CI build/test jobs
+- formatting verification in CI
+- contribution and security policies
+
+The current CLI is deliberately a development harness. A future desktop application will be a separate composition/UI project rather than absorbing Core behavior.
 
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) — system boundaries, dependency direction, platform neutrality, host model, and architecture philosophy.
+- [Engineering Standards](docs/ENGINEERING.md) — build, dependency, testing, filesystem-safety, compatibility, and definition-of-done rules.
 - [Domain Model](docs/DOMAIN_MODEL.md) — World, environment revisions, state revisions, manifests, packages, sessions, and identities.
 - [Game Adapter Guide](docs/ADAPTER_GUIDE.md) — adapter responsibilities, contract rules, and how to add a new game without contaminating Core.
 - [World Lifecycle](docs/WORLD_LIFECYCLE.md) — Import, Continue, Join, host handoff, Sandbox, Fresh Test World, Fork, Restore, and recovery semantics.
@@ -40,6 +61,8 @@ World Core
 - [Factorio Adapter](docs/FACTORIO.md) — current first vertical slice, discovery, state capture, environment inspection, launch behavior, limitations, and test checklist.
 - [Design Decisions](docs/DECISIONS.md) — durable architectural decisions and constraints that future work should preserve.
 - [Roadmap](docs/ROADMAP.md) — phased development plan from local Factorio validation to shared host coordination and recovery hardening.
+- [Contributing](CONTRIBUTING.md) — development and validation workflow.
+- [Security](SECURITY.md) — vulnerability reporting and security-sensitive areas.
 
 ## Initial adapters
 
@@ -47,11 +70,11 @@ World Core
 2. **7 Days to Die** — planned to stress environment isolation and external mod setups.
 3. **Project Zomboid** — planned to stress Workshop-heavy environments.
 
-The project intentionally focuses on one complete adapter lifecycle before expanding breadth.
+Each adapter is an independently compiled project. The product intentionally focuses on one complete adapter lifecycle before expanding breadth.
 
 ## Current Factorio vertical slice
 
-Implemented in code on the current development branch:
+Implemented in code on the current development line:
 
 ```text
 discover installation
@@ -70,7 +93,7 @@ discover installation
 -> advance canonical World head
 ```
 
-This code still requires compile and runtime validation on a real machine with the .NET SDK and Factorio installed.
+The Factorio runtime path still requires manual end-to-end validation on a real Windows machine with Factorio installed. Automated tests cover environment fingerprint stability, local storage round-trips, and Factorio save discovery without touching real user saves.
 
 ## Development CLI
 
@@ -82,7 +105,13 @@ import-factorio <save-name>
 continue-factorio <world-id>
 ```
 
-These are development interfaces, not the final product UX.
+Run them through the CLI project, for example:
+
+```bash
+dotnet run --project src/SharedWorlds.Cli -- discover
+```
+
+These commands are development interfaces, not the final product UX.
 
 ## Revision model
 
@@ -135,16 +164,25 @@ The normal workflow must not repeatedly hash entire game installations.
 
 ```text
 src/
-  SharedWorlds.App/
   SharedWorlds.Core/
+  SharedWorlds.Infrastructure/
+  SharedWorlds.Cli/
   SharedWorlds.GameAdapters/
     Factorio/
+      SharedWorlds.GameAdapters.Factorio.csproj
     SevenDaysToDie/
+      SharedWorlds.GameAdapters.SevenDaysToDie.csproj
     ProjectZomboid/
-  SharedWorlds.Infrastructure/
+      SharedWorlds.GameAdapters.ProjectZomboid.csproj
+
+tests/
+  SharedWorlds.Core.Tests/
+  SharedWorlds.Infrastructure.Tests/
+  SharedWorlds.GameAdapters.Factorio.Tests/
 
 docs/
   ARCHITECTURE.md
+  ENGINEERING.md
   DOMAIN_MODEL.md
   ADAPTER_GUIDE.md
   WORLD_LIFECYCLE.md
@@ -154,9 +192,20 @@ docs/
   ROADMAP.md
 ```
 
-## Immediate next step
+## Local validation
 
-Build and run the Factorio vertical slice on the target Windows machine:
+```bash
+dotnet restore SharedWorlds.sln
+dotnet format SharedWorlds.sln --verify-no-changes --no-restore
+dotnet build SharedWorlds.sln --configuration Release --no-restore
+dotnet test SharedWorlds.sln --configuration Release --no-build
+```
+
+CI executes equivalent checks and builds/tests on both Linux and Windows.
+
+## Immediate product milestone
+
+Validate the Factorio vertical slice on the target Windows machine:
 
 1. compile the solution
 2. run `discover`
@@ -169,4 +218,4 @@ Build and run the Factorio vertical slice on the target Windows machine:
 9. confirm a new canonical state revision was committed
 10. Continue again and verify the new state loads
 
-Reality test first. Then add automated environment synchronization and networking.
+Reality test first. Then automated environment synchronization and networking.

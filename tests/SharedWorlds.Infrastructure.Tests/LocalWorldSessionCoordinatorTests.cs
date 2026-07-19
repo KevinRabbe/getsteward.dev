@@ -1,4 +1,5 @@
 using SharedWorlds.Core.Domain;
+using SharedWorlds.Core.Errors;
 using SharedWorlds.Core.Sessions;
 using SharedWorlds.Infrastructure.Sessions;
 
@@ -19,7 +20,7 @@ public sealed class LocalWorldSessionCoordinatorTests
         Assert.Equal(SessionState.Hosting, session.State);
         Assert.Equal(first, session.ActiveHost);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAsync<WorldSessionConflictException>(
             () => coordinator.AcquireHostAsync(worldId, second));
     }
 

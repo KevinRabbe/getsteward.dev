@@ -12,15 +12,19 @@ public sealed class WorldLifecycleService
 {
     private readonly IWorldStorage _storage;
     private readonly IWorldSessionCoordinator _sessionCoordinator;
+    private readonly IWorkspaceRecoveryStore _workspaceRecoveryStore;
 
     public WorldLifecycleService(
         IWorldStorage storage,
-        IWorldSessionCoordinator sessionCoordinator)
+        IWorldSessionCoordinator sessionCoordinator,
+        IWorkspaceRecoveryStore workspaceRecoveryStore)
     {
         ArgumentNullException.ThrowIfNull(storage);
         ArgumentNullException.ThrowIfNull(sessionCoordinator);
+        ArgumentNullException.ThrowIfNull(workspaceRecoveryStore);
         _storage = storage;
         _sessionCoordinator = sessionCoordinator;
+        _workspaceRecoveryStore = workspaceRecoveryStore;
     }
 
     public async Task<World> ImportAsync(
@@ -201,16 +205,41 @@ public sealed class WorldLifecycleService
 
         await _sessionCoordinator.AcquireHostAsync(worldId, user, cancellationToken);
         Exception? operationException = null;
+        PreparedWorldContext? context = null;
+        WorkspaceRecoveryRecord? workspaceRecord = null;
+        var sessionStarted = false;
 
         try
         {
-            var context = await PrepareAsync(
+            context = await PrepareAsync(
                 worldId,
                 adapter,
                 installation,
                 cancellationToken);
 
+            var baseStateRevisionId = context.World.CurrentStateRevisionId
+                ?? throw new WorldIntegrityException(
+                    worldId,
+                    "The canonical state revision disappeared during preparation.");
+
+            var now = DateTimeOffset.UtcNow;
+            workspaceRecord = new WorkspaceRecoveryRecord(
+                Id: WorkspaceId.New(),
+                WorldId: worldId,
+                BaseStateRevisionId: baseStateRevisionId,
+                AdapterId: adapter.Id,
+                WorkingDirectory: context.PreparedWorld.WorkingDirectory,
+                StartedBy: user,
+                CreatedAt: now,
+                UpdatedAt: now,
+                Status: WorkspaceRecoveryStatus.Active);
+
+            // Register before launch. A hard process/OS crash after this point leaves an
+            // Active record that can be surfaced as an interrupted-session candidate.
+            await _workspaceRecoveryStore.SaveAsync(workspaceRecord, cancellationToken);
+
             var session = await adapter.LaunchHostAsync(context.PreparedWorld, cancellationToken);
+            sessionStarted = true;
             await adapter.WaitForSessionEndAsync(session, cancellationToken);
 
             CapturedState? captured = null;
@@ -240,6 +269,12 @@ public sealed class WorldLifecycleService
 
                 // Advance the canonical head only after the new immutable revision is durable.
                 await _storage.SaveWorldAsync(updatedWorld, cancellationToken);
+
+                await CompleteSuccessfulWorkspaceAsync(
+                    adapter,
+                    context.PreparedWorld,
+                    workspaceRecord);
+
                 return updatedWorld;
             }
             finally
@@ -250,6 +285,26 @@ public sealed class WorldLifecycleService
         catch (Exception exception)
         {
             operationException = exception;
+
+            if (context is not null && workspaceRecord is not null)
+            {
+                await HandleFailedWorkspaceAsync(
+                    adapter,
+                    context.PreparedWorld,
+                    workspaceRecord,
+                    sessionStarted,
+                    exception);
+            }
+            else if (context is not null)
+            {
+                // Recovery registration failed before launch. No gameplay occurred, so this
+                // prepared workspace contains only canonical input and can be discarded.
+                await TryFinalizePreparedWorldAsync(
+                    adapter,
+                    context.PreparedWorld,
+                    PreparedWorldDisposition.Discard);
+            }
+
             throw;
         }
         finally
@@ -266,6 +321,124 @@ public sealed class WorldLifecycleService
                 // Preserve the primary lifecycle failure. Remote coordinators should also
                 // use lease expiry so a failed cleanup cannot hold a host forever.
             }
+        }
+    }
+
+    private async Task CompleteSuccessfulWorkspaceAsync(
+        IGameAdapter adapter,
+        PreparedWorld preparedWorld,
+        WorkspaceRecoveryRecord record)
+    {
+        try
+        {
+            await adapter.FinalizePreparedWorldAsync(
+                preparedWorld,
+                PreparedWorldDisposition.Discard,
+                CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            await TrySaveWorkspaceStatusAsync(
+                record,
+                WorkspaceRecoveryStatus.CleanupPending,
+                $"Canonical commit succeeded, but workspace cleanup failed: {exception.Message}");
+            return;
+        }
+
+        await TryRemoveWorkspaceRecordAsync(record.Id);
+    }
+
+    private async Task HandleFailedWorkspaceAsync(
+        IGameAdapter adapter,
+        PreparedWorld preparedWorld,
+        WorkspaceRecoveryRecord record,
+        bool sessionStarted,
+        Exception failure)
+    {
+        if (sessionStarted)
+        {
+            await TrySaveWorkspaceStatusAsync(
+                record,
+                WorkspaceRecoveryStatus.RecoveryPending,
+                $"Session started but canonical commit did not complete: {failure.Message}");
+
+            await TryFinalizePreparedWorldAsync(
+                adapter,
+                preparedWorld,
+                PreparedWorldDisposition.PreserveForRecovery);
+            return;
+        }
+
+        var discarded = await TryFinalizePreparedWorldAsync(
+            adapter,
+            preparedWorld,
+            PreparedWorldDisposition.Discard);
+
+        if (discarded)
+        {
+            await TryRemoveWorkspaceRecordAsync(record.Id);
+            return;
+        }
+
+        await TrySaveWorkspaceStatusAsync(
+            record,
+            WorkspaceRecoveryStatus.CleanupPending,
+            $"Session never started and the prepared workspace could not be discarded after failure: {failure.Message}");
+    }
+
+    private async Task<bool> TryFinalizePreparedWorldAsync(
+        IGameAdapter adapter,
+        PreparedWorld preparedWorld,
+        PreparedWorldDisposition disposition)
+    {
+        try
+        {
+            await adapter.FinalizePreparedWorldAsync(
+                preparedWorld,
+                disposition,
+                CancellationToken.None);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task TrySaveWorkspaceStatusAsync(
+        WorkspaceRecoveryRecord record,
+        WorkspaceRecoveryStatus status,
+        string reason)
+    {
+        try
+        {
+            await _workspaceRecoveryStore.SaveAsync(
+                record with
+                {
+                    Status = status,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                    Reason = reason
+                },
+                CancellationToken.None);
+        }
+        catch
+        {
+            // The previously persisted Active record remains a conservative recovery signal.
+        }
+    }
+
+    private async Task TryRemoveWorkspaceRecordAsync(WorkspaceId workspaceId)
+    {
+        try
+        {
+            await _workspaceRecoveryStore.RemoveAsync(
+                workspaceId,
+                CancellationToken.None);
+        }
+        catch
+        {
+            // A stale record is safer than deleting recoverability metadata prematurely.
+            // Startup reconciliation can remove records whose workspaces no longer exist.
         }
     }
 

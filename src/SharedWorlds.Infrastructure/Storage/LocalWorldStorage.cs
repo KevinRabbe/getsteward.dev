@@ -1,4 +1,3 @@
-using System.Text.Json;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
 
@@ -6,11 +5,6 @@ namespace SharedWorlds.Infrastructure.Storage;
 
 public sealed class LocalWorldStorage : IWorldStorage
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true
-    };
-
     private readonly string _rootPath;
 
     public LocalWorldStorage(string rootPath)
@@ -21,8 +15,9 @@ public sealed class LocalWorldStorage : IWorldStorage
     }
 
     public Task SaveWorldAsync(World world, CancellationToken cancellationToken = default)
-        => WriteJsonAtomicAsync(
+        => WriteDocumentAtomicAsync(
             GetWorldMetadataPath(world.Id),
+            StorageDocumentSchemas.World,
             world,
             overwrite: true,
             cancellationToken);
@@ -38,14 +33,18 @@ public sealed class LocalWorldStorage : IWorldStorage
         }
 
         await using var stream = OpenRead(path);
-        return await JsonSerializer.DeserializeAsync<World>(stream, JsonOptions, cancellationToken);
+        return await PersistedDocumentCodec.ReadAsync(
+            stream,
+            StorageDocumentSchemas.World,
+            cancellationToken);
     }
 
     public Task StoreEnvironmentRevisionAsync(
         EnvironmentRevision revision,
         CancellationToken cancellationToken = default)
-        => WriteJsonAtomicAsync(
+        => WriteDocumentAtomicAsync(
             GetEnvironmentRevisionPath(revision.WorldId, revision.Id),
+            StorageDocumentSchemas.EnvironmentRevision,
             revision,
             overwrite: false,
             cancellationToken);
@@ -62,9 +61,9 @@ public sealed class LocalWorldStorage : IWorldStorage
         }
 
         await using var stream = OpenRead(path);
-        return await JsonSerializer.DeserializeAsync<EnvironmentRevision>(
+        return await PersistedDocumentCodec.ReadAsync(
             stream,
-            JsonOptions,
+            StorageDocumentSchemas.EnvironmentRevision,
             cancellationToken);
     }
 
@@ -93,8 +92,9 @@ public sealed class LocalWorldStorage : IWorldStorage
 
         try
         {
-            await WriteJsonFileAsync(
+            await WriteDocumentFileAsync(
                 Path.Combine(temporaryDirectory, "revision.json"),
+                StorageDocumentSchemas.StateRevision,
                 revision,
                 cancellationToken);
 
@@ -131,9 +131,9 @@ public sealed class LocalWorldStorage : IWorldStorage
         }
 
         await using var stream = OpenRead(path);
-        return await JsonSerializer.DeserializeAsync<StateRevision>(
+        return await PersistedDocumentCodec.ReadAsync(
             stream,
-            JsonOptions,
+            StorageDocumentSchemas.StateRevision,
             cancellationToken);
     }
 
@@ -156,8 +156,9 @@ public sealed class LocalWorldStorage : IWorldStorage
         return Task.FromResult(stream);
     }
 
-    private async Task WriteJsonAtomicAsync<T>(
+    private async Task WriteDocumentAtomicAsync<T>(
         string destination,
+        PersistedDocumentSchema<T> schema,
         T value,
         bool overwrite,
         CancellationToken cancellationToken)
@@ -170,7 +171,7 @@ public sealed class LocalWorldStorage : IWorldStorage
 
         try
         {
-            await WriteJsonFileAsync(temporary, value, cancellationToken);
+            await WriteDocumentFileAsync(temporary, schema, value, cancellationToken);
             File.Move(temporary, destination, overwrite);
         }
         finally
@@ -179,8 +180,9 @@ public sealed class LocalWorldStorage : IWorldStorage
         }
     }
 
-    private static async Task WriteJsonFileAsync<T>(
+    private static async Task WriteDocumentFileAsync<T>(
         string destination,
+        PersistedDocumentSchema<T> schema,
         T value,
         CancellationToken cancellationToken)
     {
@@ -192,7 +194,11 @@ public sealed class LocalWorldStorage : IWorldStorage
             bufferSize: 64 * 1024,
             useAsync: true);
 
-        await JsonSerializer.SerializeAsync(stream, value, JsonOptions, cancellationToken);
+        await PersistedDocumentCodec.WriteAsync(
+            stream,
+            schema,
+            value,
+            cancellationToken);
         await stream.FlushAsync(cancellationToken);
     }
 

@@ -114,10 +114,10 @@ public sealed class WorldLifecycleService
         EnsureAdapterMatches(adapter.Id, world.GameAdapterId, "World");
 
         var environmentRevisionId = world.CurrentEnvironmentRevisionId
-            ?? throw new InvalidOperationException($"World '{worldId}' has no environment revision.");
+            ?? throw new WorldIntegrityException(worldId, "The canonical environment revision is missing.");
 
         var stateRevisionId = world.CurrentStateRevisionId
-            ?? throw new InvalidOperationException($"World '{worldId}' has no state revision.");
+            ?? throw new WorldIntegrityException(worldId, "The canonical state revision is missing.");
 
         var environmentRevision = await _storage.LoadEnvironmentRevisionAsync(
             worldId,

@@ -28,7 +28,7 @@ Examples:
 - `DisplayName`
 - `Capabilities`
 
-Capabilities describe what an adapter can currently automate, such as mods, automatic host launch, automatic client join, exact game versions, exact mod versions, or environment isolation.
+Capabilities describe what an adapter can currently automate, such as local launch, automatic host launch, automatic client join, mods, exact game versions, exact mod versions, or environment isolation.
 
 Capabilities are descriptive. The Core should use them to decide which workflows are available without branching on a game name.
 
@@ -60,6 +60,8 @@ The adapter decides:
 - which files/directories count as worlds
 - which autosaves or temporary states should be hidden
 - how names are presented
+
+Discovery is read-only product discovery. An adapter must not upload, publish, host, or otherwise share a discovered save merely because it found it.
 
 ### Inspect environment
 
@@ -95,6 +97,8 @@ This operation belongs to the adapter because a game's world may be:
 
 The Core must never assume one universal format.
 
+Importing a detected world does not make it shared. Core creates the resulting World as `LocalOnly`.
+
 ### Prepare environment
 
 `PrepareEnvironmentAsync`
@@ -126,17 +130,31 @@ Capture the workspace after play into a new state package.
 
 This is used to create the next canonical `StateRevision`.
 
+### Launch local
+
+`LaunchLocalAsync`
+
+Start the prepared World as a local/non-shared gameplay session.
+
+This is deliberately separate from hosting. An adapter must not implement local Continue by silently exposing a multiplayer host unless the game itself provides no meaningful distinction and that limitation is explicitly surfaced to the product.
+
+For Factorio, local Continue uses `--load-game`, while hosted play uses the separate host path.
+
 ### Launch host
 
 `LaunchHostAsync`
 
-Start the game in the adapter-specific host mode.
+Start the game in the adapter-specific multiplayer host mode.
+
+Core only invokes the hosted canonical path when the World is explicitly `Shared`.
 
 ### Launch client
 
 `LaunchClientAsync`
 
 Start or connect the game as a client.
+
+Join workflows are only eligible for explicitly shared Worlds.
 
 ### Wait for session end
 
@@ -145,6 +163,14 @@ Start or connect the game as a client.
 Wait until the relevant game session has actually ended.
 
 This belongs to the adapter rather than Core because launchers may spawn another process, games may have dedicated-server processes, and different games have different lifecycle semantics.
+
+### Finalize prepared workspace
+
+`FinalizePreparedWorldAsync`
+
+Clean or preserve adapter-owned prepared workspace state after a session.
+
+The adapter must respect the requested disposition and must validate ownership before destructive recursive deletion.
 
 ## Adapter isolation rule
 
@@ -164,7 +190,8 @@ An adapter should not redefine universal product semantics.
 
 It should not decide:
 
-- who owns the canonical host role
+- whether a World is local-only or shared
+- who owns the canonical session lease
 - whether a new canonical revision is accepted
 - World membership semantics
 - Fork versus Sandbox product semantics
@@ -182,10 +209,11 @@ A new adapter should be implemented in this order:
 4. Environment inspection.
 5. Isolated preparation.
 6. State restore.
-7. Host launch.
+7. Local launch.
 8. Session-end observation.
 9. State capture.
-10. Client join.
-11. Exact environment reproduction where supported.
+10. Hosted launch.
+11. Client join.
+12. Exact environment reproduction where supported.
 
 The first goal is one complete vertical slice, not a partially implemented list of many games.

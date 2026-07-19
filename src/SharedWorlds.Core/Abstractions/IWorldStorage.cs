@@ -11,6 +11,15 @@ public interface IWorldStorage
     Task SaveWorldAsync(World world, CancellationToken cancellationToken = default);
     Task<World?> LoadWorldAsync(WorldId worldId, CancellationToken cancellationToken = default);
 
+    Task StoreEnvironmentRevisionAsync(
+        EnvironmentRevision revision,
+        CancellationToken cancellationToken = default);
+
+    Task<EnvironmentRevision?> LoadEnvironmentRevisionAsync(
+        WorldId worldId,
+        RevisionId revisionId,
+        CancellationToken cancellationToken = default);
+
     Task StoreRevisionAsync(
         StateRevision revision,
         Stream package,

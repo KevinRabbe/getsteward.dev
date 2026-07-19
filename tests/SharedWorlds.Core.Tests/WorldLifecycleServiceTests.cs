@@ -19,8 +19,9 @@ public sealed class WorldLifecycleServiceTests : IDisposable
     {
         var storage = new InMemoryWorldStorage { FailStoreRevision = true };
         var sessions = new RecordingSessionCoordinator();
+        var recovery = new RecordingWorkspaceRecoveryStore();
         var adapter = new FakeGameAdapter(_root);
-        var lifecycle = new WorldLifecycleService(storage, sessions);
+        var lifecycle = new WorldLifecycleService(storage, sessions, recovery);
 
         await Assert.ThrowsAsync<IOException>(() => lifecycle.ImportAsync(
             adapter,
@@ -39,6 +40,7 @@ public sealed class WorldLifecycleServiceTests : IDisposable
     {
         var storage = new InMemoryWorldStorage();
         var sessions = new RecordingSessionCoordinator();
+        var recovery = new RecordingWorkspaceRecoveryStore();
         var adapter = new FakeGameAdapter(_root);
         var world = new World(
             WorldId.New(),
@@ -49,7 +51,7 @@ public sealed class WorldLifecycleServiceTests : IDisposable
             RevisionId.New());
         storage.Worlds[world.Id] = world;
 
-        var lifecycle = new WorldLifecycleService(storage, sessions);
+        var lifecycle = new WorldLifecycleService(storage, sessions, recovery);
 
         await Assert.ThrowsAsync<AdapterMismatchException>(() => lifecycle.PrepareAsync(
             world.Id,
@@ -64,6 +66,7 @@ public sealed class WorldLifecycleServiceTests : IDisposable
     {
         var storage = new InMemoryWorldStorage();
         var sessions = new RecordingSessionCoordinator();
+        var recovery = new RecordingWorkspaceRecoveryStore();
         var adapter = new FakeGameAdapter(_root);
         var world = new World(
             WorldId.New(),
@@ -74,7 +77,7 @@ public sealed class WorldLifecycleServiceTests : IDisposable
             CurrentStateRevisionId: RevisionId.New());
         storage.Worlds[world.Id] = world;
 
-        var lifecycle = new WorldLifecycleService(storage, sessions);
+        var lifecycle = new WorldLifecycleService(storage, sessions, recovery);
 
         var exception = await Assert.ThrowsAsync<WorldIntegrityException>(() => lifecycle.PrepareAsync(
             world.Id,
@@ -85,17 +88,18 @@ public sealed class WorldLifecycleServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Continue_ReleasesHostAndKeepsCanonicalHead_WhenRevisionStorageFails()
+    public async Task Continue_PreservesWorkspaceForRecovery_WhenPostLaunchCommitFails()
     {
         var storage = new InMemoryWorldStorage();
         var sessions = new RecordingSessionCoordinator();
+        var recovery = new RecordingWorkspaceRecoveryStore();
         var adapter = new FakeGameAdapter(_root);
         var user = TestUser();
         var world = SeedPlayableWorld(storage, adapter, user);
         var originalHead = world.CurrentStateRevisionId;
         storage.FailStoreRevision = true;
 
-        var lifecycle = new WorldLifecycleService(storage, sessions);
+        var lifecycle = new WorldLifecycleService(storage, sessions, recovery);
 
         await Assert.ThrowsAsync<IOException>(() => lifecycle.ContinueAsHostAsync(
             world.Id,
@@ -108,6 +112,38 @@ public sealed class WorldLifecycleServiceTests : IDisposable
         Assert.Equal(originalHead, storage.Worlds[world.Id].CurrentStateRevisionId);
         Assert.NotNull(adapter.LastCapturedPackagePath);
         Assert.False(File.Exists(adapter.LastCapturedPackagePath));
+        Assert.Equal(PreparedWorldDisposition.PreserveForRecovery, adapter.LastFinalizationDisposition);
+        Assert.NotNull(adapter.LastPreparedWorkspacePath);
+        Assert.True(Directory.Exists(adapter.LastPreparedWorkspacePath));
+
+        var record = Assert.Single(recovery.Records.Values);
+        Assert.Equal(WorkspaceRecoveryStatus.RecoveryPending, record.Status);
+        Assert.Equal(world.Id, record.WorldId);
+    }
+
+    [Fact]
+    public async Task Continue_DiscardsWorkspaceAndRecoveryRecord_AfterSuccessfulCommit()
+    {
+        var storage = new InMemoryWorldStorage();
+        var sessions = new RecordingSessionCoordinator();
+        var recovery = new RecordingWorkspaceRecoveryStore();
+        var adapter = new FakeGameAdapter(_root);
+        var user = TestUser();
+        var world = SeedPlayableWorld(storage, adapter, user);
+
+        var lifecycle = new WorldLifecycleService(storage, sessions, recovery);
+
+        var updated = await lifecycle.ContinueAsHostAsync(
+            world.Id,
+            adapter,
+            adapter.Installation,
+            user);
+
+        Assert.NotEqual(world.CurrentStateRevisionId, updated.CurrentStateRevisionId);
+        Assert.Equal(PreparedWorldDisposition.Discard, adapter.LastFinalizationDisposition);
+        Assert.NotNull(adapter.LastPreparedWorkspacePath);
+        Assert.False(Directory.Exists(adapter.LastPreparedWorkspacePath));
+        Assert.Empty(recovery.Records);
     }
 
     private static World SeedPlayableWorld(
@@ -173,8 +209,7 @@ public sealed class WorldLifecycleServiceTests : IDisposable
         }
     }
 
-    private sealed class FakeGameAdapter
-        : IGameAdapter
+    private sealed class FakeGameAdapter : IGameAdapter
     {
         private readonly string _root;
 
@@ -206,6 +241,8 @@ public sealed class WorldLifecycleServiceTests : IDisposable
         public EnvironmentManifest Manifest { get; }
         public bool PrepareCalled { get; private set; }
         public string? LastCapturedPackagePath { get; private set; }
+        public string? LastPreparedWorkspacePath { get; private set; }
+        public PreparedWorldDisposition? LastFinalizationDisposition { get; private set; }
 
         public Task<IReadOnlyList<GameInstallation>> DiscoverInstallationsAsync(
             CancellationToken cancellationToken = default)
@@ -236,6 +273,7 @@ public sealed class WorldLifecycleServiceTests : IDisposable
             PrepareCalled = true;
             var preparedPath = Path.Combine(_root, $"prepared-{Guid.NewGuid():N}");
             Directory.CreateDirectory(preparedPath);
+            LastPreparedWorkspacePath = preparedPath;
             return Task.FromResult(new PreparedWorld(
                 installation,
                 preparedPath,
@@ -268,6 +306,21 @@ public sealed class WorldLifecycleServiceTests : IDisposable
             GameSessionHandle session,
             CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+
+        public Task FinalizePreparedWorldAsync(
+            PreparedWorld world,
+            PreparedWorldDisposition disposition,
+            CancellationToken cancellationToken = default)
+        {
+            LastFinalizationDisposition = disposition;
+            if (disposition == PreparedWorldDisposition.Discard &&
+                Directory.Exists(world.WorkingDirectory))
+            {
+                Directory.Delete(world.WorkingDirectory, recursive: true);
+            }
+
+            return Task.CompletedTask;
+        }
 
         private CapturedState CreateTemporaryCapture(string prefix)
         {
@@ -329,6 +382,31 @@ public sealed class WorldLifecycleServiceTests : IDisposable
             ReleaseCount++;
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class RecordingWorkspaceRecoveryStore : IWorkspaceRecoveryStore
+    {
+        public Dictionary<WorkspaceId, WorkspaceRecoveryRecord> Records { get; } = [];
+
+        public Task SaveAsync(
+            WorkspaceRecoveryRecord record,
+            CancellationToken cancellationToken = default)
+        {
+            Records[record.Id] = record;
+            return Task.CompletedTask;
+        }
+
+        public Task RemoveAsync(
+            WorkspaceId workspaceId,
+            CancellationToken cancellationToken = default)
+        {
+            Records.Remove(workspaceId);
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<WorkspaceRecoveryRecord>> ListAsync(
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<WorkspaceRecoveryRecord>>(Records.Values.ToArray());
     }
 
     private sealed class InMemoryWorldStorage : IWorldStorage

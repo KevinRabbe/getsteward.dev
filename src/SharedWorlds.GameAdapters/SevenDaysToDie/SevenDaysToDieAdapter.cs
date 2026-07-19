@@ -33,6 +33,9 @@ public sealed class SevenDaysToDieAdapter : IGameAdapter
     public Task RestoreStateAsync(PreparedWorld world, StatePackage state, CancellationToken cancellationToken = default)
         => throw new NotImplementedException();
 
+    public Task<GameSessionHandle> LaunchLocalAsync(PreparedWorld world, CancellationToken cancellationToken = default)
+        => throw new NotImplementedException();
+
     public Task<GameSessionHandle> LaunchHostAsync(PreparedWorld world, CancellationToken cancellationToken = default)
         => throw new NotImplementedException();
 

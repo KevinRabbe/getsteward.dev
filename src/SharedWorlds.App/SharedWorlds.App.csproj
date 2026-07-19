@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../SharedWorlds.Core/SharedWorlds.Core.csproj" />
+    <ProjectReference Include="../SharedWorlds.GameAdapters/SharedWorlds.GameAdapters.csproj" />
+  </ItemGroup>
+</Project>

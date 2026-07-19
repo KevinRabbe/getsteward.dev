@@ -36,6 +36,7 @@ World Core
 - [Domain Model](docs/DOMAIN_MODEL.md) — World, environment revisions, state revisions, manifests, packages, sessions, and identities.
 - [Game Adapter Guide](docs/ADAPTER_GUIDE.md) — adapter responsibilities, contract rules, and how to add a new game without contaminating Core.
 - [World Lifecycle](docs/WORLD_LIFECYCLE.md) — Import, Continue, Join, host handoff, Sandbox, Fresh Test World, Fork, Restore, and recovery semantics.
+- [Storage](docs/STORAGE.md) — local persistence layout, atomic writes, immutable revisions, and the future remote-storage boundary.
 - [Factorio Adapter](docs/FACTORIO.md) — current first vertical slice, discovery, state capture, environment inspection, launch behavior, limitations, and test checklist.
 - [Design Decisions](docs/DECISIONS.md) — durable architectural decisions and constraints that future work should preserve.
 - [Roadmap](docs/ROADMAP.md) — phased development plan from local Factorio validation to shared host coordination and recovery hardening.
@@ -147,6 +148,7 @@ docs/
   DOMAIN_MODEL.md
   ADAPTER_GUIDE.md
   WORLD_LIFECYCLE.md
+  STORAGE.md
   FACTORIO.md
   DECISIONS.md
   ROADMAP.md

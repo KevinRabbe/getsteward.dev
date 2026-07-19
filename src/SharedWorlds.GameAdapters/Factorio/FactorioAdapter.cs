@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Environment;
 
@@ -71,4 +72,19 @@ public sealed class FactorioAdapter : IGameAdapter
         HostConnection host,
         CancellationToken cancellationToken = default)
         => FactorioWorldOperations.LaunchClientAsync(world, host, cancellationToken);
+
+    public async Task WaitForSessionEndAsync(
+        GameSessionHandle session,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(session.ProcessId);
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (ArgumentException)
+        {
+            // The process already exited before we started observing it.
+        }
+    }
 }

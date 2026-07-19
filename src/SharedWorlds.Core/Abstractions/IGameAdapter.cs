@@ -63,6 +63,16 @@ public interface IGameAdapter
     Task WaitForSessionEndAsync(
         GameSessionHandle session,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Finalizes adapter-owned prepared workspace resources.
+    /// Discard means the workspace is no longer needed and should be removed where safe.
+    /// PreserveForRecovery means potentially recoverable local state must remain intact.
+    /// </summary>
+    Task FinalizePreparedWorldAsync(
+        PreparedWorld world,
+        PreparedWorldDisposition disposition,
+        CancellationToken cancellationToken = default);
 }
 
 [Flags]
@@ -75,6 +85,12 @@ public enum GameAdapterCapabilities
     ExactGameVersion = 1 << 3,
     ExactModVersions = 1 << 4,
     EnvironmentIsolation = 1 << 5
+}
+
+public enum PreparedWorldDisposition
+{
+    Discard,
+    PreserveForRecovery
 }
 
 public sealed record GameInstallation(

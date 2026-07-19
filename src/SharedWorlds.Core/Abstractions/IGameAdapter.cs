@@ -47,6 +47,14 @@ public interface IGameAdapter
         StatePackage state,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Launches the prepared World as a local, non-shared session.
+    /// This is distinct from hosting and must not expose a World for multiplayer by accident.
+    /// </summary>
+    Task<GameSessionHandle> LaunchLocalAsync(
+        PreparedWorld world,
+        CancellationToken cancellationToken = default);
+
     Task<GameSessionHandle> LaunchHostAsync(
         PreparedWorld world,
         CancellationToken cancellationToken = default);
@@ -84,7 +92,8 @@ public enum GameAdapterCapabilities
     AutomaticClientJoin = 1 << 2,
     ExactGameVersion = 1 << 3,
     ExactModVersions = 1 << 4,
-    EnvironmentIsolation = 1 << 5
+    EnvironmentIsolation = 1 << 5,
+    AutomaticLocalLaunch = 1 << 6
 }
 
 public enum PreparedWorldDisposition

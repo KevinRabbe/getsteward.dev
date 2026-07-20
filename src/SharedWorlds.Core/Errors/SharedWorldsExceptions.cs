@@ -90,6 +90,19 @@ public sealed class PersistedDataCompatibilityException : SharedWorldsException
     public int CurrentSchemaVersion { get; }
 }
 
+public sealed class EnvironmentReproductionException : SharedWorldsException
+{
+    public EnvironmentReproductionException(string adapterId, string problem)
+        : base($"Adapter '{adapterId}' cannot reproduce the required environment: {problem}")
+    {
+        AdapterId = adapterId;
+        Problem = problem;
+    }
+
+    public string AdapterId { get; }
+    public string Problem { get; }
+}
+
 public sealed class WorldSharingRequiredException : SharedWorldsException
 {
     public WorldSharingRequiredException(WorldId worldId)

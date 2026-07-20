@@ -62,12 +62,15 @@ public sealed class FactorioSaveDiscoveryTests : IDisposable
             Components: [],
             Configuration: new Dictionary<string, string>());
 
-        var prepared = await adapter.PrepareEnvironmentAsync(installation, manifest);
+        var prepared = (await adapter.PrepareEnvironmentAsync(installation, manifest)) with
+        {
+            DisplayName = "newme"
+        };
         try
         {
             var workspaceConfig = Path.Combine(prepared.WorkingDirectory, "config", "config.ini");
             var workspaceUserData = Path.Combine(prepared.WorkingDirectory, "user-data");
-            var workspaceSave = Path.Combine(workspaceUserData, "saves", "world.zip");
+            var workspaceSave = Path.Combine(workspaceUserData, "saves", "newme.zip");
             var workspaceMods = Path.Combine(prepared.WorkingDirectory, "mods");
 
             Assert.True(File.Exists(workspaceConfig));

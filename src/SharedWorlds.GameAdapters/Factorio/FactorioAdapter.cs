@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Environment;
@@ -6,6 +7,12 @@ namespace SharedWorlds.GameAdapters.Factorio;
 
 public sealed class FactorioAdapter : IGameAdapter
 {
+    private static readonly TimeSpan BootstrapExitThreshold = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan ReplacementProcessTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan ReplacementPollInterval = TimeSpan.FromMilliseconds(250);
+
+    private readonly ConcurrentDictionary<int, FactorioLaunchObservation> _launchObservations = new();
+
     public string Id => "factorio";
     public string DisplayName => "Factorio";
 
@@ -72,31 +79,80 @@ public sealed class FactorioAdapter : IGameAdapter
     public Task<GameSessionHandle> LaunchLocalAsync(
         PreparedWorld world,
         CancellationToken cancellationToken = default)
-        => FactorioWorldOperations.LaunchLocalAsync(world, cancellationToken);
+        => LaunchTrackedAsync(
+            world,
+            FactorioWorldOperations.LaunchLocalAsync,
+            cancellationToken);
 
     public Task<GameSessionHandle> LaunchHostAsync(
         PreparedWorld world,
         CancellationToken cancellationToken = default)
-        => FactorioWorldOperations.LaunchHostAsync(world, cancellationToken);
+        => LaunchTrackedAsync(
+            world,
+            FactorioWorldOperations.LaunchHostAsync,
+            cancellationToken);
 
     public Task<GameSessionHandle> LaunchClientAsync(
         PreparedWorld world,
         HostConnection host,
         CancellationToken cancellationToken = default)
-        => FactorioWorldOperations.LaunchClientAsync(world, host, cancellationToken);
+        => LaunchTrackedAsync(
+            world,
+            (preparedWorld, token) => FactorioWorldOperations.LaunchClientAsync(
+                preparedWorld,
+                host,
+                token),
+            cancellationToken);
 
     public async Task WaitForSessionEndAsync(
         GameSessionHandle session,
         CancellationToken cancellationToken = default)
     {
-        try
+        _launchObservations.TryRemove(session.ProcessId, out var observation);
+
+        var processId = session.ProcessId;
+        var processStartedAt = session.StartedAt;
+        var handoffCount = 0;
+        var excludedProcessIds = observation is null
+            ? new HashSet<int>()
+            : new HashSet<int>(observation.BaselineProcessIds);
+
+        while (true)
         {
-            using var process = Process.GetProcessById(session.ProcessId);
-            await process.WaitForExitAsync(cancellationToken);
-        }
-        catch (ArgumentException)
-        {
-            // The process already exited before we started observing it.
+            var lifetime = await WaitForProcessExitAsync(
+                processId,
+                processStartedAt,
+                cancellationToken);
+
+            // A normal Factorio session lives longer than the tiny Steam bootstrap process.
+            // Only attempt handoff recovery for an almost-immediate exit from a tracked launch.
+            if (observation is null || lifetime >= BootstrapExitThreshold)
+            {
+                return;
+            }
+
+            excludedProcessIds.Add(processId);
+            var replacementProcessId = await FindReplacementProcessAsync(
+                observation.ProcessName,
+                excludedProcessIds,
+                cancellationToken);
+
+            if (replacementProcessId is null)
+            {
+                throw new InvalidOperationException(
+                    "Factorio's launch process exited before a playable game session could be observed. " +
+                    "The operation stopped instead of treating a launcher/bootstrap exit as a completed session.");
+            }
+
+            handoffCount++;
+            if (handoffCount > 3)
+            {
+                throw new InvalidOperationException(
+                    "Factorio performed too many rapid process handoffs to identify the playable session safely.");
+            }
+
+            processId = replacementProcessId.Value;
+            processStartedAt = DateTimeOffset.UtcNow;
         }
     }
 
@@ -114,6 +170,96 @@ public sealed class FactorioAdapter : IGameAdapter
 
         DeleteOwnedWorkspace(world.WorkingDirectory);
         return Task.CompletedTask;
+    }
+
+    private async Task<GameSessionHandle> LaunchTrackedAsync(
+        PreparedWorld world,
+        Func<PreparedWorld, CancellationToken, Task<GameSessionHandle>> launch,
+        CancellationToken cancellationToken)
+    {
+        var executable = FactorioWorldOperations.GetExecutablePath(world.Installation);
+        var processName = Path.GetFileNameWithoutExtension(executable);
+        var baselineProcessIds = GetProcessIds(processName);
+
+        var handle = await launch(world, cancellationToken);
+        _launchObservations[handle.ProcessId] = new FactorioLaunchObservation(
+            processName,
+            baselineProcessIds);
+
+        return handle;
+    }
+
+    private static async Task<TimeSpan> WaitForProcessExitAsync(
+        int processId,
+        DateTimeOffset startedAt,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (ArgumentException)
+        {
+            // The process may have exited before observation started.
+        }
+
+        var lifetime = DateTimeOffset.UtcNow - startedAt;
+        return lifetime < TimeSpan.Zero ? TimeSpan.Zero : lifetime;
+    }
+
+    private static async Task<int?> FindReplacementProcessAsync(
+        string processName,
+        HashSet<int> excludedProcessIds,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow + ReplacementProcessTimeout;
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            foreach (var process in Process.GetProcessesByName(processName))
+            {
+                using (process)
+                {
+                    if (excludedProcessIds.Contains(process.Id))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        if (!process.HasExited)
+                        {
+                            return process.Id;
+                        }
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // The process disappeared while it was being inspected.
+                    }
+                }
+            }
+
+            await Task.Delay(ReplacementPollInterval, cancellationToken);
+        }
+
+        return null;
+    }
+
+    private static HashSet<int> GetProcessIds(string processName)
+    {
+        var processIds = new HashSet<int>();
+        foreach (var process in Process.GetProcessesByName(processName))
+        {
+            using (process)
+            {
+                processIds.Add(process.Id);
+            }
+        }
+
+        return processIds;
     }
 
     private static void DeleteOwnedWorkspace(string workingDirectory)
@@ -135,4 +281,8 @@ public sealed class FactorioAdapter : IGameAdapter
             Directory.Delete(fullPath, recursive: true);
         }
     }
+
+    private sealed record FactorioLaunchObservation(
+        string ProcessName,
+        IReadOnlySet<int> BaselineProcessIds);
 }

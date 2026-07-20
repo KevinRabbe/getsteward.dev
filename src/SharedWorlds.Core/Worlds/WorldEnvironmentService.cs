@@ -1,4 +1,5 @@
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
 using SharedWorlds.Core.Errors;
 
@@ -24,6 +25,9 @@ public sealed class WorldEnvironmentService
         GameInstallation installation,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(adapter);
+        ArgumentNullException.ThrowIfNull(installation);
+
         var environment = await LoadCurrentEnvironmentAsync(
             worldId,
             adapter,
@@ -40,6 +44,9 @@ public sealed class WorldEnvironmentService
         GameInstallation installation,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(adapter);
+        ArgumentNullException.ThrowIfNull(installation);
+
         var environment = await LoadCurrentEnvironmentAsync(
             worldId,
             adapter,
@@ -50,14 +57,11 @@ public sealed class WorldEnvironmentService
             cancellationToken);
     }
 
-    private async Task<Domain.EnvironmentRevision> LoadCurrentEnvironmentAsync(
+    private async Task<EnvironmentRevision> LoadCurrentEnvironmentAsync(
         WorldId worldId,
         IGameAdapter adapter,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(adapter);
-        ArgumentNullException.ThrowIfNull(installation: adapter);
-
         var world = await _storage.LoadWorldAsync(worldId, cancellationToken)
             ?? throw new WorldNotFoundException(worldId);
 

@@ -342,6 +342,35 @@
                             </StackPanel>
                         </Border>
 
+                        <TextBlock Text="Environment readiness"
+                                   Margin="0,26,0,12"
+                                   FontSize="18"
+                                   FontWeight="SemiBold" />
+                        <Border Background="{StaticResource PanelBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="12"
+                                Padding="20">
+                            <StackPanel>
+                                <TextBlock x:Name="EnvironmentReadinessText"
+                                           Foreground="{StaticResource MutedTextBrush}"
+                                           FontSize="12"
+                                           TextWrapping="Wrap"
+                                           Text="Not checked yet." />
+                                <WrapPanel Margin="0,14,0,0">
+                                    <Button x:Name="VerifyEnvironmentButton"
+                                            Content="Verify Environment"
+                                            Margin="0,0,10,10"
+                                            Click="VerifyEnvironmentButton_Click" />
+                                    <Button x:Name="RepairEnvironmentButton"
+                                            Content="Repair"
+                                            IsEnabled="False"
+                                            Margin="0,0,10,10"
+                                            Click="RepairEnvironmentButton_Click" />
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
+
                         <TextBlock Margin="0,18,0,0"
                                    Foreground="{StaticResource MutedTextBrush}"
                                    Text="The first desktop slice intentionally exposes only the actions already proven by the Core lifecycle. Join, host handoff, Restore, Sandbox and Start Your Own will appear as those workflows become real."

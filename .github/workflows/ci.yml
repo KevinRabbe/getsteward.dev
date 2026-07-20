@@ -55,6 +55,18 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
+      - name: Upload formatted sources
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: formatted-sources
+          path: |
+            src/SharedWorlds.Desktop/DeviceSettingsStore.cs
+            src/SharedWorlds.Desktop/MainWindow.xaml.cs
+            src/SharedWorlds.GameAdapters/Factorio/FactorioUserDataPathResolver.cs
+          if-no-files-found: error
+          retention-days: 1
+
   build-test:
     name: Build and test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

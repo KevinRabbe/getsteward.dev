@@ -7,6 +7,10 @@ namespace SharedWorlds.GameAdapters.Factorio;
 
 public sealed class FactorioAdapter : IGameAdapter
 {
+    private const string ConfigDirectoryName = "config";
+    private const string ConfigFileName = "config.ini";
+    private const string PathSectionName = "path";
+
     private static readonly TimeSpan BootstrapExitThreshold = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan ReplacementProcessTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan ReplacementPollInterval = TimeSpan.FromMilliseconds(250);
@@ -156,20 +160,21 @@ public sealed class FactorioAdapter : IGameAdapter
         }
     }
 
-    public Task FinalizePreparedWorldAsync(
+    public async Task FinalizePreparedWorldAsync(
         PreparedWorld world,
         PreparedWorldDisposition disposition,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        await TryPersistPlayerPreferencesAsync(world, cancellationToken);
+
         if (disposition == PreparedWorldDisposition.PreserveForRecovery)
         {
-            return Task.CompletedTask;
+            return;
         }
 
         DeleteOwnedWorkspace(world.WorkingDirectory);
-        return Task.CompletedTask;
     }
 
     private async Task<GameSessionHandle> LaunchTrackedAsync(
@@ -260,6 +265,179 @@ public sealed class FactorioAdapter : IGameAdapter
         }
 
         return processIds;
+    }
+
+    private static async Task TryPersistPlayerPreferencesAsync(
+        PreparedWorld world,
+        CancellationToken cancellationToken)
+    {
+        var workspaceConfigPath = Path.Combine(
+            world.WorkingDirectory,
+            ConfigDirectoryName,
+            ConfigFileName);
+        if (!File.Exists(workspaceConfigPath))
+        {
+            return;
+        }
+
+        if (world.Installation.Metadata is null ||
+            !world.Installation.Metadata.TryGetValue(
+                FactorioInstallationDiscovery.UserDataPathKey,
+                out var userDataPath) ||
+            string.IsNullOrWhiteSpace(userDataPath))
+        {
+            return;
+        }
+
+        var playerConfigPath = Path.Combine(
+            userDataPath,
+            ConfigDirectoryName,
+            ConfigFileName);
+        if (!File.Exists(playerConfigPath))
+        {
+            return;
+        }
+
+        string? temporaryPath = null;
+        try
+        {
+            var workspaceLines = await File.ReadAllLinesAsync(workspaceConfigPath, cancellationToken);
+            var playerLines = await File.ReadAllLinesAsync(playerConfigPath, cancellationToken);
+            var merged = MergePlayerPreferences(workspaceLines, playerLines);
+
+            temporaryPath = Path.Combine(
+                Path.GetDirectoryName(playerConfigPath)!,
+                $".{ConfigFileName}.sharedworlds-{Guid.NewGuid():N}.tmp");
+            await File.WriteAllLinesAsync(temporaryPath, merged, cancellationToken);
+            File.Move(temporaryPath, playerConfigPath, overwrite: true);
+            temporaryPath = null;
+        }
+        catch (IOException)
+        {
+            // Player preferences are non-canonical convenience state. A failure to persist them
+            // must never invalidate an otherwise successful World commit or recovery decision.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // The World lifecycle must not fail because a local preference file is read-only.
+        }
+        finally
+        {
+            if (temporaryPath is not null)
+            {
+                TryDeleteFile(temporaryPath);
+            }
+        }
+    }
+
+    internal static IReadOnlyList<string> MergePlayerPreferences(
+        IReadOnlyList<string> workspaceLines,
+        IReadOnlyList<string> currentPlayerLines)
+    {
+        var playerPathSection = ExtractSection(currentPlayerLines, PathSectionName);
+        var result = new List<string>(workspaceLines.Count + playerPathSection.Count);
+        var skippingWorkspacePathSection = false;
+        var pathSectionHandled = false;
+
+        foreach (var line in workspaceLines)
+        {
+            if (TryGetSectionName(line, out var sectionName))
+            {
+                if (string.Equals(sectionName, PathSectionName, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!pathSectionHandled && playerPathSection.Count > 0)
+                    {
+                        result.AddRange(playerPathSection);
+                    }
+
+                    pathSectionHandled = true;
+                    skippingWorkspacePathSection = true;
+                    continue;
+                }
+
+                skippingWorkspacePathSection = false;
+                result.Add(line);
+                continue;
+            }
+
+            if (!skippingWorkspacePathSection)
+            {
+                result.Add(line);
+            }
+        }
+
+        return result;
+    }
+
+    private static IReadOnlyList<string> ExtractSection(
+        IReadOnlyList<string> lines,
+        string requestedSection)
+    {
+        var result = new List<string>();
+        var inRequestedSection = false;
+
+        foreach (var line in lines)
+        {
+            if (TryGetSectionName(line, out var sectionName))
+            {
+                if (inRequestedSection)
+                {
+                    break;
+                }
+
+                inRequestedSection = string.Equals(
+                    sectionName,
+                    requestedSection,
+                    StringComparison.OrdinalIgnoreCase);
+                if (inRequestedSection)
+                {
+                    result.Add(line);
+                }
+
+                continue;
+            }
+
+            if (inRequestedSection)
+            {
+                result.Add(line);
+            }
+        }
+
+        return result;
+    }
+
+    private static bool TryGetSectionName(string line, out string sectionName)
+    {
+        var trimmed = line.Trim();
+        if (trimmed.Length >= 3 &&
+            trimmed[0] == '[' &&
+            trimmed[^1] == ']')
+        {
+            sectionName = trimmed[1..^1].Trim();
+            return sectionName.Length > 0;
+        }
+
+        sectionName = string.Empty;
+        return false;
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException)
+        {
+            // Best-effort cleanup of a temporary preference file.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Best-effort cleanup of a temporary preference file.
+        }
     }
 
     private static void DeleteOwnedWorkspace(string workingDirectory)

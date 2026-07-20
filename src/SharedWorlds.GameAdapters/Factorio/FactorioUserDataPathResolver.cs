@@ -145,8 +145,7 @@ internal static class FactorioUserDataPathResolver
                     continue;
                 }
 
-                if (line.StartsWith('[', StringComparison.Ordinal) &&
-                    line.EndsWith(']', StringComparison.Ordinal))
+                if (line[0] == '[' && line[^1] == ']')
                 {
                     inPathSection = string.Equals(
                         line,
@@ -217,7 +216,7 @@ internal static class FactorioUserDataPathResolver
 
     private static string? TryParseKeyValue(string line, string expectedKey)
     {
-        var separatorIndex = line.IndexOf('=', StringComparison.Ordinal);
+        var separatorIndex = line.IndexOf('=');
         if (separatorIndex <= 0)
         {
             return null;

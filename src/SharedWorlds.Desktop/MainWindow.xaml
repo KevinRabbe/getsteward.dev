@@ -46,25 +46,99 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <DockPanel Grid.Row="0" Margin="2,0,2,14">
+                    <Grid Grid.Row="0" Margin="2,0,2,14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
                         <TextBlock Text="Worlds"
-                                   DockPanel.Dock="Left"
+                                   Grid.Column="0"
                                    FontSize="18"
                                    FontWeight="SemiBold"
                                    VerticalAlignment="Center" />
+                        <Button x:Name="OpenImportButton"
+                                Grid.Column="1"
+                                Content="Import"
+                                Padding="12,6"
+                                MinHeight="32"
+                                Margin="0,0,8,0"
+                                Click="OpenImportButton_Click" />
                         <Button x:Name="RefreshButton"
-                                DockPanel.Dock="Right"
+                                Grid.Column="2"
                                 Content="Refresh"
                                 Padding="12,6"
                                 MinHeight="32"
                                 Click="RefreshButton_Click" />
-                    </DockPanel>
+                    </Grid>
+
+                    <Border x:Name="ImportPanel"
+                            Grid.Row="1"
+                            Visibility="Collapsed"
+                            Margin="0,0,0,14"
+                            Padding="14"
+                            Background="{StaticResource PanelAltBrush}"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="10">
+                        <StackPanel>
+                            <TextBlock Text="Import a local save"
+                                       FontSize="15"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Text="Detected saves stay private until you explicitly share the World."
+                                       Margin="0,5,0,10"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       FontSize="12"
+                                       TextWrapping="Wrap" />
+
+                            <ComboBox x:Name="ImportCandidateComboBox"
+                                      MinHeight="38"
+                                      SelectionChanged="ImportCandidateComboBox_SelectionChanged">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="2,4">
+                                            <TextBlock Text="{Binding Name}"
+                                                       FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Subtitle}"
+                                                       Margin="0,2,0,0"
+                                                       Foreground="{StaticResource MutedTextBrush}"
+                                                       FontSize="11"
+                                                       TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+
+                            <TextBlock x:Name="ImportDiscoveryText"
+                                       Margin="0,8,0,0"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       FontSize="11"
+                                       TextWrapping="Wrap" />
+
+                            <WrapPanel Margin="0,12,0,0">
+                                <Button x:Name="ImportSelectedButton"
+                                        Content="Import World"
+                                        Style="{StaticResource PrimaryButtonStyle}"
+                                        Margin="0,0,8,8"
+                                        Click="ImportSelectedButton_Click" />
+                                <Button x:Name="ScanImportsButton"
+                                        Content="Scan again"
+                                        Margin="0,0,8,8"
+                                        Click="ScanImportsButton_Click" />
+                                <Button x:Name="CancelImportButton"
+                                        Content="Close"
+                                        Margin="0,0,8,8"
+                                        Click="CancelImportButton_Click" />
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
 
                     <ListBox x:Name="WorldList"
-                             Grid.Row="1"
+                             Grid.Row="2"
                              Background="Transparent"
                              BorderThickness="0"
                              Foreground="{StaticResource TextBrush}"
@@ -222,7 +296,7 @@
 
                         <TextBlock Margin="0,18,0,0"
                                    Foreground="{StaticResource MutedTextBrush}"
-                                   Text="The first desktop slice intentionally exposes only the actions already proven by the Core lifecycle. Join, host handoff, Restore, Sandbox and Start Your Own will appear as those workflows become real." 
+                                   Text="The first desktop slice intentionally exposes only the actions already proven by the Core lifecycle. Join, host handoff, Restore, Sandbox and Start Your Own will appear as those workflows become real."
                                    TextWrapping="Wrap" />
                     </StackPanel>
                 </StackPanel>

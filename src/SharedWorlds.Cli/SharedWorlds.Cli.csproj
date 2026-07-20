@@ -8,6 +8,7 @@
     <ProjectReference Include="../SharedWorlds.Core/SharedWorlds.Core.csproj" />
     <ProjectReference Include="../SharedWorlds.Infrastructure/SharedWorlds.Infrastructure.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/Factorio/SharedWorlds.GameAdapters.Factorio.csproj" />
+    <ProjectReference Include="../SharedWorlds.GameAdapters/Palworld/SharedWorlds.GameAdapters.Palworld.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/SevenDaysToDie/SharedWorlds.GameAdapters.SevenDaysToDie.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/ProjectZomboid/SharedWorlds.GameAdapters.ProjectZomboid.csproj" />
   </ItemGroup>

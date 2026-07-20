@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Environment;
+using SharedWorlds.Core.Errors;
 
 namespace SharedWorlds.GameAdapters.Factorio;
 
@@ -57,14 +58,33 @@ public sealed class FactorioAdapter : IGameAdapter
         return captured with { DeletePackageAfterStore = true };
     }
 
-    public Task<PreparedWorld> PrepareEnvironmentAsync(
+    public async Task<PreparedWorld> PrepareEnvironmentAsync(
         GameInstallation installation,
         EnvironmentManifest requiredEnvironment,
         CancellationToken cancellationToken = default)
-        => FactorioWorldOperations.PrepareEnvironmentAsync(
+    {
+        if (!string.Equals(requiredEnvironment.AdapterId, Id, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                $"Environment belongs to adapter '{requiredEnvironment.AdapterId}', not Factorio.",
+                nameof(requiredEnvironment));
+        }
+
+        var installedVersion = await FactorioEnvironmentInspector.ReadInstalledGameVersionAsync(
+            installation,
+            cancellationToken);
+        if (!string.Equals(installedVersion, requiredEnvironment.GameVersion, StringComparison.Ordinal))
+        {
+            throw new EnvironmentReproductionException(
+                Id,
+                $"installed game version '{installedVersion}' does not match required version '{requiredEnvironment.GameVersion}'.");
+        }
+
+        return await FactorioWorldOperations.PrepareEnvironmentAsync(
             installation,
             requiredEnvironment,
             cancellationToken);
+    }
 
     public async Task<CapturedState> CaptureStateAsync(
         PreparedWorld world,

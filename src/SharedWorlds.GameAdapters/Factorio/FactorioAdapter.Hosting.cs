@@ -9,7 +9,7 @@ namespace SharedWorlds.GameAdapters.Factorio;
 
 public sealed partial class FactorioAdapter
 {
-    private static readonly TimeSpan DedicatedServerReadyTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan DedicatedServerReadyTimeout = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan ServerSaveTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan ServerStopTimeout = TimeSpan.FromSeconds(5);
 
@@ -53,17 +53,18 @@ public sealed partial class FactorioAdapter
                 rconPassword,
                 cancellationToken);
 
-            await FactorioRconClient.WaitUntilReadyAsync(
-                "127.0.0.1",
-                rconPort,
-                rconPassword,
-                DedicatedServerReadyTimeout,
-                cancellationToken);
-
             resolvedServerProcessId = await ResolveServerProcessIdAsync(
                 serverLaunch.Process,
                 processName,
                 baselineProcessIds,
+                cancellationToken);
+
+            await WaitForDedicatedServerReadyAsync(
+                resolvedServerProcessId.Value,
+                serverLaunch.ConsoleLogPath,
+                rconPort,
+                rconPassword,
+                gamePassword,
                 cancellationToken);
 
             var connection = new HostConnection(
@@ -134,7 +135,6 @@ public sealed partial class FactorioAdapter
             EnsureProcessIsAlive(
                 hostedSession.ServerProcessId,
                 "The Factorio dedicated server exited before the host player session ended.");
-
             var previousWriteTime = File.GetLastWriteTimeUtc(hostedSession.SavePath);
             var previousLength = new FileInfo(hostedSession.SavePath).Length;
 
@@ -169,12 +169,102 @@ public sealed partial class FactorioAdapter
             CancellationToken.None);
     }
 
+    private static async Task WaitForDedicatedServerReadyAsync(
+        int serverProcessId,
+        string consoleLogPath,
+        int rconPort,
+        string rconPassword,
+        string gamePassword,
+        CancellationToken cancellationToken)
+    {
+        using var monitorCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var readinessTask = FactorioRconClient.WaitUntilReadyAsync(
+            "127.0.0.1",
+            rconPort,
+            rconPassword,
+            DedicatedServerReadyTimeout,
+            monitorCancellation.Token);
+        var processExitTask = WaitForProcessExitSignalAsync(
+            serverProcessId,
+            monitorCancellation.Token);
+
+        var completed = await Task.WhenAny(readinessTask, processExitTask);
+        if (completed == processExitTask)
+        {
+            await processExitTask;
+            monitorCancellation.Cancel();
+            var logTail = await ReadServerLogTailAsync(
+                consoleLogPath,
+                rconPassword,
+                gamePassword,
+                CancellationToken.None);
+            throw new InvalidOperationException(
+                AppendServerLog(
+                    "Factorio's dedicated server exited before its RCON endpoint became ready.",
+                    logTail));
+        }
+
+        try
+        {
+            await readinessTask;
+        }
+        catch (TimeoutException exception)
+        {
+            var logTail = await ReadServerLogTailAsync(
+                consoleLogPath,
+                rconPassword,
+                gamePassword,
+                CancellationToken.None);
+            throw new TimeoutException(
+                AppendServerLog(exception.Message, logTail),
+                exception);
+        }
+        finally
+        {
+            monitorCancellation.Cancel();
+        }
+    }
+
+    private static async Task WaitForProcessExitSignalAsync(
+        int processId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (ArgumentException)
+        {
+            // The process already exited before observation began.
+        }
+    }
+
     private static async Task<int> ResolveServerProcessIdAsync(
         Process launchProcess,
         string processName,
         IReadOnlySet<int> baselineProcessIds,
         CancellationToken cancellationToken)
     {
+        var observationDeadline = DateTimeOffset.UtcNow + BootstrapExitThreshold;
+        while (DateTimeOffset.UtcNow < observationDeadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                if (launchProcess.HasExited)
+                {
+                    break;
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                break;
+            }
+
+            await Task.Delay(ReplacementPollInterval, cancellationToken);
+        }
+
         try
         {
             if (!launchProcess.HasExited)
@@ -199,6 +289,45 @@ public sealed partial class FactorioAdapter
             ?? throw new InvalidOperationException(
                 "Factorio's dedicated-server bootstrap exited, but no replacement server process could be identified.");
     }
+
+    private static async Task<string?> ReadServerLogTailAsync(
+        string path,
+        string rconPassword,
+        string gamePassword,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+
+            var lines = await File.ReadAllLinesAsync(path, cancellationToken);
+            var tail = string.Join(Environment.NewLine, lines.TakeLast(20));
+            if (string.IsNullOrWhiteSpace(tail))
+            {
+                return null;
+            }
+
+            return tail
+                .Replace(rconPassword, "<redacted-rcon-secret>", StringComparison.Ordinal)
+                .Replace(gamePassword, "<redacted-session-secret>", StringComparison.Ordinal);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static string AppendServerLog(string message, string? logTail)
+        => string.IsNullOrWhiteSpace(logTail)
+            ? message
+            : $"{message}{Environment.NewLine}{Environment.NewLine}Factorio server log tail:{Environment.NewLine}{logTail}";
 
     private static async Task WaitForSaveRefreshAsync(
         string savePath,

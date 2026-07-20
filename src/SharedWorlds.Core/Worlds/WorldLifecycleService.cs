@@ -164,10 +164,13 @@ public sealed class WorldLifecycleService
 
         EnsureAdapterMatches(adapter.Id, stateRevision.AdapterId, "state revision");
 
-        var prepared = await adapter.PrepareEnvironmentAsync(
+        var prepared = (await adapter.PrepareEnvironmentAsync(
             installation,
             environmentRevision.Manifest,
-            cancellationToken);
+            cancellationToken)) with
+        {
+            DisplayName = world.Name
+        };
 
         var materializedPackagePath = Path.Combine(
             Path.GetTempPath(),

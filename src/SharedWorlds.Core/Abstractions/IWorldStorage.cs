@@ -10,6 +10,7 @@ public interface IWorldStorage
 {
     Task SaveWorldAsync(World world, CancellationToken cancellationToken = default);
     Task<World?> LoadWorldAsync(WorldId worldId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<World>> ListWorldsAsync(CancellationToken cancellationToken = default);
 
     Task StoreEnvironmentRevisionAsync(
         EnvironmentRevision revision,

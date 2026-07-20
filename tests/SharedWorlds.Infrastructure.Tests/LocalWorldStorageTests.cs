@@ -30,6 +30,22 @@ public sealed class LocalWorldStorageTests : IDisposable
     }
 
     [Fact]
+    public async Task ListWorlds_ReturnsStoredWorldsSortedByName_AndSkipsIncompleteDirectories()
+    {
+        var storage = new LocalWorldStorage(_root);
+        var zeta = CreateWorld("Zeta World");
+        var alpha = CreateWorld("Alpha World");
+
+        await storage.SaveWorldAsync(zeta);
+        await storage.SaveWorldAsync(alpha);
+        Directory.CreateDirectory(Path.Combine(_root, "worlds", "incomplete-import"));
+
+        var worlds = await storage.ListWorldsAsync();
+
+        Assert.Equal([alpha.Id, zeta.Id], worlds.Select(world => world.Id).ToArray());
+    }
+
+    [Fact]
     public async Task WorldMetadata_IsStoredInVersionedEnvelope()
     {
         var storage = new LocalWorldStorage(_root);
@@ -160,10 +176,10 @@ public sealed class LocalWorldStorageTests : IDisposable
         Assert.Equal("1.0.0", loaded.Manifest.GameVersion);
     }
 
-    private static World CreateWorld()
+    private static World CreateWorld(string name = "Test World")
         => new(
             WorldId.New(),
-            "Test World",
+            name,
             "factorio",
             [new UserIdentity("local", "tester", "Tester")],
             null,

@@ -1,12 +1,22 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using SharedWorlds.Core.Abstractions;
 
 namespace SharedWorlds.GameAdapters.Factorio;
 
-internal static partial class FactorioWorldOperations
+/// <summary>
+/// Factorio-specific authoritative hosting primitives. This stays outside Core: only the adapter
+/// knows that Factorio uses a headless server, RCON, server-settings.json, and --mp-connect.
+/// </summary>
+internal static class FactorioHostingOperations
 {
+    private const string ConfigDirectoryName = "config";
+    private const string ConfigFileName = "config.ini";
+    private const string UserDataDirectoryName = "user-data";
+    private const string SavesDirectoryName = "saves";
+    private const string ModsDirectoryName = "mods";
     private const string HostRuntimeDirectoryName = "host";
     private const string HostClientDirectoryName = "host-client";
     private const string ServerSettingsFileName = "server-settings.json";
@@ -23,7 +33,12 @@ internal static partial class FactorioWorldOperations
         cancellationToken.ThrowIfCancellationRequested();
 
         var savePath = GetPreparedSavePath(world);
-        EnsurePreparedSaveExists(savePath, "Factorio dedicated server");
+        if (!File.Exists(savePath))
+        {
+            throw new FileNotFoundException(
+                "RestoreStateAsync must be called before launching a Factorio dedicated server.",
+                savePath);
+        }
 
         var hostRuntimeDirectory = Path.Combine(world.WorkingDirectory, HostRuntimeDirectoryName);
         Directory.CreateDirectory(hostRuntimeDirectory);
@@ -38,13 +53,14 @@ internal static partial class FactorioWorldOperations
 
         var process = StartFactorio(
             world,
+            GetWorkspaceConfigPath(world),
             [
                 "--start-server",
                 savePath,
                 "--port",
-                gamePort.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                gamePort.ToString(CultureInfo.InvariantCulture),
                 "--rcon-port",
-                rconPort.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                rconPort.ToString(CultureInfo.InvariantCulture),
                 "--rcon-bind",
                 $"127.0.0.1:{rconPort}",
                 "--rcon-password",
@@ -69,23 +85,11 @@ internal static partial class FactorioWorldOperations
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var hostClientDirectory = Path.Combine(world.WorkingDirectory, HostClientDirectoryName);
-        var hostClientConfigDirectory = Path.Combine(hostClientDirectory, WorkspaceConfigDirectoryName);
-        var hostClientUserDataDirectory = Path.Combine(hostClientDirectory, WorkspaceUserDataDirectoryName);
-        Directory.CreateDirectory(hostClientConfigDirectory);
-        Directory.CreateDirectory(hostClientUserDataDirectory);
-
-        var clientConfigPath = Path.Combine(hostClientConfigDirectory, WorkspaceConfigFileName);
-        await CreateWorkspaceConfigAsync(
-            world.Installation,
-            clientConfigPath,
-            hostClientUserDataDirectory,
-            cancellationToken);
-
+        var clientConfigPath = await CreateHostClientConfigAsync(world, cancellationToken);
         var process = StartFactorio(
             world,
-            BuildClientOperationArguments(host),
-            configPathOverride: clientConfigPath);
+            clientConfigPath,
+            BuildClientOperationArguments(host));
         return new GameSessionHandle(process.Id, DateTimeOffset.UtcNow);
     }
 
@@ -112,16 +116,33 @@ internal static partial class FactorioWorldOperations
         return arguments;
     }
 
-    internal static string GetPlayerPreferenceConfigPath(PreparedWorld world)
+    internal static async Task PromoteHostClientPreferencesAsync(
+        PreparedWorld world,
+        CancellationToken cancellationToken)
     {
-        var hostedClientConfig = Path.Combine(
-            world.WorkingDirectory,
-            HostClientDirectoryName,
-            WorkspaceConfigDirectoryName,
-            WorkspaceConfigFileName);
-        return File.Exists(hostedClientConfig)
-            ? hostedClientConfig
-            : GetWorkspaceConfigPath(world);
+        var clientConfigPath = GetHostClientConfigPath(world);
+        if (!File.Exists(clientConfigPath))
+        {
+            return;
+        }
+
+        var workspaceConfigPath = GetWorkspaceConfigPath(world);
+        await using var source = new FileStream(
+            clientConfigPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 64 * 1024,
+            useAsync: true);
+        await using var destination = new FileStream(
+            workspaceConfigPath,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 64 * 1024,
+            useAsync: true);
+        await source.CopyToAsync(destination, cancellationToken);
+        await destination.FlushAsync(cancellationToken);
     }
 
     internal static async Task CreatePrivateServerSettingsAsync(
@@ -173,6 +194,161 @@ internal static partial class FactorioWorldOperations
             root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
             cancellationToken);
     }
+
+    private static async Task<string> CreateHostClientConfigAsync(
+        PreparedWorld world,
+        CancellationToken cancellationToken)
+    {
+        var sourceConfigPath = GetWorkspaceConfigPath(world);
+        if (!File.Exists(sourceConfigPath))
+        {
+            throw new FileNotFoundException(
+                "The isolated Factorio workspace config does not exist.",
+                sourceConfigPath);
+        }
+
+        var clientConfigPath = GetHostClientConfigPath(world);
+        var clientUserDataDirectory = Path.Combine(
+            world.WorkingDirectory,
+            HostClientDirectoryName,
+            UserDataDirectoryName);
+        Directory.CreateDirectory(Path.GetDirectoryName(clientConfigPath)!);
+        Directory.CreateDirectory(clientUserDataDirectory);
+
+        var lines = await File.ReadAllLinesAsync(sourceConfigPath, cancellationToken);
+        var rewritten = RewriteWriteDataPath(lines, Path.GetFullPath(clientUserDataDirectory));
+        await File.WriteAllLinesAsync(clientConfigPath, rewritten, cancellationToken);
+        return clientConfigPath;
+    }
+
+    private static IReadOnlyList<string> RewriteWriteDataPath(
+        IReadOnlyList<string> lines,
+        string writeDataDirectory)
+    {
+        var result = new List<string>(lines.Count + 2);
+        var inPathSection = false;
+        var pathSectionFound = false;
+        var writeDataReplaced = false;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("[", StringComparison.Ordinal) &&
+                trimmed.EndsWith("]", StringComparison.Ordinal))
+            {
+                if (inPathSection && !writeDataReplaced)
+                {
+                    result.Add($"write-data={writeDataDirectory}");
+                    writeDataReplaced = true;
+                }
+
+                inPathSection = string.Equals(trimmed, "[path]", StringComparison.OrdinalIgnoreCase);
+                pathSectionFound |= inPathSection;
+                result.Add(line);
+                continue;
+            }
+
+            if (inPathSection && trimmed.StartsWith("write-data=", StringComparison.OrdinalIgnoreCase))
+            {
+                result.Add($"write-data={writeDataDirectory}");
+                writeDataReplaced = true;
+                continue;
+            }
+
+            result.Add(line);
+        }
+
+        if (inPathSection && !writeDataReplaced)
+        {
+            result.Add($"write-data={writeDataDirectory}");
+        }
+
+        if (!pathSectionFound)
+        {
+            result.Add(string.Empty);
+            result.Add("[path]");
+            result.Add("read-data=__PATH__system-read-data__");
+            result.Add($"write-data={writeDataDirectory}");
+        }
+
+        return result;
+    }
+
+    private static Process StartFactorio(
+        PreparedWorld world,
+        string configPath,
+        IReadOnlyList<string> operationArguments)
+    {
+        var executable = FactorioWorldOperations.GetExecutablePath(world.Installation);
+        var executableDirectory = Path.GetDirectoryName(executable)
+            ?? throw new InvalidOperationException(
+                $"Cannot determine Factorio executable directory for '{executable}'.");
+        var workspaceModDirectory = Path.Combine(world.WorkingDirectory, ModsDirectoryName);
+
+        if (!File.Exists(configPath))
+        {
+            throw new FileNotFoundException(
+                "The Factorio session config does not exist.",
+                configPath);
+        }
+
+        if (!Directory.Exists(workspaceModDirectory))
+        {
+            throw new DirectoryNotFoundException(
+                $"The isolated Factorio workspace mod directory does not exist: '{workspaceModDirectory}'.");
+        }
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = executable,
+            WorkingDirectory = executableDirectory,
+            UseShellExecute = false
+        };
+        startInfo.ArgumentList.Add("--config");
+        startInfo.ArgumentList.Add(configPath);
+        startInfo.ArgumentList.Add("--mod-directory");
+        startInfo.ArgumentList.Add(workspaceModDirectory);
+
+        foreach (var argument in operationArguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        return Process.Start(startInfo)
+            ?? throw new InvalidOperationException($"Failed to start Factorio executable '{executable}'.");
+    }
+
+    private static string GetPreparedSavePath(PreparedWorld world)
+    {
+        var savesDirectory = Path.Combine(
+            world.WorkingDirectory,
+            UserDataDirectoryName,
+            SavesDirectoryName);
+        var savePath = Directory.Exists(savesDirectory)
+            ? Directory
+                .EnumerateFiles(savesDirectory, "*.zip", SearchOption.TopDirectoryOnly)
+                .Where(path => !Path.GetFileNameWithoutExtension(path)
+                    .StartsWith("_autosave", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(File.GetLastWriteTimeUtc)
+                .FirstOrDefault()
+            : null;
+
+        return savePath
+            ?? Path.Combine(savesDirectory, "world.zip");
+    }
+
+    private static string GetWorkspaceConfigPath(PreparedWorld world)
+        => Path.Combine(
+            world.WorkingDirectory,
+            ConfigDirectoryName,
+            ConfigFileName);
+
+    private static string GetHostClientConfigPath(PreparedWorld world)
+        => Path.Combine(
+            world.WorkingDirectory,
+            HostClientDirectoryName,
+            ConfigDirectoryName,
+            ConfigFileName);
 }
 
 internal sealed record FactorioDedicatedServerLaunch(

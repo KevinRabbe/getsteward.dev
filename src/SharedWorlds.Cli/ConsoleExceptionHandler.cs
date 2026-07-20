@@ -54,6 +54,13 @@ internal static class ConsoleExceptionHandler
                     "Use a build that supports this schema or update the application. The stored data was not rewritten.");
                 return ApplicationExitCodes.ProductFailure;
 
+            case EnvironmentReproductionException environmentFailure:
+                WriteExpected(
+                    "Required game environment is unavailable",
+                    environmentFailure.Message,
+                    "Restore the required game/mod environment or use a future Verify/Repair workflow. The canonical World was not changed.");
+                return ApplicationExitCodes.ProductFailure;
+
             case WorldSharingRequiredException sharingRequired:
                 WriteExpected(
                     "Sharing is not enabled",
@@ -186,7 +193,6 @@ internal static class ConsoleExceptionHandler
                 entry,
                 Encoding.UTF8,
                 CancellationToken.None);
-
             return new DiagnosticIncident(incidentId, logPath);
         }
         catch (Exception loggingFailure) when (

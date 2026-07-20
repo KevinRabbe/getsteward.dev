@@ -113,7 +113,8 @@ public sealed record DetectedWorld(string Id, string DisplayName, string SourceP
 public sealed record PreparedWorld(
     GameInstallation Installation,
     string WorkingDirectory,
-    EnvironmentManifest Environment);
+    EnvironmentManifest Environment,
+    string? DisplayName = null);
 
 /// <summary>
 /// A captured adapter state package. When <see cref="DeletePackageAfterStore"/> is true,

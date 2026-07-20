@@ -1,6 +1,9 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text.Json;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Environment;
+using SharedWorlds.Core.Errors;
 
 namespace SharedWorlds.GameAdapters.Factorio;
 
@@ -11,6 +14,9 @@ internal static class FactorioWorldOperations
     private const string WorkspaceConfigFileName = "config.ini";
     private const string WorkspaceUserDataDirectoryName = "user-data";
     private const string SavesDirectoryName = "saves";
+    private const string ModsDirectoryName = "mods";
+    private const string ModListFileName = "mod-list.json";
+    private const string ModSettingsFileName = "mod-settings.dat";
 
     public static IReadOnlyList<DetectedWorld> DiscoverWorlds(GameInstallation installation)
     {
@@ -69,17 +75,33 @@ internal static class FactorioWorldOperations
         var workspaceConfigDirectory = Path.Combine(workspace, WorkspaceConfigDirectoryName);
         var workspaceUserDataDirectory = Path.Combine(workspace, WorkspaceUserDataDirectoryName);
         var workspaceSavesDirectory = Path.Combine(workspaceUserDataDirectory, SavesDirectoryName);
+        var workspaceModsDirectory = Path.Combine(workspace, ModsDirectoryName);
 
         Directory.CreateDirectory(workspaceConfigDirectory);
         Directory.CreateDirectory(workspaceSavesDirectory);
+        Directory.CreateDirectory(workspaceModsDirectory);
 
-        await CreateWorkspaceConfigAsync(
-            installation,
-            Path.Combine(workspaceConfigDirectory, WorkspaceConfigFileName),
-            workspaceUserDataDirectory,
-            cancellationToken);
+        try
+        {
+            await CreateWorkspaceConfigAsync(
+                installation,
+                Path.Combine(workspaceConfigDirectory, WorkspaceConfigFileName),
+                workspaceUserDataDirectory,
+                cancellationToken);
 
-        return new PreparedWorld(installation, workspace, requiredEnvironment);
+            await PrepareWorkspaceModsAsync(
+                installation,
+                requiredEnvironment,
+                workspaceModsDirectory,
+                cancellationToken);
+
+            return new PreparedWorld(installation, workspace, requiredEnvironment);
+        }
+        catch
+        {
+            TryDeleteDirectory(workspace);
+            throw;
+        }
     }
 
     public static async Task RestoreStateAsync(
@@ -183,16 +205,19 @@ internal static class FactorioWorldOperations
             ?? throw new InvalidOperationException(
                 $"Cannot determine Factorio executable directory for '{executable}'.");
         var configPath = GetWorkspaceConfigPath(world);
-        var sourceUserDataPath = GetRequiredMetadata(
-            world.Installation,
-            FactorioInstallationDiscovery.UserDataPathKey);
-        var sourceModDirectory = Path.Combine(sourceUserDataPath, "mods");
+        var workspaceModDirectory = GetWorkspaceModsDirectory(world);
 
         if (!File.Exists(configPath))
         {
             throw new FileNotFoundException(
                 "The isolated Factorio workspace config does not exist.",
                 configPath);
+        }
+
+        if (!Directory.Exists(workspaceModDirectory))
+        {
+            throw new DirectoryNotFoundException(
+                $"The isolated Factorio workspace mod directory does not exist: '{workspaceModDirectory}'.");
         }
 
         var startInfo = new ProcessStartInfo
@@ -210,13 +235,11 @@ internal static class FactorioWorldOperations
         startInfo.ArgumentList.Add("--config");
         startInfo.ArgumentList.Add(configPath);
 
-        // Full mod isolation is a later adapter milestone. For now, keep the currently installed
-        // mod set available explicitly while save/config/temp writes go to the isolated workspace.
-        if (Directory.Exists(sourceModDirectory))
-        {
-            startInfo.ArgumentList.Add("--mod-directory");
-            startInfo.ArgumentList.Add(sourceModDirectory);
-        }
+        // Factorio receives only the adapter-owned workspace mod directory. Required user mods
+        // are copied there at exact manifest versions during preparation; unrelated live mods are
+        // deliberately excluded so a World cannot silently inherit later changes to the user's mod set.
+        startInfo.ArgumentList.Add("--mod-directory");
+        startInfo.ArgumentList.Add(workspaceModDirectory);
 
         foreach (var argument in operationArguments)
         {
@@ -225,6 +248,165 @@ internal static class FactorioWorldOperations
 
         return Process.Start(startInfo)
             ?? throw new InvalidOperationException($"Failed to start Factorio executable '{executable}'.");
+    }
+
+    private static async Task PrepareWorkspaceModsAsync(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        string workspaceModsDirectory,
+        CancellationToken cancellationToken)
+    {
+        var sourceUserDataPath = GetRequiredMetadata(
+            installation,
+            FactorioInstallationDiscovery.UserDataPathKey);
+        var sourceModsDirectory = Path.Combine(sourceUserDataPath, ModsDirectoryName);
+        var availableArtifacts = FactorioModCatalog.Discover(sourceModsDirectory);
+        var requiredMods = requiredEnvironment.Components
+            .Where(component => string.Equals(component.Kind, "mod", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(component => component.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var duplicateMod = requiredMods
+            .GroupBy(component => component.Id, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicateMod is not null)
+        {
+            throw new EnvironmentReproductionException(
+                "factorio",
+                $"environment manifest contains duplicate mod '{duplicateMod.Key}'.");
+        }
+
+        foreach (var component in requiredMods)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (string.Equals(component.Source, "builtin", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!string.Equals(component.Source, "user", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new EnvironmentReproductionException(
+                    "factorio",
+                    $"mod '{component.Id}' has unsupported source '{component.Source ?? "unknown"}'.");
+            }
+
+            if (string.IsNullOrWhiteSpace(component.Version))
+            {
+                throw new EnvironmentReproductionException(
+                    "factorio",
+                    $"mod '{component.Id}' has no exact recorded version.");
+            }
+
+            var artifact = FactorioModCatalog.FindExact(
+                availableArtifacts,
+                component.Id,
+                component.Version);
+            if (artifact is null)
+            {
+                throw new EnvironmentReproductionException(
+                    "factorio",
+                    $"required mod '{component.Id}' version '{component.Version}' is not available in '{sourceModsDirectory}'.");
+            }
+
+            var destination = Path.Combine(
+                workspaceModsDirectory,
+                Path.GetFileName(artifact.Path));
+            if (artifact.IsDirectory)
+            {
+                await CopyDirectoryAsync(artifact.Path, destination, cancellationToken);
+            }
+            else
+            {
+                await CopyFileAsync(artifact.Path, destination, overwrite: false, cancellationToken);
+            }
+        }
+
+        await PrepareModSettingsAsync(
+            sourceModsDirectory,
+            workspaceModsDirectory,
+            requiredEnvironment,
+            cancellationToken);
+        await WriteModListAsync(workspaceModsDirectory, requiredMods, cancellationToken);
+    }
+
+    private static async Task PrepareModSettingsAsync(
+        string sourceModsDirectory,
+        string workspaceModsDirectory,
+        EnvironmentManifest requiredEnvironment,
+        CancellationToken cancellationToken)
+    {
+        var sourcePath = Path.Combine(sourceModsDirectory, ModSettingsFileName);
+        var destinationPath = Path.Combine(workspaceModsDirectory, ModSettingsFileName);
+
+        if (requiredEnvironment.Configuration.TryGetValue(
+                FactorioEnvironmentInspector.ModSettingsHashConfigurationKey,
+                out var expectedHash))
+        {
+            if (!File.Exists(sourcePath))
+            {
+                throw new EnvironmentReproductionException(
+                    "factorio",
+                    "the required mod startup-settings file is missing from the current Factorio mod directory.");
+            }
+
+            var actualHash = await ComputeSha256Async(sourcePath, cancellationToken);
+            if (!string.Equals(expectedHash, actualHash, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new EnvironmentReproductionException(
+                    "factorio",
+                    "the current mod startup settings do not match the settings fingerprint recorded for this World.");
+            }
+
+            await CopyFileAsync(sourcePath, destinationPath, overwrite: false, cancellationToken);
+            return;
+        }
+
+        // Legacy EnvironmentRevisions created before startup-settings fingerprinting had no durable
+        // value to verify. Preserve their previous behavior by copying current settings when present,
+        // but new revisions record a hash and therefore fail instead of silently accepting drift.
+        if (File.Exists(sourcePath))
+        {
+            await CopyFileAsync(sourcePath, destinationPath, overwrite: false, cancellationToken);
+        }
+    }
+
+    private static async Task WriteModListAsync(
+        string workspaceModsDirectory,
+        IReadOnlyList<EnvironmentComponent> requiredMods,
+        CancellationToken cancellationToken)
+    {
+        var document = new
+        {
+            mods = requiredMods.Select(component => new
+            {
+                name = component.Id,
+                enabled = true
+            }).ToArray()
+        };
+        var json = JsonSerializer.Serialize(
+            document,
+            new JsonSerializerOptions { WriteIndented = true });
+        await File.WriteAllTextAsync(
+            Path.Combine(workspaceModsDirectory, ModListFileName),
+            json,
+            cancellationToken);
+    }
+
+    private static async Task<string> ComputeSha256Async(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 64 * 1024,
+            useAsync: true);
+        using var sha256 = SHA256.Create();
+        return Convert.ToHexString(await sha256.ComputeHashAsync(stream, cancellationToken));
     }
 
     private static async Task CreateWorkspaceConfigAsync(
@@ -342,6 +524,9 @@ internal static class FactorioWorldOperations
             WorkspaceConfigDirectoryName,
             WorkspaceConfigFileName);
 
+    private static string GetWorkspaceModsDirectory(PreparedWorld world)
+        => Path.Combine(world.WorkingDirectory, ModsDirectoryName);
+
     private static string CreatePackagePath()
     {
         var root = Path.Combine(GetLocalWorkRoot(), "packages");
@@ -373,6 +558,30 @@ internal static class FactorioWorldOperations
         return value;
     }
 
+    private static async Task CopyDirectoryAsync(
+        string source,
+        string destination,
+        CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(destination);
+
+        foreach (var directory in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var relative = Path.GetRelativePath(source, directory);
+            Directory.CreateDirectory(Path.Combine(destination, relative));
+        }
+
+        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var relative = Path.GetRelativePath(source, file);
+            var destinationFile = Path.Combine(destination, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationFile)!);
+            await CopyFileAsync(file, destinationFile, overwrite: false, cancellationToken);
+        }
+    }
+
     private static async Task CopyFileAsync(
         string source,
         string destination,
@@ -399,5 +608,24 @@ internal static class FactorioWorldOperations
 
         await sourceStream.CopyToAsync(destinationStream, cancellationToken);
         await destinationStream.FlushAsync(cancellationToken);
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+        }
+        catch (IOException)
+        {
+            // Preparation already failed. Best-effort cleanup must not hide the original failure.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Preparation already failed. Best-effort cleanup must not hide the original failure.
+        }
     }
 }

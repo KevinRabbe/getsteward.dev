@@ -38,6 +38,36 @@ public interface IGameAdapter
         EnvironmentManifest requiredEnvironment,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Checks whether this device can reproduce the exact required environment without launching
+    /// the game or advancing any World revision. Adapters own all game-specific verification rules.
+    /// </summary>
+    Task<EnvironmentVerificationReport> VerifyEnvironmentAsync(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(EnvironmentVerificationReport.Unsupported(
+            $"{DisplayName} does not implement environment verification yet."));
+
+    /// <summary>
+    /// Attempts only adapter-defined safe local repairs. A repair may provision local artifacts but
+    /// must never mutate the World's immutable EnvironmentRevision or StateRevision heads.
+    /// </summary>
+    async Task<EnvironmentRepairResult> RepairEnvironmentAsync(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        CancellationToken cancellationToken = default)
+    {
+        var verification = await VerifyEnvironmentAsync(
+            installation,
+            requiredEnvironment,
+            cancellationToken);
+        return new EnvironmentRepairResult(
+            Changed: false,
+            Verification: verification,
+            Message: $"{DisplayName} does not implement automatic environment repair yet.");
+    }
+
     Task<CapturedState> CaptureStateAsync(
         PreparedWorld world,
         CancellationToken cancellationToken = default);

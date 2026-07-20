@@ -21,6 +21,8 @@ internal static class FactorioHostingOperations
     private const string HostClientDirectoryName = "host-client";
     private const string ServerSettingsFileName = "server-settings.json";
     private const string ServerConsoleLogFileName = "server-console.log";
+    private const string SteamAppIdFileName = "steam_appid.txt";
+    private const string FactorioSteamAppId = "427520";
 
     internal static async Task<FactorioDedicatedServerLaunch> LaunchDedicatedServerAsync(
         PreparedWorld world,
@@ -42,6 +44,15 @@ internal static class FactorioHostingOperations
 
         var hostRuntimeDirectory = Path.Combine(world.WorkingDirectory, HostRuntimeDirectoryName);
         Directory.CreateDirectory(hostRuntimeDirectory);
+
+        // The Steam build otherwise calls SteamAPI_RestartAppIfNecessary when started directly.
+        // A workspace-local steam_appid.txt keeps the dedicated server as the process we launched,
+        // so its exact --start-server arguments and lifecycle remain adapter-owned. The marker lives
+        // only inside the disposable SharedWorlds workspace and never modifies the Factorio install.
+        await File.WriteAllTextAsync(
+            Path.Combine(hostRuntimeDirectory, SteamAppIdFileName),
+            FactorioSteamAppId,
+            cancellationToken);
 
         var serverSettingsPath = Path.Combine(hostRuntimeDirectory, ServerSettingsFileName);
         var consoleLogPath = Path.Combine(hostRuntimeDirectory, ServerConsoleLogFileName);
@@ -69,7 +80,8 @@ internal static class FactorioHostingOperations
                 serverSettingsPath,
                 "--console-log",
                 consoleLogPath
-            ]);
+            ],
+            workingDirectoryOverride: hostRuntimeDirectory);
 
         return new FactorioDedicatedServerLaunch(
             process,
@@ -277,7 +289,8 @@ internal static class FactorioHostingOperations
     private static Process StartFactorio(
         PreparedWorld world,
         string configPath,
-        IReadOnlyList<string> operationArguments)
+        IReadOnlyList<string> operationArguments,
+        string? workingDirectoryOverride = null)
     {
         var executable = FactorioWorldOperations.GetExecutablePath(world.Installation);
         var executableDirectory = Path.GetDirectoryName(executable)
@@ -301,7 +314,7 @@ internal static class FactorioHostingOperations
         var startInfo = new ProcessStartInfo
         {
             FileName = executable,
-            WorkingDirectory = executableDirectory,
+            WorkingDirectory = workingDirectoryOverride ?? executableDirectory,
             UseShellExecute = false
         };
         startInfo.ArgumentList.Add("--config");

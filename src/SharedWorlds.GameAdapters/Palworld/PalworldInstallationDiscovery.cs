@@ -23,8 +23,15 @@ internal static partial class PalworldInstallationDiscovery
             : StringComparer.Ordinal;
         var installations = new List<GameInstallation>();
         var seen = new HashSet<string>(comparer);
+        var steamLibraries = DiscoverSteamLibraries()
+            .Select(NormalizePathOrNull)
+            .Where(path => path is not null)
+            .Select(path => path!)
+            .Distinct(comparer)
+            .ToArray();
+        var dedicatedServers = DiscoverDedicatedServers(steamLibraries, comparer);
 
-        foreach (var steamLibrary in DiscoverSteamLibraries())
+        foreach (var steamLibrary in steamLibraries)
         {
             var gameRoot = Path.Combine(steamLibrary, "steamapps", "common", "Palworld");
             var clientExecutable = FindClientExecutable(gameRoot);
@@ -33,17 +40,8 @@ internal static partial class PalworldInstallationDiscovery
                 continue;
             }
 
-            string normalizedGameRoot;
-            try
-            {
-                normalizedGameRoot = Path.GetFullPath(gameRoot);
-            }
-            catch
-            {
-                continue;
-            }
-
-            if (!seen.Add(normalizedGameRoot))
+            var normalizedGameRoot = NormalizePathOrNull(gameRoot);
+            if (normalizedGameRoot is null || !seen.Add(normalizedGameRoot))
             {
                 continue;
             }
@@ -55,12 +53,17 @@ internal static partial class PalworldInstallationDiscovery
                 [DedicatedServerSteamAppIdKey] = DedicatedServerSteamAppId
             };
 
-            var serverRoot = Path.Combine(steamLibrary, "steamapps", "common", "PalServer");
-            var serverExecutable = FindDedicatedServerExecutable(serverRoot);
-            if (serverExecutable is not null)
+            // The Steam client and the dedicated-server tool may be installed in different
+            // Steam libraries. Prefer a server beside this client, but fall back to any
+            // discovered PalServer installation rather than coupling discovery to one library.
+            var dedicatedServer = dedicatedServers.FirstOrDefault(server =>
+                    comparer.Equals(server.LibraryPath, steamLibrary))
+                ?? dedicatedServers.FirstOrDefault();
+
+            if (dedicatedServer is not null)
             {
-                metadata[DedicatedServerRootPathKey] = Path.GetFullPath(serverRoot);
-                metadata[DedicatedServerExecutablePathKey] = serverExecutable;
+                metadata[DedicatedServerRootPathKey] = dedicatedServer.RootPath;
+                metadata[DedicatedServerExecutablePathKey] = dedicatedServer.ExecutablePath;
             }
 
             installations.Add(new GameInstallation(
@@ -71,6 +74,37 @@ internal static partial class PalworldInstallationDiscovery
         }
 
         return installations;
+    }
+
+    private static IReadOnlyList<DedicatedServerInstallation> DiscoverDedicatedServers(
+        IEnumerable<string> steamLibraries,
+        StringComparer comparer)
+    {
+        var servers = new List<DedicatedServerInstallation>();
+        var seenRoots = new HashSet<string>(comparer);
+
+        foreach (var steamLibrary in steamLibraries)
+        {
+            var serverRoot = Path.Combine(steamLibrary, "steamapps", "common", "PalServer");
+            var serverExecutable = FindDedicatedServerExecutable(serverRoot);
+            if (serverExecutable is null)
+            {
+                continue;
+            }
+
+            var normalizedServerRoot = NormalizePathOrNull(serverRoot);
+            if (normalizedServerRoot is null || !seenRoots.Add(normalizedServerRoot))
+            {
+                continue;
+            }
+
+            servers.Add(new DedicatedServerInstallation(
+                LibraryPath: steamLibrary,
+                RootPath: normalizedServerRoot,
+                ExecutablePath: serverExecutable));
+        }
+
+        return servers;
     }
 
     private static IEnumerable<string> DiscoverSteamLibraries()
@@ -179,6 +213,24 @@ internal static partial class PalworldInstallationDiscovery
 
         return candidates.FirstOrDefault(File.Exists);
     }
+
+    private static string? NormalizePathOrNull(string path)
+    {
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
+    }
+
+    private sealed record DedicatedServerInstallation(
+        string LibraryPath,
+        string RootPath,
+        string ExecutablePath);
 
     [GeneratedRegex("\\\"path\\\"\\s+\\\"([^\\\"]+)\\\"", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex SteamLibraryPathRegex();

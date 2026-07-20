@@ -54,7 +54,7 @@ internal static partial class FactorioInstallationDiscovery
                 continue;
             }
 
-            var userDataPath = ResolveUserDataPath(root);
+            var userDataPath = ResolveUserDataPath(root, executable);
             var metadata = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 [ExecutablePathKey] = executable,
@@ -213,29 +213,37 @@ internal static partial class FactorioInstallationDiscovery
         return candidates.FirstOrDefault(File.Exists);
     }
 
-    private static string ResolveUserDataPath(string installationRoot)
+    private static string ResolveUserDataPath(string installationRoot, string executablePath)
     {
-        // Factorio's portable ZIP distribution keeps saves/mods beside the installation.
-        if (Directory.Exists(Path.Combine(installationRoot, "saves")))
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrWhiteSpace(userProfile))
         {
-            return installationRoot;
+            userProfile = installationRoot;
         }
 
+        return FactorioUserDataPathResolver.Resolve(
+            installationRoot,
+            executablePath,
+            GetDefaultSystemUserDataPath(userProfile),
+            userProfile);
+    }
+
+    private static string GetDefaultSystemUserDataPath(string userProfile)
+    {
         if (OperatingSystem.IsWindows())
         {
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                string.IsNullOrWhiteSpace(appData) ? userProfile : appData,
                 "Factorio");
         }
 
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
         if (OperatingSystem.IsMacOS())
         {
-            return Path.Combine(home, "Library", "Application Support", "factorio");
+            return Path.Combine(userProfile, "Library", "Application Support", "factorio");
         }
 
-        return Path.Combine(home, ".factorio");
+        return Path.Combine(userProfile, ".factorio");
     }
 
     [GeneratedRegex("\\\"path\\\"\\s+\\\"([^\\\"]+)\\\"", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]

@@ -44,7 +44,7 @@ static async Task<int> RunAsync(
         "SharedWorlds",
         "data");
 
-    var storage = new LocalWorldStorage(storageRoot);
+    IWorldStorage storage = new LocalWorldStorage(storageRoot);
     var sessions = new LocalWorldSessionCoordinator();
     var recovery = new LocalWorkspaceRecoveryStore(storageRoot);
     var lifecycle = new WorldLifecycleService(storage, sessions, recovery);
@@ -58,11 +58,23 @@ static async Task<int> RunAsync(
 
     return arguments[0].ToLowerInvariant() switch
     {
+        "worlds" => await ShowWorldsAsync(arguments, storage, adapters, cancellationToken),
+        "world" => await ShowWorldDetailsAsync(arguments, storage, adapters, cancellationToken),
         "import-factorio" => await ImportFactorioAsync(arguments, lifecycle, cancellationToken),
-        "continue-factorio" => await ContinueFactorioAsync(arguments, lifecycle, cancellationToken),
-        "host-factorio" => await HostFactorioAsync(arguments, lifecycle, cancellationToken),
-        "share-world" => await SetWorldSharingAsync(arguments, lifecycle, WorldSharingMode.Shared, cancellationToken),
-        "unshare-world" => await SetWorldSharingAsync(arguments, lifecycle, WorldSharingMode.LocalOnly, cancellationToken),
+        "continue-factorio" => await ContinueFactorioAsync(arguments, lifecycle, storage, cancellationToken),
+        "host-factorio" => await HostFactorioAsync(arguments, lifecycle, storage, cancellationToken),
+        "share-world" => await SetWorldSharingAsync(
+            arguments,
+            lifecycle,
+            storage,
+            WorldSharingMode.Shared,
+            cancellationToken),
+        "unshare-world" => await SetWorldSharingAsync(
+            arguments,
+            lifecycle,
+            storage,
+            WorldSharingMode.LocalOnly,
+            cancellationToken),
         "recovery" => await ShowRecoveryAsync(recovery, cancellationToken),
         _ => PrintUsageAndReturnError()
     };
@@ -100,6 +112,144 @@ static async Task DiscoverAsync(
 
         Console.WriteLine();
     }
+}
+
+static async Task<int> ShowWorldsAsync(
+    string[] arguments,
+    IWorldStorage storage,
+    IReadOnlyList<IGameAdapter> adapters,
+    CancellationToken cancellationToken)
+{
+    if (arguments.Length != 1)
+    {
+        Console.Error.WriteLine("Usage: worlds");
+        return ApplicationExitCodes.UsageError;
+    }
+
+    var worlds = await storage.ListWorldsAsync(cancellationToken);
+    if (worlds.Count == 0)
+    {
+        Console.WriteLine("No managed Worlds exist yet.");
+        Console.WriteLine("Use 'discover' to find saves, then import one.");
+        return ApplicationExitCodes.Success;
+    }
+
+    Console.WriteLine($"Managed Worlds ({worlds.Count})");
+    Console.WriteLine();
+
+    foreach (var world in worlds)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        Console.WriteLine($"- {world.Name}");
+        Console.WriteLine($"  ID: {world.Id} (short: {ShortId(world.Id)})");
+        Console.WriteLine($"  Game: {GetAdapterDisplayName(adapters, world.GameAdapterId)} [{world.GameAdapterId}]");
+        Console.WriteLine($"  Sharing: {FormatSharingMode(world.SharingMode)}");
+        Console.WriteLine($"  State: {FormatRevision(world.CurrentStateRevisionId)}");
+        Console.WriteLine();
+    }
+
+    Console.WriteLine("World selectors accept a full ID, a unique World name, or a unique ID prefix of at least 8 characters.");
+    Console.WriteLine("Example: world newme");
+    return ApplicationExitCodes.Success;
+}
+
+static async Task<int> ShowWorldDetailsAsync(
+    string[] arguments,
+    IWorldStorage storage,
+    IReadOnlyList<IGameAdapter> adapters,
+    CancellationToken cancellationToken)
+{
+    if (!TryGetWorldSelector(arguments, "world", out var selector))
+    {
+        return ApplicationExitCodes.UsageError;
+    }
+
+    var world = await ResolveWorldAsync(selector, storage, cancellationToken);
+    if (world is null)
+    {
+        return ApplicationExitCodes.ProductFailure;
+    }
+
+    Console.WriteLine($"World: {world.Name}");
+    Console.WriteLine($"ID: {world.Id}");
+    Console.WriteLine($"Game: {GetAdapterDisplayName(adapters, world.GameAdapterId)} [{world.GameAdapterId}]");
+    Console.WriteLine($"Sharing: {FormatSharingMode(world.SharingMode)}");
+    Console.WriteLine();
+
+    Console.WriteLine($"Members ({world.Members.Count}):");
+    foreach (var member in world.Members)
+    {
+        Console.WriteLine($"  - {FormatUser(member)}");
+    }
+
+    Console.WriteLine();
+    Console.WriteLine("Environment:");
+    if (world.CurrentEnvironmentRevisionId is { } environmentRevisionId)
+    {
+        var environment = await storage.LoadEnvironmentRevisionAsync(
+            world.Id,
+            environmentRevisionId,
+            cancellationToken);
+
+        Console.WriteLine($"  Revision: {environmentRevisionId}");
+        if (environment is null)
+        {
+            Console.WriteLine("  Status: metadata missing");
+        }
+        else
+        {
+            Console.WriteLine($"  Game version: {environment.Manifest.GameVersion}");
+            Console.WriteLine($"  Components: {environment.Manifest.Components.Count}");
+            Console.WriteLine($"  Created: {environment.CreatedAt:O}");
+            Console.WriteLine($"  Created by: {FormatUser(environment.CreatedBy)}");
+        }
+    }
+    else
+    {
+        Console.WriteLine("  Revision: none");
+    }
+
+    Console.WriteLine();
+    Console.WriteLine("State:");
+    if (world.CurrentStateRevisionId is { } stateRevisionId)
+    {
+        var state = await storage.LoadStateRevisionAsync(
+            world.Id,
+            stateRevisionId,
+            cancellationToken);
+
+        Console.WriteLine($"  Revision: {stateRevisionId}");
+        if (state is null)
+        {
+            Console.WriteLine("  Status: metadata missing");
+        }
+        else
+        {
+            Console.WriteLine($"  Parent: {FormatRevision(state.ParentRevisionId)}");
+            Console.WriteLine($"  Created: {state.CreatedAt:O}");
+            Console.WriteLine($"  Created by: {FormatUser(state.CreatedBy)}");
+        }
+    }
+    else
+    {
+        Console.WriteLine("  Revision: none");
+    }
+
+    Console.WriteLine();
+    Console.WriteLine("Available actions:");
+    Console.WriteLine($"  continue-factorio {ShortId(world.Id)}");
+    if (world.SharingMode == WorldSharingMode.LocalOnly)
+    {
+        Console.WriteLine($"  share-world {ShortId(world.Id)}");
+    }
+    else
+    {
+        Console.WriteLine($"  host-factorio {ShortId(world.Id)}");
+        Console.WriteLine($"  unshare-world {ShortId(world.Id)}");
+    }
+
+    return ApplicationExitCodes.Success;
 }
 
 static async Task<int> ImportFactorioAsync(
@@ -145,17 +295,25 @@ static async Task<int> ImportFactorioAsync(
     Console.WriteLine($"Imported '{world.Name}' as World {world.Id}.");
     Console.WriteLine("The original save was not modified.");
     Console.WriteLine("Sharing: LocalOnly (default). Nothing is shared or hosted until you explicitly enable sharing.");
+    Console.WriteLine($"You can now use the World name directly: continue-factorio {world.Name}");
     return ApplicationExitCodes.Success;
 }
 
 static async Task<int> ContinueFactorioAsync(
     string[] arguments,
     WorldLifecycleService lifecycle,
+    IWorldStorage storage,
     CancellationToken cancellationToken)
 {
-    if (!TryParseWorldId(arguments, "continue-factorio", out var worldId))
+    if (!TryGetWorldSelector(arguments, "continue-factorio", out var selector))
     {
         return ApplicationExitCodes.UsageError;
+    }
+
+    var world = await ResolveWorldAsync(selector, storage, cancellationToken);
+    if (world is null)
+    {
+        return ApplicationExitCodes.ProductFailure;
     }
 
     var adapter = new FactorioAdapter();
@@ -167,7 +325,7 @@ static async Task<int> ContinueFactorioAsync(
     }
 
     var updated = await lifecycle.ContinueLocalAsync(
-        worldId,
+        world.Id,
         adapter,
         installation,
         GetLocalUser(),
@@ -181,11 +339,18 @@ static async Task<int> ContinueFactorioAsync(
 static async Task<int> HostFactorioAsync(
     string[] arguments,
     WorldLifecycleService lifecycle,
+    IWorldStorage storage,
     CancellationToken cancellationToken)
 {
-    if (!TryParseWorldId(arguments, "host-factorio", out var worldId))
+    if (!TryGetWorldSelector(arguments, "host-factorio", out var selector))
     {
         return ApplicationExitCodes.UsageError;
+    }
+
+    var world = await ResolveWorldAsync(selector, storage, cancellationToken);
+    if (world is null)
+    {
+        return ApplicationExitCodes.ProductFailure;
     }
 
     var adapter = new FactorioAdapter();
@@ -197,7 +362,7 @@ static async Task<int> HostFactorioAsync(
     }
 
     var updated = await lifecycle.ContinueAsHostAsync(
-        worldId,
+        world.Id,
         adapter,
         installation,
         GetLocalUser(),
@@ -211,18 +376,24 @@ static async Task<int> HostFactorioAsync(
 static async Task<int> SetWorldSharingAsync(
     string[] arguments,
     WorldLifecycleService lifecycle,
+    IWorldStorage storage,
     WorldSharingMode sharingMode,
     CancellationToken cancellationToken)
 {
     var command = sharingMode == WorldSharingMode.Shared ? "share-world" : "unshare-world";
-    if (!TryParseWorldId(arguments, command, out var worldId))
+    if (!TryGetWorldSelector(arguments, command, out var selector))
     {
         return ApplicationExitCodes.UsageError;
     }
 
-    var updated = await lifecycle.SetSharingModeAsync(worldId, sharingMode, cancellationToken);
-    Console.WriteLine($"World '{updated.Name}' sharing mode: {updated.SharingMode}.");
+    var world = await ResolveWorldAsync(selector, storage, cancellationToken);
+    if (world is null)
+    {
+        return ApplicationExitCodes.ProductFailure;
+    }
 
+    var updated = await lifecycle.SetSharingModeAsync(world.Id, sharingMode, cancellationToken);
+    Console.WriteLine($"World '{updated.Name}' sharing mode: {updated.SharingMode}.");
     if (sharingMode == WorldSharingMode.Shared)
     {
         Console.WriteLine("This World is now explicitly eligible for Share / Host / Join workflows.");
@@ -235,20 +406,85 @@ static async Task<int> SetWorldSharingAsync(
     return ApplicationExitCodes.Success;
 }
 
-static bool TryParseWorldId(
+static bool TryGetWorldSelector(
     string[] arguments,
     string command,
-    out WorldId worldId)
+    out string selector)
 {
-    if (arguments.Length != 2 || !Guid.TryParse(arguments[1], out var parsedWorldId))
+    if (arguments.Length != 2 || string.IsNullOrWhiteSpace(arguments[1]))
     {
-        Console.Error.WriteLine($"Usage: {command} <world-id>");
-        worldId = default;
+        Console.Error.WriteLine($"Usage: {command} <world>");
+        selector = string.Empty;
         return false;
     }
 
-    worldId = new WorldId(parsedWorldId);
+    selector = arguments[1].Trim();
     return true;
+}
+
+static async Task<World?> ResolveWorldAsync(
+    string selector,
+    IWorldStorage storage,
+    CancellationToken cancellationToken)
+{
+    if (Guid.TryParse(selector, out var parsedWorldId))
+    {
+        var exactWorld = await storage.LoadWorldAsync(new WorldId(parsedWorldId), cancellationToken);
+        if (exactWorld is not null)
+        {
+            return exactWorld;
+        }
+
+        Console.Error.WriteLine($"World '{selector}' not found.");
+        return null;
+    }
+
+    var worlds = await storage.ListWorldsAsync(cancellationToken);
+    var nameMatches = worlds
+        .Where(world => string.Equals(world.Name, selector, StringComparison.OrdinalIgnoreCase))
+        .ToArray();
+
+    if (nameMatches.Length == 1)
+    {
+        return nameMatches[0];
+    }
+
+    if (nameMatches.Length > 1)
+    {
+        PrintAmbiguousWorldSelector(selector, nameMatches);
+        return null;
+    }
+
+    var compactSelector = selector.Replace("-", string.Empty, StringComparison.Ordinal);
+    if (compactSelector.Length >= 8 && compactSelector.All(Uri.IsHexDigit))
+    {
+        var idMatches = worlds
+            .Where(world => world.Id.ToString().StartsWith(compactSelector, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        if (idMatches.Length == 1)
+        {
+            return idMatches[0];
+        }
+
+        if (idMatches.Length > 1)
+        {
+            PrintAmbiguousWorldSelector(selector, idMatches);
+            return null;
+        }
+    }
+
+    Console.Error.WriteLine($"World '{selector}' not found. Run 'worlds' to list managed Worlds.");
+    return null;
+}
+
+static void PrintAmbiguousWorldSelector(string selector, IReadOnlyList<World> matches)
+{
+    Console.Error.WriteLine($"World selector '{selector}' is ambiguous. Use one of these ID prefixes:");
+    foreach (var match in matches)
+    {
+        Console.Error.WriteLine($"  {ShortId(match.Id)}  {match.Name}");
+    }
 }
 
 static async Task<int> ShowRecoveryAsync(
@@ -272,7 +508,6 @@ static async Task<int> ShowRecoveryAsync(
         var status = record.Status == WorkspaceRecoveryStatus.Active
             ? "Active (possible interrupted session after restart)"
             : record.Status.ToString();
-
         Console.WriteLine($"- Workspace: {record.Id}");
         Console.WriteLine($"  World: {record.WorldId}");
         Console.WriteLine($"  Adapter: {record.AdapterId}");
@@ -288,6 +523,34 @@ static async Task<int> ShowRecoveryAsync(
     }
 
     return ApplicationExitCodes.Success;
+}
+
+static string GetAdapterDisplayName(
+    IEnumerable<IGameAdapter> adapters,
+    string adapterId)
+    => adapters.FirstOrDefault(adapter => string.Equals(adapter.Id, adapterId, StringComparison.Ordinal))?.DisplayName
+        ?? adapterId;
+
+static string FormatSharingMode(WorldSharingMode sharingMode)
+    => sharingMode == WorldSharingMode.LocalOnly ? "LocalOnly (private)" : "Shared (explicit opt-in)";
+
+static string FormatRevision(RevisionId? revisionId)
+    => revisionId is { } value ? value.ToString() : "none";
+
+static string ShortId(WorldId worldId)
+    => worldId.ToString()[..8];
+
+static string FormatUser(UserIdentity? user)
+{
+    if (user is null)
+    {
+        return "unknown";
+    }
+
+    var displayName = string.IsNullOrWhiteSpace(user.DisplayName)
+        ? user.ExternalId
+        : user.DisplayName;
+    return $"{displayName} ({user.Provider}:{user.ExternalId})";
 }
 
 static UserIdentity GetLocalUser()
@@ -314,10 +577,14 @@ static void PrintUsage()
     Console.WriteLine();
     Console.WriteLine("Commands:");
     Console.WriteLine("  discover");
+    Console.WriteLine("  worlds                              # list managed Worlds");
+    Console.WriteLine("  world <world>                       # show World details");
     Console.WriteLine("  import-factorio <save-name>");
-    Console.WriteLine("  continue-factorio <world-id>    # local/private single-player");
-    Console.WriteLine("  share-world <world-id>          # explicit opt-in for Share / Host / Join");
-    Console.WriteLine("  unshare-world <world-id>        # return to local-only");
-    Console.WriteLine("  host-factorio <world-id>        # requires sharing enabled");
+    Console.WriteLine("  continue-factorio <world>           # local/private single-player");
+    Console.WriteLine("  share-world <world>                 # explicit opt-in for Share / Host / Join");
+    Console.WriteLine("  unshare-world <world>               # return to local-only");
+    Console.WriteLine("  host-factorio <world>               # requires sharing enabled");
     Console.WriteLine("  recovery");
+    Console.WriteLine();
+    Console.WriteLine("<world> may be a full ID, a unique World name, or a unique ID prefix of at least 8 characters.");
 }

@@ -19,8 +19,9 @@ internal static class FactorioHostingOperations
     private const string ModsDirectoryName = "mods";
     private const string HostRuntimeDirectoryName = "host";
     private const string HostClientDirectoryName = "host-client";
-    private const string ServerSettingsFileName = "server-settings.json";
     private const string ServerConsoleLogFileName = "server-console.log";
+    private const string FactorioConsoleLogFileName = "factorio-server.log";
+    private const string ServerSettingsFileName = "server-settings.json";
     private const string SteamAppIdFileName = "steam_appid.txt";
     private const string FactorioSteamAppId = "427520";
 
@@ -55,7 +56,8 @@ internal static class FactorioHostingOperations
             cancellationToken);
 
         var serverSettingsPath = Path.Combine(hostRuntimeDirectory, ServerSettingsFileName);
-        var consoleLogPath = Path.Combine(hostRuntimeDirectory, ServerConsoleLogFileName);
+        var capturedConsolePath = Path.Combine(hostRuntimeDirectory, ServerConsoleLogFileName);
+        var factorioConsoleLogPath = Path.Combine(hostRuntimeDirectory, FactorioConsoleLogFileName);
         await CreatePrivateServerSettingsAsync(
             world,
             serverSettingsPath,
@@ -79,15 +81,16 @@ internal static class FactorioHostingOperations
                 "--server-settings",
                 serverSettingsPath,
                 "--console-log",
-                consoleLogPath
+                factorioConsoleLogPath
             ],
-            workingDirectoryOverride: hostRuntimeDirectory);
+            workingDirectoryOverride: hostRuntimeDirectory,
+            diagnosticLogPath: capturedConsolePath);
 
         return new FactorioDedicatedServerLaunch(
             process,
             savePath,
             serverSettingsPath,
-            consoleLogPath);
+            capturedConsolePath);
     }
 
     internal static async Task<GameSessionHandle> LaunchHostClientAsync(
@@ -290,7 +293,8 @@ internal static class FactorioHostingOperations
         PreparedWorld world,
         string configPath,
         IReadOnlyList<string> operationArguments,
-        string? workingDirectoryOverride = null)
+        string? workingDirectoryOverride = null,
+        string? diagnosticLogPath = null)
     {
         var executable = FactorioWorldOperations.GetExecutablePath(world.Installation);
         var executableDirectory = Path.GetDirectoryName(executable)
@@ -311,11 +315,15 @@ internal static class FactorioHostingOperations
                 $"The isolated Factorio workspace mod directory does not exist: '{workspaceModDirectory}'.");
         }
 
+        var captureDiagnostics = !string.IsNullOrWhiteSpace(diagnosticLogPath);
         var startInfo = new ProcessStartInfo
         {
             FileName = executable,
             WorkingDirectory = workingDirectoryOverride ?? executableDirectory,
-            UseShellExecute = false
+            UseShellExecute = false,
+            RedirectStandardOutput = captureDiagnostics,
+            RedirectStandardError = captureDiagnostics,
+            CreateNoWindow = captureDiagnostics
         };
         startInfo.ArgumentList.Add("--config");
         startInfo.ArgumentList.Add(configPath);
@@ -327,8 +335,66 @@ internal static class FactorioHostingOperations
             startInfo.ArgumentList.Add(argument);
         }
 
-        return Process.Start(startInfo)
-            ?? throw new InvalidOperationException($"Failed to start Factorio executable '{executable}'.");
+        var process = new Process
+        {
+            StartInfo = startInfo
+        };
+
+        object? diagnosticGate = null;
+        if (captureDiagnostics)
+        {
+            diagnosticGate = new object();
+            Directory.CreateDirectory(Path.GetDirectoryName(diagnosticLogPath!)!);
+            File.WriteAllText(diagnosticLogPath!, string.Empty);
+            process.OutputDataReceived += (_, eventArgs) =>
+                TryAppendDiagnosticLine(diagnosticLogPath!, diagnosticGate, "stdout", eventArgs.Data);
+            process.ErrorDataReceived += (_, eventArgs) =>
+                TryAppendDiagnosticLine(diagnosticLogPath!, diagnosticGate, "stderr", eventArgs.Data);
+        }
+
+        if (!process.Start())
+        {
+            process.Dispose();
+            throw new InvalidOperationException($"Failed to start Factorio executable '{executable}'.");
+        }
+
+        if (captureDiagnostics)
+        {
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+        }
+
+        return process;
+    }
+
+    private static void TryAppendDiagnosticLine(
+        string path,
+        object gate,
+        string streamName,
+        string? line)
+    {
+        if (line is null)
+        {
+            return;
+        }
+
+        try
+        {
+            lock (gate)
+            {
+                File.AppendAllText(
+                    path,
+                    $"[{streamName}] {line}{Environment.NewLine}");
+            }
+        }
+        catch (IOException)
+        {
+            // Startup diagnostics are best-effort and must never change server lifecycle behavior.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Startup diagnostics are best-effort and must never change server lifecycle behavior.
+        }
     }
 
     private static string GetPreparedSavePath(PreparedWorld world)

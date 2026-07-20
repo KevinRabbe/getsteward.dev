@@ -12,12 +12,13 @@ Current implementation covers:
 - environment inspection
 - local prepared workspace creation
 - state restore
+- local single-player launch
 - host launch
 - client launch
 - adapter-owned session-end observation
 - state recapture after play
 
-This is not yet considered production-tested. The code still needs compile and runtime validation on a real machine with Factorio installed.
+The adapter has now been compiled and exercised on a real Windows Steam installation. Real-machine discovery and import succeeded. The first local Continue attempt exposed a Steam bootstrap/process-handoff bug before the save could load; the adapter now launches from Factorio's executable directory and treats rapid Steam process replacement as a launcher handoff rather than a completed game session.
 
 ## Installation discovery
 
@@ -68,6 +69,8 @@ The adapter copies the detected save into an adapter-owned state package. The Co
 
 This gives the product its own revision history while preserving the original imported save.
 
+Imported Worlds default to `WorldSharingMode.LocalOnly`. Discovery or import alone never makes a save shared or hostable.
+
 ## Environment inspection
 
 The adapter currently records:
@@ -111,7 +114,21 @@ The goal is to keep product-managed play isolated from the original imported sou
 
 Environment isolation is not yet complete because the adapter currently does not create a fully isolated Factorio user-data/mod directory per World.
 
+## Local launch
+
+A `LocalOnly` World uses:
+
+```text
+--load-game <save-file>
+```
+
+This is the Factorio single-player launch path. It is intentionally separate from hosting.
+
+The Steam build must be launched with the Factorio executable directory as its process working directory. Launching the executable from the installation root can cause Steam's restart/bootstrap behavior, where the first process exits before the playable game process exists.
+
 ## Host launch
+
+A World must be explicitly marked `Shared` before the Core permits the host path.
 
 The adapter launches Factorio using:
 
@@ -137,13 +154,22 @@ Reference: [Factorio command line parameters](https://wiki.factorio.com/Command_
 
 The adapter owns session-end observation through `WaitForSessionEndAsync`.
 
-For the current Factorio implementation this can follow the launched Factorio process. The abstraction remains adapter-owned because that assumption will not be valid for every future game or launcher.
+A real-machine Steam test proved that the initially launched PID is not always the playable session: Steam may terminate a bootstrap process and start a replacement Factorio process. The adapter therefore:
+
+1. launches Factorio from the executable directory to avoid unnecessary Steam restart behavior
+2. tracks Factorio processes that existed before launch
+3. waits on the launched PID
+4. if that PID exits almost immediately, looks for a newly created Factorio replacement process
+5. follows the replacement process instead of declaring the session complete
+6. fails conservatively if no playable replacement can be observed
+
+A failed bootstrap/session observation must preserve the prepared workspace rather than advance the canonical World as though gameplay completed.
 
 ## State capture after play
 
-After the hosted session ends, the adapter captures the prepared `world.zip` into a new state package.
+After a local or hosted canonical session ends, the adapter captures the prepared `world.zip` into a new state package.
 
-The Core then creates a new `StateRevision` and moves the World's canonical state head forward.
+The Core then creates a new `StateRevision` and moves the World's canonical state head forward only after durable storage succeeds.
 
 ## Current CLI workflow
 
@@ -153,58 +179,45 @@ The development CLI exposes:
 discover
 import-factorio <save-name>
 continue-factorio <world-id>
+share-world <world-id>
+host-factorio <world-id>
+unshare-world <world-id>
+recovery
 ```
 
-Intended use:
-
-### Discover
-
-```text
-discover
-```
-
-Lists installed supported games and detected Factorio saves.
-
-### Import
-
-```text
-import-factorio MySave
-```
-
-Imports the named discovered save into a new World and persists its initial environment and state revisions.
-
-### Continue
-
-```text
-continue-factorio <world-id>
-```
-
-Loads the canonical World, prepares it, launches Factorio as host, waits for session end, captures the resulting save, and commits the next state revision.
+`continue-factorio` is local/single-player canonical play. `host-factorio` is blocked until the World has been explicitly shared.
 
 ## Known limitations
 
-1. The branch has not yet been compile-tested with the .NET SDK in the current execution environment.
-2. Runtime behavior has not yet been validated on the user's Windows machine.
-3. Arbitrary custom Factorio write-data paths are not fully resolved.
-4. Steam Flatpak-specific Linux paths are not yet handled comprehensively.
-5. Exact automated mod synchronization is not yet wired into preparation.
-6. Fully isolated per-World mod/config directories are not yet implemented.
-7. Crash-safe save stabilization and recovery logic is not yet implemented.
-8. Live shared host coordination is not yet implemented.
+1. Arbitrary custom Factorio write-data paths are not fully resolved.
+2. Steam Flatpak-specific Linux paths are not yet handled comprehensively.
+3. Exact automated mod synchronization is not yet wired into preparation.
+4. Fully isolated per-World mod/config directories are not yet implemented.
+5. The Steam process-handoff fix still requires a second real Windows runtime validation.
+6. Live shared host coordination is not yet implemented.
 
-## First real-machine test checklist
+## Real-machine test checklist
 
-1. Build the solution.
+Completed:
+
+1. Build the solution on the target Windows machine.
 2. Run `discover`.
-3. Confirm the correct Factorio installation is found.
-4. Confirm expected saves are listed and autosaves are hidden.
-5. Import a disposable test save.
-6. Verify the original save is unchanged.
-7. Inspect persisted World, environment revision, and state revision files.
-8. Run Continue on the imported World.
-9. Make a visible in-game change and save normally.
-10. Exit Factorio cleanly.
-11. Confirm a new canonical state revision is created.
-12. Continue again and verify the visible change is present.
+3. Confirm the non-default Steam library installation is found.
+4. Confirm expected saves are listed and autosaves are hidden from import discovery.
+5. Import disposable save `newme`.
+6. Confirm imported World defaults to `LocalOnly`.
+7. Record the original save SHA-256 before product-managed play.
+
+Next:
+
+8. Pull the Steam bootstrap/session-handoff fix.
+9. Close any already-running Factorio process.
+10. Run local Continue again.
+11. Confirm the prepared `world.zip` loads successfully.
+12. Make a visible in-game change and save normally.
+13. Exit Factorio cleanly.
+14. Confirm a new canonical state revision is created.
+15. Confirm the original source save SHA-256 is unchanged.
+16. Continue again and verify the visible change is present.
 
 Only after this succeeds should automated mod synchronization be added to the canonical preparation path.

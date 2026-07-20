@@ -10,12 +10,14 @@ Current implementation covers:
 - save discovery
 - detected-save capture for import
 - environment inspection
+- exact required game-version enforcement during preparation
 - local prepared workspace creation
 - isolated session write-data configuration
 - workspace-local mod-directory preparation
 - exact installed user-mod artifact selection by recorded version
 - generated workspace `mod-list.json`
 - mod startup-settings fingerprint capture and verification for new EnvironmentRevisions
+- game-visible temporary save naming from the SharedWorlds World display name
 - state restore
 - local single-player launch
 - host launch
@@ -24,9 +26,9 @@ Current implementation covers:
 - adapter-owned session-end observation
 - state recapture after play
 
-The local Factorio vertical slice and explicit hosted lifecycle are **end-to-end validated on a real Windows Steam installation**. Real-machine discovery, import, Steam process handoff, isolated local play, explicit sharing, hosted launch, clean session commit, source-save isolation, canonical-head advancement, workspace cleanup, and replay of newly committed canonical state have all succeeded.
+The local Factorio vertical slice and explicit hosted lifecycle are **end-to-end validated on a real Windows Steam installation**. Real-machine discovery, import, Steam process handoff, isolated local play, explicit sharing, hosted launch, clean session commit, source-save isolation, canonical-head advancement, workspace cleanup, replay of newly committed canonical state, workspace-local active mod-directory isolation, and exact required game-version matching on the success path have all succeeded.
 
-The newer workspace-local mod preparation path is implemented and covered by automated tests. It still requires a real-machine replay before it should be called runtime-validated.
+The workspace-local mod preparation path is implemented, covered by automated tests, and runtime-validated on the target Windows Steam installation. The Steam-restarted Factorio process used the SharedWorlds workspace `--mod-directory`, the World loaded and committed cleanly, and the original imported save remained unchanged.
 
 Runtime testing exposed two adapter-specific issues in sequence:
 
@@ -102,6 +104,8 @@ The environment fingerprint is only a fast comparison value derived from that ma
 
 For new EnvironmentRevisions, the mod-settings hash lets preparation detect startup-setting drift instead of silently borrowing changed settings from the live Factorio profile. Older EnvironmentRevisions created before this field existed retain compatibility behavior and cannot verify that drift.
 
+Preparation also reads the currently installed Factorio version and requires an exact match with the World EnvironmentRevision. A mismatch fails with a controlled `EnvironmentReproductionException` before workspace preparation proceeds. The real-machine exact-match path is validated; the mismatch path is covered by automated tests.
+
 ## Mod handling
 
 Factorio already provides significant native mod synchronization behavior.
@@ -130,7 +134,7 @@ Unrelated mods in the user's live Factorio profile are not copied into the prepa
 
 Automatic `--sync-mods` execution is **not yet enabled**. Missing exact versions currently fail safely instead of downloading, upgrading, deleting, or otherwise mutating mod state automatically. That behavior must be tested on disposable environments before becoming canonical preparation logic.
 
-The adapter still does **not** claim complete `EnvironmentIsolation`: preparation-time exact game-version enforcement, automatic repair/download of missing mod versions, and save-derived restoration of startup settings remain future hardening work.
+The adapter still does **not** claim complete `EnvironmentIsolation`: automatic acquisition/repair of missing exact game or mod versions and save-derived restoration of startup settings remain future hardening work.
 
 References:
 
@@ -154,11 +158,13 @@ References:
 
 The workspace config is based on the user's current Factorio config when available, but its `[path] write-data` value is rewritten to the adapter-owned `user-data` directory.
 
-The canonical state package is restored into:
+The canonical state package is restored into a game-visible save named from the SharedWorlds World display name:
 
 ```text
-<workspace>/user-data/saves/world.zip
+<workspace>/user-data/saves/<World display name>.zip
 ```
+
+The adapter sanitizes characters that are unsafe in filenames and falls back to `world.zip` only when no usable display name is available. This keeps internal canonical storage opaque while avoiding the confusing in-game `world` label for normal product-managed sessions.
 
 Factorio is launched with:
 
@@ -169,7 +175,7 @@ Factorio is launched with:
 
 This separates both save writes and the active user-mod catalog from the live Factorio profile for the duration of the prepared session.
 
-A real-machine test previously proved that merely loading `world.zip` from an arbitrary external path is insufficient: a normal in-game save can still write into the default `%APPDATA%\Factorio\saves` directory. Redirecting `write-data` makes later save writes session-local instead.
+A real-machine test previously proved that merely loading a save from an arbitrary external path is insufficient: a normal in-game save can still write into the default `%APPDATA%\Factorio\saves` directory. Redirecting `write-data` makes later save writes session-local instead.
 
 After session end, state capture scans only the isolated workspace `saves` directory, ignores `_autosave*`, and captures the newest non-autosave save. This allows Factorio to preserve or change the save name internally without causing Core to read from the user's original save directory.
 
@@ -261,9 +267,9 @@ recovery
 2. Steam Flatpak-specific Linux paths are not yet handled comprehensively.
 3. Automatic `--sync-mods` repair/download is not yet wired into preparation.
 4. Existing legacy EnvironmentRevisions without a mod-settings fingerprint cannot detect startup-setting drift.
-5. Exact required Factorio game-version mismatch is not yet rejected during preparation.
-6. Workspace-local mod preparation is implemented but still awaits real-machine runtime validation.
-7. Live shared host coordination and genuine multi-user Join are not yet implemented.
+5. Exact required game versions are enforced, but SharedWorlds does not yet automatically acquire or switch the local Factorio installation to a missing required version.
+6. Live shared host coordination and genuine multi-user Join are not yet implemented.
+7. Player-preference persistence is covered by automated tests but still needs a focused real-machine runtime check.
 
 ## Real-machine validation history
 
@@ -291,5 +297,7 @@ Completed:
 20. The replacement Factorio process retained the host command line and owned active UDP endpoints.
 21. Clean hosted exit committed revision `669e8b7b10cc4b8da23a35b8f2ebd343` with parent `e8e0c36761934d0ca4ded2c0b125a378`.
 22. Hosted cleanup left no recovery records and the original source save remained unchanged.
+23. A later real-machine Continue confirmed the Steam replacement process used the SharedWorlds workspace `--mod-directory`, the active save path remained workspace-local, clean exit committed state, and the original source save remained unchanged.
+24. Exact required Factorio version `2.1.11` was enforced and the real-machine exact-match path successfully launched and loaded the World; mismatch refusal is covered by automated tests.
 
-The Factorio local/private and explicit hosted World lifecycles are therefore **fully end-to-end validated** for the tested Windows Steam configuration. Workspace-local mod-environment preparation is the next runtime-validation boundary.
+The Factorio local/private and explicit hosted World lifecycles are therefore **fully end-to-end validated** for the tested Windows Steam configuration. Workspace-local mod isolation and exact game-version matching are also runtime-validated. Remaining environment work is primarily controlled acquisition/repair, custom-path hardening, and save-derived startup-setting restoration.

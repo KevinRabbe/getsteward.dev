@@ -272,8 +272,8 @@ internal static class FactorioWorldOperations
         foreach (var line in lines)
         {
             var trimmed = line.Trim();
-            if (trimmed.StartsWith('[', StringComparison.Ordinal) &&
-                trimmed.EndsWith(']', StringComparison.Ordinal))
+            if (trimmed.StartsWith("[", StringComparison.Ordinal) &&
+                trimmed.EndsWith("]", StringComparison.Ordinal))
             {
                 if (inPathSection && !writeDataReplaced)
                 {
@@ -300,7 +300,6 @@ internal static class FactorioWorldOperations
         if (inPathSection && !writeDataReplaced)
         {
             result.Add($"write-data={workspaceUserDataDirectory}");
-            writeDataReplaced = true;
         }
 
         if (!pathSectionFound)

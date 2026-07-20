@@ -1,0 +1,243 @@
+<Window x:Class="SharedWorlds.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SharedWorlds"
+        Width="1180"
+        Height="760"
+        MinWidth="920"
+        MinHeight="620"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource AppBackgroundBrush}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Padding="24,18"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1">
+            <DockPanel LastChildFill="False">
+                <StackPanel DockPanel.Dock="Left">
+                    <TextBlock Text="SharedWorlds"
+                               FontSize="24"
+                               FontWeight="SemiBold" />
+                    <TextBlock Text="I want to play this World."
+                               Margin="0,4,0,0"
+                               Foreground="{StaticResource MutedTextBrush}"
+                               FontSize="13" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="330" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0"
+                    Background="{StaticResource PanelBrush}"
+                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="0,0,1,0"
+                    Padding="18">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <DockPanel Grid.Row="0" Margin="2,0,2,14">
+                        <TextBlock Text="Worlds"
+                                   DockPanel.Dock="Left"
+                                   FontSize="18"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                        <Button x:Name="RefreshButton"
+                                DockPanel.Dock="Right"
+                                Content="Refresh"
+                                Padding="12,6"
+                                MinHeight="32"
+                                Click="RefreshButton_Click" />
+                    </DockPanel>
+
+                    <ListBox x:Name="WorldList"
+                             Grid.Row="1"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Foreground="{StaticResource TextBrush}"
+                             SelectionChanged="WorldList_SelectionChanged"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="Margin" Value="0,0,0,8" />
+                                <Setter Property="Background" Value="Transparent" />
+                                <Setter Property="BorderThickness" Value="0" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="ItemBorder"
+                                                    Background="{TemplateBinding Background}"
+                                                    BorderBrush="{StaticResource BorderBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="10"
+                                                    Padding="14">
+                                                <ContentPresenter />
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource PanelAltBrush}" />
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="ItemBorder" Property="Background" Value="#252C3B" />
+                                                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Name}"
+                                               FontSize="15"
+                                               FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding Subtitle}"
+                                               Margin="0,5,0,0"
+                                               Foreground="{StaticResource MutedTextBrush}"
+                                               FontSize="12"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+            <ScrollViewer Grid.Column="1"
+                          VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="36,32,36,32"
+                            MaxWidth="760"
+                            HorizontalAlignment="Left">
+                    <TextBlock x:Name="EmptyStateText"
+                               Text="Select a World to continue."
+                               Foreground="{StaticResource MutedTextBrush}"
+                               FontSize="18" />
+
+                    <StackPanel x:Name="WorldDetailsPanel" Visibility="Collapsed">
+                        <TextBlock x:Name="WorldNameText"
+                                   FontSize="32"
+                                   FontWeight="SemiBold" />
+                        <TextBlock x:Name="GameText"
+                                   Margin="0,8,0,0"
+                                   Foreground="{StaticResource MutedTextBrush}"
+                                   FontSize="15" />
+
+                        <WrapPanel Margin="0,20,0,0">
+                            <Border Background="{StaticResource PanelAltBrush}"
+                                    BorderBrush="{StaticResource BorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    Padding="10,6"
+                                    Margin="0,0,8,8">
+                                <TextBlock x:Name="SharingText" FontSize="13" />
+                            </Border>
+                            <Border Background="{StaticResource PanelAltBrush}"
+                                    BorderBrush="{StaticResource BorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    Padding="10,6"
+                                    Margin="0,0,8,8">
+                                <TextBlock x:Name="VersionText" FontSize="13" />
+                            </Border>
+                        </WrapPanel>
+
+                        <Border Margin="0,26,0,0"
+                                Background="{StaticResource PanelBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="12"
+                                Padding="20">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0"
+                                           Text="World ID"
+                                           Foreground="{StaticResource MutedTextBrush}"
+                                           Margin="0,0,24,10" />
+                                <TextBlock x:Name="WorldIdText"
+                                           Grid.Row="0" Grid.Column="1"
+                                           Margin="0,0,0,10" />
+
+                                <TextBlock Grid.Row="1" Grid.Column="0"
+                                           Text="Environment"
+                                           Foreground="{StaticResource MutedTextBrush}"
+                                           Margin="0,0,24,10" />
+                                <TextBlock x:Name="EnvironmentRevisionText"
+                                           Grid.Row="1" Grid.Column="1"
+                                           Margin="0,0,0,10" />
+
+                                <TextBlock Grid.Row="2" Grid.Column="0"
+                                           Text="State"
+                                           Foreground="{StaticResource MutedTextBrush}"
+                                           Margin="0,0,24,0" />
+                                <TextBlock x:Name="StateRevisionText"
+                                           Grid.Row="2" Grid.Column="1" />
+                            </Grid>
+                        </Border>
+
+                        <TextBlock Text="Play"
+                                   Margin="0,30,0,12"
+                                   FontSize="18"
+                                   FontWeight="SemiBold" />
+                        <WrapPanel>
+                            <Button x:Name="ContinueButton"
+                                    Content="Continue"
+                                    Style="{StaticResource PrimaryButtonStyle}"
+                                    Margin="0,0,10,10"
+                                    Click="ContinueButton_Click" />
+                            <Button x:Name="HostButton"
+                                    Content="Host"
+                                    Margin="0,0,10,10"
+                                    Click="HostButton_Click" />
+                            <Button x:Name="ShareButton"
+                                    Content="Share World"
+                                    Margin="0,0,10,10"
+                                    Click="ShareButton_Click" />
+                        </WrapPanel>
+
+                        <TextBlock Margin="0,18,0,0"
+                                   Foreground="{StaticResource MutedTextBrush}"
+                                   Text="The first desktop slice intentionally exposes only the actions already proven by the Core lifecycle. Join, host handoff, Restore, Sandbox and Start Your Own will appear as those workflows become real." 
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <Border Grid.Row="2"
+                Padding="20,10"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,1,0,0"
+                Background="{StaticResource PanelBrush}">
+            <TextBlock x:Name="StatusText"
+                       Text="Ready"
+                       Foreground="{StaticResource MutedTextBrush}"
+                       FontSize="12" />
+        </Border>
+    </Grid>
+</Window>

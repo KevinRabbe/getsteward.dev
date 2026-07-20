@@ -8,36 +8,46 @@ Do not expand to many games or infrastructure providers until one complete World
 
 ## Phase 1: Local Factorio vertical slice
 
-Status: **implemented in code, not yet real-machine validated**.
+Status: **end-to-end validated on a real Windows Steam installation**.
 
-Target flow:
+Validated flow:
 
 ```text
 discover Factorio
 -> discover save
--> import as World
+-> import as LocalOnly World
 -> create E1 + S1
 -> Continue
--> prepare workspace
--> restore S1
--> launch host
--> wait for session end
--> capture S2
--> persist S2
--> move canonical World head to S2
+-> prepare isolated workspace
+-> restore canonical state
+-> launch local Factorio
+-> survive Steam process handoff
+-> play and save inside isolated write-data
+-> wait for real session end
+-> capture new immutable state revision
+-> persist revision
+-> move canonical World head last
+-> clean workspace/recovery record
+-> Continue again
+-> restore newly committed canonical state
 ```
 
-Remaining work:
+Real-machine validation confirmed:
 
-- compile on a machine with the .NET SDK
-- fix any compiler errors
-- run on Windows with Factorio installed
-- verify installation discovery
-- verify save discovery
-- verify original source save remains untouched
-- verify revision persistence
-- verify host launch and session-end capture
-- verify second Continue loads the newly committed state
+- non-default Steam library discovery
+- save discovery with autosave filtering
+- privacy-by-default import as `LocalOnly`
+- source-save preservation during import
+- Steam bootstrap/process-handoff tracking
+- isolated Factorio `write-data` for product-managed play
+- gameplay changes captured into SharedWorlds revision history
+- original source save remains unchanged during isolated play
+- canonical head advances only after durable state capture
+- clean-session workspace cleanup
+- no recovery record remains after successful completion
+- next Continue restores the newly committed visible gameplay state
+
+Phase 1 is complete for the tested Windows Steam configuration. Known platform-specific and custom-path edge cases remain adapter hardening work rather than blockers for the validated local lifecycle.
 
 ## Phase 2: Factorio environment reproduction
 
@@ -63,11 +73,19 @@ Target screens/actions:
 - Worlds library
 - Continue
 - World details
+- sharing status
 - environment status
 - revision history
 - Restore
 
 Main UI should show only supported games that are actually installed. A separate Supported Games view may show supported but uninstalled titles.
+
+Before the desktop shell, add enough CLI product UX to remove raw-ID friction during continued runtime development:
+
+- `worlds` / list Worlds
+- World name, game, sharing mode, and current revision summary
+- World details by ID
+- clearer local Continue vs Shared Host status
 
 ## Phase 4: Sandbox, Fresh Test World, Fork, Restore
 
@@ -217,6 +235,12 @@ Postpone until the foundation is proven:
 
 ## Current immediate next step
 
-Run the Factorio vertical slice on the user's actual Windows PC.
+Productize the validated local Factorio lifecycle before adding real shared networking:
 
-Reality test before more architecture.
+1. add a World-listing/detail flow so development no longer depends on memorized raw World IDs
+2. expose LocalOnly vs Shared state clearly in the CLI/product model
+3. run a controlled `share-world` -> `host-factorio` local host validation while keeping Join explicitly unavailable until shared synchronization exists
+4. harden Factorio environment reproduction, especially per-World mod/config handling and exact-version verification
+5. then build the remote storage/live coordination path required for a genuine multi-user Join and host-handoff experience
+
+The principle remains: prove each product boundary with a real game before adding another abstraction layer.

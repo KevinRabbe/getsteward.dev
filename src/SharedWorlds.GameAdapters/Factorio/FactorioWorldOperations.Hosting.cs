@@ -101,10 +101,21 @@ internal static class FactorioHostingOperations
         cancellationToken.ThrowIfCancellationRequested();
 
         var clientConfigPath = await CreateHostClientConfigAsync(world, cancellationToken);
+        var hostClientDirectory = Path.Combine(world.WorkingDirectory, HostClientDirectoryName);
+
+        // Keep the graphical client launch adapter-owned too. Without the local Steam App ID marker,
+        // the Steam build can restart itself through Steam, which causes Steam to intercept our
+        // --mp-connect/--password arguments and show a confirmation prompt before joining.
+        await File.WriteAllTextAsync(
+            Path.Combine(hostClientDirectory, SteamAppIdFileName),
+            FactorioSteamAppId,
+            cancellationToken);
+
         var process = StartFactorio(
             world,
             clientConfigPath,
-            BuildClientOperationArguments(host));
+            BuildClientOperationArguments(host),
+            workingDirectoryOverride: hostClientDirectory);
         return new GameSessionHandle(process.Id, DateTimeOffset.UtcNow);
     }
 

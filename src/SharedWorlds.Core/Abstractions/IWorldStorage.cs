@@ -10,7 +10,9 @@ public interface IWorldStorage
 {
     Task SaveWorldAsync(World world, CancellationToken cancellationToken = default);
     Task<World?> LoadWorldAsync(WorldId worldId, CancellationToken cancellationToken = default);
-    Task<IReadOnlyList<World>> ListWorldsAsync(CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<World>> ListWorldsAsync(CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This World storage backend does not support catalog listing.");
 
     Task StoreEnvironmentRevisionAsync(
         EnvironmentRevision revision,

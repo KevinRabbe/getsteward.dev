@@ -7,11 +7,15 @@ namespace SharedWorlds.GameAdapters.Factorio;
 internal static class FactorioWorldOperations
 {
     private const string PreparedSaveFileName = "world.zip";
+    private const string WorkspaceConfigDirectoryName = "config";
+    private const string WorkspaceConfigFileName = "config.ini";
+    private const string WorkspaceUserDataDirectoryName = "user-data";
+    private const string SavesDirectoryName = "saves";
 
     public static IReadOnlyList<DetectedWorld> DiscoverWorlds(GameInstallation installation)
     {
         var userDataPath = GetRequiredMetadata(installation, FactorioInstallationDiscovery.UserDataPathKey);
-        var savesPath = Path.Combine(userDataPath, "saves");
+        var savesPath = Path.Combine(userDataPath, SavesDirectoryName);
 
         if (!Directory.Exists(savesPath))
         {
@@ -20,8 +24,7 @@ internal static class FactorioWorldOperations
 
         return Directory
             .EnumerateFiles(savesPath, "*.zip", SearchOption.TopDirectoryOnly)
-            .Where(path => !Path.GetFileNameWithoutExtension(path)
-                .StartsWith("_autosave", StringComparison.OrdinalIgnoreCase))
+            .Where(path => !IsAutosave(path))
             .OrderByDescending(File.GetLastWriteTimeUtc)
             .Select(path => new DetectedWorld(
                 Id: Path.GetFullPath(path),
@@ -46,7 +49,7 @@ internal static class FactorioWorldOperations
             DateTimeOffset.UtcNow);
     }
 
-    public static Task<PreparedWorld> PrepareEnvironmentAsync(
+    public static async Task<PreparedWorld> PrepareEnvironmentAsync(
         GameInstallation installation,
         EnvironmentManifest requiredEnvironment,
         CancellationToken cancellationToken)
@@ -63,9 +66,20 @@ internal static class FactorioWorldOperations
         var workspace = Path.Combine(
             GetLocalWorkRoot(),
             Guid.NewGuid().ToString("N"));
+        var workspaceConfigDirectory = Path.Combine(workspace, WorkspaceConfigDirectoryName);
+        var workspaceUserDataDirectory = Path.Combine(workspace, WorkspaceUserDataDirectoryName);
+        var workspaceSavesDirectory = Path.Combine(workspaceUserDataDirectory, SavesDirectoryName);
 
-        Directory.CreateDirectory(workspace);
-        return Task.FromResult(new PreparedWorld(installation, workspace, requiredEnvironment));
+        Directory.CreateDirectory(workspaceConfigDirectory);
+        Directory.CreateDirectory(workspaceSavesDirectory);
+
+        await CreateWorkspaceConfigAsync(
+            installation,
+            Path.Combine(workspaceConfigDirectory, WorkspaceConfigFileName),
+            workspaceUserDataDirectory,
+            cancellationToken);
+
+        return new PreparedWorld(installation, workspace, requiredEnvironment);
     }
 
     public static async Task RestoreStateAsync(
@@ -78,8 +92,8 @@ internal static class FactorioWorldOperations
             throw new FileNotFoundException("The Factorio state package does not exist.", state.Path);
         }
 
-        Directory.CreateDirectory(world.WorkingDirectory);
         var destination = GetPreparedSavePath(world);
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         await CopyFileAsync(state.Path, destination, overwrite: true, cancellationToken);
     }
 
@@ -87,12 +101,20 @@ internal static class FactorioWorldOperations
         PreparedWorld world,
         CancellationToken cancellationToken)
     {
-        var savePath = GetPreparedSavePath(world);
-        if (!File.Exists(savePath))
+        var savesDirectory = GetWorkspaceSavesDirectory(world);
+        var savePath = Directory.Exists(savesDirectory)
+            ? Directory
+                .EnumerateFiles(savesDirectory, "*.zip", SearchOption.TopDirectoryOnly)
+                .Where(path => !IsAutosave(path))
+                .OrderByDescending(File.GetLastWriteTimeUtc)
+                .FirstOrDefault()
+            : null;
+
+        if (savePath is null)
         {
             throw new FileNotFoundException(
-                "The prepared Factorio world has no canonical save to capture.",
-                savePath);
+                "The isolated Factorio workspace has no non-autosave save to capture.",
+                savesDirectory);
         }
 
         var package = CreatePackagePath();
@@ -109,14 +131,11 @@ internal static class FactorioWorldOperations
         cancellationToken.ThrowIfCancellationRequested();
 
         var savePath = GetPreparedSavePath(world);
-        if (!File.Exists(savePath))
-        {
-            throw new FileNotFoundException(
-                "RestoreStateAsync must be called before launching a local Factorio session.",
-                savePath);
-        }
+        EnsurePreparedSaveExists(savePath, "local Factorio session");
 
-        var process = StartFactorio(world.Installation, "--load-game", savePath);
+        var process = StartFactorio(
+            world,
+            ["--load-game", savePath]);
         return Task.FromResult(new GameSessionHandle(process.Id, DateTimeOffset.UtcNow));
     }
 
@@ -127,14 +146,11 @@ internal static class FactorioWorldOperations
         cancellationToken.ThrowIfCancellationRequested();
 
         var savePath = GetPreparedSavePath(world);
-        if (!File.Exists(savePath))
-        {
-            throw new FileNotFoundException(
-                "RestoreStateAsync must be called before launching a Factorio host.",
-                savePath);
-        }
+        EnsurePreparedSaveExists(savePath, "Factorio host");
 
-        var process = StartFactorio(world.Installation, "--host", savePath);
+        var process = StartFactorio(
+            world,
+            ["--host", savePath]);
         return Task.FromResult(new GameSessionHandle(process.Id, DateTimeOffset.UtcNow));
     }
 
@@ -149,7 +165,9 @@ internal static class FactorioWorldOperations
             ? host.Address
             : $"{host.Address}:{host.Port.Value}";
 
-        var process = StartFactorio(world.Installation, "--mp-connect", address);
+        var process = StartFactorio(
+            world,
+            ["--mp-connect", address]);
         return Task.FromResult(new GameSessionHandle(process.Id, DateTimeOffset.UtcNow));
     }
 
@@ -157,14 +175,25 @@ internal static class FactorioWorldOperations
         => GetRequiredMetadata(installation, FactorioInstallationDiscovery.ExecutablePathKey);
 
     private static Process StartFactorio(
-        GameInstallation installation,
-        string command,
-        string value)
+        PreparedWorld world,
+        IReadOnlyList<string> operationArguments)
     {
-        var executable = GetExecutablePath(installation);
+        var executable = GetExecutablePath(world.Installation);
         var executableDirectory = Path.GetDirectoryName(executable)
             ?? throw new InvalidOperationException(
                 $"Cannot determine Factorio executable directory for '{executable}'.");
+        var configPath = GetWorkspaceConfigPath(world);
+        var sourceUserDataPath = GetRequiredMetadata(
+            world.Installation,
+            FactorioInstallationDiscovery.UserDataPathKey);
+        var sourceModDirectory = Path.Combine(sourceUserDataPath, "mods");
+
+        if (!File.Exists(configPath))
+        {
+            throw new FileNotFoundException(
+                "The isolated Factorio workspace config does not exist.",
+                configPath);
+        }
 
         var startInfo = new ProcessStartInfo
         {
@@ -176,15 +205,143 @@ internal static class FactorioWorldOperations
             UseShellExecute = false
         };
 
-        startInfo.ArgumentList.Add(command);
-        startInfo.ArgumentList.Add(value);
+        // The workspace config redirects Factorio's write-data directory away from the user's
+        // normal %APPDATA%/Factorio tree. This is what makes save writes session-local.
+        startInfo.ArgumentList.Add("--config");
+        startInfo.ArgumentList.Add(configPath);
+
+        // Full mod isolation is a later adapter milestone. For now, keep the currently installed
+        // mod set available explicitly while save/config/temp writes go to the isolated workspace.
+        if (Directory.Exists(sourceModDirectory))
+        {
+            startInfo.ArgumentList.Add("--mod-directory");
+            startInfo.ArgumentList.Add(sourceModDirectory);
+        }
+
+        foreach (var argument in operationArguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
 
         return Process.Start(startInfo)
             ?? throw new InvalidOperationException($"Failed to start Factorio executable '{executable}'.");
     }
 
+    private static async Task CreateWorkspaceConfigAsync(
+        GameInstallation installation,
+        string destinationConfigPath,
+        string workspaceUserDataDirectory,
+        CancellationToken cancellationToken)
+    {
+        var sourceUserDataPath = GetRequiredMetadata(
+            installation,
+            FactorioInstallationDiscovery.UserDataPathKey);
+        var sourceConfigPath = Path.Combine(
+            sourceUserDataPath,
+            WorkspaceConfigDirectoryName,
+            WorkspaceConfigFileName);
+
+        string[] lines;
+        if (File.Exists(sourceConfigPath))
+        {
+            lines = await File.ReadAllLinesAsync(sourceConfigPath, cancellationToken);
+        }
+        else
+        {
+            lines =
+            [
+                "[path]",
+                "read-data=__PATH__system-read-data__",
+                $"write-data={Path.GetFullPath(workspaceUserDataDirectory)}"
+            ];
+        }
+
+        var rewritten = RewriteWriteDataPath(lines, Path.GetFullPath(workspaceUserDataDirectory));
+        await File.WriteAllLinesAsync(destinationConfigPath, rewritten, cancellationToken);
+    }
+
+    private static IReadOnlyList<string> RewriteWriteDataPath(
+        IReadOnlyList<string> lines,
+        string workspaceUserDataDirectory)
+    {
+        var result = new List<string>(lines.Count + 2);
+        var inPathSection = false;
+        var pathSectionFound = false;
+        var writeDataReplaced = false;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith('[', StringComparison.Ordinal) &&
+                trimmed.EndsWith(']', StringComparison.Ordinal))
+            {
+                if (inPathSection && !writeDataReplaced)
+                {
+                    result.Add($"write-data={workspaceUserDataDirectory}");
+                    writeDataReplaced = true;
+                }
+
+                inPathSection = string.Equals(trimmed, "[path]", StringComparison.OrdinalIgnoreCase);
+                pathSectionFound |= inPathSection;
+                result.Add(line);
+                continue;
+            }
+
+            if (inPathSection && trimmed.StartsWith("write-data=", StringComparison.OrdinalIgnoreCase))
+            {
+                result.Add($"write-data={workspaceUserDataDirectory}");
+                writeDataReplaced = true;
+                continue;
+            }
+
+            result.Add(line);
+        }
+
+        if (inPathSection && !writeDataReplaced)
+        {
+            result.Add($"write-data={workspaceUserDataDirectory}");
+            writeDataReplaced = true;
+        }
+
+        if (!pathSectionFound)
+        {
+            result.Add(string.Empty);
+            result.Add("[path]");
+            result.Add("read-data=__PATH__system-read-data__");
+            result.Add($"write-data={workspaceUserDataDirectory}");
+        }
+
+        return result;
+    }
+
+    private static void EnsurePreparedSaveExists(string savePath, string operation)
+    {
+        if (!File.Exists(savePath))
+        {
+            throw new FileNotFoundException(
+                $"RestoreStateAsync must be called before launching a {operation}.",
+                savePath);
+        }
+    }
+
+    private static bool IsAutosave(string path)
+        => Path.GetFileNameWithoutExtension(path)
+            .StartsWith("_autosave", StringComparison.OrdinalIgnoreCase);
+
     private static string GetPreparedSavePath(PreparedWorld world)
-        => Path.Combine(world.WorkingDirectory, PreparedSaveFileName);
+        => Path.Combine(GetWorkspaceSavesDirectory(world), PreparedSaveFileName);
+
+    private static string GetWorkspaceSavesDirectory(PreparedWorld world)
+        => Path.Combine(
+            world.WorkingDirectory,
+            WorkspaceUserDataDirectoryName,
+            SavesDirectoryName);
+
+    private static string GetWorkspaceConfigPath(PreparedWorld world)
+        => Path.Combine(
+            world.WorkingDirectory,
+            WorkspaceConfigDirectoryName,
+            WorkspaceConfigFileName);
 
     private static string CreatePackagePath()
     {

@@ -72,8 +72,8 @@ internal static class FactorioHostingOperations
                 savePath,
                 "--port",
                 gamePort.ToString(CultureInfo.InvariantCulture),
-                "--rcon-port",
-                rconPort.ToString(CultureInfo.InvariantCulture),
+                // Factorio treats --rcon-port and --rcon-bind as mutually exclusive.
+                // Bind loopback and select the RCON port in one argument so RCON stays local-only.
                 "--rcon-bind",
                 $"127.0.0.1:{rconPort}",
                 "--rcon-password",

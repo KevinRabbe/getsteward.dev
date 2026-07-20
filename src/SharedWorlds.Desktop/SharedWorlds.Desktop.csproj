@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <AssemblyName>SharedWorlds.Desktop</AssemblyName>
+    <RootNamespace>SharedWorlds.Desktop</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../SharedWorlds.Core/SharedWorlds.Core.csproj" />
+    <ProjectReference Include="../SharedWorlds.Infrastructure/SharedWorlds.Infrastructure.csproj" />
+    <ProjectReference Include="../SharedWorlds.GameAdapters/Factorio/SharedWorlds.GameAdapters.Factorio.csproj" />
+  </ItemGroup>
+</Project>

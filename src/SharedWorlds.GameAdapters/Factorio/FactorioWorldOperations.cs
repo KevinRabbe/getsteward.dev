@@ -153,16 +153,26 @@ internal static class FactorioWorldOperations
         return Task.FromResult(new GameSessionHandle(process.Id, DateTimeOffset.UtcNow));
     }
 
+    internal static string GetExecutablePath(GameInstallation installation)
+        => GetRequiredMetadata(installation, FactorioInstallationDiscovery.ExecutablePathKey);
+
     private static Process StartFactorio(
         GameInstallation installation,
         string command,
         string value)
     {
-        var executable = GetRequiredMetadata(installation, FactorioInstallationDiscovery.ExecutablePathKey);
+        var executable = GetExecutablePath(installation);
+        var executableDirectory = Path.GetDirectoryName(executable)
+            ?? throw new InvalidOperationException(
+                $"Cannot determine Factorio executable directory for '{executable}'.");
+
         var startInfo = new ProcessStartInfo
         {
             FileName = executable,
-            WorkingDirectory = installation.RootPath,
+            // Steam Factorio resolves steam_appid.txt relative to the process working directory.
+            // Starting in the installation root can trigger SteamAPI_RestartAppIfNecessary,
+            // causing the bootstrap PID to exit before the actual game session starts.
+            WorkingDirectory = executableDirectory,
             UseShellExecute = false
         };
 

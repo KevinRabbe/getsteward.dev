@@ -167,6 +167,27 @@ public sealed class FactorioSaveDiscoveryTests : IDisposable
     }
 
     [Fact]
+    public async Task PreparedWorkspace_RejectsInstalledGameVersionMismatch()
+    {
+        var userData = Path.Combine(_root, "game-version-mismatch-source");
+        var adapter = new FactorioAdapter();
+        var manifest = new EnvironmentManifest(
+            SchemaVersion: 1,
+            AdapterId: adapter.Id,
+            GameVersion: "2.1.11",
+            Components: [],
+            Configuration: new Dictionary<string, string>());
+
+        var exception = await Assert.ThrowsAsync<EnvironmentReproductionException>(
+            () => adapter.PrepareEnvironmentAsync(
+                CreateInstallation(userData, gameVersion: "2.0.72"),
+                manifest));
+
+        Assert.Contains("2.0.72", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("2.1.11", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PreparedWorkspace_CopiesOnlyExactRequiredUserModsAndVerifiedSettings()
     {
         var userData = Path.Combine(_root, "mod-isolation-source");
@@ -289,8 +310,22 @@ public sealed class FactorioSaveDiscoveryTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(directory, "data.lua"), "-- test mod");
     }
 
-    private static GameInstallation CreateInstallation(string userDataPath)
-        => new(
+    private static GameInstallation CreateInstallation(
+        string userDataPath,
+        string gameVersion = "2.0.0")
+    {
+        var baseDirectory = Path.Combine(userDataPath, "data", "base");
+        Directory.CreateDirectory(baseDirectory);
+        File.WriteAllText(
+            Path.Combine(baseDirectory, "info.json"),
+            $$"""
+            {
+              "name": "base",
+              "version": "{{gameVersion}}"
+            }
+            """);
+
+        return new GameInstallation(
             Id: "test-factorio",
             RootPath: userDataPath,
             Source: "test",
@@ -299,6 +334,7 @@ public sealed class FactorioSaveDiscoveryTests : IDisposable
                 ["userDataPath"] = userDataPath,
                 ["executablePath"] = Path.Combine(userDataPath, "factorio.exe")
             });
+    }
 
     public void Dispose()
     {

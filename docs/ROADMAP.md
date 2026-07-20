@@ -79,9 +79,9 @@ This validates the current local host lifecycle and sharing gate. It does **not*
 
 ## Phase 2: Factorio environment reproduction
 
-Status: **first isolation/verification slice implemented and covered by automated tests; real-machine runtime validation pending**.
+Status: **first isolation/verification slice implemented, automated-test covered, and validated on the target Windows Steam installation**.
 
-Implemented in the first slice:
+Implemented and validated in the current slice:
 
 - create an adapter-owned workspace mod directory for every prepared World
 - generate a workspace-local `mod-list.json` from the EnvironmentManifest
@@ -92,14 +92,16 @@ Implemented in the first slice:
 - verify startup-settings fingerprints before copying settings into a prepared workspace
 - fail with a controlled `EnvironmentReproductionException` instead of silently accepting missing exact mods or changed verified startup settings
 - launch Factorio with `--mod-directory <workspace>/mods` rather than the live user mod directory
+- enforce the exact required Factorio game version before preparation continues
+- real-machine exact-match launch for World version `2.1.11`
+- automated mismatch refusal when the installed version differs from the required World version
 
 Remaining targets:
 
-- validate the workspace-local mod path on the real Windows Steam installation
 - resolve actual custom write-data paths robustly during discovery
-- enforce the exact required Factorio game version during preparation
+- runtime-check player preference persistence on the target Windows machine
 - test Factorio native `--sync-mods` behavior on disposable environments
-- decide safe exact-version download/repair policy
+- decide safe exact-version game/mod download and repair policy
 - validate save-derived mod startup-settings restoration
 - add an explicit Verify/Repair path for environment mismatches
 
@@ -119,6 +121,10 @@ Implemented and real-machine validated:
 - context-sensitive available actions
 - `LocalOnly` vs `Shared` status surfaced explicitly
 
+Implemented and awaiting the next local replay:
+
+- prepared game-visible Factorio save names follow the SharedWorlds World display name instead of exposing the internal fallback name `world`
+
 The first desktop flow should still provide:
 
 - installed supported games
@@ -133,7 +139,7 @@ The first desktop flow should still provide:
 
 Main UI should show only supported games that are actually installed. A separate Supported Games view may show supported but uninstalled titles.
 
-## Phase 4: Sandbox, Fresh Test World, Fork, Restore
+## Phase 4: Sandbox, Fresh Test World, Start Your Own, Restore
 
 Implement the local branching/recovery product model before shared networking.
 
@@ -145,9 +151,9 @@ Disposable copy that never writes to canonical history.
 
 Same environment, new game state.
 
-### Fork
+### Start Your Own
 
-Permanent independent history derived from an existing revision.
+Permanent independent World with a new `WorldId` and independent history, derived from an existing starting point where the adapter can reproduce it. Seed or content equality never determines World identity.
 
 ### Restore
 
@@ -267,7 +273,7 @@ A credible first release should prioritize depth over game count:
 - host handoff
 - Sandbox
 - Fresh Test World
-- Fork
+- Start Your Own
 - basic snapshot Restore
 
 Postpone until the foundation is proven:
@@ -281,13 +287,13 @@ Postpone until the foundation is proven:
 
 ## Current immediate next step
 
-The local Continue path, replay path, World listing/details UX, explicit sharing gate, and hosted Factorio lifecycle are validated on the target Windows Steam installation. The first workspace-local mod-isolation slice is now implemented in code and automated tests.
+The local Continue path, replay path, World listing/details UX, explicit sharing gate, hosted Factorio lifecycle, workspace-local active mod path, and exact required game-version success path are validated on the target Windows Steam installation.
 
 Next:
 
-1. run the updated Factorio Continue path on the target machine and verify the Steam-restarted process uses `--mod-directory <SharedWorlds workspace>/mods`
-2. confirm the World still loads, saves, commits, cleans up, and leaves the live `%APPDATA%\Factorio\mods` directory untouched
-3. enforce exact Factorio game-version matching during preparation
+1. pull and replay the World-display-name save fix so `newme` appears as `newme` in Factorio rather than `world`
+2. runtime-check player preference persistence with one obvious setting change on the target Windows machine
+3. harden custom Factorio `write-data` path resolution
 4. test `--sync-mods` only in disposable isolated environments and define safe Verify/Repair behavior
 5. then move toward remote durable storage and live coordination required for genuine multi-user Join and host handoff
 

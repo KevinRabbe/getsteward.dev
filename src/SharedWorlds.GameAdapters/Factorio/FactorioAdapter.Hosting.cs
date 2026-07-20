@@ -53,10 +53,18 @@ public sealed partial class FactorioAdapter
                 rconPassword,
                 cancellationToken);
 
+            var currentLogPath = Path.Combine(
+                world.WorkingDirectory,
+                "user-data",
+                "factorio-current.log");
             resolvedServerProcessId = await ResolveServerProcessIdAsync(
                 serverLaunch.Process,
                 processName,
                 baselineProcessIds,
+                serverLaunch.ConsoleLogPath,
+                currentLogPath,
+                rconPassword,
+                gamePassword,
                 cancellationToken);
 
             await WaitForDedicatedServerReadyAsync(
@@ -244,6 +252,10 @@ public sealed partial class FactorioAdapter
         Process launchProcess,
         string processName,
         IReadOnlySet<int> baselineProcessIds,
+        string consoleLogPath,
+        string currentLogPath,
+        string rconPassword,
+        string gamePassword,
         CancellationToken cancellationToken)
     {
         var observationDeadline = DateTimeOffset.UtcNow + BootstrapExitThreshold;
@@ -274,7 +286,7 @@ public sealed partial class FactorioAdapter
         }
         catch (InvalidOperationException)
         {
-            // Fall through to Steam bootstrap replacement discovery.
+            // Fall through to replacement discovery and startup diagnostics.
         }
 
         var excludedProcessIds = new HashSet<int>(baselineProcessIds)
@@ -285,9 +297,68 @@ public sealed partial class FactorioAdapter
             processName,
             excludedProcessIds,
             cancellationToken);
-        return replacementProcessId
-            ?? throw new InvalidOperationException(
-                "Factorio's dedicated-server bootstrap exited, but no replacement server process could be identified.");
+        if (replacementProcessId is not null)
+        {
+            return replacementProcessId.Value;
+        }
+
+        var exitCode = TryGetExitCode(launchProcess);
+        var consoleLogTail = await ReadServerLogTailAsync(
+            consoleLogPath,
+            rconPassword,
+            gamePassword,
+            CancellationToken.None);
+        var currentLogTail = await ReadServerLogTailAsync(
+            currentLogPath,
+            rconPassword,
+            gamePassword,
+            CancellationToken.None);
+
+        throw new InvalidOperationException(
+            BuildEarlyServerExitMessage(exitCode, consoleLogTail, currentLogTail));
+    }
+
+    private static int? TryGetExitCode(Process process)
+    {
+        try
+        {
+            return process.HasExited ? process.ExitCode : null;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private static string BuildEarlyServerExitMessage(
+        int? exitCode,
+        string? consoleLogTail,
+        string? currentLogTail)
+    {
+        var sections = new List<string>
+        {
+            exitCode is { } code
+                ? $"Factorio's dedicated-server process exited with code {code} before SharedWorlds could identify a running server process."
+                : "Factorio's dedicated-server process exited before SharedWorlds could identify a running server process."
+        };
+
+        if (!string.IsNullOrWhiteSpace(consoleLogTail))
+        {
+            sections.Add($"Factorio server console log tail:{Environment.NewLine}{consoleLogTail}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(currentLogTail))
+        {
+            sections.Add($"Factorio current log tail:{Environment.NewLine}{currentLogTail}");
+        }
+
+        if (sections.Count == 1)
+        {
+            sections.Add(
+                "Factorio did not leave a readable server-console.log or factorio-current.log in the isolated workspace.");
+        }
+
+        return string.Join(Environment.NewLine + Environment.NewLine, sections);
     }
 
     private static async Task<string?> ReadServerLogTailAsync(

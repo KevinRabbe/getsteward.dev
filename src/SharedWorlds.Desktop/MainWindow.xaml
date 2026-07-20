@@ -48,6 +48,7 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
                     <Grid Grid.Row="0" Margin="2,0,2,14">
@@ -97,6 +98,7 @@
 
                             <ComboBox x:Name="ImportCandidateComboBox"
                                       MinHeight="38"
+                                      MaxDropDownHeight="320"
                                       SelectionChanged="ImportCandidateComboBox_SelectionChanged">
                                 <ComboBox.ItemTemplate>
                                     <DataTemplate>
@@ -191,6 +193,30 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
+
+                    <Expander Grid.Row="3"
+                              Header="Device settings"
+                              Foreground="{StaticResource TextBrush}"
+                              Margin="2,14,2,0">
+                        <Border Margin="0,8,0,0"
+                                Padding="12"
+                                Background="{StaticResource PanelAltBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8">
+                            <StackPanel>
+                                <CheckBox x:Name="AllowHostingCheckBox"
+                                          Content="Allow this device to host"
+                                          Click="AllowHostingCheckBox_Click" />
+                                <TextBlock x:Name="HostingPreferenceText"
+                                           Margin="22,6,0,0"
+                                           Foreground="{StaticResource MutedTextBrush}"
+                                           FontSize="11"
+                                           TextWrapping="Wrap"
+                                           Text="Join-only devices stay out of host selection." />
+                            </StackPanel>
+                        </Border>
+                    </Expander>
                 </Grid>
             </Border>
 

@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using SharedWorlds.Core.Abstractions;
@@ -28,7 +29,6 @@ public partial class MainWindow : Window
             _storage,
             new LocalWorldSessionCoordinator(),
             new LocalWorkspaceRecoveryStore(storageRoot));
-
         Loaded += MainWindow_Loaded;
     }
 

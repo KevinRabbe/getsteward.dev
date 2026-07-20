@@ -20,10 +20,14 @@ public partial class MainWindow
         _worldSettingsUiInitialized = true;
         WorldList.SelectionChanged += WorldList_WorldSettingsSelectionChanged;
         UpdateWorldVersionPolicyUi();
+        ResetEnvironmentReadinessUi();
     }
 
     private void WorldList_WorldSettingsSelectionChanged(object sender, SelectionChangedEventArgs e)
-        => UpdateWorldVersionPolicyUi();
+    {
+        UpdateWorldVersionPolicyUi();
+        ResetEnvironmentReadinessUi();
+    }
 
     private async void KeepExactGameVersionCheckBox_Click(object sender, System.Windows.RoutedEventArgs e)
     {

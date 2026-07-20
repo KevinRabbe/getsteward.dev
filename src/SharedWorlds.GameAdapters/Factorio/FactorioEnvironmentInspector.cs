@@ -15,10 +15,9 @@ internal static partial class FactorioEnvironmentInspector
         GameInstallation installation,
         CancellationToken cancellationToken)
     {
-        var executablePath = GetRequiredMetadata(installation, FactorioInstallationDiscovery.ExecutablePathKey);
         var userDataPath = GetRequiredMetadata(installation, FactorioInstallationDiscovery.UserDataPathKey);
 
-        var gameVersion = await ReadGameVersionAsync(executablePath, cancellationToken);
+        var gameVersion = await ReadInstalledGameVersionAsync(installation, cancellationToken);
         var components = ReadEnabledMods(installation.RootPath, userDataPath, gameVersion);
         var configuration = ReadConfiguration(userDataPath);
 
@@ -30,7 +29,22 @@ internal static partial class FactorioEnvironmentInspector
             Configuration: configuration);
     }
 
-    private static async Task<string> ReadGameVersionAsync(
+    internal static async Task<string> ReadInstalledGameVersionAsync(
+        GameInstallation installation,
+        CancellationToken cancellationToken)
+    {
+        var baseInfoPath = Path.Combine(installation.RootPath, "data", "base", "info.json");
+        var baseVersion = ReadVersionFromJsonFile(baseInfoPath);
+        if (!string.IsNullOrWhiteSpace(baseVersion))
+        {
+            return baseVersion;
+        }
+
+        var executablePath = GetRequiredMetadata(installation, FactorioInstallationDiscovery.ExecutablePathKey);
+        return await ReadExecutableVersionAsync(executablePath, cancellationToken);
+    }
+
+    private static async Task<string> ReadExecutableVersionAsync(
         string executablePath,
         CancellationToken cancellationToken)
     {

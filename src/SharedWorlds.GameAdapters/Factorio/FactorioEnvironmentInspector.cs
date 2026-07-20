@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using SharedWorlds.Core.Abstractions;
@@ -9,6 +9,8 @@ namespace SharedWorlds.GameAdapters.Factorio;
 
 internal static partial class FactorioEnvironmentInspector
 {
+    internal const string ModSettingsHashConfigurationKey = "factorio.mod-settings.sha256";
+
     public static async Task<EnvironmentManifest> InspectAsync(
         GameInstallation installation,
         CancellationToken cancellationToken)
@@ -18,13 +20,14 @@ internal static partial class FactorioEnvironmentInspector
 
         var gameVersion = await ReadGameVersionAsync(executablePath, cancellationToken);
         var components = ReadEnabledMods(installation.RootPath, userDataPath, gameVersion);
+        var configuration = ReadConfiguration(userDataPath);
 
         return new EnvironmentManifest(
             SchemaVersion: 1,
             AdapterId: "factorio",
             GameVersion: gameVersion,
             Components: components,
-            Configuration: new Dictionary<string, string>(StringComparer.Ordinal));
+            Configuration: configuration);
     }
 
     private static async Task<string> ReadGameVersionAsync(
@@ -77,7 +80,8 @@ internal static partial class FactorioEnvironmentInspector
         string userDataPath,
         string gameVersion)
     {
-        var modListPath = Path.Combine(userDataPath, "mods", "mod-list.json");
+        var modsDirectory = Path.Combine(userDataPath, "mods");
+        var modListPath = Path.Combine(modsDirectory, "mod-list.json");
         if (!File.Exists(modListPath))
         {
             return [];
@@ -92,6 +96,7 @@ internal static partial class FactorioEnvironmentInspector
             return [];
         }
 
+        var userModArtifacts = FactorioModCatalog.Discover(modsDirectory);
         var result = new List<EnvironmentComponent>();
         foreach (var mod in mods.EnumerateArray())
         {
@@ -113,7 +118,11 @@ internal static partial class FactorioEnvironmentInspector
                 continue;
             }
 
-            var (version, source) = ResolveModVersion(installationRoot, userDataPath, name, gameVersion);
+            var (version, source) = ResolveModVersion(
+                installationRoot,
+                userModArtifacts,
+                name,
+                gameVersion);
             result.Add(new EnvironmentComponent(
                 Kind: "mod",
                 Id: name,
@@ -124,9 +133,23 @@ internal static partial class FactorioEnvironmentInspector
         return result;
     }
 
+    private static IReadOnlyDictionary<string, string> ReadConfiguration(string userDataPath)
+    {
+        var configuration = new Dictionary<string, string>(StringComparer.Ordinal);
+        var modSettingsPath = Path.Combine(userDataPath, "mods", "mod-settings.dat");
+        if (!File.Exists(modSettingsPath))
+        {
+            return configuration;
+        }
+
+        using var stream = File.OpenRead(modSettingsPath);
+        configuration[ModSettingsHashConfigurationKey] = Convert.ToHexString(SHA256.HashData(stream));
+        return configuration;
+    }
+
     private static (string? Version, string Source) ResolveModVersion(
         string installationRoot,
-        string userDataPath,
+        IReadOnlyList<FactorioModArtifact> userModArtifacts,
         string modName,
         string gameVersion)
     {
@@ -136,40 +159,11 @@ internal static partial class FactorioEnvironmentInspector
             return (ReadVersionFromJsonFile(builtInInfo) ?? gameVersion, "builtin");
         }
 
-        var modsDirectory = Path.Combine(userDataPath, "mods");
-        if (!Directory.Exists(modsDirectory))
-        {
-            return (null, "user");
-        }
-
-        var directoryCandidates = Directory
-            .EnumerateDirectories(modsDirectory, $"{modName}_*")
-            .OrderByDescending(Path.GetFileName, StringComparer.OrdinalIgnoreCase);
-
-        foreach (var directory in directoryCandidates)
-        {
-            var infoPath = Path.Combine(directory, "info.json");
-            var version = ReadVersionFromJsonFile(infoPath);
-            if (version is not null)
-            {
-                return (version, "user");
-            }
-        }
-
-        var zipCandidates = Directory
-            .EnumerateFiles(modsDirectory, $"{modName}_*.zip")
-            .OrderByDescending(Path.GetFileName, StringComparer.OrdinalIgnoreCase);
-
-        foreach (var zipPath in zipCandidates)
-        {
-            var version = ReadVersionFromZip(zipPath);
-            if (version is not null)
-            {
-                return (version, "user");
-            }
-        }
-
-        return (null, "user");
+        var artifact = userModArtifacts.FirstOrDefault(candidate =>
+            string.Equals(candidate.Name, modName, StringComparison.OrdinalIgnoreCase));
+        return artifact is null
+            ? (null, "user")
+            : (artifact.Version, "user");
     }
 
     private static string? ReadVersionFromJsonFile(string path)
@@ -188,40 +182,6 @@ internal static partial class FactorioEnvironmentInspector
                 : null;
         }
         catch (IOException)
-        {
-            return null;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    private static string? ReadVersionFromZip(string path)
-    {
-        try
-        {
-            using var archive = ZipFile.OpenRead(path);
-            var infoEntry = archive.Entries.FirstOrDefault(entry =>
-                entry.FullName.Equals("info.json", StringComparison.OrdinalIgnoreCase) ||
-                entry.FullName.EndsWith("/info.json", StringComparison.OrdinalIgnoreCase));
-
-            if (infoEntry is null)
-            {
-                return null;
-            }
-
-            using var stream = infoEntry.Open();
-            using var document = JsonDocument.Parse(stream);
-            return document.RootElement.TryGetProperty("version", out var version)
-                ? version.GetString()
-                : null;
-        }
-        catch (IOException)
-        {
-            return null;
-        }
-        catch (InvalidDataException)
         {
             return null;
         }

@@ -11,14 +11,21 @@ Current implementation covers:
 - detected-save capture for import
 - environment inspection
 - local prepared workspace creation
+- isolated session write-data configuration
 - state restore
 - local single-player launch
 - host launch
 - client launch
+- Steam bootstrap/process-handoff tracking
 - adapter-owned session-end observation
 - state recapture after play
 
-The adapter has now been compiled and exercised on a real Windows Steam installation. Real-machine discovery and import succeeded. The first local Continue attempt exposed a Steam bootstrap/process-handoff bug before the save could load; the adapter now launches from Factorio's executable directory and treats rapid Steam process replacement as a launcher handoff rather than a completed game session.
+The adapter has now been compiled and exercised on a real Windows Steam installation. Real-machine discovery and import succeeded. Runtime testing exposed two adapter-specific issues in sequence:
+
+1. Steam may restart the initially launched Factorio process, so the first PID is not always the playable session.
+2. Loading a save from an arbitrary workspace path is not sufficient to isolate later save writes; Factorio's normal user-data directory still owns its saves unless `write-data` is redirected.
+
+Both issues are now handled in the adapter. A second real-machine validation is still required before the Factorio vertical slice is considered complete.
 
 ## Installation discovery
 
@@ -99,41 +106,61 @@ The project should delegate as much of this behavior as practical to Factorio ra
 
 However, automated exact environment reproduction is **not yet implemented** in the adapter. The behavior of `--sync-mods` must be tested carefully before it becomes part of canonical World preparation.
 
+For the current vertical slice, the isolated session still points `--mod-directory` at the user's existing Factorio mod directory. This preserves the currently installed mod set but means mod storage itself is not yet isolated. The adapter therefore still does **not** claim full `EnvironmentIsolation`.
+
 References:
 
 - [Factorio command line parameters](https://wiki.factorio.com/Command_line_parameters)
 - [Factorio installing mods / automatic mod sync](https://wiki.factorio.com/Installing_Mods)
 
-## Prepared workspace
+## Prepared workspace and save isolation
 
-`PrepareEnvironmentAsync` creates an adapter-owned local working directory.
+`PrepareEnvironmentAsync` creates an adapter-owned local working directory with:
 
-The canonical state package is restored into that workspace as `world.zip`.
+```text
+<workspace>/
+  config/config.ini
+  user-data/saves/
+```
 
-The goal is to keep product-managed play isolated from the original imported source save.
+The workspace config is based on the user's current Factorio config when available, but its `[path] write-data` value is rewritten to the adapter-owned `user-data` directory.
 
-Environment isolation is not yet complete because the adapter currently does not create a fully isolated Factorio user-data/mod directory per World.
+The canonical state package is restored into:
+
+```text
+<workspace>/user-data/saves/world.zip
+```
+
+Factorio is launched with:
+
+```text
+--config <workspace>/config/config.ini
+```
+
+This is the critical save-isolation boundary. A real-machine test proved that merely loading `world.zip` from an arbitrary external path is insufficient: a normal in-game save can still write into the default `%APPDATA%\Factorio\saves` directory. Redirecting `write-data` makes later save writes session-local instead.
+
+After session end, state capture scans only the isolated workspace `saves` directory, ignores `_autosave*`, and captures the newest non-autosave save. This allows Factorio to preserve or change the save name internally without causing Core to read from the user's original save directory.
 
 ## Local launch
 
 A `LocalOnly` World uses:
 
 ```text
---load-game <save-file>
+--config <workspace-config>
+--mod-directory <current-mod-directory>
+--load-game <workspace-save>
 ```
 
 This is the Factorio single-player launch path. It is intentionally separate from hosting.
-
-The Steam build must be launched with the Factorio executable directory as its process working directory. Launching the executable from the installation root can cause Steam's restart/bootstrap behavior, where the first process exits before the playable game process exists.
 
 ## Host launch
 
 A World must be explicitly marked `Shared` before the Core permits the host path.
 
-The adapter launches Factorio using:
+The adapter launches Factorio using the same isolated config boundary plus:
 
 ```text
---host <save-file>
+--host <workspace-save>
 ```
 
 Factorio documents `--host FILE` as starting a hosted multiplayer game.
@@ -142,7 +169,7 @@ Reference: [Factorio command line parameters](https://wiki.factorio.com/Command_
 
 ## Client launch
 
-The adapter launches a client using:
+The adapter launches a client using the isolated config boundary plus:
 
 ```text
 --mp-connect <address[:port]>
@@ -150,26 +177,27 @@ The adapter launches a client using:
 
 Reference: [Factorio command line parameters](https://wiki.factorio.com/Command_line_parameters)
 
-## Session end
+## Session end and Steam process handoff
 
 The adapter owns session-end observation through `WaitForSessionEndAsync`.
 
 A real-machine Steam test proved that the initially launched PID is not always the playable session: Steam may terminate a bootstrap process and start a replacement Factorio process. The adapter therefore:
 
-1. launches Factorio from the executable directory to avoid unnecessary Steam restart behavior
-2. tracks Factorio processes that existed before launch
-3. waits on the launched PID
-4. if that PID exits almost immediately, looks for a newly created Factorio replacement process
-5. follows the replacement process instead of declaring the session complete
-6. fails conservatively if no playable replacement can be observed
+1. tracks Factorio processes that existed before launch
+2. waits on the launched PID
+3. if that PID exits almost immediately, looks for a newly created Factorio replacement process
+4. follows the replacement process instead of declaring the session complete
+5. fails conservatively if no playable replacement can be observed
 
 A failed bootstrap/session observation must preserve the prepared workspace rather than advance the canonical World as though gameplay completed.
 
 ## State capture after play
 
-After a local or hosted canonical session ends, the adapter captures the prepared `world.zip` into a new state package.
+After a local or hosted canonical session ends, the adapter captures the newest non-autosave ZIP from the isolated workspace save directory into a new state package.
 
 The Core then creates a new `StateRevision` and moves the World's canonical state head forward only after durable storage succeeds.
+
+The user's original imported source save is outside the isolated write-data directory and must remain unchanged during product-managed play.
 
 ## Current CLI workflow
 
@@ -189,35 +217,39 @@ recovery
 
 ## Known limitations
 
-1. Arbitrary custom Factorio write-data paths are not fully resolved.
+1. Arbitrary custom Factorio write-data paths are not fully resolved during discovery.
 2. Steam Flatpak-specific Linux paths are not yet handled comprehensively.
 3. Exact automated mod synchronization is not yet wired into preparation.
-4. Fully isolated per-World mod/config directories are not yet implemented.
-5. The Steam process-handoff fix still requires a second real Windows runtime validation.
+4. The mod directory is still shared with the user's current Factorio installation; full per-World environment isolation is not yet implemented.
+5. The isolated write-data/save-capture fix requires real Windows runtime validation.
 6. Live shared host coordination is not yet implemented.
 
-## Real-machine test checklist
+## Real-machine test history and next validation
 
 Completed:
 
-1. Build the solution on the target Windows machine.
-2. Run `discover`.
-3. Confirm the non-default Steam library installation is found.
-4. Confirm expected saves are listed and autosaves are hidden from import discovery.
-5. Import disposable save `newme`.
-6. Confirm imported World defaults to `LocalOnly`.
-7. Record the original save SHA-256 before product-managed play.
+1. Build and automated tests passed on the target Windows machine.
+2. Non-default Steam library discovery succeeded.
+3. Expected saves were discovered and autosaves hidden from import discovery.
+4. Disposable save `newme` was imported as a `LocalOnly` World.
+5. Initial import preserved the original save hash.
+6. First Continue exposed Steam PID handoff and produced a redundant unchanged revision rather than corrupting canonical state.
+7. Process-handoff tracking was added.
+8. Second Continue successfully followed the real Factorio session and loaded the World.
+9. A visible in-game change was saved.
+10. Hash validation showed the change went to the original `%APPDATA%\Factorio\saves\newme.zip`, while the SharedWorlds workspace payload remained unchanged.
+11. That proved save isolation required a redirected Factorio `write-data` directory, not only an externally located `--load-game` file.
+12. Per-session workspace config/write-data isolation and isolated save capture were added with a regression test.
 
 Next:
 
-8. Pull the Steam bootstrap/session-handoff fix.
-9. Close any already-running Factorio process.
-10. Run local Continue again.
-11. Confirm the prepared `world.zip` loads successfully.
-12. Make a visible in-game change and save normally.
-13. Exit Factorio cleanly.
-14. Confirm a new canonical state revision is created.
-15. Confirm the original source save SHA-256 is unchanged.
-16. Continue again and verify the visible change is present.
+13. Pull the isolated write-data fix.
+14. Record the current original `newme.zip` hash as the new baseline.
+15. Run local Continue on the same SharedWorlds World.
+16. Make another visible in-game change and save normally.
+17. Exit Factorio cleanly.
+18. Confirm the original source hash remains at the baseline from step 14.
+19. Confirm the newly committed SharedWorlds payload hash differs from the previous canonical payload.
+20. Continue again and verify the new visible change is present.
 
-Only after this succeeds should automated mod synchronization be added to the canonical preparation path.
+Only after this succeeds should the Factorio local vertical slice be treated as end-to-end validated.

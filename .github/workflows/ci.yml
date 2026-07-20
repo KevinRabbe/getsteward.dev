@@ -37,35 +37,7 @@ jobs:
         run: dotnet restore SharedWorlds.sln
 
       - name: Verify formatting
-        shell: bash
-        run: |
-          dotnet format SharedWorlds.sln --no-restore
-          git diff --binary > format.diff
-          if [ -s format.diff ]; then
-            cat format.diff
-            exit 1
-          fi
-
-      - name: Upload formatting diff
-        if: failure()
-        uses: actions/upload-artifact@v6
-        with:
-          name: formatting-diff
-          path: format.diff
-          if-no-files-found: ignore
-          retention-days: 1
-
-      - name: Upload formatted sources
-        if: failure()
-        uses: actions/upload-artifact@v6
-        with:
-          name: formatted-sources
-          path: |
-            src/SharedWorlds.Desktop/DeviceSettingsStore.cs
-            src/SharedWorlds.Desktop/MainWindow.xaml.cs
-            src/SharedWorlds.GameAdapters/Factorio/FactorioUserDataPathResolver.cs
-          if-no-files-found: error
-          retention-days: 1
+        run: dotnet format SharedWorlds.sln --verify-no-changes --no-restore
 
   build-test:
     name: Build and test (${{ matrix.os }})

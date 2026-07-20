@@ -39,6 +39,40 @@ public sealed class LocalWorldStorage : IWorldStorage
             cancellationToken);
     }
 
+    public async Task<IReadOnlyList<World>> ListWorldsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var worldsRoot = Path.Combine(_rootPath, "worlds");
+        if (!Directory.Exists(worldsRoot))
+        {
+            return [];
+        }
+
+        var worlds = new List<World>();
+        foreach (var directory in Directory.EnumerateDirectories(worldsRoot))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var metadataPath = Path.Combine(directory, "world.json");
+            if (!File.Exists(metadataPath))
+            {
+                continue;
+            }
+
+            await using var stream = OpenRead(metadataPath);
+            var world = await PersistedDocumentCodec.ReadAsync(
+                stream,
+                StorageDocumentSchemas.World,
+                cancellationToken);
+            worlds.Add(world);
+        }
+
+        return worlds
+            .OrderBy(world => world.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(world => world.Id.ToString(), StringComparer.Ordinal)
+            .ToArray();
+    }
+
     public Task StoreEnvironmentRevisionAsync(
         EnvironmentRevision revision,
         CancellationToken cancellationToken = default)
@@ -78,7 +112,6 @@ public sealed class LocalWorldStorage : IWorldStorage
         var parentDirectory = Path.GetDirectoryName(finalDirectory)
             ?? throw new InvalidOperationException(
                 $"Cannot resolve parent directory for state revision '{revision.Id}'.");
-
         Directory.CreateDirectory(parentDirectory);
 
         if (Directory.Exists(finalDirectory))
@@ -97,7 +130,6 @@ public sealed class LocalWorldStorage : IWorldStorage
                 StorageDocumentSchemas.StateRevision,
                 revision,
                 cancellationToken);
-
             await using (var output = new FileStream(
                              Path.Combine(temporaryDirectory, "payload.bin"),
                              FileMode.CreateNew,

@@ -21,7 +21,10 @@ public sealed class PalworldAdapter : IGameAdapter
     public Task<IReadOnlyList<DetectedWorld>> DiscoverWorldsAsync(
         GameInstallation installation,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<DetectedWorld>>([]);
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(PalworldSaveDiscovery.Discover(installation));
+    }
 
     public Task<EnvironmentManifest> InspectEnvironmentAsync(
         GameInstallation installation,

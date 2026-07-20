@@ -320,6 +320,28 @@
                                     Click="ShareButton_Click" />
                         </WrapPanel>
 
+                        <TextBlock Text="World settings"
+                                   Margin="0,26,0,12"
+                                   FontSize="18"
+                                   FontWeight="SemiBold" />
+                        <Border Background="{StaticResource PanelBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="12"
+                                Padding="20">
+                            <StackPanel>
+                                <CheckBox x:Name="KeepExactGameVersionCheckBox"
+                                          Content="Keep this World on this exact game version"
+                                          IsEnabled="{Binding IsEnabled, ElementName=WorldList}"
+                                          Click="KeepExactGameVersionCheckBox_Click" />
+                                <TextBlock x:Name="GameVersionPolicyText"
+                                           Margin="22,6,0,0"
+                                           Foreground="{StaticResource MutedTextBrush}"
+                                           FontSize="12"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+
                         <TextBlock Margin="0,18,0,0"
                                    Foreground="{StaticResource MutedTextBrush}"
                                    Text="The first desktop slice intentionally exposes only the actions already proven by the Core lifecycle. Join, host handoff, Restore, Sandbox and Start Your Own will appear as those workflows become real."

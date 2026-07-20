@@ -49,6 +49,34 @@ Real-machine validation confirmed:
 
 Phase 1 is complete for the tested Windows Steam configuration. Known platform-specific and custom-path edge cases remain adapter hardening work rather than blockers for the validated local lifecycle.
 
+## Phase 1b: Explicit sharing and hosted Factorio validation
+
+Status: **validated on the same real Windows Steam installation**.
+
+Validated flow:
+
+```text
+LocalOnly
+-> explicit share-world
+-> Shared
+-> host-factorio
+-> prepare isolated workspace
+-> restore canonical state
+-> launch Factorio with --host
+-> survive Steam process handoff
+-> replacement Factorio process retains --host
+-> Factorio owns active UDP endpoints
+-> save and exit cleanly
+-> capture new immutable state revision
+-> advance canonical World head
+-> clean workspace/recovery record
+-> original imported source save remains unchanged
+```
+
+The hosted validation advanced World `newme` from state revision `e8e0c36761934d0ca4ded2c0b125a378` to `669e8b7b10cc4b8da23a35b8f2ebd343`, left no prepared-workspace recovery records, and preserved the original source save SHA-256 at `9110897489D5CD73573A62DD949CBBDE5E1194972660EB5651C8D1E4DB2A879B`.
+
+This validates the current local host lifecycle and sharing gate. It does **not** yet validate multi-user Join, remote durable synchronization, invitations, cross-machine coordination, or host handoff.
+
 ## Phase 2: Factorio environment reproduction
 
 Target:
@@ -64,9 +92,19 @@ Do not add automatic canonical mod synchronization until destructive or surprisi
 
 ## Phase 3: Local product UX
 
-Replace development CLI-only interaction with the first usable desktop flow.
+Status: **initial CLI productization validated on the target Windows machine**.
 
-Target screens/actions:
+Implemented and real-machine validated:
+
+- `worlds` managed-World listing
+- `world <selector>` details view
+- World selectors by unique name, full ID, or unique ID prefix
+- visible game, sharing mode, current environment revision, and current state revision
+- visible members and revision metadata
+- context-sensitive available actions
+- `LocalOnly` vs `Shared` status surfaced explicitly
+
+The first desktop flow should still provide:
 
 - installed supported games
 - discovered/importable saves
@@ -79,13 +117,6 @@ Target screens/actions:
 - Restore
 
 Main UI should show only supported games that are actually installed. A separate Supported Games view may show supported but uninstalled titles.
-
-Before the desktop shell, add enough CLI product UX to remove raw-ID friction during continued runtime development:
-
-- `worlds` / list Worlds
-- World name, game, sharing mode, and current revision summary
-- World details by ID
-- clearer local Continue vs Shared Host status
 
 ## Phase 4: Sandbox, Fresh Test World, Fork, Restore
 
@@ -235,12 +266,14 @@ Postpone until the foundation is proven:
 
 ## Current immediate next step
 
-Productize the validated local Factorio lifecycle before adding real shared networking:
+The local Continue path, replay path, World listing/details UX, explicit sharing gate, and hosted Factorio lifecycle are now validated on the target Windows Steam installation.
 
-1. add a World-listing/detail flow so development no longer depends on memorized raw World IDs
-2. expose LocalOnly vs Shared state clearly in the CLI/product model
-3. run a controlled `share-world` -> `host-factorio` local host validation while keeping Join explicitly unavailable until shared synchronization exists
-4. harden Factorio environment reproduction, especially per-World mod/config handling and exact-version verification
-5. then build the remote storage/live coordination path required for a genuine multi-user Join and host-handoff experience
+Next:
+
+1. harden Factorio environment reproduction, especially per-World mod/config isolation and exact-version verification
+2. correct user-facing sharing copy so it does not imply Join is implemented before remote synchronization/live coordination exists
+3. add revision-history/Restore capabilities for local World safety and debugging
+4. design and validate the remote durable storage model needed to move canonical World state between machines
+5. add live shared coordination and only then expose genuine multi-user Join and host handoff
 
 The principle remains: prove each product boundary with a real game before adding another abstraction layer.

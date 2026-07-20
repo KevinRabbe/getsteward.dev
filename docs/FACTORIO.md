@@ -20,14 +20,14 @@ Current implementation covers:
 - adapter-owned session-end observation
 - state recapture after play
 
-The adapter has now been compiled and exercised on a real Windows Steam installation. Real-machine discovery, import, Steam process handoff, isolated local play, clean session commit, source-save isolation, canonical-head advancement, and workspace cleanup have all been validated.
+The local Factorio vertical slice is now **end-to-end validated on a real Windows Steam installation**. Real-machine discovery, import, Steam process handoff, isolated local play, clean session commit, source-save isolation, canonical-head advancement, workspace cleanup, and replay of the newly committed canonical state have all succeeded.
 
 Runtime testing exposed two adapter-specific issues in sequence:
 
 1. Steam may restart the initially launched Factorio process, so the first PID is not always the playable session.
 2. Loading a save from an arbitrary workspace path is not sufficient to isolate later save writes; Factorio's normal user-data directory still owns its saves unless `write-data` is redirected.
 
-Both issues are now handled in the adapter. One final replay validation remains: Continue the newly committed canonical revision and confirm the visible in-game change is restored correctly.
+Both issues are now handled in the adapter. The final replay test confirmed that a visible change captured in canonical revision `df4092b44d924d9fa5166eb55017da17` was restored correctly on the next Continue.
 
 ## Installation discovery
 
@@ -203,7 +203,7 @@ The Core then creates a new `StateRevision` and moves the World's canonical stat
 
 The user's original imported source save is outside the isolated write-data directory and must remain unchanged during product-managed play.
 
-The real-machine isolated run advanced the World head to revision `df4092b44d924d9fa5166eb55017da17` and left no prepared-workspace recovery record after clean shutdown.
+The real-machine isolated run advanced the World head to revision `df4092b44d924d9fa5166eb55017da17` and left no prepared-workspace recovery record after clean shutdown. The next Continue restored that canonical revision successfully, and the visible test change was present in-game.
 
 ## Current CLI workflow
 
@@ -229,7 +229,7 @@ recovery
 4. The mod directory is still shared with the user's current Factorio installation; full per-World environment isolation is not yet implemented.
 5. Live shared host coordination is not yet implemented.
 
-## Real-machine test history and next validation
+## Real-machine validation history
 
 Completed:
 
@@ -251,9 +251,6 @@ Completed:
 16. The newly committed SharedWorlds payload changed to `899C1A0E...`, proving the gameplay change was captured inside the isolated workspace.
 17. `world.json` advanced to canonical revision `df4092b44d924d9fa5166eb55017da17`.
 18. No workspace recovery records remained after the successful clean session.
+19. A subsequent Continue restored canonical revision `df4092b44d924d9fa5166eb55017da17`, and the visible test change was confirmed present in-game.
 
-Next:
-
-19. Continue `df4092b44d924d9fa5166eb55017da17` through the World and confirm the visible in-game change is present after restore.
-
-Only after this replay succeeds should the Factorio local vertical slice be treated as fully end-to-end validated.
+The Factorio local/private World lifecycle is therefore **fully end-to-end validated** for the tested Windows Steam configuration.

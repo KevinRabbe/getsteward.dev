@@ -510,7 +510,31 @@ internal static class FactorioWorldOperations
             .StartsWith("_autosave", StringComparison.OrdinalIgnoreCase);
 
     private static string GetPreparedSavePath(PreparedWorld world)
-        => Path.Combine(GetWorkspaceSavesDirectory(world), PreparedSaveFileName);
+        => Path.Combine(GetWorkspaceSavesDirectory(world), GetPreparedSaveFileName(world.DisplayName));
+
+    private static string GetPreparedSaveFileName(string? displayName)
+    {
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            return PreparedSaveFileName;
+        }
+
+        var sanitized = displayName.Trim();
+        foreach (var invalidCharacter in Path.GetInvalidFileNameChars())
+        {
+            sanitized = sanitized.Replace(invalidCharacter, '_');
+        }
+
+        foreach (var invalidCharacter in "<>:\"/\\|?*")
+        {
+            sanitized = sanitized.Replace(invalidCharacter, '_');
+        }
+
+        sanitized = sanitized.TrimEnd('.', ' ');
+        return string.IsNullOrWhiteSpace(sanitized)
+            ? PreparedSaveFileName
+            : $"{sanitized}.zip";
+    }
 
     private static string GetWorkspaceSavesDirectory(PreparedWorld world)
         => Path.Combine(

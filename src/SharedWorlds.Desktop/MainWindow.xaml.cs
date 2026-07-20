@@ -38,6 +38,52 @@ public partial class MainWindow : Window
     private async void RefreshButton_Click(object sender, RoutedEventArgs e)
         => await RefreshWorldsAsync(_selectedWorld?.Id);
 
+    private async void OpenImportButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (ImportPanel.Visibility == Visibility.Visible)
+        {
+            ImportPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        ImportPanel.Visibility = Visibility.Visible;
+        await RefreshImportCandidatesAsync();
+    }
+
+    private async void ScanImportsButton_Click(object sender, RoutedEventArgs e)
+        => await RefreshImportCandidatesAsync();
+
+    private void CancelImportButton_Click(object sender, RoutedEventArgs e)
+        => ImportPanel.Visibility = Visibility.Collapsed;
+
+    private void ImportCandidateComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        => UpdateImportActionState();
+
+    private async void ImportSelectedButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (ImportCandidateComboBox.SelectedItem is not ImportCandidate candidate)
+        {
+            return;
+        }
+
+        await RunOperationAsync(
+            $"Importing {candidate.World.DisplayName}...",
+            async () =>
+            {
+                var worldName = await CreateUniqueWorldNameAsync(candidate.World.DisplayName);
+                var imported = await _lifecycle.ImportAsync(
+                    _factorioAdapter,
+                    candidate.Installation,
+                    candidate.World,
+                    worldName,
+                    GetLocalUser());
+
+                ImportPanel.Visibility = Visibility.Collapsed;
+                StatusText.Text = $"Imported '{imported.Name}' as a private local World.";
+                await RefreshWorldsAsync(imported.Id, preserveStatus: true);
+            });
+    }
+
     private void WorldList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (WorldList.SelectedItem is not WorldListItem selected)
@@ -140,6 +186,64 @@ public partial class MainWindow : Window
             });
     }
 
+    private async Task RefreshImportCandidatesAsync()
+    {
+        SetBusy(true);
+        StatusText.Text = "Looking for local Factorio saves...";
+        ImportDiscoveryText.Text = "Scanning installed Factorio locations...";
+
+        try
+        {
+            var installations = await _factorioAdapter.DiscoverInstallationsAsync();
+            var candidates = new List<ImportCandidate>();
+
+            foreach (var installation in installations)
+            {
+                var saves = await _factorioAdapter.DiscoverWorldsAsync(installation);
+                foreach (var save in saves)
+                {
+                    candidates.Add(new ImportCandidate(
+                        installation,
+                        save,
+                        save.DisplayName,
+                        $"Factorio  •  {installation.Source}"));
+                }
+            }
+
+            ImportCandidateComboBox.ItemsSource = candidates;
+            ImportCandidateComboBox.SelectedIndex = candidates.Count > 0 ? 0 : -1;
+
+            if (installations.Count == 0)
+            {
+                ImportDiscoveryText.Text = "Factorio is not installed on this device.";
+                StatusText.Text = "No Factorio installation found.";
+            }
+            else if (candidates.Count == 0)
+            {
+                ImportDiscoveryText.Text = "Factorio was found, but no importable non-autosave saves were detected.";
+                StatusText.Text = "No importable Factorio saves found.";
+            }
+            else
+            {
+                ImportDiscoveryText.Text = candidates.Count == 1
+                    ? "1 local save found."
+                    : $"{candidates.Count} local saves found.";
+                StatusText.Text = ImportDiscoveryText.Text;
+            }
+        }
+        catch (Exception exception)
+        {
+            ImportCandidateComboBox.ItemsSource = null;
+            ImportDiscoveryText.Text = "Could not scan local saves.";
+            StatusText.Text = "Save discovery failed.";
+            ShowError("Could not discover local saves", exception);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
     private async Task RefreshWorldsAsync(
         WorldId? preferredWorldId = null,
         bool preserveStatus = false)
@@ -181,7 +285,7 @@ public partial class MainWindow : Window
             if (items.Count == 0)
             {
                 _selectedWorld = null;
-                EmptyStateText.Text = "No managed Worlds yet. Import remains available through the CLI while the desktop import flow is built.";
+                EmptyStateText.Text = "No managed Worlds yet. Use Import to turn a local save into a private World.";
                 EmptyStateText.Visibility = Visibility.Visible;
                 WorldDetailsPanel.Visibility = Visibility.Collapsed;
             }
@@ -208,6 +312,29 @@ public partial class MainWindow : Window
         finally
         {
             SetBusy(false);
+        }
+    }
+
+    private async Task<string> CreateUniqueWorldNameAsync(string preferredName)
+    {
+        var baseName = string.IsNullOrWhiteSpace(preferredName) ? "Imported World" : preferredName.Trim();
+        var worlds = await _storage.ListWorldsAsync();
+        var existingNames = worlds
+            .Select(world => world.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (!existingNames.Contains(baseName))
+        {
+            return baseName;
+        }
+
+        for (var suffix = 2; ; suffix++)
+        {
+            var candidate = $"{baseName} {suffix}";
+            if (!existingNames.Contains(candidate))
+            {
+                return candidate;
+            }
         }
     }
 
@@ -251,8 +378,13 @@ public partial class MainWindow : Window
     {
         _isBusy = isBusy;
         RefreshButton.IsEnabled = !isBusy;
+        OpenImportButton.IsEnabled = !isBusy;
+        ScanImportsButton.IsEnabled = !isBusy;
+        CancelImportButton.IsEnabled = !isBusy;
+        ImportCandidateComboBox.IsEnabled = !isBusy;
         WorldList.IsEnabled = !isBusy;
         UpdateActionState();
+        UpdateImportActionState();
     }
 
     private void UpdateActionState()
@@ -268,6 +400,9 @@ public partial class MainWindow : Window
             ? "Make Local Only"
             : "Share World";
     }
+
+    private void UpdateImportActionState()
+        => ImportSelectedButton.IsEnabled = !_isBusy && ImportCandidateComboBox.SelectedItem is ImportCandidate;
 
     private static string GetGameDisplayName(string adapterId)
         => string.Equals(adapterId, "factorio", StringComparison.Ordinal)
@@ -301,4 +436,10 @@ public partial class MainWindow : Window
         string Name,
         string Subtitle,
         string GameVersion);
+
+    private sealed record ImportCandidate(
+        GameInstallation Installation,
+        DetectedWorld World,
+        string Name,
+        string Subtitle);
 }

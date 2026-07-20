@@ -73,13 +73,30 @@ static void PrintDedicatedServerRuntimeState(IReadOnlyDictionary<string, string>
 
     var savedRoot = Path.Combine(serverRoot, "Pal", "Saved");
     var configPath = Path.Combine(savedRoot, "Config", "WindowsServer");
-    var saveGamesRoot = Path.Combine(savedRoot, "SaveGames", "0");
+    var saveGamesPath = Path.Combine(savedRoot, "SaveGames");
+    var saveGamesRoot = Path.Combine(saveGamesPath, "0");
 
     Console.WriteLine("Dedicated server runtime state:");
     Console.WriteLine($"  initialized: {Directory.Exists(savedRoot)}");
     Console.WriteLine($"  savedRootPath: {savedRoot}");
     Console.WriteLine($"  windowsServerConfigPath: {configPath}");
-    Console.WriteLine($"  saveGamesRootPath: {saveGamesRoot}");
+    Console.WriteLine($"  saveGamesPath: {saveGamesPath}");
+    Console.WriteLine($"  assumedSaveGamesRootPath: {saveGamesRoot}");
+
+    var discoveredSaveDirectories = EnumerateDirectoriesSafe(saveGamesPath, SearchOption.AllDirectories)
+        .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    Console.WriteLine($"  discoveredDirectoriesUnderSaveGames: {discoveredSaveDirectories.Length}");
+    foreach (var directory in discoveredSaveDirectories.Take(50))
+    {
+        Console.WriteLine($"    - {Path.GetRelativePath(saveGamesPath, directory)}");
+    }
+
+    if (discoveredSaveDirectories.Length > 50)
+    {
+        Console.WriteLine($"    ... {discoveredSaveDirectories.Length - 50} more directories omitted");
+    }
 
     var serverWorldDirectories = EnumerateDirectoriesSafe(saveGamesRoot)
         .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
@@ -148,12 +165,14 @@ static int CountFilesSafe(string path, string searchPattern)
     }
 }
 
-static IReadOnlyList<string> EnumerateDirectoriesSafe(string path)
+static IReadOnlyList<string> EnumerateDirectoriesSafe(
+    string path,
+    SearchOption searchOption = SearchOption.TopDirectoryOnly)
 {
     try
     {
         return Directory.Exists(path)
-            ? Directory.EnumerateDirectories(path, "*", SearchOption.TopDirectoryOnly).ToArray()
+            ? Directory.EnumerateDirectories(path, "*", searchOption).ToArray()
             : [];
     }
     catch (IOException)

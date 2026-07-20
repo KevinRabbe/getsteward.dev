@@ -1,3 +1,4 @@
+using SharedWorlds.Core.Abstractions;
 using SharedWorlds.GameAdapters.Palworld;
 
 var adapter = new PalworldAdapter();
@@ -57,6 +58,7 @@ foreach (var installation in installations)
         Console.WriteLine($"    Top-level files: {(topLevelFiles.Length == 0 ? "(none)" : string.Join(", ", topLevelFiles))}");
     }
 
+    PrintWorldLayoutComparison(worlds);
     Console.WriteLine();
 }
 
@@ -112,6 +114,98 @@ static void PrintDedicatedServerRuntimeState(IReadOnlyDictionary<string, string>
         Console.WriteLine($"      Level.sav size: {GetFileLengthSafe(levelPath):N0} bytes");
         Console.WriteLine($"      Total files: {EnumerateFilesSafe(worldDirectory).Count}");
         Console.WriteLine($"      Total size: {GetTotalSizeSafe(worldDirectory):N0} bytes");
+    }
+}
+
+static void PrintWorldLayoutComparison(IReadOnlyList<DetectedWorld> worlds)
+{
+    var localWorld = worlds
+        .Where(world => world.Id.StartsWith("local:", StringComparison.OrdinalIgnoreCase))
+        .OrderByDescending(world => GetLastWriteTimeUtcSafe(Path.Combine(world.SourcePath, "Level.sav")))
+        .FirstOrDefault();
+    var dedicatedWorld = worlds
+        .Where(world => world.Id.StartsWith("dedicated:", StringComparison.OrdinalIgnoreCase))
+        .OrderByDescending(world => GetLastWriteTimeUtcSafe(Path.Combine(world.SourcePath, "Level.sav")))
+        .FirstOrDefault();
+
+    if (localWorld is null || dedicatedWorld is null)
+    {
+        return;
+    }
+
+    var comparer = OperatingSystem.IsWindows()
+        ? StringComparer.OrdinalIgnoreCase
+        : StringComparer.Ordinal;
+
+    var localFiles = GetActiveRelativeFiles(localWorld.SourcePath)
+        .ToDictionary(file => file.RelativePath, file => file.Size, comparer);
+    var dedicatedFiles = GetActiveRelativeFiles(dedicatedWorld.SourcePath)
+        .ToDictionary(file => file.RelativePath, file => file.Size, comparer);
+
+    var onlyLocal = localFiles.Keys
+        .Except(dedicatedFiles.Keys, comparer)
+        .OrderBy(path => path, comparer)
+        .ToArray();
+    var onlyDedicated = dedicatedFiles.Keys
+        .Except(localFiles.Keys, comparer)
+        .OrderBy(path => path, comparer)
+        .ToArray();
+    var commonDifferentSize = localFiles.Keys
+        .Intersect(dedicatedFiles.Keys, comparer)
+        .Where(path => localFiles[path] != dedicatedFiles[path])
+        .OrderBy(path => path, comparer)
+        .ToArray();
+
+    Console.WriteLine("World layout comparison (newest local vs newest dedicated, backup/* excluded):");
+    Console.WriteLine($"  local: {localWorld.Id}");
+    Console.WriteLine($"    Path: {localWorld.SourcePath}");
+    Console.WriteLine($"    Active files: {localFiles.Count}");
+    Console.WriteLine($"  dedicated: {dedicatedWorld.Id}");
+    Console.WriteLine($"    Path: {dedicatedWorld.SourcePath}");
+    Console.WriteLine($"    Active files: {dedicatedFiles.Count}");
+
+    PrintPathList("onlyInLocal", onlyLocal);
+    PrintPathList("onlyInDedicated", onlyDedicated);
+
+    Console.WriteLine($"  commonFilesWithDifferentSize: {commonDifferentSize.Length}");
+    foreach (var path in commonDifferentSize.Take(30))
+    {
+        Console.WriteLine($"    - {path}: local={localFiles[path]:N0} bytes, dedicated={dedicatedFiles[path]:N0} bytes");
+    }
+
+    if (commonDifferentSize.Length > 30)
+    {
+        Console.WriteLine($"    ... {commonDifferentSize.Length - 30} more files omitted");
+    }
+}
+
+static IReadOnlyList<(string RelativePath, long Size)> GetActiveRelativeFiles(string worldPath)
+{
+    return EnumerateFilesSafe(worldPath)
+        .Select(path => (RelativePath: Path.GetRelativePath(worldPath, path), Size: GetFileLengthSafe(path)))
+        .Where(file => !IsUnderBackupDirectory(file.RelativePath))
+        .OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+}
+
+static bool IsUnderBackupDirectory(string relativePath)
+{
+    var firstSeparator = relativePath.IndexOfAny([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar]);
+    var firstSegment = firstSeparator < 0 ? relativePath : relativePath[..firstSeparator];
+    return string.Equals(firstSegment, "backup", StringComparison.OrdinalIgnoreCase);
+}
+
+static void PrintPathList(string label, IReadOnlyList<string> paths)
+{
+    Console.WriteLine($"  {label}: {paths.Count}");
+    foreach (var path in paths.Take(30))
+    {
+        Console.WriteLine($"    - {path}");
+    }
+
+    if (paths.Count > 30)
+    {
+        Console.WriteLine($"    ... {paths.Count - 30} more files omitted");
     }
 }
 

@@ -6,7 +6,7 @@ using SharedWorlds.Core.Errors;
 
 namespace SharedWorlds.GameAdapters.Factorio;
 
-public sealed class FactorioAdapter : IGameAdapter
+public sealed partial class FactorioAdapter : IGameAdapter
 {
     private const string ConfigDirectoryName = "config";
     private const string ConfigFileName = "config.ini";
@@ -147,7 +147,6 @@ public sealed class FactorioAdapter : IGameAdapter
                 processId,
                 processStartedAt,
                 cancellationToken);
-
             // A normal Factorio session lives longer than the tiny Steam bootstrap process.
             // Only attempt handoff recovery for an almost-immediate exit from a tracked launch.
             if (observation is null || lifetime >= BootstrapExitThreshold)
@@ -160,7 +159,6 @@ public sealed class FactorioAdapter : IGameAdapter
                 observation.ProcessName,
                 excludedProcessIds,
                 cancellationToken);
-
             if (replacementProcessId is null)
             {
                 throw new InvalidOperationException(
@@ -210,7 +208,6 @@ public sealed class FactorioAdapter : IGameAdapter
         _launchObservations[handle.ProcessId] = new FactorioLaunchObservation(
             processName,
             baselineProcessIds);
-
         return handle;
     }
 

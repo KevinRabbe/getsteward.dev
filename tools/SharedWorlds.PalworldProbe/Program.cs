@@ -25,6 +25,8 @@ foreach (var installation in installations)
         }
     }
 
+    PrintDedicatedServerRuntimeState(installation.Metadata);
+
     var worlds = await adapter.DiscoverWorldsAsync(installation);
     Console.WriteLine($"Detected save Worlds: {worlds.Count}");
 
@@ -59,6 +61,42 @@ foreach (var installation in installations)
 }
 
 Console.WriteLine("Probe complete. No files were modified.");
+
+static void PrintDedicatedServerRuntimeState(IReadOnlyDictionary<string, string>? metadata)
+{
+    if (metadata is null ||
+        !metadata.TryGetValue("dedicatedServerRootPath", out var serverRoot) ||
+        string.IsNullOrWhiteSpace(serverRoot))
+    {
+        return;
+    }
+
+    var savedRoot = Path.Combine(serverRoot, "Pal", "Saved");
+    var configPath = Path.Combine(savedRoot, "Config", "WindowsServer");
+    var saveGamesRoot = Path.Combine(savedRoot, "SaveGames", "0");
+
+    Console.WriteLine("Dedicated server runtime state:");
+    Console.WriteLine($"  initialized: {Directory.Exists(savedRoot)}");
+    Console.WriteLine($"  savedRootPath: {savedRoot}");
+    Console.WriteLine($"  windowsServerConfigPath: {configPath}");
+    Console.WriteLine($"  saveGamesRootPath: {saveGamesRoot}");
+
+    var serverWorldDirectories = EnumerateDirectoriesSafe(saveGamesRoot)
+        .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    Console.WriteLine($"  detectedServerWorldDirectories: {serverWorldDirectories.Length}");
+    foreach (var worldDirectory in serverWorldDirectories)
+    {
+        var levelPath = Path.Combine(worldDirectory, "Level.sav");
+        Console.WriteLine($"    - {Path.GetFileName(worldDirectory)}");
+        Console.WriteLine($"      Path: {worldDirectory}");
+        Console.WriteLine($"      Level.sav modified: {GetLastWriteTimeUtcSafe(levelPath):O}");
+        Console.WriteLine($"      Level.sav size: {GetFileLengthSafe(levelPath):N0} bytes");
+        Console.WriteLine($"      Total files: {EnumerateFilesSafe(worldDirectory).Count}");
+        Console.WriteLine($"      Total size: {GetTotalSizeSafe(worldDirectory):N0} bytes");
+    }
+}
 
 static DateTime GetLastWriteTimeUtcSafe(string path)
 {
@@ -107,6 +145,24 @@ static int CountFilesSafe(string path, string searchPattern)
     catch (UnauthorizedAccessException)
     {
         return 0;
+    }
+}
+
+static IReadOnlyList<string> EnumerateDirectoriesSafe(string path)
+{
+    try
+    {
+        return Directory.Exists(path)
+            ? Directory.EnumerateDirectories(path, "*", SearchOption.TopDirectoryOnly).ToArray()
+            : [];
+    }
+    catch (IOException)
+    {
+        return [];
+    }
+    catch (UnauthorizedAccessException)
+    {
+        return [];
     }
 }
 

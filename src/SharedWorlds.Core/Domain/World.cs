@@ -12,6 +12,17 @@ public enum WorldSharingMode
 }
 
 /// <summary>
+/// Controls whether SharedWorlds should keep a World on its current exact game version or
+/// allow newer versions to be considered through an explicit review-and-test workflow.
+/// The current EnvironmentRevision always remains exact and immutable either way.
+/// </summary>
+public enum WorldGameVersionPolicy
+{
+    KeepExact = 0,
+    AllowUpdateCandidates = 1
+}
+
+/// <summary>
 /// Controls whether a shared World is discoverable. This is independent from whether
 /// sharing itself is enabled and defaults to Private for persisted-data compatibility.
 /// </summary>
@@ -55,6 +66,12 @@ public sealed record World(
     /// Sharing is opt-in. Discovery and import never make a World shareable automatically.
     /// </summary>
     public WorldSharingMode SharingMode { get; init; } = WorldSharingMode.LocalOnly;
+
+    /// <summary>
+    /// Existing and newly imported Worlds keep their exact known-good game version by default.
+    /// Allowing update candidates never mutates the current EnvironmentRevision automatically.
+    /// </summary>
+    public WorldGameVersionPolicy GameVersionPolicy { get; init; } = WorldGameVersionPolicy.KeepExact;
 
     /// <summary>
     /// Visibility is a separate concern from sharing. A newly shared World remains private

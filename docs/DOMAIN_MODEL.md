@@ -15,6 +15,7 @@ Current fields:
 - current environment revision id
 - current state revision id
 - `SharingMode`
+- `GameVersionPolicy`
 
 The World stores references to its current heads rather than embedding all game data directly.
 
@@ -28,6 +29,19 @@ Sharing is explicit and privacy-preserving by default:
 `LocalOnly` deliberately has the zero value. This means newly imported Worlds and older persisted Worlds that predate the property resolve to local-only rather than accidentally becoming shared.
 
 Discovery does not create a World and never shares anything. Import creates a managed World but still defaults it to `LocalOnly`. Enabling sharing is a separate explicit operation.
+
+### WorldGameVersionPolicy
+
+Every canonical World state belongs to one exact immutable `EnvironmentRevision`. The game version recorded by that environment is therefore exact regardless of update policy.
+
+The World-level policy only controls whether SharedWorlds should consider newer game versions as future candidates:
+
+- `KeepExact = 0`: treat the current exact environment as known-good and ignore newer game versions for this World.
+- `AllowUpdateCandidates = 1`: newer versions may later be offered through an explicit review-and-test workflow.
+
+`KeepExact` deliberately has the zero value so existing persisted Worlds and newly imported Worlds remain on their current known-good version by default.
+
+Allowing update candidates does not mutate the current `EnvironmentRevision`, does not auto-update the game, and does not move the canonical World head. A future accepted update creates a new `EnvironmentRevision`; the prior Environment + State pair remains available for rollback.
 
 ## EnvironmentRevision
 

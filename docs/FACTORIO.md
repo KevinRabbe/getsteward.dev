@@ -11,6 +11,7 @@ Current implementation covers:
 - detected-save capture for import
 - environment inspection
 - exact required game-version enforcement during preparation
+- local environment readiness verification through the real preparation path
 - local prepared workspace creation
 - isolated session write-data configuration
 - workspace-local mod-directory preparation
@@ -66,7 +67,7 @@ Typical locations are:
 
 The portable ZIP distribution can keep saves and mods inside the unzipped Factorio directory.
 
-Factorio can also be configured to use non-default write-data paths. The current discovery implementation does **not yet fully resolve arbitrary custom `write-data` configuration**, so this remains an explicit limitation.
+Factorio can also be configured to use non-default write-data paths. Discovery now resolves `config-path.cfg`, `[path] write-data`, supported Factorio path tokens, environment variables, home-relative paths, relative paths, and safe platform fallbacks without moving or rewriting the user's configuration.
 
 Reference: [Factorio application directory](https://wiki.factorio.com/Application_directory)
 
@@ -105,6 +106,21 @@ The environment fingerprint is only a fast comparison value derived from that ma
 For new EnvironmentRevisions, the mod-settings hash lets preparation detect startup-setting drift instead of silently borrowing changed settings from the live Factorio profile. Older EnvironmentRevisions created before this field existed retain compatibility behavior and cannot verify that drift.
 
 Preparation also reads the currently installed Factorio version and requires an exact match with the World EnvironmentRevision. A mismatch fails with a controlled `EnvironmentReproductionException` before workspace preparation proceeds. The real-machine exact-match path is validated; the mismatch path is covered by automated tests.
+
+## Verify and Repair
+
+`VerifyEnvironmentAsync` deliberately exercises the same exact environment-preparation path used before play, but it does not launch Factorio or advance any World revision. A successful temporary workspace is deleted directly by the adapter rather than finalized through the player-preference persistence path.
+
+This means Verify currently checks the real conditions required for play, including:
+
+- exact installed Factorio game version
+- exact required user-mod artifacts
+- required startup-settings fingerprint
+- adapter-owned workspace preparation
+
+The verification result is game-agnostic at the Core boundary: `Ready`, `Blocked`, or `Unsupported`, with adapter-owned issue messages.
+
+Automatic Repair is intentionally conservative. The contract exists and the desktop UI exposes the action, but Factorio currently reports no automatically repairable issues because safe acquisition of missing exact game versions, missing exact mods, and historical startup settings has not yet been implemented. Repair therefore remains disabled for current Factorio blockers rather than mutating the user's live installation or mod profile.
 
 ## Mod handling
 
@@ -258,46 +274,3 @@ host-factorio <world-selector>
 unshare-world <world-selector>
 recovery
 ```
-
-`continue-factorio` is local/single-player canonical play. `host-factorio` is blocked until the World has been explicitly shared.
-
-## Known limitations
-
-1. Arbitrary custom Factorio write-data paths are not fully resolved during discovery.
-2. Steam Flatpak-specific Linux paths are not yet handled comprehensively.
-3. Automatic `--sync-mods` repair/download is not yet wired into preparation.
-4. Existing legacy EnvironmentRevisions without a mod-settings fingerprint cannot detect startup-setting drift.
-5. Exact required game versions are enforced, but SharedWorlds does not yet automatically acquire or switch the local Factorio installation to a missing required version.
-6. Live shared host coordination and genuine multi-user Join are not yet implemented.
-7. Player-preference persistence is covered by automated tests but still needs a focused real-machine runtime check.
-
-## Real-machine validation history
-
-Completed:
-
-1. Build and automated tests passed on the target Windows machine.
-2. Non-default Steam library discovery succeeded.
-3. Expected saves were discovered and autosaves hidden from import discovery.
-4. Disposable save `newme` was imported as a `LocalOnly` World.
-5. Initial import preserved the original save hash.
-6. First Continue exposed Steam PID handoff and produced a redundant unchanged revision rather than corrupting canonical state.
-7. Process-handoff tracking was added.
-8. Second Continue successfully followed the real Factorio session and loaded the World.
-9. A visible in-game change was saved.
-10. Hash validation showed that without `write-data` isolation the change went to the original `%APPDATA%\Factorio\saves\newme.zip`, while the SharedWorlds workspace payload remained unchanged.
-11. Per-session workspace config/write-data isolation and isolated save capture were added with a regression test.
-12. The fixed isolated runtime session loaded successfully and survived Steam process handoff.
-13. A new visible in-game change was saved and committed from the isolated workspace.
-14. The original source save remained unchanged at the recorded `91108974...` baseline.
-15. No workspace recovery records remained after the successful clean session.
-16. A subsequent Continue restored the newly committed canonical revision and the visible test change was confirmed present in-game.
-17. `worlds` and `world <selector>` were validated on the target machine, removing raw-ID-only interaction.
-18. Explicit `share-world` changed the World from `LocalOnly` to `Shared` without launching or uploading anything.
-19. `host-factorio` launched the isolated World with `--host` through Steam process handoff.
-20. The replacement Factorio process retained the host command line and owned active UDP endpoints.
-21. Clean hosted exit committed revision `669e8b7b10cc4b8da23a35b8f2ebd343` with parent `e8e0c36761934d0ca4ded2c0b125a378`.
-22. Hosted cleanup left no recovery records and the original source save remained unchanged.
-23. A later real-machine Continue confirmed the Steam replacement process used the SharedWorlds workspace `--mod-directory`, the active save path remained workspace-local, clean exit committed state, and the original source save remained unchanged.
-24. Exact required Factorio version `2.1.11` was enforced and the real-machine exact-match path successfully launched and loaded the World; mismatch refusal is covered by automated tests.
-
-The Factorio local/private and explicit hosted World lifecycles are therefore **fully end-to-end validated** for the tested Windows Steam configuration. Workspace-local mod isolation and exact game-version matching are also runtime-validated. Remaining environment work is primarily controlled acquisition/repair, custom-path hardening, and save-derived startup-setting restoration.

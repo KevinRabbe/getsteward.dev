@@ -32,6 +32,8 @@ public partial class MainWindow
                     ? $"This device is ready to play '{world.Name}' with its exact environment."
                     : $"The exact environment for '{world.Name}' is not ready on this device.";
             });
+
+        UpdateEnvironmentReadinessUi();
     }
 
     private async void RepairEnvironmentButton_Click(object sender, System.Windows.RoutedEventArgs e)
@@ -58,6 +60,8 @@ public partial class MainWindow
                 UpdateEnvironmentReadinessUi();
                 StatusText.Text = result.Message;
             });
+
+        UpdateEnvironmentReadinessUi();
     }
 
     private void ResetEnvironmentReadinessUi()

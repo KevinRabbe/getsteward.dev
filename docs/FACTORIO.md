@@ -20,12 +20,14 @@ Current implementation covers:
 - adapter-owned session-end observation
 - state recapture after play
 
-The adapter has now been compiled and exercised on a real Windows Steam installation. Real-machine discovery and import succeeded. Runtime testing exposed two adapter-specific issues in sequence:
+The adapter has now been compiled and exercised on a real Windows Steam installation. Real-machine discovery, import, Steam process handoff, isolated local play, clean session commit, source-save isolation, canonical-head advancement, and workspace cleanup have all been validated.
+
+Runtime testing exposed two adapter-specific issues in sequence:
 
 1. Steam may restart the initially launched Factorio process, so the first PID is not always the playable session.
 2. Loading a save from an arbitrary workspace path is not sufficient to isolate later save writes; Factorio's normal user-data directory still owns its saves unless `write-data` is redirected.
 
-Both issues are now handled in the adapter. A second real-machine validation is still required before the Factorio vertical slice is considered complete.
+Both issues are now handled in the adapter. One final replay validation remains: Continue the newly committed canonical revision and confirm the visible in-game change is restored correctly.
 
 ## Installation discovery
 
@@ -141,6 +143,8 @@ This is the critical save-isolation boundary. A real-machine test proved that me
 
 After session end, state capture scans only the isolated workspace `saves` directory, ignores `_autosave*`, and captures the newest non-autosave save. This allows Factorio to preserve or change the save name internally without causing Core to read from the user's original save directory.
 
+A real Windows runtime test confirmed the isolation boundary: the original source save remained at SHA-256 `9110897489D5CD73573A62DD949CBBDE5E1194972660EB5651C8D1E4DB2A879B`, while the newly committed SharedWorlds state changed from the previous `54625123A3958047C22CDD7DBE5716155882104EF30C3CDF7B4665CA95FDBCCA` payload to `899C1A0E8F07D4C05E5C43B271635120231DB5D9916C72D8793BC1F953F2D6DD`.
+
 ## Local launch
 
 A `LocalOnly` World uses:
@@ -199,6 +203,8 @@ The Core then creates a new `StateRevision` and moves the World's canonical stat
 
 The user's original imported source save is outside the isolated write-data directory and must remain unchanged during product-managed play.
 
+The real-machine isolated run advanced the World head to revision `df4092b44d924d9fa5166eb55017da17` and left no prepared-workspace recovery record after clean shutdown.
+
 ## Current CLI workflow
 
 The development CLI exposes:
@@ -221,8 +227,7 @@ recovery
 2. Steam Flatpak-specific Linux paths are not yet handled comprehensively.
 3. Exact automated mod synchronization is not yet wired into preparation.
 4. The mod directory is still shared with the user's current Factorio installation; full per-World environment isolation is not yet implemented.
-5. The isolated write-data/save-capture fix requires real Windows runtime validation.
-6. Live shared host coordination is not yet implemented.
+5. Live shared host coordination is not yet implemented.
 
 ## Real-machine test history and next validation
 
@@ -237,19 +242,18 @@ Completed:
 7. Process-handoff tracking was added.
 8. Second Continue successfully followed the real Factorio session and loaded the World.
 9. A visible in-game change was saved.
-10. Hash validation showed the change went to the original `%APPDATA%\Factorio\saves\newme.zip`, while the SharedWorlds workspace payload remained unchanged.
+10. Hash validation showed that without `write-data` isolation the change went to the original `%APPDATA%\Factorio\saves\newme.zip`, while the SharedWorlds workspace payload remained unchanged.
 11. That proved save isolation required a redirected Factorio `write-data` directory, not only an externally located `--load-game` file.
 12. Per-session workspace config/write-data isolation and isolated save capture were added with a regression test.
+13. The fixed isolated runtime session loaded successfully and survived Steam process handoff.
+14. A new visible in-game change was saved and the session exited cleanly.
+15. The original source save remained unchanged at the recorded `91108974...` baseline.
+16. The newly committed SharedWorlds payload changed to `899C1A0E...`, proving the gameplay change was captured inside the isolated workspace.
+17. `world.json` advanced to canonical revision `df4092b44d924d9fa5166eb55017da17`.
+18. No workspace recovery records remained after the successful clean session.
 
 Next:
 
-13. Pull the isolated write-data fix.
-14. Record the current original `newme.zip` hash as the new baseline.
-15. Run local Continue on the same SharedWorlds World.
-16. Make another visible in-game change and save normally.
-17. Exit Factorio cleanly.
-18. Confirm the original source hash remains at the baseline from step 14.
-19. Confirm the newly committed SharedWorlds payload hash differs from the previous canonical payload.
-20. Continue again and verify the new visible change is present.
+19. Continue `df4092b44d924d9fa5166eb55017da17` through the World and confirm the visible in-game change is present after restore.
 
-Only after this succeeds should the Factorio local vertical slice be treated as end-to-end validated.
+Only after this replay succeeds should the Factorio local vertical slice be treated as fully end-to-end validated.

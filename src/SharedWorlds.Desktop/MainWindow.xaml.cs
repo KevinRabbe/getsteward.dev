@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using SharedWorlds.Core.Abstractions;
@@ -15,25 +16,35 @@ public partial class MainWindow : Window
     private readonly IWorldStorage _storage;
     private readonly WorldLifecycleService _lifecycle;
     private readonly FactorioAdapter _factorioAdapter = new();
+    private readonly DeviceSettingsStore _deviceSettingsStore;
 
     private World? _selectedWorld;
+    private DeviceSettings _deviceSettings = new(
+        AllowHosting: false,
+        HostingPreferenceExplicit: false);
     private bool _isBusy;
 
     public MainWindow()
     {
         InitializeComponent();
 
-        var storageRoot = Path.Combine(GetLocalDataRoot(), "SharedWorlds", "data");
+        var sharedWorldsRoot = Path.Combine(GetLocalDataRoot(), "SharedWorlds");
+        var storageRoot = Path.Combine(sharedWorldsRoot, "data");
         _storage = new LocalWorldStorage(storageRoot);
         _lifecycle = new WorldLifecycleService(
             _storage,
             new LocalWorldSessionCoordinator(),
             new LocalWorkspaceRecoveryStore(storageRoot));
+        _deviceSettingsStore = new DeviceSettingsStore(
+            Path.Combine(sharedWorldsRoot, "settings", "device.json"));
         Loaded += MainWindow_Loaded;
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
-        => await RefreshWorldsAsync();
+    {
+        await LoadDeviceSettingsAsync();
+        await RefreshWorldsAsync();
+    }
 
     private async void RefreshButton_Click(object sender, RoutedEventArgs e)
         => await RefreshWorldsAsync(_selectedWorld?.Id);
@@ -59,6 +70,34 @@ public partial class MainWindow : Window
     private void ImportCandidateComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         => UpdateImportActionState();
 
+    private async void AllowHostingCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        var previous = _deviceSettings;
+        var updated = previous with
+        {
+            AllowHosting = AllowHostingCheckBox.IsChecked == true,
+            HostingPreferenceExplicit = true
+        };
+
+        try
+        {
+            await _deviceSettingsStore.SaveAsync(updated);
+            _deviceSettings = updated;
+            StatusText.Text = updated.AllowHosting
+                ? "This device is now eligible to host shared Worlds."
+                : "This device is now join-only and will not host shared Worlds.";
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            AllowHostingCheckBox.IsChecked = previous.AllowHosting;
+            ShowError("Could not save device settings", exception);
+        }
+
+        UpdateHostingPreferenceText();
+        UpdateActionState();
+    }
+
     private async void ImportSelectedButton_Click(object sender, RoutedEventArgs e)
     {
         if (ImportCandidateComboBox.SelectedItem is not ImportCandidate candidate)
@@ -78,6 +117,7 @@ public partial class MainWindow : Window
                     worldName,
                     GetLocalUser());
 
+                await TryEnableCreatorDeviceHostingAsync();
                 ImportPanel.Visibility = Visibility.Collapsed;
                 StatusText.Text = $"Imported '{imported.Name}' as a private local World.";
                 await RefreshWorldsAsync(imported.Id, preserveStatus: true);
@@ -143,6 +183,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!_deviceSettings.AllowHosting)
+        {
+            StatusText.Text = "Enable 'Allow this device to host' in Device settings before hosting.";
+            return;
+        }
+
         await RunOperationAsync(
             $"Hosting {world.Name}...",
             async () =>
@@ -184,6 +230,58 @@ public partial class MainWindow : Window
                     : $"World '{updated.Name}' is now local-only.";
                 await RefreshWorldsAsync(updated.Id, preserveStatus: true);
             });
+    }
+
+    private async Task LoadDeviceSettingsAsync()
+    {
+        try
+        {
+            var worlds = await _storage.ListWorldsAsync();
+            _deviceSettings = await _deviceSettingsStore.LoadOrCreateAsync(
+                hasManagedWorlds: worlds.Count > 0);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            _deviceSettings = new DeviceSettings(
+                AllowHosting: false,
+                HostingPreferenceExplicit: false);
+            ShowError(
+                "Could not load device settings",
+                new InvalidOperationException(
+                    "SharedWorlds kept hosting disabled on this device because its local device settings could not be loaded.",
+                    exception));
+        }
+
+        AllowHostingCheckBox.IsChecked = _deviceSettings.AllowHosting;
+        UpdateHostingPreferenceText();
+        UpdateActionState();
+    }
+
+    private async Task TryEnableCreatorDeviceHostingAsync()
+    {
+        if (_deviceSettings.AllowHosting || _deviceSettings.HostingPreferenceExplicit)
+        {
+            return;
+        }
+
+        var updated = _deviceSettings with { AllowHosting = true };
+        try
+        {
+            await _deviceSettingsStore.SaveAsync(updated);
+            _deviceSettings = updated;
+            AllowHostingCheckBox.IsChecked = true;
+            UpdateHostingPreferenceText();
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            ShowError(
+                "World imported, but hosting preference was not saved",
+                new InvalidOperationException(
+                    "The World was imported successfully. Enable 'Allow this device to host' manually if this device should host shared Worlds.",
+                    exception));
+        }
     }
 
     private async Task RefreshImportCandidatesAsync()
@@ -382,6 +480,7 @@ public partial class MainWindow : Window
         ScanImportsButton.IsEnabled = !isBusy;
         CancelImportButton.IsEnabled = !isBusy;
         ImportCandidateComboBox.IsEnabled = !isBusy;
+        AllowHostingCheckBox.IsEnabled = !isBusy;
         WorldList.IsEnabled = !isBusy;
         UpdateActionState();
         UpdateImportActionState();
@@ -392,9 +491,16 @@ public partial class MainWindow : Window
         var world = _selectedWorld;
         var isFactorio = world is not null &&
                          string.Equals(world.GameAdapterId, "factorio", StringComparison.Ordinal);
+        var canHostOnThisDevice = _deviceSettings.AllowHosting;
 
         ContinueButton.IsEnabled = !_isBusy && isFactorio;
-        HostButton.IsEnabled = !_isBusy && isFactorio && world?.SharingMode == WorldSharingMode.Shared;
+        HostButton.IsEnabled = !_isBusy &&
+                               isFactorio &&
+                               canHostOnThisDevice &&
+                               world?.SharingMode == WorldSharingMode.Shared;
+        HostButton.ToolTip = canHostOnThisDevice
+            ? "Host this shared World on this device."
+            : "Enable 'Allow this device to host' in Device settings first.";
         ShareButton.IsEnabled = !_isBusy && world is not null;
         ShareButton.Content = world?.SharingMode == WorldSharingMode.Shared
             ? "Make Local Only"
@@ -403,6 +509,11 @@ public partial class MainWindow : Window
 
     private void UpdateImportActionState()
         => ImportSelectedButton.IsEnabled = !_isBusy && ImportCandidateComboBox.SelectedItem is ImportCandidate;
+
+    private void UpdateHostingPreferenceText()
+        => HostingPreferenceText.Text = _deviceSettings.AllowHosting
+            ? "This device may host shared Worlds and can later participate in host handoff."
+            : "Join-only by default. This device will not be selected as a host.";
 
     private static string GetGameDisplayName(string adapterId)
         => string.Equals(adapterId, "factorio", StringComparison.Ordinal)

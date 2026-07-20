@@ -111,6 +111,62 @@ public sealed class FactorioSaveDiscoveryTests : IDisposable
     }
 
     [Fact]
+    public async Task FinalizePreparedWorld_PersistsPlayerPreferencesWithoutLeakingWorkspacePath()
+    {
+        var userData = Path.Combine(_root, "player-preferences-source");
+        var sourceConfigDirectory = Path.Combine(userData, "config");
+        Directory.CreateDirectory(sourceConfigDirectory);
+
+        var sourceConfigPath = Path.Combine(sourceConfigDirectory, "config.ini");
+        await File.WriteAllLinesAsync(
+            sourceConfigPath,
+            [
+                "[path]",
+                "read-data=__PATH__system-read-data__",
+                $"write-data={userData}",
+                "[sound]",
+                "master-volume=0.75",
+                "[controls]",
+                "open-gui=E"
+            ]);
+
+        var adapter = new FactorioAdapter();
+        var manifest = new EnvironmentManifest(
+            SchemaVersion: 1,
+            AdapterId: adapter.Id,
+            GameVersion: "2.0.0",
+            Components: [],
+            Configuration: new Dictionary<string, string>());
+        var prepared = await adapter.PrepareEnvironmentAsync(CreateInstallation(userData), manifest);
+
+        var workspaceConfigPath = Path.Combine(prepared.WorkingDirectory, "config", "config.ini");
+        var workspaceUserData = Path.Combine(prepared.WorkingDirectory, "user-data");
+        await File.WriteAllLinesAsync(
+            workspaceConfigPath,
+            [
+                "[path]",
+                "read-data=__PATH__system-read-data__",
+                $"write-data={workspaceUserData}",
+                "[sound]",
+                "master-volume=0.10",
+                "[controls]",
+                "open-gui=F",
+                "[graphics]",
+                "full-screen=false"
+            ]);
+
+        await adapter.FinalizePreparedWorldAsync(prepared, PreparedWorldDisposition.Discard);
+
+        var persistedConfig = await File.ReadAllTextAsync(sourceConfigPath);
+        Assert.Contains($"write-data={userData}", persistedConfig, StringComparison.Ordinal);
+        Assert.DoesNotContain($"write-data={workspaceUserData}", persistedConfig, StringComparison.Ordinal);
+        Assert.Contains("master-volume=0.10", persistedConfig, StringComparison.Ordinal);
+        Assert.Contains("open-gui=F", persistedConfig, StringComparison.Ordinal);
+        Assert.Contains("full-screen=false", persistedConfig, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(prepared.WorkingDirectory));
+    }
+
+    [Fact]
     public async Task PreparedWorkspace_CopiesOnlyExactRequiredUserModsAndVerifiedSettings()
     {
         var userData = Path.Combine(_root, "mod-isolation-source");

@@ -79,16 +79,31 @@ This validates the current local host lifecycle and sharing gate. It does **not*
 
 ## Phase 2: Factorio environment reproduction
 
-Target:
+Status: **first isolation/verification slice implemented and covered by automated tests; real-machine runtime validation pending**.
 
-- resolve actual write-data path robustly
-- create per-World isolated mod/config environment where appropriate
-- test Factorio native `--sync-mods` behavior
-- decide safe exact-version synchronization policy
-- validate mod startup settings handling
-- add Verify/Repair path for environment mismatches
+Implemented in the first slice:
 
-Do not add automatic canonical mod synchronization until destructive or surprising behavior has been tested on disposable environments.
+- create an adapter-owned workspace mod directory for every prepared World
+- generate a workspace-local `mod-list.json` from the EnvironmentManifest
+- locate required user mods by exact recorded version
+- copy only exact required user-mod artifacts into the workspace
+- exclude unrelated live mods from the prepared session
+- record a SHA-256 fingerprint of `mod-settings.dat` for new EnvironmentRevisions
+- verify startup-settings fingerprints before copying settings into a prepared workspace
+- fail with a controlled `EnvironmentReproductionException` instead of silently accepting missing exact mods or changed verified startup settings
+- launch Factorio with `--mod-directory <workspace>/mods` rather than the live user mod directory
+
+Remaining targets:
+
+- validate the workspace-local mod path on the real Windows Steam installation
+- resolve actual custom write-data paths robustly during discovery
+- enforce the exact required Factorio game version during preparation
+- test Factorio native `--sync-mods` behavior on disposable environments
+- decide safe exact-version download/repair policy
+- validate save-derived mod startup-settings restoration
+- add an explicit Verify/Repair path for environment mismatches
+
+Do not add automatic canonical mod synchronization until destructive or surprising behavior has been tested on disposable environments. Missing exact versions should continue to fail safely rather than mutating the user's live mod profile.
 
 ## Phase 3: Local product UX
 
@@ -266,14 +281,14 @@ Postpone until the foundation is proven:
 
 ## Current immediate next step
 
-The local Continue path, replay path, World listing/details UX, explicit sharing gate, and hosted Factorio lifecycle are now validated on the target Windows Steam installation.
+The local Continue path, replay path, World listing/details UX, explicit sharing gate, and hosted Factorio lifecycle are validated on the target Windows Steam installation. The first workspace-local mod-isolation slice is now implemented in code and automated tests.
 
 Next:
 
-1. harden Factorio environment reproduction, especially per-World mod/config isolation and exact-version verification
-2. correct user-facing sharing copy so it does not imply Join is implemented before remote synchronization/live coordination exists
-3. add revision-history/Restore capabilities for local World safety and debugging
-4. design and validate the remote durable storage model needed to move canonical World state between machines
-5. add live shared coordination and only then expose genuine multi-user Join and host handoff
+1. run the updated Factorio Continue path on the target machine and verify the Steam-restarted process uses `--mod-directory <SharedWorlds workspace>/mods`
+2. confirm the World still loads, saves, commits, cleans up, and leaves the live `%APPDATA%\Factorio\mods` directory untouched
+3. enforce exact Factorio game-version matching during preparation
+4. test `--sync-mods` only in disposable isolated environments and define safe Verify/Repair behavior
+5. then move toward remote durable storage and live coordination required for genuine multi-user Join and host handoff
 
 The principle remains: prove each product boundary with a real game before adding another abstraction layer.

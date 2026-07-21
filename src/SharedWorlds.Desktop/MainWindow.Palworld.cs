@@ -58,6 +58,7 @@ public partial class MainWindow
             UpdatePalworldPresentation();
             UpdatePalworldActionState();
         };
+        WorldList.IsEnabledChanged += (_, _) => UpdatePalworldActionState();
         AllowHostingCheckBox.Click += (_, _) => UpdatePalworldActionState();
 
         UpdatePalworldPresentation();

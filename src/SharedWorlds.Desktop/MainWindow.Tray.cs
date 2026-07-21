@@ -175,8 +175,18 @@ public partial class MainWindow
 
         public void OnPhaseChanged(WorldLifecyclePhaseChange change)
         {
+            // The tracker is deterministic/in-memory responsibility state. Presentation updates are
+            // explicitly best-effort: a tray/window projection failure must never alter capture,
+            // commit, reservation release, or recovery behavior in Core.
             _tracker.OnPhaseChanged(change);
-            _afterChange(change);
+            try
+            {
+                _afterChange(change);
+            }
+            catch
+            {
+                // Presentation is non-authoritative. The next lifecycle/UI refresh may recover it.
+            }
         }
     }
 }

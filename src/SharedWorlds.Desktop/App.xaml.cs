@@ -18,6 +18,7 @@ public partial class App : Application
         }
 
         Activated -= App_Activated;
+        window.InitializeUnifiedHostingPreference();
         window.InitializeUnifiedGameUi();
     }
 }

@@ -25,15 +25,30 @@ public sealed class InMemoryCanonicalRetentionPolicy
     {
         ValidateRequired(worldId, nameof(worldId));
         ValidateRequired(stateRevisionId, nameof(stateRevisionId));
+        if (environmentRevisionId is not null)
+        {
+            ValidateRequired(environmentRevisionId, nameof(environmentRevisionId));
+        }
 
         lock (_gate)
         {
             var world = GetOrCreateWorld(worldId);
-            if (world.States.Any(state => string.Equals(
-                    state.StateRevisionId,
-                    stateRevisionId,
-                    StringComparison.Ordinal)))
+            var existing = world.States.FirstOrDefault(state => string.Equals(
+                state.StateRevisionId,
+                stateRevisionId,
+                StringComparison.Ordinal));
+            if (existing is not null)
             {
+                if (!string.Equals(
+                        existing.EnvironmentRevisionId,
+                        environmentRevisionId,
+                        StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"State revision '{stateRevisionId}' is already recorded with a different environment revision.");
+                }
+
+                // Same immutable mapping is an idempotent replay.
                 return;
             }
 

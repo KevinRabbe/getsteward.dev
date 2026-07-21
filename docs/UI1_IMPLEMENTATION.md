@@ -4,7 +4,7 @@ UI-1 replaces transitional desktop behavior with the approved first-release shel
 
 ## Current status
 
-Status: **in progress — background/tray lifetime and action semantics integrated; shell/navigation cleanup and real shared-access integration remain**.
+Status: **in progress — runtime/tray/action semantics and legacy-path quarantine implemented; shell/navigation replacement and build confirmation remain**.
 
 Implemented in the current UI-1 slice:
 
@@ -16,9 +16,15 @@ Implemented in the current UI-1 slice:
 - tray status reflects approved concepts such as Running, Saving World, Recovery needed, and Action required;
 - startup loads durable workspace-recovery records before the unified game/World surface initializes;
 - a recovery record found after restart cannot be silently presented as normal Ready state;
+- the generic runtime also hard-blocks new writable Start/Host before coordinator acquisition while durable responsibility remains;
+- selected-World presentation now surfaces `Preparing`, `Running`, `Saving World`, `Recovery needed`, or `Action required` directly from the runtime responsibility tracker;
+- Start World / Host World are disabled whenever this desktop has active or unresolved writable responsibility, including when that responsibility belongs to another World;
 - temporary `Host World` no longer depends on persistent Steward sharing in Core, legacy desktop action gating, or the unified action layer;
 - Host availability is driven by adapter host capability plus the local device hosting preference;
 - unified Host tooltips/text no longer instruct the user to Share first;
+- approved `Start World` / `Host World` terminology replaces the transitional Continue/Host labels in the active desktop;
+- `Only on this PC` replaces the transitional `Local only` wording;
+- the old Factorio-only desktop execution path has been removed; XAML-named legacy handlers remain only as inert structural anchors until the shell markup itself is replaced;
 - `Share World` no longer flips a local enum and falsely claims persistent remote sharing;
 - until BE-2/UI-4 connects real remote World authority/access, Share/Manage access remains an honest entry point that leaves canonical local state unchanged;
 - WinForms is used only for `NotifyIcon`; its namespace is kept explicit so existing WPF `Application`/`MessageBox` usage is not polluted by implicit WinForms imports.
@@ -40,10 +46,9 @@ This keeps UI-D003/UI-D009 aligned with BE-D002/003 rather than allowing the des
 
 ## Remaining UI-1 work
 
-- remove or quarantine obsolete legacy Factorio-only action composition now that unified startup owns the active desktop path;
 - finish the intended global shell/navigation replacement instead of layering more dynamic UI over the transitional XAML;
-- preserve Games -> Worlds hierarchy and responsive selected-World details while removing duplicate legacy controls/handlers;
-- expose lifecycle responsibility/attention in the unified World presentation without inventing remote states;
+- preserve Games -> Worlds hierarchy and responsive selected-World details while removing the remaining structural legacy controls/markup anchors;
+- add Games-level attention indication where a managed World requires action/recovery;
 - keep `Share World` / `Manage access` non-destructive until BE-2/UI-4 provides the real access flow;
 - add automated desktop-level tests where practical for close-to-tray and safe-Quit policy;
 - build/test confirmation on Windows under warnings-as-errors.

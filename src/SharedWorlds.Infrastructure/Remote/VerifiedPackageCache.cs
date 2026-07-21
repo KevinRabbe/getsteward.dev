@@ -145,6 +145,10 @@ public sealed class VerifiedPackageCache
                         cancellationToken))
                 {
                     PublishVerifiedPartial(partialPath, finalPath);
+                    await EnsurePublishedFinalIsVerifiedAsync(
+                        finalPath,
+                        authorization,
+                        cancellationToken);
                     return new VerifiedCachedPackage(
                         finalPath,
                         authorization.ExpectedByteSize,
@@ -195,6 +199,10 @@ public sealed class VerifiedPackageCache
         }
 
         PublishVerifiedPartial(partialPath, finalPath);
+        await EnsurePublishedFinalIsVerifiedAsync(
+            finalPath,
+            authorization,
+            cancellationToken);
         return new VerifiedCachedPackage(
             finalPath,
             authorization.ExpectedByteSize,
@@ -316,6 +324,24 @@ public sealed class VerifiedPackageCache
             StringComparison.OrdinalIgnoreCase);
     }
 
+    private async Task EnsurePublishedFinalIsVerifiedAsync(
+        string finalPath,
+        AuthorizedPackageDownload authorization,
+        CancellationToken cancellationToken)
+    {
+        if (await VerifyFileAsync(
+                finalPath,
+                authorization.ExpectedByteSize,
+                authorization.ExpectedSha256,
+                cancellationToken))
+        {
+            return;
+        }
+
+        throw new PackageIntegrityException(
+            "Published package cache entry did not match the authorized immutable package.");
+    }
+
     private static void ValidateContentRange(
         ContentRangeHeaderValue? range,
         long expectedStart,
@@ -379,8 +405,8 @@ public sealed class VerifiedPackageCache
         }
         catch (IOException) when (File.Exists(finalPath))
         {
-            // Another process may have published the same content-addressed cache entry. The caller
-            // verifies cache entries before use, so retain the existing final and discard our partial.
+            // Another process may have published the same content-addressed entry. Discard our
+            // duplicate partial, then the caller re-verifies the existing final before returning it.
             File.Delete(partialPath);
         }
     }

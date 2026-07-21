@@ -36,6 +36,21 @@ public enum RemoveWorldMemberStatus
     ManagerChanged
 }
 
+public enum LeaveSharedWorldStatus
+{
+    Left,
+    NotFoundOrUnauthorized,
+    MustTransferAccessManager,
+    ResponsibilityUnresolved
+}
+
+public enum CompletePendingRevocationStatus
+{
+    Completed,
+    StillUnresolved,
+    NotPending
+}
+
 public enum TransferAccessManagerStatus
 {
     Transferred,
@@ -243,6 +258,84 @@ public sealed class SharedWorldAccessService
             StoreMemberRevocationStatus.TargetNotActiveMember => RemoveWorldMemberStatus.TargetNotActiveMember,
             StoreMemberRevocationStatus.ManagerChanged => RemoveWorldMemberStatus.ManagerChanged,
             _ => throw new InvalidOperationException("Unexpected member-revocation result.")
+        };
+    }
+
+    public async Task<LeaveSharedWorldStatus> LeaveWorldAsync(
+        VerifiedExternalIdentity caller,
+        WorldId worldId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        ValidateWorldId(worldId);
+
+        var membership = await _metadataStore.LoadMemberAsync(worldId, caller.Subject, cancellationToken);
+        if (membership?.Status != SharedWorldMemberStatus.Active)
+        {
+            return LeaveSharedWorldStatus.NotFoundOrUnauthorized;
+        }
+
+        var world = await _metadataStore.LoadWorldAsync(worldId, cancellationToken);
+        if (world is null)
+        {
+            return LeaveSharedWorldStatus.NotFoundOrUnauthorized;
+        }
+
+        if (world.AccessManager == caller.Subject)
+        {
+            return LeaveSharedWorldStatus.MustTransferAccessManager;
+        }
+
+        if (await _responsibilityInspector.HasUnresolvedWritableResponsibilityAsync(
+                worldId,
+                caller.Subject,
+                cancellationToken))
+        {
+            return LeaveSharedWorldStatus.ResponsibilityUnresolved;
+        }
+
+        var result = await _accessStore.TryLeaveWorldAsync(
+            worldId,
+            caller.Subject,
+            _utcNow(),
+            cancellationToken);
+
+        return result switch
+        {
+            StoreLeaveMemberStatus.Left => LeaveSharedWorldStatus.Left,
+            StoreLeaveMemberStatus.IsAccessManager => LeaveSharedWorldStatus.MustTransferAccessManager,
+            StoreLeaveMemberStatus.TargetNotActiveMember => LeaveSharedWorldStatus.NotFoundOrUnauthorized,
+            _ => throw new InvalidOperationException("Unexpected leave-World result.")
+        };
+    }
+
+    public async Task<CompletePendingRevocationStatus> CompletePendingRevocationAsync(
+        WorldId worldId,
+        ExternalIdentityRef identity,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        ValidateWorldId(worldId);
+
+        if (await _responsibilityInspector.HasUnresolvedWritableResponsibilityAsync(
+                worldId,
+                identity,
+                cancellationToken))
+        {
+            return CompletePendingRevocationStatus.StillUnresolved;
+        }
+
+        var result = await _accessStore.TryCompletePendingRevocationAsync(
+            worldId,
+            identity,
+            _utcNow(),
+            cancellationToken);
+
+        return result switch
+        {
+            StoreCompletePendingRevocationStatus.Completed => CompletePendingRevocationStatus.Completed,
+            StoreCompletePendingRevocationStatus.NotPending => CompletePendingRevocationStatus.NotPending,
+            _ => throw new InvalidOperationException("Unexpected pending-revocation result.")
         };
     }
 

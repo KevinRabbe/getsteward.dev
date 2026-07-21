@@ -1,10 +1,16 @@
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.GameAdapters.Palworld;
 
+var hostRequested = args.Any(arg =>
+    string.Equals(arg, "--host", StringComparison.OrdinalIgnoreCase));
+
 var adapter = new PalworldAdapter();
 var installations = await adapter.DiscoverInstallationsAsync();
+var hostStarted = false;
 
-Console.WriteLine("SharedWorlds Palworld probe (read-only)");
+Console.WriteLine(hostRequested
+    ? "SharedWorlds Palworld probe (host test)"
+    : "SharedWorlds Palworld probe (read-only)");
 Console.WriteLine();
 
 if (installations.Count == 0)
@@ -59,10 +65,56 @@ foreach (var installation in installations)
     }
 
     PrintWorldLayoutComparison(worlds);
+
+    if (hostRequested && !hostStarted)
+    {
+        var localWorld = worlds
+            .Where(world => world.Id.StartsWith("local:", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(world => GetLastWriteTimeUtcSafe(Path.Combine(world.SourcePath, "Level.sav")))
+            .FirstOrDefault();
+
+        Console.WriteLine();
+        Console.WriteLine("Host test:");
+
+        if (localWorld is null)
+        {
+            Console.WriteLine("  No local Palworld world was detected for hosting.");
+        }
+        else
+        {
+            Console.WriteLine($"  Selected local world: {localWorld.Id}");
+            Console.WriteLine($"  Source path: {localWorld.SourcePath}");
+
+            var prepared = await adapter.PrepareDetectedWorldForHostingAsync(installation, localWorld);
+            Console.WriteLine($"  Prepared dedicated world: {prepared.WorkingDirectory}");
+
+            var session = await adapter.LaunchHostAsync(prepared);
+            Console.WriteLine($"  PalServer launched with PID: {session.ProcessId}");
+            Console.WriteLine($"  Started at: {session.StartedAt:O}");
+            Console.WriteLine("  Player identity migration is not applied by this host test.");
+            hostStarted = true;
+        }
+    }
+
     Console.WriteLine();
 }
 
-Console.WriteLine("Probe complete. No files were modified.");
+if (hostRequested)
+{
+    if (hostStarted)
+    {
+        Console.WriteLine("Host test complete. PalServer was launched through the Palworld adapter.");
+    }
+    else
+    {
+        Console.WriteLine("Host test failed to find a local world that could be launched.");
+        Environment.ExitCode = 1;
+    }
+}
+else
+{
+    Console.WriteLine("Probe complete. No files were modified.");
+}
 
 static void PrintDedicatedServerRuntimeState(IReadOnlyDictionary<string, string>? metadata)
 {
@@ -101,6 +153,7 @@ static void PrintDedicatedServerRuntimeState(IReadOnlyDictionary<string, string>
     }
 
     var serverWorldDirectories = EnumerateDirectoriesSafe(saveGamesRoot)
+        .Where(path => !IsSharedWorldsInternalDirectoryName(Path.GetFileName(path)))
         .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
         .ToArray();
 
@@ -190,9 +243,17 @@ static IReadOnlyList<(string RelativePath, long Size)> GetActiveRelativeFiles(st
 
 static bool IsUnderBackupDirectory(string relativePath)
 {
-    var firstSeparator = relativePath.IndexOfAny([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar]);
-    var firstSegment = firstSeparator < 0 ? relativePath : relativePath[..firstSeparator];
-    return string.Equals(firstSegment, "backup", StringComparison.OrdinalIgnoreCase);
+    return relativePath
+        .Split(
+            new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+            StringSplitOptions.RemoveEmptyEntries)
+        .Any(segment => string.Equals(segment, "backup", StringComparison.OrdinalIgnoreCase));
+}
+
+static bool IsSharedWorldsInternalDirectoryName(string directoryName)
+{
+    return directoryName.Contains(".sharedworlds-backup", StringComparison.OrdinalIgnoreCase) ||
+           directoryName.Contains(".sharedworlds-staging-", StringComparison.OrdinalIgnoreCase);
 }
 
 static void PrintPathList(string label, IReadOnlyList<string> paths)

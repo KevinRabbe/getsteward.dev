@@ -1,6 +1,6 @@
 # BE-3 S3-Compatible Transfer Checkpoint
 
-Status: **BE-3 active; provider-neutral transfer contracts, durable transfer persistence, and the generic S3-compatible production adapter are implemented and green. The S3-compatible protocol gate is complete. HTTP/JSON control-plane exposure is the active slice.**
+Status: **BE-3 active; provider-neutral transfer, durable persistence, the generic S3-compatible adapter, and the versioned HTTP/JSON control plane are implemented and green. Partial/orphan cleanup and retention eligibility are the active slice.**
 
 ## Completed before this checkpoint
 
@@ -82,7 +82,7 @@ A separate S3-compatible integration test project exercises a disposable MinIO i
 
 MinIO is used only as a local S3 protocol compatibility harness. It is **not** a production runtime dependency and is **not** the selected commercial storage provider.
 
-The integration proof now passes:
+The integration proof passes:
 
 ```text
 begin multipart
@@ -104,15 +104,61 @@ A separate abort proof confirms repeated abort is safe and does not create a com
 
 The integration gate exposed and fixed one real provider-compatibility defect: presigned URLs had initially defaulted to HTTPS independently of an HTTP custom S3 endpoint. The production adapter now carries the configured endpoint protocol explicitly into every presigned PUT/GET request.
 
-### Five-gate evidence
+## HTTP/JSON control plane — COMPLETE AND GREEN
 
-CI run `29871686999` on commit `e6995c1f1366fc95d0e7848581844ec405326559` passed:
+Production host project:
+
+`SharedWorlds.Backend.Api`
+
+The host composes the already-tested backend services rather than reimplementing product rules in HTTP handlers.
+
+Implemented `/api/v1` surface includes:
+
+- Steam ticket -> Steward session;
+- access-session refresh/revoke;
+- accessible World listing/read/create;
+- current revision metadata read;
+- immutable package-transfer creation/progress;
+- scoped part authorization;
+- transfer finalization;
+- scoped revision download authorization.
+
+HTTP boundary rules:
+
+- protected routes use Bearer Steward access credentials;
+- stable machine-readable result codes drive client behavior;
+- protocol/infrastructure failures use structured Problem Details-style responses;
+- correlation IDs are included for middleware-handled failures;
+- retryability is machine-readable;
+- provider upload handles and private object keys are never returned in ordinary transfer DTOs;
+- the client receives storage URLs only as narrowly scoped short-lived transfer authorizations;
+- API finalization publishes immutable revision metadata but **does not advance the canonical World head**.
+
+The HTTP TestServer suite runs the real API routing/middleware together with the real `StewardSessionService`, `SharedWorldMetadataService`, `SharedRevisionMetadataService`, and `SharedPackageTransferService`; only persistence and object storage are deterministic test doubles.
+
+It proves:
+
+- missing Bearer credential -> stable `AuthenticationRequired`;
+- authenticated World listing;
+- state transfer creation;
+- no `providerUploadId` / private `objectKey` leakage;
+- part authorization;
+- finalization;
+- download authorization;
+- invalid package kind -> stable validation outcome;
+- canonical World head remains unchanged after BE-3 revision publication.
+
+### Current five-gate evidence
+
+CI run `29873796392` on commit `d17fa0103f98f6f2ffee107c181db4e484f77601` passed:
 
 - Quality;
-- Ubuntu build/tests;
-- Windows build/tests;
+- Ubuntu build + full tests, including HTTP TestServer contract tests;
+- Windows build + full tests, including HTTP TestServer contract tests;
 - PostgreSQL integration;
 - S3-compatible direct-transfer integration.
+
+Formatter output is now retained as a CI artifact so future Quality failures are diagnosable without relying on truncated job logs.
 
 ## Provider selection status
 
@@ -122,7 +168,6 @@ That is deployment evidence, not an architectural dependency. Production-provide
 
 ## Remaining BE-3 work
 
-- add HTTPS/JSON control-plane endpoints over the already-tested application contracts;
 - integrate partial/orphan cleanup and BE-D009/BE-D010 retention eligibility;
 - define/implement the desktop download verification/cache/materialization boundary;
 - perform provider-targeted deployment verification only after the generic transfer stack is green.

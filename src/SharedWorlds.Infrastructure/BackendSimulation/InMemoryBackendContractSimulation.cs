@@ -391,6 +391,15 @@ public sealed class InMemoryBackendContractSimulation
             return ContinueFromLastSafeStateStatus.Unauthorized;
         }
 
+        // Validate the candidate before changing reservation authority. A malformed recovery
+        // request must never release a valid writer and only then discover that it cannot finish.
+        if (!string.IsNullOrWhiteSpace(candidateRevisionId) &&
+            (string.Equals(candidateRevisionId, world.CurrentStateRevisionId, StringComparison.Ordinal) ||
+             Authority.DownloadRevision(worldId, callerIdentityId, candidateRevisionId) is null))
+        {
+            return ContinueFromLastSafeStateStatus.InvalidCandidate;
+        }
+
         var reservation = Authority.GetReservation(worldId, callerIdentityId);
         if (reservation is not null)
         {
@@ -409,12 +418,6 @@ public sealed class InMemoryBackendContractSimulation
 
         if (!string.IsNullOrWhiteSpace(candidateRevisionId))
         {
-            if (string.Equals(candidateRevisionId, world.CurrentStateRevisionId, StringComparison.Ordinal) ||
-                Authority.DownloadRevision(worldId, callerIdentityId, candidateRevisionId) is null)
-            {
-                return ContinueFromLastSafeStateStatus.InvalidCandidate;
-            }
-
             lock (_gate)
             {
                 _abandonedCandidates.Add(CandidateKey(worldId, candidateRevisionId));

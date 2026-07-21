@@ -4,7 +4,7 @@ UI-1 replaces transitional desktop behavior with the approved first-release shel
 
 ## Current status
 
-Status: **in progress — runtime/tray/action semantics and responsive master-detail shell implemented; final import-anchor cleanup, Games attention, and build confirmation remain**.
+Status: **implementation requirements complete; Windows build/test confirmation pending**.
 
 Implemented in the current UI-1 slice:
 
@@ -23,16 +23,19 @@ Implemented in the current UI-1 slice:
 - Host availability is driven by adapter host capability plus the local device hosting preference;
 - approved `Start World` / `Host World` terminology replaces the transitional Continue/Host labels;
 - `Only on this PC` replaces the transitional `Local only` wording;
-- the desktop/window branding now says Steward with the product-facing `Click World. Play.` shell line;
-- technical World/environment/state revision identifiers moved behind a collapsed `Technical details` expander;
+- the desktop/window branding says Steward with the product-facing `Click World. Play.` shell line;
+- technical World/environment/state revision identifiers live behind a collapsed `Technical details` expander;
 - wide layout keeps World navigation beside selected-World details;
 - narrow layout uses the approved focused master-detail behavior with `Back to Worlds`;
-- window minimum width was reduced so the narrow layout can actually be reached;
+- the window minimum width allows the narrow layout to be reached;
 - the old Factorio-only desktop execution path and its XAML event-handler contract have been removed;
-- the duplicate compact import execution pipeline was removed from the unified Games code; the real game-first Import workspace remains authoritative;
+- the duplicate compact Import pipeline, hidden XAML anchors, and detach-compatibility hook have been deleted;
+- the game-first Import workspace is the single Import product surface;
+- game tiles append the same runtime attention state used by the tray/World details when one of their Worlds is Preparing, Running, Saving World, Recovery needed, or Action required;
 - `Share World` no longer flips a local enum and falsely claims persistent remote sharing;
 - until BE-2/UI-4 connects real remote World authority/access, Share/Manage access remains an honest entry point that leaves canonical local state unchanged;
-- WinForms is used only for `NotifyIcon`; its namespace is kept explicit so existing WPF `Application`/`MessageBox` usage is not polluted by implicit WinForms imports.
+- WinForms is used only for `NotifyIcon`; its namespace is kept explicit so existing WPF `Application`/`MessageBox` usage is not polluted by implicit WinForms imports;
+- temporary template-helper abstractions introduced during UI refactoring were removed again in favor of direct WPF construction.
 
 ## Truthfulness rule
 
@@ -49,13 +52,11 @@ Therefore the desktop must not present a World as Shared until the backend flow 
 
 This keeps UI-D003/UI-D009 aligned with BE-D002/003 rather than allowing the desktop to manufacture a state the backend cannot support.
 
-## Remaining UI-1 work
+## Remaining UI-1 gate
 
-- remove the final compact ImportPanel/ImportCandidateComboBox structural anchors and their one isolated detach-compatibility hook from `UnifiedImportBrowser`;
-- add Games-level attention indication where a managed World is active, saving, requires action, or requires recovery;
-- keep `Share World` / `Manage access` non-destructive until BE-2/UI-4 provides the real access flow;
-- add automated desktop-level tests where practical for close-to-tray and safe-Quit policy;
-- build/test confirmation on Windows under warnings-as-errors.
+The implementation is not green until the Windows desktop project compiles and the repository tests execute successfully under the repository's warnings-as-errors/nullability configuration.
+
+Direct WPF interaction automation may be expanded later where it adds reliable coverage, but the safety policy itself already has deterministic Core/runtime tests. Lack of ornamental UI automation does not justify inventing a second test-only product model.
 
 ## Boundary
 

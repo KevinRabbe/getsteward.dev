@@ -4,8 +4,8 @@ public partial class MainWindow
 {
     internal async Task InitializeUnifiedStartupAsync()
     {
-        // The legacy Loaded handler refreshes Factorio-only view models. Remove it before the
-        // window is shown so the unified adapter-driven refresh is the only startup pipeline.
+        // The XAML still names transitional anchor handlers while UI-1 replaces the shell. They
+        // contain no game-specific behavior and unified startup remains the only active pipeline.
         Loaded -= MainWindow_Loaded;
 
         // Recovery evidence is authoritative startup input. Load it before any game/World surface
@@ -15,5 +15,6 @@ public partial class MainWindow
         await LoadDeviceSettingsAsync();
         InitializeUnifiedGameUi();
         InitializeUnifiedImportBrowser();
+        InitializeResponsibilityPresentation();
     }
 }

@@ -87,6 +87,8 @@ internal sealed class ApiTestHarness : IAsyncDisposable
         builder.Services.AddSingleton(worldService);
         builder.Services.AddSingleton(revisionService);
         builder.Services.AddSingleton(transferService);
+        builder.Services.AddSingleton<SteamWebApiTicketVerifier>(_ =>
+            throw new InvalidOperationException("Steam verification must not be invoked by this API contract harness."));
 
         var app = builder.Build();
         app.UseStewardApiProblemHandling();

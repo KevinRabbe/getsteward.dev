@@ -14,13 +14,13 @@ A decision may be replaced deliberately, but implementation convenience must not
 
 **Decision:** Steam is the primary commercial product platform. Game-specific behavior remains behind independently compiled adapters.
 
-**Reason:** Steam already provides identity, distribution, game ownership, launching, friends, invitations, Workshop content, and dedicated-server tooling. Steward should reuse those facilities without contaminating Core with game-specific Steam behavior.
+**Reason:** Steam already provides identity, distribution, game ownership, launching, friends, invitations, Workshop content, and dedicated-server tooling. Steward should reuse those facilities without contaminating Core with game-specific behavior.
 
 ## D-003: Core contains no game-specific branches
 
 **Decision:** Core must never branch on Factorio, Palworld, or another game identity.
 
-**Consequence:** Discovery, environment preparation, restore, launch, session observation, safe shutdown, capture, and validation belong to the adapter.
+**Consequence:** Discovery, environment preparation, restore, launch, session observation, safe shutdown, Join specifics, capture, and validation belong to the adapter.
 
 ## D-004: The product completes a full World handoff
 
@@ -36,13 +36,13 @@ A decision may be replaced deliberately, but implementation convenience must not
 
 **Reason:** Generic merging of independently changed game saves is unsafe or impossible.
 
-**Consequence:** Other players join the active host through Steam or the game, or wait for the World to become available.
+**Consequence:** Other players join the active host through Steam/the game or wait for availability.
 
 ## D-006: The current state advances last
 
 **Decision:** The World head changes only after the new state is completely captured, durably stored, verified, and committed.
 
-**Reason:** A failed capture or upload must leave the last known-good World intact.
+**Reason:** A failed capture/upload/verification must leave the last known-good World authoritative.
 
 ## D-007: Published revisions are immutable
 
@@ -56,7 +56,7 @@ A decision may be replaced deliberately, but implementation convenience must not
 
 **Example:** `E7 + S143 -> E7 + S144` for normal play.
 
-**Reason:** Most sessions change the save without changing the required game/mod environment.
+**Reason:** Most sessions change state without changing the required game/mod environment.
 
 ## D-009: The manifest is authoritative
 
@@ -68,11 +68,11 @@ A decision may be replaced deliberately, but implementation convenience must not
 
 **Decision:** Full-install hashing is not part of the normal path.
 
-**Allowed uses:** explicit verification or repair, corruption investigation, first-download integrity, or targeted adapter validation.
+**Allowed uses:** explicit verification/repair, corruption investigation, first-download integrity, or targeted adapter validation.
 
 ## D-011: Session observation is adapter-owned
 
-**Decision:** `WaitForSessionEndAsync` and equivalent safe-capture decisions belong to the adapter.
+**Decision:** `WaitForSessionEndAsync` and equivalent safe-capture/readiness decisions belong to the adapter.
 
 **Reason:** Launchers may replace processes, clients may close while dedicated servers continue, and games have different save-completion semantics.
 
@@ -84,9 +84,9 @@ A decision may be replaced deliberately, but implementation convenience must not
 
 ## D-013: Temporary package ownership is explicit
 
-**Decision:** Core deletes a captured package only when the adapter explicitly marks it disposable.
+**Decision:** Core deletes a captured package only when the adapter explicitly marks it disposable or the higher-level retention contract makes cleanup eligibility explicit.
 
-**Reason:** A path may point to a temporary copy, cache, workspace, or user-owned data. Cleanup authority must not be guessed.
+**Reason:** A path may point to temporary, cached, recovery, workspace, or user-owned data. Cleanup authority must not be guessed.
 
 ## D-014: Prepared workspaces become recovery assets after launch
 
@@ -98,19 +98,19 @@ A decision may be replaced deliberately, but implementation convenience must not
 
 **Decision:** Stable boundaries classify failures; unknown failures stop the current operation rather than being swallowed.
 
-**Reason:** Continuing after an unknown state-handling failure is more dangerous than entering recovery.
+**Reason:** Continuing after unknown state-handling failure is more dangerous than entering recovery.
 
 ## D-016: Storage and session coordination are separate
 
-**Decision:** `IWorldStorage` stores durable state. `IWorldSessionCoordinator` protects transient one-writer session state.
+**Decision:** `IWorldStorage` stores durable state. `IWorldSessionCoordinator` protects one-writer session state.
 
-**Reason:** Their lifecycles, failure modes, and possible Steam implementations differ.
+**Reason:** Their lifecycles and failure modes differ even when one backend eventually provides both implementations.
 
 ## D-017: Host switching is a controlled restart between sessions
 
-**Decision:** Another device may host only after the previous session safely captured and committed its result.
+**Decision:** Another device may host only after the previous writable session safely resolves its handoff or is deliberately recovered.
 
-**Flow:** stop -> capture -> commit -> restore on another device -> launch.
+**Normal flow:** stop -> capture -> commit -> restore on another device -> launch.
 
 **Reason:** Live process migration is unnecessary and unreliable.
 
@@ -118,9 +118,9 @@ A decision may be replaced deliberately, but implementation convenience must not
 
 **Decision:** Steward does not merge independently modified arbitrary game saves.
 
-**Reason:** Saves may contain binary serialization, object references, checksums, databases, duplicated resource use, and semantic conflicts with no universal correct resolution.
+**Reason:** Saves may be binary, compressed, referential, database-backed, checksum-protected, or semantically conflicting with no universal correct resolution.
 
-**Exception:** An adapter may expose a validated game-native transfer operation, but that remains game-specific and is not generic World merging.
+**Exception:** An adapter may expose a validated game-native operation, but that remains game-specific and is not generic World merging.
 
 ## D-019: No Git-style World product model
 
@@ -132,33 +132,33 @@ A decision may be replaced deliberately, but implementation convenience must not
 
 **Decision:** Steward does not build complex World ownership, role, party, social graph, dispute-resolution, or public-discovery systems.
 
-**Reason:** Groups organize themselves. Steward needs only the minimum identity/access information required to distribute and advance the shared state safely.
+**Reason:** Groups organize themselves. Steward needs only the minimum identity/access information required for safe World continuity.
 
 ## D-021: External copies are outside Steward's authority
 
-**Decision:** Steward does not promise physical uniqueness, DRM, or deletion of every copy after state reaches another device.
+**Decision:** Steward does not promise physical uniqueness, DRM, or deletion of every external copy after state reaches another device.
 
 **Reason:** The product only needs an agreed current state inside the Steward workflow.
 
 ## D-022: Shared does not mean public
 
-**Decision:** `Shared` means eligible for cross-device state handoff and coordination. It does not imply a public listing or social community.
+**Decision:** `Shared` means eligible for Steward cross-device handoff and coordination. It does not imply public listing/community discovery.
 
 ## D-023: Background-first is not passive
 
-**Decision:** Steward should remain mostly out of the user's way while actively observing the session and completing capture, storage, verification, commit, and recovery.
+**Decision:** Steward should remain mostly out of the user's way while actively observing the session and completing capture, storage, verification, commit, synchronization, and recovery.
 
 **Reason:** Users should spend time in the game, but the background lifecycle is essential product work.
 
 ## D-024: Use existing infrastructure before building new infrastructure
 
-**Decision:** Prefer Steam, game-native multiplayer, dedicated servers, Workshop, launchers, mod managers, and native export/import functions where they solve the problem.
+**Decision:** Prefer Steam, game-native multiplayer, dedicated servers, Workshop, launchers, mod managers, and native export/import where they solve the problem.
 
 **Reason:** Steward should coordinate legitimate endpoints rather than recreate them.
 
 ## D-025: Generalize only after real adapters prove the pattern
 
-**Decision:** Keep an edge case inside one adapter until multiple adapters demonstrate a stable universal concept.
+**Decision:** Keep one game's edge cases inside its adapter until multiple adapters demonstrate a stable universal concept.
 
 **Reason:** One unusual game must not expand the Core product model.
 
@@ -166,99 +166,103 @@ A decision may be replaced deliberately, but implementation convenience must not
 
 **Decision:** Use Factorio and Palworld to prove the generic lifecycle against materially different save and hosting behavior before expanding breadth.
 
-**Reason:** Both already provide valuable real-world evidence for discovery, preparation, launch, process observation, state capture, restore, and canonical commit.
-
-## D-027: The next decisive milestone is a two-device handoff
+## D-027: The next decisive implementation proof is a two-device handoff
 
 **Decision:** Prioritize shared durable state storage and distributed one-writer coordination sufficient for PC A -> PC B -> PC A continuation.
 
-**Required proof:**
-
 ```text
-PC A commits state N+1
--> PC B retrieves and continues N+1
+PC A commits N+1
+-> PC B retrieves/continues N+1
 -> PC B commits N+2
 -> PC A retrieves N+2
 ```
 
-A competing writable start must be rejected while one session is active.
+A competing writable start must be rejected while one session is Active or Uncertain.
 
 ## D-028: Commercial quality does not justify uncontrolled scope
 
-**Decision:** Reliability, recovery, testability, maintainability, and stable boundaries are mandatory. Unnecessary platform, social, governance, and speculative features remain out of scope.
+**Decision:** Reliability, recovery, testability, maintainability, and stable boundaries are mandatory. Unnecessary platform/social/governance/speculative features remain out of scope.
 
-**Reason:** Steward is moving beyond prototype validation, but the smallest dependable product is still the target.
+**Reason:** Steward is moving beyond prototype validation, but the smallest dependable product remains the target.
 
 ## D-029: Active documentation must be consistent
 
-**Decision:** When a product direction is abandoned, remove it from active architecture, lifecycle, domain, decision, and roadmap documents.
+**Decision:** When a product direction is abandoned or superseded, active architecture, lifecycle, domain, decision, roadmap, sign-off, and cross-workstream documents are reconciled.
 
 **Reason:** A commercial codebase cannot rely on readers guessing which contradictory document is current.
 
 ## D-030 / BE-D004: Versioned HTTPS/JSON API with direct package transfer
 
-**Decision:** Steward uses a versioned HTTPS request/response API with JSON for
-authentication, metadata, World access, reservations, recovery, and commit
-operations. Transactional operations may use explicit command endpoints rather
-than artificial CRUD. Large World and environment packages transfer directly
-between authorized clients and private object storage through scoped,
-resumable transfer targets rather than through JSON or normally through the API
-service.
+**Decision:** Steward uses a versioned HTTPS request/response API with JSON for authentication, metadata, World access, reservations, recovery, and commit operations. Large World/environment packages transfer directly between authorized clients and private object storage through scoped resumable transfer targets rather than through JSON or normally through the API service.
 
-Retryable mutations use idempotency semantics. WebSockets, gRPC, and custom
-binary protocols are not first-release dependencies.
-
-**Reason:** Small control-plane operations benefit from a boring, inspectable
-contract, while large opaque packages should not consume API-service memory or
-bandwidth. Correctness remains concentrated in authorization, idempotency,
-reservation generation, and atomic current-head advancement.
-
-**Consequence:** The desktop communicates with the Steward API over HTTPS/JSON,
-and performs large transfers only through short-lived, authorized object-store
-targets. Provider details remain behind infrastructure adapters.
+Retryable mutations use idempotency semantics. WebSockets, gRPC, and custom binary protocols are not first-release dependencies.
 
 ## D-031 / BE-D014: First-release security baseline
 
-**Decision:** The first release uses server-verified Steam identity, TLS for
-control and transfer traffic, private encrypted object storage and backups,
-per-resource authorization, short-lived scoped transfer targets, idempotency and
-reservation-generation checks, bounded payload/rate/timeout/retry controls,
-redacted diagnostics, audit events, secret isolation, and tested backup/restore.
-Steward uses established cryptographic primitives and provider security features
-instead of creating custom cryptography.
+**Decision:** First release uses server-verified Steam identity, TLS for control/transfer traffic, private encrypted object storage/backups, per-resource authorization, short-lived scoped transfer targets, idempotency/generation checks, bounded payload/rate/timeout/retry controls, redacted diagnostics, audit events, secret isolation, and tested backup/restore.
 
-**Reason:** The backend handles private World state and identity, so the safety
-baseline must be explicit without expanding the product into a cryptography
-platform.
+Steward uses established cryptographic primitives/provider security features rather than creating custom cryptography.
 
 ## D-032 / BE-D015: One authoritative EU backend deployment
 
-**Decision:** The first release uses one authoritative Steward backend deployment
-in the EU. Transactional metadata, primary object storage, identity/access
-metadata, reservation state, and canonical World coordination remain inside the
-documented EU residency boundary. Encrypted disaster-recovery backups may use
-another suitable EU location.
+**Decision:** First release uses one authoritative Steward backend deployment in the EU. Transactional metadata, primary object storage, identity/access metadata, reservation state, and canonical World coordination remain inside the documented EU residency boundary. Encrypted disaster-recovery backups may use another suitable EU location.
 
-Multiple service instances and availability zones may support that deployment,
-but active-active multi-region World authority and cross-region reservation
-consensus are deferred. Immutable package delivery may later use replicas,
-caches, CDN delivery, or peer-assisted transfer without moving canonical
-revision or reservation authority.
-
-**Reason:** One authoritative transaction source keeps current-head and
-reservation-generation decisions unambiguous while the product gathers real
-latency, package-size, and cost evidence.
+Active-active multi-region World authority is deferred. Immutable package delivery may later use replicas/cache/CDN/peer assistance without moving canonical authority.
 
 ## D-033 / AR-0: Runtime and adapter contract approved
 
-**Decision:** The first-release runtime uses one user-session desktop/tray
-process, one active writable managed session per device, runtime-owned generic
-orchestration, adapter-owned game evidence and safe capture, conservative
-pre/post-launch cancellation, capability-driven Stop and Save/Join behavior,
-preserved recovery evidence, and the approved Factorio/Palworld validation
-boundaries recorded in `AR0_SIGNOFF_CHECKLIST.md`.
+**Decision:** First-release runtime uses one user-session desktop/tray process, one active writable managed session per device, runtime-owned generic orchestration, adapter-owned game evidence/safe capture, conservative cancellation, capability-driven Stop and Save/Join behavior, preserved recovery evidence, and the Factorio/Palworld validation boundaries recorded in `AR0_SIGNOFF_CHECKLIST.md`.
 
-**Consequence:** Runtime implementation remains blocked by the master planning
-lock, but future AR-1 work has an approved contract and must validate the
-documented evidence requirements without adding game-name branches to Core or
-UI.
+## D-034 / BE-D001: Hybrid backend owns only missing shared authority
+
+**Decision:** Steam remains platform/identity infrastructure while one small Steward backend owns shared World metadata, membership, canonical heads, reservation generations, and commit/recovery authority. Object storage stores immutable bytes only.
+
+## D-035 / BE-D002: Steam ticket verification bootstraps Steward authentication
+
+**Decision:** The desktop obtains a Steam authentication ticket; the backend verifies it directly and derives SteamID64. Short-lived Steward credentials handle normal API calls. Client-supplied SteamID alone is never trusted.
+
+## D-036 / BE-D003: Flat shared membership plus one Access Manager
+
+**Decision:** Accepted World members have equal World usage rights. Exactly one Access Manager manages membership only. World-access invitations are distinct from multiplayer-session invitations. Revocation of an active writer remains pending until responsibility resolves safely.
+
+## D-037 / BE-D005: Reservation timeouts create uncertainty, not availability
+
+**Decision:** Initial defaults are approximately 30-second heartbeat, ~2-minute `Active -> Uncertain`, and ~15-minute deliberate reclaim grace. Uncertain never auto-releases. Reclaim atomically invalidates the old generation before another writer may start.
+
+## D-038 / BE-D006: Last-safe continuation resolves authority before abandonment
+
+**Decision:** `Continue from last safe state` may abandon a candidate as canonical work only after reservation/generation/head authority is deliberately resolved. The candidate is preserved under retention policy rather than deleted by the authority transaction.
+
+## D-039 / BE-D007: First backend implementation is provider-neutral
+
+**Decision:** BE-1 is deterministic/in-memory and proves contracts without Steam HTTP hosting, cloud SDKs, or production provider assumptions. Named DB/object-storage vendors are chosen later from measured evidence while preserving PostgreSQL-compatible/S3-compatible or equivalent required semantics.
+
+## D-040 / BE-D008: Active gameplay may continue through backend outage
+
+**Decision:** A valid already-running shared session may continue locally when backend connectivity is lost. Remote authority becomes Uncertain rather than Available. Session end captures a durable local candidate and enters `Waiting to sync`; reconnect must revalidate auth, generation, and expected head before commit. Invalidated/stale authority becomes `Recovery needed`.
+
+## D-041 / BE-D009: Unresolved gameplay candidates are not time-deleted
+
+**Decision:** Unresolved local candidates have no automatic time-based deletion. Explicitly abandoned local candidates use ~7-day recovery grace; verified uncommitted remote candidates use ~7-day retention while not actively pinned; incomplete transfers use ~24-hour cleanup. Disk pressure becomes `Action required` rather than silent loss.
+
+## D-042 / BE-D010: Retain three canonical states plus pinned dependencies
+
+**Decision:** Shared Worlds normally retain current canonical state + previous two committed states. Older state/environment revisions remain pinned while active transactions or unresolved recovery require them. Retained revisions are recovery assets, not user-facing branches/history.
+
+## D-043 / BE-D011: State and environment share one immutable transfer pipeline
+
+**Decision:** State/environment remain logically distinct revision references but use the same immutable authorized transfer/verification infrastructure. Adapters determine environment semantics. Prefer native/Steam/Workshop reproducible references over duplicating third-party content where reliable.
+
+## D-044 / BE-D012: Package transfer is bounded before publication
+
+**Decision:** Initial hard ceiling is 20 GiB per immutable State or Steward-hosted Environment package; adapters may set smaller limits. Large transfers use resumable/multipart behavior with ~64 MiB initial part target where appropriate. Expected size/hash must verify before publication eligibility; local disk preflight occurs before large materialization.
+
+## D-045 / BE-D013: API outcomes are deterministic and idempotent
+
+**Decision:** Expected transaction results use stable machine-readable operation-specific outcomes; clients never parse human-readable prose. Actual API failures use structured HTTP/Problem Details-style responses. Important mutations are idempotent, ambiguous network outcomes are resolved by retry/status lookup, and authentication credential expiry never automatically releases a World session generation.
+
+## Planning decision status
+
+UI-0, BE-0, AR-0, cross-workstream reconciliation, and the first-release acceptance plan are complete.
+
+The master planning lock remains active until the product owner explicitly approves the transition from planning to implementation.

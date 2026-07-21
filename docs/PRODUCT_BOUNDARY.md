@@ -163,8 +163,10 @@ Groups can organize themselves. Steward's responsibility is to keep the selected
 
 ## Product test
 
-Every proposed feature must pass this question:
+Every proposed feature must pass both questions:
 
-> **Does this directly help a group continue the same World state safely across different Steam players, devices, hosts, games, or times?**
+> **Does this directly help a group continue the same World state safely across different Steam players, devices, hosts, or times?**
 
-If not, it should be removed, deferred, or left to Steam, the game, or another existing platform.
+> **Or does it help another game's adapter complete that same lifecycle without expanding Core unnecessarily?**
+
+If neither answer is yes, the feature should be removed, deferred, or left to Steam, the game, or another existing platform.

@@ -91,7 +91,7 @@ public sealed class SteamWebApiTicketVerifier
 
         var requestUri = BuildRequestUri(ticketHex);
         using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        using HttpResponseMessage response;
+        HttpResponseMessage response;
         try
         {
             response = await _httpClient.SendAsync(

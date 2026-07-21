@@ -62,11 +62,18 @@ public partial class MainWindow
 
         if (!Dispatcher.CheckAccess())
         {
-            _ = Dispatcher.BeginInvoke(new Action(UpdateTrayStatus));
+            _ = Dispatcher.BeginInvoke(new Action(RefreshRuntimePresentation));
             return;
         }
 
+        RefreshRuntimePresentation();
+    }
+
+    private void RefreshRuntimePresentation()
+    {
         UpdateTrayStatus();
+        UpdateUnifiedActionState();
+        UpdateResponsibilityPresentation();
     }
 
     private void UpdateTrayStatus()

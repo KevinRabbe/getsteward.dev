@@ -2,139 +2,145 @@
 
 ## Why prepared workspaces exist
 
-Canonical World state is restored into an adapter-owned prepared workspace before a game session starts. The game operates on that isolated working state rather than directly mutating the immutable canonical revision package.
+Canonical World state is restored into an adapter-owned prepared workspace before a game session starts. The game operates on that working state rather than directly mutating an immutable stored revision.
 
-That workspace can contain the newest recoverable local state after a crash or failed canonical commit. It therefore cannot be treated as ordinary temporary-directory garbage.
+After gameplay begins, the workspace may contain the newest recoverable state after a crash, failed capture, failed upload, or failed commit. It is therefore not ordinary temporary-directory garbage.
 
 ## Durable recovery registry
 
-Before a canonical host session is launched, Core writes a durable `WorkspaceRecoveryRecord` through `IWorkspaceRecoveryStore`.
+Before a writable local or hosted session launches, Core writes a durable `WorkspaceRecoveryRecord` through `IWorkspaceRecoveryStore`.
 
-A record contains:
+A record contains the operational information required to recover safely:
 
-- workspace id
-- World id
-- base canonical state revision
-- adapter id
-- working-directory location
-- user who started the session
-- creation/update timestamps
-- recovery status
-- optional failure reason
+- workspace id;
+- World id;
+- starting state revision;
+- adapter id;
+- workspace location or adapter-owned locator;
+- session/device identity where available;
+- creation and update timestamps;
+- recovery status;
+- optional failure reason.
 
-The current local implementation stores these records under the product data root in `recovery/` using the same versioned persisted-document envelope as other JSON metadata.
+The registry is persisted independently of the running application so a hard process or OS crash can be detected later.
 
 ## Status model
 
 ### `Active`
 
-The workspace has been prepared and registered for a session that has not completed its lifecycle yet.
+The workspace was prepared and registered for a session whose lifecycle has not completed.
 
-If the application starts and finds an `Active` record left by a previous process, it must be treated conservatively as a possible interrupted session. A hard process kill or OS crash cannot execute `finally` blocks, so the durable record is the evidence that the workspace may contain recoverable state.
+An `Active` record found after application restart is treated conservatively as a possible interrupted session. It is evidence, not proof, that newer recoverable state exists.
 
 ### `RecoveryPending`
 
-The game session started, but a new canonical revision was not successfully committed.
+Gameplay started, but the updated state was not successfully committed.
 
 Examples:
 
-- state capture failed
-- revision storage failed
-- canonical-head update failed
-- session observation failed after launch
+- session observation failed after launch;
+- safe capture failed;
+- package validation failed;
+- durable storage or upload failed;
+- stored-result verification failed;
+- current-head advancement failed.
 
-The adapter receives `PreparedWorldDisposition.PreserveForRecovery`. The workspace must remain intact until an explicit recovery/discard workflow resolves it.
+The adapter receives `PreparedWorldDisposition.PreserveForRecovery`. The workspace remains intact until an explicit recovery decision resolves it.
 
 ### `CleanupPending`
 
-The workspace no longer needs to become canonical, but cleanup could not be completed safely.
+The workspace is no longer needed for state recovery, but controlled cleanup could not complete.
 
 Examples:
 
-- a successful commit was completed but adapter workspace deletion failed
-- a pre-launch failure occurred and the unused workspace could not be discarded
+- commit succeeded but workspace deletion failed;
+- preparation failed before launch and unused workspace cleanup failed.
 
-This is cleanup debt, not an alternative canonical history.
+This is cleanup debt, not a second World history.
 
 ## Successful session flow
 
 ```text
-prepare canonical state
+prepare latest World state
 -> persist Active recovery record
--> launch game
--> session ends
--> capture state
--> store immutable StateRevision
--> update canonical World head
--> adapter finalizes workspace as Discard
+-> launch game or temporary host
+-> adapter observes safe session end
+-> capture and validate state
+-> durably store and verify new revision
+-> advance current World head
+-> adapter discards controlled workspace
 -> remove recovery record
 ```
 
-The canonical head advances before cleanup. A cleanup failure must not roll back a successfully committed World revision.
+The current head advances before cleanup. Cleanup failure must not roll back a successfully committed state.
 
 ## Failure before launch
 
-If preparation completed but launch never started:
+When preparation completed but gameplay never started:
 
 ```text
 prepared workspace
--> failure before session start
--> adapter finalizes as Discard
+-> pre-launch failure
+-> discard controlled temporary resources
 -> remove recovery record
 ```
 
-If discard fails, the record becomes `CleanupPending`.
+When safe discard fails, mark `CleanupPending`.
 
-No gameplay occurred, so the workspace is not considered a new recoverable gameplay state.
+Because no gameplay occurred, the workspace is not treated as a newer gameplay candidate.
 
 ## Failure after launch
 
-If the session started but canonical commit did not complete:
+When gameplay started but the handoff did not complete:
 
 ```text
 Active
 -> failure
 -> RecoveryPending
--> adapter finalizes as PreserveForRecovery
+-> preserve workspace
 ```
 
-The previous canonical revision remains the canonical head. The local workspace is preserved separately as a recovery candidate.
+The previous valid World state remains authoritative. The workspace stays separate as a recovery candidate.
 
 ## Hard crash semantics
 
-A hard crash may occur without any cleanup code running.
+A hard crash may bypass every `finally` block.
 
-Because the `Active` record is persisted before launch, startup can detect that the previous lifecycle did not complete normally. `Active` records found after process restart should be surfaced by the future recovery UI alongside explicit `RecoveryPending` records.
-
-The development CLI exposes the current registry with:
-
-```text
-recovery
-```
+Persisting `Active` before launch allows the next Steward startup to detect that the previous lifecycle may have been interrupted. The desktop should surface the affected World as `Recovery needed` instead of silently releasing it as fully safe.
 
 ## Adapter responsibility
 
-`IGameAdapter.FinalizePreparedWorldAsync` receives one of two dispositions:
+`IGameAdapter.FinalizePreparedWorldAsync` receives a controlled disposition:
 
-- `Discard`: remove adapter-owned prepared resources where safe.
+- `Discard`: remove adapter-owned prepared resources where safe;
 - `PreserveForRecovery`: retain potentially recoverable state.
 
-Adapters must never recursively delete arbitrary user-provided paths. They must verify ownership of a workspace before destructive cleanup.
+Adapters must:
 
-The current Factorio adapter only recursively deletes directories matching the workspace shape it creates under the SharedWorlds Factorio work root.
+- validate workspace ownership before recursive deletion;
+- never delete arbitrary user-provided paths;
+- clean partial resources they created when preparation fails before returning a `PreparedWorld`;
+- preserve post-launch state when completion is uncertain.
 
-If `PrepareEnvironmentAsync` fails before returning a `PreparedWorld`, the adapter is responsible for cleaning any partial resources it created during that failed preparation because Core never received a handle with which to finalize them.
+## Recovery decision
 
-## Recovery is not automatic canonical overwrite
+A preserved workspace never automatically replaces the current World state.
 
-A preserved workspace never automatically replaces canonical World state.
+Recovery may perform only explicit safe actions such as:
 
-Recovery must be an explicit future operation that can:
+1. inspect the candidate through the owning adapter;
+2. validate that required World contents are complete;
+3. compare the candidate's starting revision with the current World head;
+4. retry capture and durable commit when the expected head still matches;
+5. deliberately choose the validated candidate as the continuing complete state when policy allows;
+6. discard the candidate after explicit confirmation when it is no longer needed.
 
-1. inspect the candidate
-2. validate it with the owning adapter
-3. compare it with the current canonical revision
-4. let the user choose recovery, fork, export, or discard where ambiguity exists
-5. create a new immutable revision before changing the canonical head
+Steward does not merge the recovery candidate with another independently advanced save. When the current World has already advanced elsewhere, the candidate remains separate evidence until the user chooses one complete state or discards it.
 
-This keeps recovery evidence separate from canonical history until the system has enough confidence to commit it safely.
+## Recovery invariants
+
+- The last committed state remains authoritative until a replacement commit succeeds.
+- Recovery evidence is never deleted merely to release a stuck session.
+- A stale candidate must not overwrite a newer current state silently.
+- Recovery does not create Fork, branch, or merge workflows.
+- Cleanup and state authority remain separate concerns.

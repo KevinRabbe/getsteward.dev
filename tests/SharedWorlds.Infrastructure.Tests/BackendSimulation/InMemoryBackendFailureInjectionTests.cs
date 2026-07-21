@@ -25,8 +25,7 @@ public sealed class InMemoryBackendFailureInjectionTests
 
         Assert.Contains(
             SimulatedBackendFailurePoint.BeforeCommitTransaction.ToString(),
-            exception.Message,
-            StringComparison.Ordinal);
+            exception.Message);
         Assert.Equal("S0", fixture.Simulation.Authority.GetWorld("world-1", "steam-a")?.CurrentStateRevisionId);
         Assert.Null(fixture.Simulation.GetCommitCandidateOperationResult("steam-a", "commit-1"));
         Assert.NotNull(fixture.Simulation.Authority.DownloadRevision("world-1", "steam-a", "S1"));
@@ -62,8 +61,7 @@ public sealed class InMemoryBackendFailureInjectionTests
 
         Assert.Contains(
             SimulatedBackendFailurePoint.AfterDurableCommitBeforeResponse.ToString(),
-            exception.Message,
-            StringComparison.Ordinal);
+            exception.Message);
         Assert.Equal("S1", fixture.Simulation.Authority.GetWorld("world-1", "steam-a")?.CurrentStateRevisionId);
         Assert.Equal(CommitCandidateStatus.Committed, recorded.Status);
         Assert.Equal(IdempotencyExecutionStatus.Replayed, retry.Status);

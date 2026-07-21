@@ -6,6 +6,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/SharedWorlds.Backend.PostgreSql/SharedWorlds.Backend.PostgreSql.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Npgsql" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio">
       <PrivateAssets>all</PrivateAssets>

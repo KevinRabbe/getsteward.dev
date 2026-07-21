@@ -1,205 +1,196 @@
 # Design Decisions
 
-This file records durable architectural decisions so future implementation work does not accidentally reverse them.
+This file records active durable decisions. Obsolete exploratory directions are removed rather than kept as competing product plans.
+
+A decision may be replaced deliberately, but implementation convenience must not silently reverse it.
 
 ## D-001: The World is the product
 
-**Decision:** The user-facing object is a World, not a save file, server, install folder, or modpack.
+**Decision:** Users select a World, not a save file, server folder, mod profile, revision package, or host machine.
 
-**Reason:** Users want to continue a shared playable reality. Save files, mods, versions, hosts, and launchers are implementation details required to reproduce that reality.
+**Reason:** Those are implementation details required to reproduce and continue the playable reality.
 
-## D-002: Core must not know game-specific behavior
+## D-002: Steam is the platform; games are adapters
 
-**Decision:** No game-specific branches in Core.
+**Decision:** Steam is the primary commercial product platform. Game-specific behavior remains behind independently compiled adapters.
 
-**Reason:** Adding support for one strange game must not make the universal product model more complex.
+**Reason:** Steam already provides identity, distribution, game ownership, launching, friends, invitations, Workshop content, and dedicated-server tooling. Steward should reuse those facilities without contaminating Core with game-specific Steam behavior.
 
-**Consequence:** All game-specific discovery, save handling, environment logic, launch behavior, and session observation belong behind `IGameAdapter`.
+## D-003: Core contains no game-specific branches
 
-## D-003: Steam is infrastructure, not a game requirement
+**Decision:** Core must never branch on Factorio, Palworld, or another game identity.
 
-**Decision:** Supported games do not need to be Steam games.
+**Consequence:** Discovery, environment preparation, restore, launch, session observation, safe shutdown, capture, and validation belong to the adapter.
 
-**Reason:** The application may use Steam for some platform services while adapters support games installed or managed elsewhere.
+## D-004: The product completes a full World handoff
 
-**Consequence:** There is no mandatory `SteamAppId` in `IGameAdapter` or `World`.
+**Decision:** Launching the game is not completion.
 
-## D-004: External ecosystems remain adapter details
+**Required flow:** latest state -> reserve -> prepare -> restore -> launch -> observe -> capture -> store -> verify -> commit -> available to next player.
 
-**Decision:** CurseForge, Modrinth, Prism, Steam Workshop, custom launchers, and similar systems are not Core concepts.
+**Reason:** Continuity between different players, devices, and times is the product value.
 
-**Reason:** The Core should not care where a game or mod came from.
+## D-005: One shared World state has one active writer
 
-## D-005: Environment and state are versioned separately
+**Decision:** A Steward-managed World has one current valid state and at most one active writable Steward session.
 
-**Decision:** A World references an environment revision and a state revision independently.
+**Reason:** Generic merging of independently changed game saves is unsafe or impossible.
 
-**Reason:** Most play sessions change the save state without changing the game/mod environment.
+**Consequence:** Other players join the active host through Steam or the game, or wait for the World to become available.
 
-**Example:** `E7 + S143 -> E7 + S144`.
+## D-006: The current state advances last
 
-## D-006: The manifest is authoritative; the fingerprint is disposable
+**Decision:** The World head changes only after the new state is completely captured, durably stored, verified, and committed.
 
-**Decision:** `EnvironmentManifest` is the source of truth. `EnvironmentFingerprint` is only a comparison/cache aid.
+**Reason:** A failed capture or upload must leave the last known-good World intact.
 
-**Reason:** A small canonical manifest can be compared cheaply without pretending that the entire game installation has been deeply verified.
+## D-007: Published revisions are immutable
 
-## D-007: Do not routinely hash whole game installations
+**Decision:** Environment and state revisions may not be overwritten after publication. Only the World head is mutable.
 
-**Decision:** Full-install hashing is not part of the normal hot path.
+**Reason:** Integrity, recovery, compatibility, diagnostics, and safe commit ordering require stable revision identities.
 
-**Reason:** Hashing tens of gigabytes repeatedly is expensive and unnecessary for ordinary environment comparison.
+## D-008: Environment and state are versioned separately
 
-**Allowed uses:** explicit Verify/Repair, corruption investigation, first-download integrity, or targeted validation where justified.
+**Decision:** A World references one environment revision and one state revision.
 
-## D-008: One canonical host at a time
+**Example:** `E7 + S143 -> E7 + S144` for normal play.
 
-**Decision:** Only one active canonical host may advance the shared canonical World.
+**Reason:** Most sessions change the save without changing the required game/mod environment.
 
-**Reason:** Generic automatic merging of arbitrary game saves is unsafe or impossible.
+## D-009: The manifest is authoritative
 
-**Consequence:** Other members join the host, request handoff, create a Sandbox, or Fork.
+**Decision:** `EnvironmentManifest` is the source of truth. A fingerprint is only a disposable comparison/cache aid.
 
-## D-009: Nobody permanently owns the host
+**Reason:** A small canonical manifest can be compared cheaply without pretending every installation file was deeply verified.
 
-**Decision:** Host ownership belongs to the active session, not permanently to a player.
+## D-010: Do not routinely hash complete game installations
 
-**Reason:** The group owns the World.
+**Decision:** Full-install hashing is not part of the normal path.
 
-## D-010: Host handoff is a controlled restart
+**Allowed uses:** explicit verification or repair, corruption investigation, first-download integrity, or targeted adapter validation.
 
-**Decision:** Do not attempt live game-process migration.
+## D-011: Session observation is adapter-owned
 
-**Flow:** save -> close -> capture -> commit -> restore on new host -> launch -> join.
+**Decision:** `WaitForSessionEndAsync` and equivalent safe-capture decisions belong to the adapter.
 
-**Reason:** This achieves the desired user experience with far less complexity and fewer failure modes.
+**Reason:** Launchers may replace processes, clients may close while dedicated servers continue, and games have different save-completion semantics.
 
-## D-011: Temporary connectivity loss does not end a session
+## D-012: Adapters own state shape
 
-**Decision:** Losing Discord, P2P connectivity, or another transient channel must not automatically free the canonical host role.
+**Decision:** Adapters capture and restore opaque game state packages.
 
-**Reason:** The game/session lifecycle is a better authority for state ownership than incidental network connectivity.
+**Reason:** A World may be a ZIP, directory tree, database, multiple files, or launcher-managed structure. Core must not assume one universal format.
 
-## D-012: Adapters own import capture
+## D-013: Temporary package ownership is explicit
 
-**Decision:** `CaptureDetectedWorldAsync` belongs to `IGameAdapter`.
+**Decision:** Core deletes a captured package only when the adapter explicitly marks it disposable.
 
-**Reason:** A game's save may be one ZIP, a directory tree, multiple files, a database, or launcher-managed state. The Core must not assume a universal file shape.
+**Reason:** A path may point to a temporary copy, cache, workspace, or user-owned data. Cleanup authority must not be guessed.
 
-## D-013: Adapters own session-end observation
+## D-014: Prepared workspaces become recovery assets after launch
 
-**Decision:** `WaitForSessionEndAsync` belongs to `IGameAdapter`.
+**Decision:** Prepared workspaces are registered before launch and preserved after uncertain post-launch failure.
 
-**Reason:** Some launchers spawn, replace, or hand off processes. A generic Core `Process.WaitForExit` would encode a false universal assumption.
+**Reason:** They may contain the newest recoverable gameplay state even when canonical commit did not complete.
 
-## D-014: Storage and live coordination are separate concerns
+## D-015: Failure handling is conservative
 
-**Decision:** `IWorldStorage` and `IWorldSessionCoordinator` are separate boundaries.
+**Decision:** Stable boundaries classify failures; unknown failures stop the current operation rather than being swallowed.
 
-**Reason:** Durable revision storage and transient host/session state have different lifecycles and may use different infrastructure.
+**Reason:** Continuing after an unknown state-handling failure is more dangerous than entering recovery.
 
-**Example:** Steam Workshop/UGC could potentially back durable storage while Steam lobbies coordinate a live session.
+## D-016: Storage and session coordination are separate
 
-## D-015: Start local before shared networking
+**Decision:** `IWorldStorage` stores durable state. `IWorldSessionCoordinator` protects transient one-writer session state.
 
-**Decision:** Prove the complete local World lifecycle before adding remote storage and host coordination.
+**Reason:** Their lifecycles, failure modes, and possible Steam implementations differ.
 
-**Reason:** Networking should not hide errors in import, environment preparation, state capture, or revision logic.
+## D-017: Host switching is a controlled restart between sessions
 
-## D-016: Build a narrow version of the final architecture
+**Decision:** Another device may host only after the previous session safely captured and committed its result.
 
-**Decision:** Avoid disposable prototype architecture.
+**Flow:** stop -> capture -> commit -> restore on another device -> launch.
 
-**Reason:** The first implementation should be small, but its boundaries should survive later growth.
+**Reason:** Live process migration is unnecessary and unreliable.
 
-## D-017: Initial adapters are Factorio, 7 Days to Die, and Project Zomboid
+## D-018: No universal save merging
 
-**Decision:** Use three games that stress different adapter problems.
+**Decision:** Steward does not merge independently modified arbitrary game saves.
 
-**Purpose:**
+**Reason:** Saves may contain binary serialization, object references, checksums, databases, duplicated resource use, and semantic conflicts with no universal correct resolution.
 
-- Factorio: relatively clean first vertical slice and strong native mod synchronization behavior.
-- 7 Days to Die: environment isolation and heavily modded setups.
-- Project Zomboid: Workshop-heavy mod environment.
+**Exception:** An adapter may expose a validated game-native transfer operation, but that remains game-specific and is not generic World merging.
 
-The first implementation focus remains Factorio until one complete lifecycle works end to end.
+## D-019: No Git-style World product model
 
-## D-018: Keep the product name replaceable
+**Decision:** Forks, branches, merge requests, rebasing, and conflict-resolution workflows are not active product concepts.
 
-**Decision:** Repository/product naming is temporary and must not become an architectural dependency.
+**Reason:** Steward coordinates gameplay continuity, not software-development history.
 
-**Reason:** The project can be renamed later without changing namespaces, domain semantics, or platform contracts all at once.
+## D-020: No ownership or governance platform
 
-## D-019: Each game adapter compiles independently
+**Decision:** Steward does not build complex World ownership, role, party, social graph, dispute-resolution, or public-discovery systems.
 
-**Decision:** Each supported game has its own adapter project/assembly rather than sharing one monolithic game-adapter assembly.
+**Reason:** Groups organize themselves. Steward needs only the minimum identity/access information required to distribute and advance the shared state safely.
 
-**Reason:** Game-specific dependencies, platform SDKs, parsing libraries, and failure surfaces should remain isolated. Adding a dependency for one game must not become a dependency of every adapter.
+## D-021: External copies are outside Steward's authority
 
-## D-020: Canonical host ownership is enforced through the coordination port
+**Decision:** Steward does not promise physical uniqueness, DRM, or deletion of every copy after state reaches another device.
 
-**Decision:** Canonical play must acquire host ownership through `IWorldSessionCoordinator` before a session can advance the World.
+**Reason:** The product only needs an agreed current state inside the Steward workflow.
 
-**Reason:** A one-host rule that exists only in UI logic or documentation is not an invariant. The current local coordinator enforces the rule in-process; a future distributed coordinator can replace it without changing lifecycle semantics.
+## D-022: Shared does not mean public
 
-## D-021: State revision metadata is readable independently of payload bytes
+**Decision:** `Shared` means eligible for cross-device state handoff and coordination. It does not imply a public listing or social community.
 
-**Decision:** `IWorldStorage` exposes state revision metadata separately from opening the opaque state payload.
+## D-023: Background-first is not passive
 
-**Reason:** Core must be able to validate adapter identity, lineage, and future history/restore metadata without interpreting or downloading the entire game-specific payload first.
+**Decision:** Steward should remain mostly out of the user's way while actively observing the session and completing capture, storage, verification, commit, and recovery.
 
-## D-022: Temporary captured-package ownership is explicit
+**Reason:** Users should spend time in the game, but the background lifecycle is essential product work.
 
-**Decision:** An adapter explicitly marks whether a captured package may be deleted by Core after durable storage.
+## D-024: Use existing infrastructure before building new infrastructure
 
-**Reason:** Core must not guess whether an adapter-returned path is a temporary copy, a cache entry, or user-owned data. Cleanup authority must be part of the contract.
+**Decision:** Prefer Steam, game-native multiplayer, dedicated servers, Workshop, launchers, mod managers, and native export/import functions where they solve the problem.
 
-## D-023: Published revisions are immutable
+**Reason:** Steward should coordinate legitimate endpoints rather than recreate them.
 
-**Decision:** Environment and state revision IDs may not be overwritten after publication. Only World head metadata is mutable.
+## D-025: Generalize only after real adapters prove the pattern
 
-**Reason:** Restore, Fork, recovery, history, and debugging all require revision identifiers to continue referring to the same historical content.
+**Decision:** Keep an edge case inside one adapter until multiple adapters demonstrate a stable universal concept.
 
-**Consequence:** The local backend rejects duplicate revision IDs. State metadata and payload are staged together and published only after both writes complete.
+**Reason:** One unusual game must not expand the Core product model.
 
-## D-024: Canonical heads advance last
+## D-026: Factorio and Palworld are the current validation set
 
-**Decision:** A World's current revision pointer is updated only after the new immutable revision is durably stored.
+**Decision:** Use Factorio and Palworld to prove the generic lifecycle against materially different save and hosting behavior before expanding breadth.
 
-**Reason:** A failed capture or storage write must leave the last known-good canonical World intact. An orphaned immutable revision is safer than a canonical head pointing at incomplete data.
+**Reason:** Both already provide valuable real-world evidence for discovery, preparation, launch, process observation, state capture, restore, and canonical commit.
 
-## D-025: Product failures use typed exceptions at stable boundaries
+## D-027: The next decisive milestone is a two-device handoff
 
-**Decision:** Expected product failure categories such as missing Worlds, missing revisions, adapter mismatches, integrity problems, and session conflicts use dedicated exception types.
+**Decision:** Prioritize shared durable state storage and distributed one-writer coordination sufficient for PC A -> PC B -> PC A continuation.
 
-**Reason:** A future desktop UI must be able to map failure categories to recovery actions without parsing human-readable exception strings.
+**Required proof:**
 
-## D-026: Architecture boundaries are tested automatically
+```text
+PC A commits state N+1
+-> PC B retrieves and continues N+1
+-> PC B commits N+2
+-> PC A retrieves N+2
+```
 
-**Decision:** The test suite parses project references and enforces the intended dependency direction.
+A competing writable start must be rejected while one session is active.
 
-**Reason:** Documentation alone cannot prevent a future shortcut from making Core depend on Infrastructure or one adapter depend on another. CI should reject boundary violations automatically.
+## D-028: Commercial quality does not justify uncontrolled scope
 
-## D-027: Persisted JSON uses explicit outer schema envelopes
+**Decision:** Reliability, recovery, testability, maintainability, and stable boundaries are mandatory. Unnecessary platform, social, governance, and speculative features remain out of scope.
 
-**Decision:** Durable JSON documents are wrapped in an envelope containing a stable document type, outer schema version, and payload.
+**Reason:** Steward is moving beyond prototype validation, but the smallest dependable product is still the target.
 
-**Reason:** Domain objects will evolve. The persistence layer must distinguish known historical formats from unknown future formats instead of relying on best-effort deserialization.
+## D-029: Active documentation must be consistent
 
-**Consequence:** The initial unwrapped format is schema 0 with an explicit migration into schema 1. Unsupported versions fail with `PersistedDataCompatibilityException` and are never silently overwritten.
+**Decision:** When a product direction is abandoned, remove it from active architecture, lifecycle, domain, decision, and roadmap documents.
 
-## D-028: Prepared workspaces are durable recovery assets after launch
-
-**Decision:** Prepared workspaces are registered durably before game launch and have explicit `Active`, `RecoveryPending`, and `CleanupPending` lifecycle states.
-
-**Reason:** A hard process or OS crash can bypass in-process cleanup. A workspace may contain the newest recoverable local gameplay state even when the canonical commit did not complete.
-
-**Consequence:** Successful commits discard the adapter-owned workspace and remove the recovery record. Pre-launch failures discard it. Post-launch failures preserve it for explicit recovery. An `Active` record left after restart is treated conservatively as an interrupted-session candidate.
-
-## D-029: Exception handling is conservative and boundary-owned
-
-**Decision:** Stable application boundaries catch and classify failures; Core and adapters do not broadly swallow exceptions to keep execution moving.
-
-**Reason:** SharedWorlds handles user-owned game state. Continuing after an unknown failure can be more dangerous than stopping. Typed product failures should be recoverable by callers, while unexpected defects should terminate the current operation and produce diagnostics.
-
-**Consequence:** The CLI maps typed product failures to recovery-oriented messages and stable exit codes, converts Ctrl+C into propagated cancellation, records diagnostics for operational or unexpected failures when possible, and never exposes raw stack traces as the normal user experience. Canonical state and workspace recovery rules remain authoritative during failure handling.
+**Reason:** A commercial codebase cannot rely on readers guessing which contradictory document is current.

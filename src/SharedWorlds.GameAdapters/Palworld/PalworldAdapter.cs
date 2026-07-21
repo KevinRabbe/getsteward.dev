@@ -9,8 +9,8 @@ public sealed class PalworldAdapter : IGameAdapter
     public string Id => "palworld";
     public string DisplayName => "Palworld";
 
-    // The detected-world -> dedicated-host bootstrap path and native state capture are validated
-    // incrementally, but the full portable prepare/restore lifecycle is not wired yet.
+    // The dedicated-host bootstrap, native state capture, and canonical restore path are now wired,
+    // but capabilities stay conservative until the full lifecycle is runtime-validated end to end.
     public GameAdapterCapabilities Capabilities => GameAdapterCapabilities.None;
 
     public Task<IReadOnlyList<GameInstallation>> DiscoverInstallationsAsync(
@@ -30,9 +30,9 @@ public sealed class PalworldAdapter : IGameAdapter
 
     /// <summary>
     /// Bootstraps a detected native Palworld world into the installed dedicated server using the
-    /// empirically validated mechanism: copy the native world directory, select it through
-    /// DedicatedServerName, then return a prepared world that can be passed to LaunchHostAsync.
-    /// Player identity migration is deliberately outside this path.
+    /// empirically validated mechanism: copy the native world directory, then return a prepared
+    /// world that can be passed to LaunchHostAsync. Player identity migration is deliberately
+    /// outside this path.
     /// </summary>
     public Task<PreparedWorld> PrepareDetectedWorldForHostingAsync(
         GameInstallation installation,
@@ -47,7 +47,11 @@ public sealed class PalworldAdapter : IGameAdapter
         GameInstallation installation,
         DetectedWorld world,
         CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    {
+        ArgumentNullException.ThrowIfNull(installation);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(PalworldDedicatedServerHosting.InspectEnvironment(world));
+    }
 
     public async Task<CapturedState> CaptureDetectedWorldAsync(
         GameInstallation installation,
@@ -63,7 +67,11 @@ public sealed class PalworldAdapter : IGameAdapter
         GameInstallation installation,
         EnvironmentManifest requiredEnvironment,
         CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(
+            PalworldDedicatedServerHosting.PrepareEnvironment(installation, requiredEnvironment));
+    }
 
     public async Task<CapturedState> CaptureStateAsync(
         PreparedWorld world,
@@ -77,7 +85,7 @@ public sealed class PalworldAdapter : IGameAdapter
         PreparedWorld world,
         StatePackage state,
         CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+        => PalworldWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
 
     public Task<GameSessionHandle> LaunchLocalAsync(
         PreparedWorld world,

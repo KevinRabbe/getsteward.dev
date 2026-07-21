@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>SharedWorlds.PalworldCanonicalCommitProbe</AssemblyName>
+    <RootNamespace>SharedWorlds.PalworldCanonicalCommitProbe</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/SharedWorlds.GameAdapters/Palworld/SharedWorlds.GameAdapters.Palworld.csproj" />
+    <ProjectReference Include="../../src/SharedWorlds.Infrastructure/SharedWorlds.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

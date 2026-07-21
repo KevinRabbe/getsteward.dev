@@ -14,8 +14,12 @@ public static class PostgreSqlBackendSchema
             access_manager_provider text NOT NULL,
             access_manager_external_id text NOT NULL,
             created_at timestamptz NOT NULL,
-            updated_at timestamptz NOT NULL
+            updated_at timestamptz NOT NULL,
+            reservation_generation bigint NOT NULL DEFAULT 0 CHECK (reservation_generation >= 0)
         );
+
+        ALTER TABLE steward_shared_worlds
+            ADD COLUMN IF NOT EXISTS reservation_generation bigint NOT NULL DEFAULT 0;
 
         CREATE TABLE IF NOT EXISTS steward_world_members (
             world_id uuid NOT NULL REFERENCES steward_shared_worlds(world_id) ON DELETE CASCADE,
@@ -108,6 +112,26 @@ public static class PostgreSqlBackendSchema
 
         CREATE INDEX IF NOT EXISTS ix_steward_package_transfers_expiry
             ON steward_package_transfers(state, expires_at);
+
+        CREATE TABLE IF NOT EXISTS steward_world_reservations (
+            world_id uuid PRIMARY KEY REFERENCES steward_shared_worlds(world_id) ON DELETE CASCADE,
+            session_id uuid NOT NULL UNIQUE,
+            generation bigint NOT NULL CHECK (generation > 0),
+            holder_provider text NOT NULL,
+            holder_external_id text NOT NULL,
+            installation_id text NOT NULL,
+            starting_state_revision_id uuid NOT NULL,
+            starting_environment_revision_id uuid NULL,
+            state smallint NOT NULL CHECK (state IN (0, 1)),
+            acquired_at timestamptz NOT NULL,
+            last_heartbeat_at timestamptz NOT NULL,
+            became_uncertain_at timestamptz NULL,
+            CHECK ((state = 0 AND became_uncertain_at IS NULL) OR
+                   (state = 1 AND became_uncertain_at IS NOT NULL))
+        );
+
+        CREATE INDEX IF NOT EXISTS ix_steward_world_reservations_holder
+            ON steward_world_reservations(holder_provider, holder_external_id);
 
         CREATE TABLE IF NOT EXISTS steward_auth_sessions (
             session_id uuid PRIMARY KEY,

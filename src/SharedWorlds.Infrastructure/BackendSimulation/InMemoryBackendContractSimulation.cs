@@ -144,9 +144,10 @@ public sealed partial class InMemoryBackendContractSimulation
             return new(StartTransferStatus.Unauthorized, null);
         }
 
+        var transferKey = TransferKey(callerIdentityId, transferId);
         lock (_gate)
         {
-            if (_transfers.TryGetValue(transferId, out var existing))
+            if (_transfers.TryGetValue(transferKey, out var existing))
             {
                 if (!existing.Matches(worldId, callerIdentityId, revisionId, expectedByteSize, expectedSha256))
                 {
@@ -163,7 +164,7 @@ public sealed partial class InMemoryBackendContractSimulation
                 revisionId,
                 expectedByteSize,
                 expectedSha256);
-            _transfers.Add(transferId, transfer);
+            _transfers.Add(transferKey, transfer);
             return new(StartTransferStatus.Started, ToSnapshot(transfer));
         }
     }
@@ -182,10 +183,10 @@ public sealed partial class InMemoryBackendContractSimulation
             return UploadTransferPartStatus.InvalidPart;
         }
 
+        var transferKey = TransferKey(callerIdentityId, transferId);
         lock (_gate)
         {
-            if (!_transfers.TryGetValue(transferId, out var transfer) ||
-                !string.Equals(transfer.CallerIdentityId, callerIdentityId, StringComparison.Ordinal))
+            if (!_transfers.TryGetValue(transferKey, out var transfer))
             {
                 return UploadTransferPartStatus.TransferNotFound;
             }
@@ -219,10 +220,10 @@ public sealed partial class InMemoryBackendContractSimulation
         ValidateRequired(transferId, nameof(transferId));
         ValidateRequired(callerIdentityId, nameof(callerIdentityId));
 
+        var transferKey = TransferKey(callerIdentityId, transferId);
         lock (_gate)
         {
-            return _transfers.TryGetValue(transferId, out var transfer) &&
-                   string.Equals(transfer.CallerIdentityId, callerIdentityId, StringComparison.Ordinal)
+            return _transfers.TryGetValue(transferKey, out var transfer)
                 ? ToSnapshot(transfer)
                 : null;
         }
@@ -233,13 +234,13 @@ public sealed partial class InMemoryBackendContractSimulation
         ValidateRequired(transferId, nameof(transferId));
         ValidateRequired(callerIdentityId, nameof(callerIdentityId));
 
+        var transferKey = TransferKey(callerIdentityId, transferId);
         TransferRecord transfer;
         byte[] packageBytes;
 
         lock (_gate)
         {
-            if (!_transfers.TryGetValue(transferId, out var foundTransfer) ||
-                !string.Equals(foundTransfer.CallerIdentityId, callerIdentityId, StringComparison.Ordinal))
+            if (!_transfers.TryGetValue(transferKey, out var foundTransfer))
             {
                 return new(FinalizeTransferStatus.TransferNotFound, null);
             }
@@ -275,7 +276,7 @@ public sealed partial class InMemoryBackendContractSimulation
         lock (_gate)
         {
             // Re-read under the lock so a concurrent abandon cannot be overwritten by finalization.
-            if (!_transfers.TryGetValue(transferId, out var current) ||
+            if (!_transfers.TryGetValue(transferKey, out var current) ||
                 current.State != SimulatedTransferState.Active)
             {
                 return current?.State == SimulatedTransferState.Finalized
@@ -293,10 +294,10 @@ public sealed partial class InMemoryBackendContractSimulation
         ValidateRequired(transferId, nameof(transferId));
         ValidateRequired(callerIdentityId, nameof(callerIdentityId));
 
+        var transferKey = TransferKey(callerIdentityId, transferId);
         lock (_gate)
         {
-            if (!_transfers.TryGetValue(transferId, out var transfer) ||
-                !string.Equals(transfer.CallerIdentityId, callerIdentityId, StringComparison.Ordinal))
+            if (!_transfers.TryGetValue(transferKey, out var transfer))
             {
                 return AbandonTransferStatus.TransferNotFound;
             }
@@ -520,6 +521,9 @@ public sealed partial class InMemoryBackendContractSimulation
 
     private static string CandidateKey(string worldId, string revisionId)
         => $"{worldId}\u001f{revisionId}";
+
+    private static string TransferKey(string callerIdentityId, string transferId)
+        => $"{callerIdentityId}\u001f{transferId}";
 
     private static string IdempotencyKey(string callerIdentityId, string operation, string idempotencyKey)
         => $"{callerIdentityId}\u001f{operation}\u001f{idempotencyKey}";

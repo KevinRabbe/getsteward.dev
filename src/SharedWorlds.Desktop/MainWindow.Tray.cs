@@ -62,7 +62,7 @@ public partial class MainWindow
 
         if (!Dispatcher.CheckAccess())
         {
-            _ = Dispatcher.BeginInvoke(UpdateTrayStatus);
+            _ = Dispatcher.BeginInvoke(new Action(UpdateTrayStatus));
             return;
         }
 

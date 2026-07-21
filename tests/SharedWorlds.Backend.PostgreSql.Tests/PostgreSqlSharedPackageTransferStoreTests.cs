@@ -155,7 +155,74 @@ public sealed class PostgreSqlSharedPackageTransferStoreTests : IAsyncLifetime
         Assert.Null(failed.FinalizedAt);
     }
 
+    [Fact]
+    public async Task CleanupQueryIsStateFilteredCutoffBoundedAndOldestFirst()
+    {
+        var oldest = NewEnvironmentTransfer(Now.AddHours(-3));
+        var middle = NewEnvironmentTransfer(Now.AddHours(-2));
+        var newestEligible = NewEnvironmentTransfer(Now.AddHours(-1));
+        var future = NewEnvironmentTransfer(Now.AddHours(1));
+        var wrongState = NewEnvironmentTransfer(Now.AddHours(-4)) with
+        {
+            State = SharedPackageTransferState.Abandoned
+        };
+
+        Assert.True(await _transfers.TryCreateAsync(oldest));
+        Assert.True(await _transfers.TryCreateAsync(middle));
+        Assert.True(await _transfers.TryCreateAsync(newestEligible));
+        Assert.True(await _transfers.TryCreateAsync(future));
+        Assert.True(await _transfers.TryCreateAsync(wrongState));
+
+        var firstTwo = await _transfers.ListByStateExpiringBeforeAsync(
+            SharedPackageTransferState.Active,
+            Now,
+            limit: 2);
+
+        Assert.Equal(2, firstTwo.Count);
+        Assert.Equal(oldest.Id, firstTwo[0].Id);
+        Assert.Equal(middle.Id, firstTwo[1].Id);
+
+        var allEligible = await _transfers.ListByStateExpiringBeforeAsync(
+            SharedPackageTransferState.Active,
+            Now,
+            limit: 10);
+
+        Assert.Equal(
+            new[] { oldest.Id, middle.Id, newestEligible.Id },
+            allEligible.Select(transfer => transfer.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task CleanupDeleteRequiresExactOwnerAndExpectedState()
+    {
+        var transfer = NewEnvironmentTransfer(Now.AddHours(-1)) with
+        {
+            State = SharedPackageTransferState.Abandoned
+        };
+        Assert.True(await _transfers.TryCreateAsync(transfer));
+        var wrongOwner = new ExternalIdentityRef("steam", "76561198000000099");
+
+        Assert.False(await _transfers.TryDeleteAsync(
+            transfer.Id,
+            wrongOwner,
+            SharedPackageTransferState.Abandoned));
+        Assert.False(await _transfers.TryDeleteAsync(
+            transfer.Id,
+            transfer.Owner,
+            SharedPackageTransferState.Active));
+        Assert.NotNull(await _transfers.LoadAsync(transfer.Id));
+
+        Assert.True(await _transfers.TryDeleteAsync(
+            transfer.Id,
+            transfer.Owner,
+            SharedPackageTransferState.Abandoned));
+        Assert.Null(await _transfers.LoadAsync(transfer.Id));
+    }
+
     private SharedPackageTransferRecord NewEnvironmentTransfer()
+        => NewEnvironmentTransfer(Now.AddHours(24));
+
+    private SharedPackageTransferRecord NewEnvironmentTransfer(DateTimeOffset expiresAt)
         => new(
             SharedPackageTransferId.New(),
             _world.WorldId,
@@ -163,15 +230,15 @@ public sealed class PostgreSqlSharedPackageTransferStoreTests : IAsyncLifetime
             SharedPackageKind.Environment,
             _world.AdapterId,
             _manager.Subject,
-            $"packages/{_world.WorldId}/environment/test.package",
+            $"packages/{_world.WorldId}/environment/{Guid.NewGuid():N}.package",
             $"provider-{Guid.NewGuid():N}",
             1024,
             HashA,
             null,
             SharedPackageTransferOptions.FirstReleasePartSizeBytes,
             1,
-            Now,
-            Now.AddHours(24),
+            expiresAt - TimeSpan.FromHours(24),
+            expiresAt,
             SharedPackageTransferState.Active);
 
     private SharedPackageTransferRecord NewStateTransfer(RevisionId environment)

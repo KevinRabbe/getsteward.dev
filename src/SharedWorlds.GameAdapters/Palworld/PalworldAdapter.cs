@@ -9,8 +9,8 @@ public sealed class PalworldAdapter : IGameAdapter
     public string Id => "palworld";
     public string DisplayName => "Palworld";
 
-    // The detected-world -> dedicated-host bootstrap path is validated, but the full
-    // portable capture/restore pipeline is not wired yet, so capabilities stay conservative.
+    // The detected-world -> dedicated-host bootstrap path and native state capture are validated
+    // incrementally, but the full portable prepare/restore lifecycle is not wired yet.
     public GameAdapterCapabilities Capabilities => GameAdapterCapabilities.None;
 
     public Task<IReadOnlyList<GameInstallation>> DiscoverInstallationsAsync(
@@ -49,11 +49,15 @@ public sealed class PalworldAdapter : IGameAdapter
         CancellationToken cancellationToken = default)
         => throw new NotImplementedException();
 
-    public Task<CapturedState> CaptureDetectedWorldAsync(
+    public async Task<CapturedState> CaptureDetectedWorldAsync(
         GameInstallation installation,
         DetectedWorld world,
         CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    {
+        ArgumentNullException.ThrowIfNull(installation);
+        var captured = await PalworldWorldState.CaptureDetectedWorldAsync(world, cancellationToken);
+        return captured with { DeletePackageAfterStore = true };
+    }
 
     public Task<PreparedWorld> PrepareEnvironmentAsync(
         GameInstallation installation,
@@ -61,10 +65,13 @@ public sealed class PalworldAdapter : IGameAdapter
         CancellationToken cancellationToken = default)
         => throw new NotImplementedException();
 
-    public Task<CapturedState> CaptureStateAsync(
+    public async Task<CapturedState> CaptureStateAsync(
         PreparedWorld world,
         CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    {
+        var captured = await PalworldWorldState.CapturePreparedWorldAsync(world, cancellationToken);
+        return captured with { DeletePackageAfterStore = true };
+    }
 
     public Task RestoreStateAsync(
         PreparedWorld world,

@@ -30,7 +30,7 @@ public sealed class WorldLifecycleDeviceConcurrencyTests
                 new GameInstallation("install", "C:/Game", "test"),
                 new UserIdentity("steam", "steam-b")));
 
-        Assert.Contains(activeWorld.ToString(), exception.Message, StringComparison.Ordinal);
+        Assert.Contains(activeWorld.ToString(), exception.Message);
         Assert.Equal(0, coordinator.AcquireCount);
         Assert.Equal(activeWorld, gate.ActiveWorldId);
     }

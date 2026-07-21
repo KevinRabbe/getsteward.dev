@@ -4,6 +4,18 @@ Steward is a commercial product moving from validated technical foundations towa
 
 This directory is the canonical home for active product, architecture, engineering, lifecycle, adapter, storage, recovery, and planning documentation.
 
+## Current project mode
+
+> **Planning lock is active. Production implementation does not resume until the master planning gate is complete and explicitly approved.**
+
+Start with the [Master Roadmap](ROADMAP.md), then work through the three planning workstreams:
+
+1. [UI and UX Roadmap](UI_ROADMAP.md)
+2. [Backend Roadmap](BACKEND_ROADMAP.md)
+3. [Adapter and Background Runtime Roadmap](ADAPTER_RUNTIME_ROADMAP.md)
+
+The roadmaps are separate for clarity but define one product. Their states, actions, failure semantics, and acceptance criteria must agree before code resumes.
+
 ## Documentation authority
 
 When documents disagree, use this order:
@@ -13,7 +25,7 @@ When documents disagree, use this order:
 3. [Design Decisions](DECISIONS.md)
 4. [Architecture](ARCHITECTURE.md)
 5. Detailed subsystem and adapter documents
-6. [Roadmap](ROADMAP.md)
+6. [Master Roadmap](ROADMAP.md) and its workstream roadmaps
 
 The first two documents define what Steward is and what it must not become. Lower-level documents may add detail but may not silently expand or contradict the product boundary.
 
@@ -36,6 +48,15 @@ Steward moves the latest valid World state into a playable session and returns t
 - [Domain Model](DOMAIN_MODEL.md) — active persisted and runtime concepts.
 - [World Lifecycle](WORLD_LIFECYCLE.md) — import, preparation, launch, session observation, capture, commit, handoff, and recovery.
 
+## Planning and execution
+
+- [Master Roadmap](ROADMAP.md) — planning lock, workstream dependencies, drift-control rules, planning exit criteria, execution order, and release boundary.
+- [UI and UX Roadmap](UI_ROADMAP.md) — navigation, user journeys, state/action contract, tray/background experience, recovery UX, milestones, and unresolved UI decisions.
+- [Backend Roadmap](BACKEND_ROADMAP.md) — authentication, minimal access, immutable transfer, current-head commit, distributed reservation, offline behavior, security, operations, and backend milestones.
+- [Adapter and Background Runtime Roadmap](ADAPTER_RUNTIME_ROADMAP.md) — lifecycle state machine, process model, adapter capabilities, safe capture, background lifetime, Factorio/Palworld completion contracts, and runtime milestones.
+
+Roadmap items do not override product rules. A planned feature still has to support shared World continuity directly.
+
 ## Engineering and reliability
 
 - [Engineering Standards](ENGINEERING.md) — build, dependency, testing, filesystem safety, compatibility, and definition-of-done rules.
@@ -52,12 +73,6 @@ Steward moves the latest valid World state into a playable session and returns t
 
 Additional adapter documents belong here when their behavior becomes product-relevant.
 
-## Planning
-
-- [Roadmap](ROADMAP.md) — ordered commercial product milestones based on the current boundary.
-
-Roadmap items do not override product rules. A planned feature must still directly support shared World continuity.
-
 ## Required review for changes
 
 Before accepting a meaningful product or architecture change, check:
@@ -69,5 +84,6 @@ Before accepting a meaningful product or architecture change, check:
 - Is Steam or the game already responsible for the proposed feature?
 - Does it directly help different players continue the same World across devices or times?
 - Does it add commercial reliability rather than uncontrolled scope?
+- During the planning lock, is it documentation/research rather than production implementation?
 
-When a boundary changes deliberately, update the authoritative documentation in the same change as the implementation.
+When a boundary changes deliberately, update the authoritative documentation before implementation.

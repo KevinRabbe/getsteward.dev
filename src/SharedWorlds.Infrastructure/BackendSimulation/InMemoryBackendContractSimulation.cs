@@ -199,15 +199,21 @@ public sealed partial class InMemoryBackendContractSimulation
                 return UploadTransferPartStatus.TransferNotActive;
             }
 
-            var copy = bytes.ToArray();
             if (transfer.Parts.TryGetValue(partNumber, out var existing))
             {
-                return existing.AsSpan().SequenceEqual(copy)
+                return existing.AsSpan().SequenceEqual(bytes)
                     ? UploadTransferPartStatus.AlreadyAccepted
                     : UploadTransferPartStatus.PartConflict;
             }
 
+            if (bytes.LongLength > transfer.ExpectedByteSize - transfer.AcceptedByteSize)
+            {
+                return UploadTransferPartStatus.InvalidPart;
+            }
+
+            var copy = bytes.ToArray();
             transfer.Parts.Add(partNumber, copy);
+            transfer.AcceptedByteSize += copy.LongLength;
             return UploadTransferPartStatus.Accepted;
         }
     }
@@ -562,6 +568,7 @@ public sealed partial class InMemoryBackendContractSimulation
         public string RevisionId { get; }
         public long ExpectedByteSize { get; }
         public string ExpectedSha256 { get; }
+        public long AcceptedByteSize { get; set; }
         public SortedDictionary<int, byte[]> Parts { get; } = new();
         public SimulatedTransferState State { get; set; } = SimulatedTransferState.Active;
 

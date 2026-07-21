@@ -10,6 +10,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Backend", "src
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Backend.PostgreSql", "src\SharedWorlds.Backend.PostgreSql\SharedWorlds.Backend.PostgreSql.csproj", "{F0F0F0F0-F0F0-F0F0-F0F0-F0F0F0F0F0F0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Backend.ObjectStorage.S3", "src\SharedWorlds.Backend.ObjectStorage.S3\SharedWorlds.Backend.ObjectStorage.S3.csproj", "{F1F1F1F1-F1F1-F1F1-F1F1-F1F1F1F1F1F1}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.Factorio", "src\SharedWorlds.GameAdapters\Factorio\SharedWorlds.GameAdapters.Factorio.csproj", "{33333333-3333-3333-3333-333333333333}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.Palworld", "src\SharedWorlds.GameAdapters\Palworld\SharedWorlds.GameAdapters.Palworld.csproj", "{CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC}"
@@ -26,11 +28,11 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Core.Tests", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Infrastructure.Tests", "tests\SharedWorlds.Infrastructure.Tests\SharedWorlds.Infrastructure.Tests.csproj", "{88888888-8888-8888-8888-888888888888}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Backend.Tests", "tests\SharedWorlds.Backend.Tests\SharedWorlds.Backend.Tests.csproj", "{EEEEEEEE-EEEE-EEEE-EEEE-EEEEEEEEEEEE}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04ECF79EFBC}") = "SharedWorlds.Backend.Tests", "tests\SharedWorlds.Backend.Tests\SharedWorlds.Backend.Tests.csproj", "{EEEEEEEE-EEEE-EEEE-EEEE-EEEEEEEEEEEE}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.Factorio.Tests", "tests\SharedWorlds.GameAdapters.Factorio.Tests\SharedWorlds.GameAdapters.Factorio.Tests.csproj", "{99999999-9999-9999-9999-999999999999}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04ECF79EFBC}") = "SharedWorlds.GameAdapters.Factorio.Tests", "tests\SharedWorlds.GameAdapters.Factorio.Tests\SharedWorlds.GameAdapters.Factorio.Tests.csproj", "{99999999-9999-9999-9999-999999999999}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Architecture.Tests", "tests\SharedWorlds.Architecture.Tests\SharedWorlds.Architecture.Tests.csproj", "{AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04ECF79EFBC}") = "SharedWorlds.Architecture.Tests", "tests\SharedWorlds.Architecture.Tests\SharedWorlds.Architecture.Tests.csproj", "{AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}"
 EndProject
 Global
     GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -54,6 +56,10 @@ Global
         {F0F0F0F0-F0F0-F0F0-F0F0-F0F0F0F0F0F0}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {F0F0F0F0-F0F0-F0F0-F0F0-F0F0F0F0F0F0}.Release|Any CPU.ActiveCfg = Release|Any CPU
         {F0F0F0F0-F0F0-F0F0-F0F0-F0F0F0F0F0F0}.Release|Any CPU.Build.0 = Release|Any CPU
+        {F1F1F1F1-F1F1-F1F1-F1F1-F1F1F1F1F1F1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {F1F1F1F1-F1F1-F1F1-F1F1-F1F1F1F1F1F1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {F1F1F1F1-F1F1-F1F1-F1F1-F1F1F1F1F1F1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {F1F1F1F1-F1F1-F1F1-F1F1-F1F1F1F1F1F1}.Release|Any CPU.Build.0 = Release|Any CPU
         {33333333-3333-3333-3333-333333333333}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
         {33333333-3333-3333-3333-333333333333}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {33333333-3333-3333-3333-333333333333}.Release|Any CPU.ActiveCfg = Release|Any CPU

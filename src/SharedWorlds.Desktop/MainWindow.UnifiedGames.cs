@@ -210,7 +210,7 @@ public partial class MainWindow
             });
     }
 
-    private async void UnifiedShareButton_Click(object sender, RoutedEventArgs e)
+    private void UnifiedShareButton_Click(object sender, RoutedEventArgs e)
     {
         var world = _selectedWorld;
         if (world is null)
@@ -218,22 +218,12 @@ public partial class MainWindow
             return;
         }
 
-        var nextMode = world.SharingMode == WorldSharingMode.LocalOnly
-            ? WorldSharingMode.Shared
-            : WorldSharingMode.LocalOnly;
-
-        await RunUnifiedOperationAsync(
-            nextMode == WorldSharingMode.Shared
-                ? $"Sharing {world.Name}..."
-                : $"Making {world.Name} local-only...",
-            async () =>
-            {
-                var updated = await _lifecycle.SetSharingModeAsync(world.Id, nextMode);
-                StatusText.Text = nextMode == WorldSharingMode.Shared
-                    ? $"World '{updated.Name}' is now shared through Steward."
-                    : $"World '{updated.Name}' is now local-only.";
-                await RefreshUnifiedWorldsAsync(updated.Id, preserveStatus: true);
-            });
+        // A local enum flip is not persistent Steward sharing. Until BE-2/UI-4 can create or
+        // administer real shared authority, keep the World unchanged and expose the honest entry
+        // point rather than manufacturing a false Shared state.
+        StatusText.Text = world.SharingMode == WorldSharingMode.LocalOnly
+            ? "Share World requires the shared backend/access flow, which is not connected in this build yet. The World remains only on this PC."
+            : "Manage access requires the shared backend/access flow, which is not connected in this build yet.";
     }
 
     private async Task RefreshUnifiedImportCandidatesAsync()
@@ -509,8 +499,13 @@ public partial class MainWindow
 
         ShareButton.IsEnabled = !_isBusy && world is not null;
         ShareButton.Content = world?.SharingMode == WorldSharingMode.Shared
-            ? "Make Local Only"
+            ? "Manage access"
             : "Share World";
+        ShareButton.ToolTip = world is null
+            ? "Select a World."
+            : world.SharingMode == WorldSharingMode.Shared
+                ? "Manage access becomes functional when the shared backend/access flow is connected."
+                : "Share World becomes functional when the shared backend/access flow is connected.";
     }
 
     private void UpdateUnifiedImportActionState()

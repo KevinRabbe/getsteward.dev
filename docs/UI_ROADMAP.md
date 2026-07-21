@@ -174,7 +174,7 @@ Status: **approved**.
 
 The first release exposes one user-facing **Join** action. Users do not choose between Steam Join, direct connect, command-line connect, or another technical connection method.
 
-The adapter/runtime provides the best validated join capability in this priority order:
+Priority:
 
 ```text
 Steam/game-native automatic Join
@@ -194,23 +194,13 @@ Rules:
 - Core and UI never contain game-name branches for joining;
 - Join remains unavailable while the host is still starting and becomes available only after runtime/adapter readiness is proven.
 
-A guided manual fallback may look conceptually like:
-
-```text
-Join this server
-123.45.67.89:8211
-Copy address
-```
-
-The actual connection data and instruction are adapter-owned.
-
 ### UI-D006: Recovery exposes only proven-safe actions
 
 Status: **approved**.
 
-The first release does not present a generic recovery toolbox. Steward examines the preserved evidence, current head, reservation/session generation, adapter capability, and candidate validity, then exposes only actions whose preconditions are proven safe.
+The first release does not present a generic recovery toolbox. Steward examines preserved evidence, the current head, session/reservation generation, adapter capability, and candidate validity, then exposes only actions whose preconditions are proven safe.
 
-Supported first-release recovery actions are:
+Supported first-release recovery actions:
 
 #### Retry recovery
 
@@ -266,11 +256,75 @@ Typical recovery presentation:
 >
 > Your last safe World is still protected. Steward also found newer changes from the interrupted session.
 
-Then show only applicable actions, normally ordered:
+Show only applicable actions, normally ordered:
 
 1. **Retry recovery** — preferred when safe;
 2. **Export recovery copy** — preservation fallback when useful;
 3. **Continue from last safe state** — explicit abandon action, visually separated.
+
+### UI-D007: Persistent tray while Steward is running
+
+Status: **approved**.
+
+The tray is a compact status/control surface, **not a second application UI**.
+
+Whenever the Steward user-session process is running, a tray icon is present. Closing the main window hides the window and leaves Steward available through the tray.
+
+Normal idle behavior:
+
+```text
+Steward process running
+-> window open or hidden
+-> tray icon present
+```
+
+The idle tray exposes only small global controls such as:
+
+- **Open Steward**;
+- concise important status when one exists;
+- **Quit Steward** when quitting is safe.
+
+During an active World session the tray may show:
+
+- game and World;
+- Running or Hosting status;
+- connectivity/synchronization warning when relevant;
+- **Open Steward**;
+- **Stop and Save** only when the adapter/runtime supports a controlled hosted stop.
+
+During post-game work it may show statuses such as:
+
+- Saving;
+- Waiting to sync;
+- Recovery needed.
+
+Quit rules:
+
+```text
+no active or unresolved World responsibility
+-> Quit Steward
+-> process exits
+-> tray disappears
+```
+
+```text
+Running / Hosting / Saving / Waiting to sync / active recovery
+-> ordinary Quit must not silently abandon the responsibility
+```
+
+Rules:
+
+- closing the main window is not equivalent to quitting the process;
+- no invisible user-session background process: if Steward is running, its tray presence is visible;
+- the tray does not browse Games, Worlds, imports, settings, or diagnostics as a second application shell;
+- active hosted sessions end through the correct adapter/runtime session-ending path;
+- Saving and Waiting to sync cannot be silently abandoned;
+- explicit exceptional exits, when later defined, must preserve recovery evidence;
+- **Start Steward when I sign in** is a separate user setting and does not change lifecycle semantics.
+
+Core principle:
+
+> **The UI window may close. The responsibility may not.**
 
 ## UI boundaries
 
@@ -302,22 +356,23 @@ The UI does not own:
 2. **Game-first navigation:** a game workspace contains only that game's Worlds.
 3. **Explicit intent:** Start, Host, Join, and Share are distinct actions where supported.
 4. **Private by default:** import stays on the current PC until sharing is explicit.
-5. **Background first:** the window may disappear while Steward keeps working.
-6. **No infrastructure exposure:** primary screens hide revisions, object keys, paths, and server folders.
-7. **No false certainty:** uncertain state is never presented as Ready.
-8. **No theatrical waiting:** progress corresponds to real lifecycle work.
-9. **Capability driven:** actions come from generic state and adapter capabilities.
-10. **Commercial clarity:** wording explains what happened, what is safe, and what happens next.
-11. **Low interaction cost:** Steward asks only for decisions the product genuinely requires.
-12. **Recovery is evidence-driven:** destructive or authority-changing actions appear only when their safety can be proven.
+5. **Background first:** the main window may disappear while Steward remains visibly available in the tray and keeps working.
+6. **No second tray application:** the tray communicates status and exposes only necessary global/session controls.
+7. **No infrastructure exposure:** primary screens hide revisions, object keys, paths, and server folders.
+8. **No false certainty:** uncertain state is never presented as Ready.
+9. **No theatrical waiting:** progress corresponds to real lifecycle work.
+10. **Capability driven:** actions come from generic state and adapter capabilities.
+11. **Commercial clarity:** wording explains what happened, what is safe, and what happens next.
+12. **Low interaction cost:** Steward asks only for decisions the product genuinely requires.
+13. **Recovery is evidence-driven:** destructive or authority-changing actions appear only when their safety can be proven.
 
 ## Navigation model
 
 First-release global navigation:
 
-- **Games**
-- **Import**
-- **Settings**
+- **Games**;
+- **Import**;
+- **Settings**.
 
 Activity or notifications become a separate section only when proven necessary.
 
@@ -353,18 +408,11 @@ choose installed supported game
 
 Duplicate native World detection remains adapter-owned.
 
-### Active Session Surface
+### Tray/status surface
 
-While playing, a compact tray/status surface may show:
+The tray is present whenever Steward runs and exposes compact status plus only the controls required to reopen Steward, safely stop a supported hosted session, or quit when safe.
 
-- game and World;
-- local or hosted mode;
-- lifecycle state;
-- connectivity/sync warning when relevant;
-- Open Steward;
-- Stop and Save where controlled hosted stop is supported.
-
-The tray is not a second complete application.
+It is not another Games/Worlds navigation surface.
 
 ### Recovery Surface
 
@@ -386,7 +434,7 @@ No recovery surface offers generic merging or forced canonical overwrite.
 open Steward
 -> scan installed supported games
 -> show Games Library
--> guide to Import when no managed Worlds exist
+-> tray remains available while Steward process runs
 ```
 
 ### UJ-02: Import existing World
@@ -421,6 +469,7 @@ Ready
 -> Start World
 -> Preparing
 -> Running
+-> main window may hide to tray
 -> game ends
 -> Saving
 -> Ready
@@ -433,6 +482,7 @@ Ready / Shared
 -> Host World
 -> Preparing
 -> Hosting
+-> main window may hide to tray
 -> Stop and Save or adapter-observed safe end
 -> Saving
 -> Ready
@@ -442,7 +492,8 @@ Ready / Shared
 
 ```text
 Someone is playing
--> Join, when ready and supported
+-> host becomes ready
+-> Join, when supported
 or
 -> Wait until available
 ```
@@ -483,6 +534,7 @@ Running/Hosting
 -> continue session
 -> capture safely at end
 -> Waiting to sync
+-> tray remains visible
 -> reconnect
 -> commit
 -> Ready
@@ -513,6 +565,25 @@ or
 
 No silent promotion, stale overwrite, candidate deletion, or generic merge.
 
+### UJ-13: Close Steward window during active work
+
+```text
+close main window
+-> window hides
+-> Steward remains in tray
+-> active World responsibility continues
+```
+
+### UJ-14: Quit Steward
+
+```text
+no active/unresolved responsibility
+-> Quit Steward
+-> process exits
+```
+
+When an active or unresolved responsibility exists, ordinary Quit is blocked or redirected to the correct safe action rather than abandoning the World transaction.
+
 ## User-visible state and action contract
 
 | State | Meaning | Primary action(s) | Secondary action |
@@ -535,20 +606,20 @@ No silent promotion, stale overwrite, candidate deletion, or generic merge.
 
 Only real phases are shown:
 
-- Checking latest state
-- Reserving World
-- Downloading World
-- Preparing game
-- Restoring World
-- Starting game/server
-- Waiting for host readiness
-- Waiting for session end
-- Stopping server
-- Capturing changes
-- Uploading changes
-- Waiting for connection
-- Verifying state
-- Finishing handoff
+- Checking latest state;
+- Reserving World;
+- Downloading World;
+- Preparing game;
+- Restoring World;
+- Starting game/server;
+- Waiting for host readiness;
+- Waiting for session end;
+- Stopping server;
+- Capturing changes;
+- Uploading changes;
+- Waiting for connection;
+- Verifying state;
+- Finishing handoff.
 
 ## Error and warning contract
 
@@ -579,6 +650,7 @@ Deliverables:
 - global rail;
 - Games Library;
 - game workspace routing;
+- persistent tray lifetime;
 - remove transitional composition over obsolete UI where safe;
 - intentional artwork slots and fallbacks.
 
@@ -598,8 +670,9 @@ Deliverables:
 - explicit Start and Host;
 - capability-driven Join;
 - meaningful progress;
-- tray/background state;
-- safe close/minimize behavior.
+- persistent tray/background state;
+- safe close/hide behavior;
+- safe Quit gating.
 
 ### UI-4: Shared World states
 
@@ -629,13 +702,15 @@ Deliverables:
 - responsive resizing and minimum size;
 - localization-ready strings;
 - installer/update behavior during active sessions;
+- tray accessibility and understandable status text;
 - acceptance testing on real Windows setups.
 
 ## Decisions still required before UI-0 completes
 
 - Exact flat sharing/invitation UI after backend access policy is chosen.
-- Tray always present or only during active/background work.
-- Final terminology for Stop and Save, Saving, Blocked, Recovery needed, Connection required, and Waiting to sync.
+- Final terminology for Stop and Save, Saving, Blocked, Recovery needed, Connection required, Waiting to sync, and related concise status wording.
+
+The sharing/invitation question is intentionally blocked on the backend access-policy decision and must not be guessed by UI planning.
 
 ## UI planning completion gate
 

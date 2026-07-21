@@ -40,11 +40,28 @@ public sealed class InMemoryCandidateRetentionPolicy
 
         lock (_gate)
         {
-            _candidates[candidateId] = new CandidateRecord(
+            if (_candidates.TryGetValue(candidateId, out var existing))
+            {
+                if (existing.Kind != kind ||
+                    existing.LastActivityAt != activityAt ||
+                    existing.RecoveryPinned != recoveryPinned)
+                {
+                    throw new InvalidOperationException(
+                        $"Candidate '{candidateId}' is already tracked with different retention state. " +
+                        "Use the explicit activity, pin, or kind transition operation instead.");
+                }
+
+                // Exact creation retry is idempotent.
+                return;
+            }
+
+            _candidates.Add(
                 candidateId,
-                kind,
-                activityAt,
-                recoveryPinned);
+                new CandidateRecord(
+                    candidateId,
+                    kind,
+                    activityAt,
+                    recoveryPinned));
         }
     }
 

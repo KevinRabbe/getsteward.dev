@@ -24,29 +24,29 @@ BE-1 is not green until the repository tests actually run successfully under war
 
 ## AR-1 — Generic runtime/conformance
 
-Status: **in progress; one durable-recovery start guard plus build/test confirmation remain**.
+Status: **implementation requirements complete; build/test confirmation pending**.
 
 Implemented:
 
 - Start/Host share one generic lifecycle;
 - temporary Host does not require persistent sharing;
 - device-wide in-memory writable lifecycle gate;
+- durable recovery-start guard before distributed/per-World coordinator acquisition;
+- `Active`, `RecoveryPending`, and `CleanupPending` recovery evidence blocks every new writable Start/Host after restart;
+- unreadable recovery metadata fails closed;
 - generic Join capability result including guided manual fallback;
 - optional structured adapter session-evidence contract;
 - generic lifecycle phase observer;
-- deterministic happy/failure/cleanup transition tests;
-- terminal `Completed` semantics moved behind successful lifecycle finalization and reservation release;
+- deterministic happy/failure/cleanup/recovery-start transition tests;
+- terminal `Completed` semantics occur only after successful lifecycle finalization and reservation release;
+- reservation-release failure remains unresolved responsibility rather than false completion;
 - runtime responsibility tracker;
 - tray/close-to-tray/guarded-Quit integration;
 - recovery-first unified desktop startup;
 - unified Host action no longer depends on Shared;
 - desktop no longer fakes persistent sharing by flipping a local enum.
 
-Open correctness gate:
-
-- durable `Active` / `RecoveryPending` / unresolved recovery evidence must hard-block every new Start/Host at the generic lifecycle boundary after restart, before coordinator acquisition. See `AR1_RECOVERY_START_GUARD.md`.
-
-AR-1 is not green until that guard is implemented and tests/build execute successfully.
+AR-1 is not green until the repository compiles and the tests execute successfully under warnings-as-errors/nullability rules. No known AR-1 product-contract correctness gate remains open before that evidence.
 
 ## UI-1 — Shell/navigation replacement
 
@@ -70,4 +70,4 @@ Still open:
 
 ## E1 rule
 
-Do not start BE-2, AR-2/AR-3 game-specific hardening, or later release work merely to avoid the remaining E1 correctness/build gates.
+Do not start BE-2, AR-2/AR-3 game-specific hardening, or later release work merely to avoid the remaining E1 build/test and UI-1 gates.

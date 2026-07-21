@@ -85,7 +85,7 @@ public sealed record IdempotentOperationResult<T>(
 /// It adds resumable transfer state, idempotent mutation replay, and explicit last-safe recovery
 /// without introducing HTTP, Steam, cloud SDKs, or provider-specific storage behavior.
 /// </summary>
-public sealed class InMemoryBackendContractSimulation
+public sealed partial class InMemoryBackendContractSimulation
 {
     public const long MaximumPackageBytes = 20L * 1024 * 1024 * 1024;
     public const int SuggestedTransferPartBytes = 64 * 1024 * 1024;
@@ -236,10 +236,12 @@ public sealed class InMemoryBackendContractSimulation
 
         lock (_gate)
         {
-            if (!_transfers.TryGetValue(transferId, out transfer!))
+            if (!_transfers.TryGetValue(transferId, out var foundTransfer))
             {
                 return new(FinalizeTransferStatus.TransferNotFound, null);
             }
+
+            transfer = foundTransfer;
 
             if (!string.Equals(transfer.CallerIdentityId, callerIdentityId, StringComparison.Ordinal))
             {
@@ -451,7 +453,7 @@ public sealed class InMemoryBackendContractSimulation
         ValidateRequired(idempotencyKey, nameof(idempotencyKey));
         ArgumentNullException.ThrowIfNull(operationFactory);
 
-        var key = $"{callerIdentityId}\u001f{operation}\u001f{idempotencyKey}";
+        var key = IdempotencyKey(callerIdentityId, operation, idempotencyKey);
 
         lock (_gate)
         {
@@ -524,6 +526,9 @@ public sealed class InMemoryBackendContractSimulation
 
     private static string CandidateKey(string worldId, string revisionId)
         => $"{worldId}\u001f{revisionId}";
+
+    private static string IdempotencyKey(string callerIdentityId, string operation, string idempotencyKey)
+        => $"{callerIdentityId}\u001f{operation}\u001f{idempotencyKey}";
 
     private static void ValidateRequired(string value, string parameterName)
     {

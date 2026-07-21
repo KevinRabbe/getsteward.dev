@@ -1,18 +1,18 @@
 # Error Handling and Failure Boundaries
 
-SharedWorlds handles user-owned game state. Error handling therefore favors preserving known-good state over trying to continue after an unknown failure.
+Steward handles user-owned game state. Error handling therefore favors preserving the last valid World and recoverable evidence over continuing after an unknown failure.
 
 ## Core rule
 
 Do not catch an exception merely to keep the application moving.
 
-A catch block must do at least one meaningful thing:
+A catch block must perform at least one meaningful responsibility:
 
-- translate a lower-level failure into a stable typed product failure
-- preserve or update recovery state
-- release a lease or other owned resource
-- add diagnostics at an application boundary
-- deliberately suppress only a secondary cleanup failure when a primary failure is already being propagated
+- translate a lower-level failure into a stable typed product failure;
+- preserve or update recovery state;
+- release a safely releasable resource or reservation;
+- add diagnostics at an application boundary;
+- deliberately suppress only a secondary cleanup failure while preserving the primary failure.
 
 Unknown failures stop the current operation.
 
@@ -20,123 +20,208 @@ Unknown failures stop the current operation.
 
 ### Core and domain
 
-Core exposes typed product failures for conditions callers can reason about:
+Core exposes typed failures for conditions callers can reason about, such as:
 
-- `WorldNotFoundException`
-- `RevisionNotFoundException`
-- `WorldIntegrityException`
-- `AdapterMismatchException`
-- `PersistedDataCompatibilityException`
-- `WorldSessionConflictException`
+- missing World or revision;
+- adapter mismatch;
+- World integrity failure;
+- persistence compatibility failure;
+- session reservation conflict;
+- stale expected head;
+- environment reproduction failure;
+- recovery required.
 
-Core does not convert all exceptions into success or generic result values. A storage or adapter failure may propagate when the caller must stop rather than guess.
+Core must not convert arbitrary storage, adapter, or coordination failures into success.
 
-### Lifecycle cleanup
+### Lifecycle
 
-Lifecycle cleanup is conservative:
+Lifecycle failure handling is conservative:
 
-- the canonical World head advances only after durable revision publication
-- host ownership is released in `finally`
-- a primary lifecycle exception is not replaced by a secondary host-release failure
-- adapter-owned temporary capture packages are deleted only when the adapter explicitly grants cleanup authority
-- a post-launch failure preserves the prepared workspace as a recovery candidate
-- failed workspace cleanup becomes `CleanupPending` rather than being silently forgotten
+- the current World head advances only after durable storage and verification;
+- a writable reservation is released only when the lifecycle can safely release it;
+- a primary lifecycle failure is not replaced by a secondary cleanup/release failure;
+- adapter-produced packages are deleted only with explicit cleanup authority;
+- post-launch failures preserve the prepared workspace;
+- failed workspace cleanup becomes `CleanupPending`;
+- a stale writer cannot overwrite a newer current state;
+- a transient network loss does not prove that the game/server session ended.
 
-### Application boundary
+### Adapter
 
-The CLI is currently the application composition root and owns the top-level exception boundary.
+Adapters translate game-specific failures into stable categories where useful, but they must not hide uncertain session or save state.
 
-Expected typed product failures:
+Examples:
 
-- receive a concise user-facing message
-- receive a recovery-oriented next step
-- do not print a raw stack trace
-- return a non-zero product-failure exit code
+- launched process disappeared before a real session was proven;
+- dedicated server failed readiness;
+- graceful shutdown failed;
+- save files never stabilized;
+- required World files are missing;
+- restored bytes do not match the package;
+- environment requirements cannot be reproduced safely.
 
-Operational filesystem/data failures:
+When an adapter cannot prove safe completion, it fails and preserves recovery evidence.
 
-- stop the operation
-- receive a concise user-facing explanation
-- write a local diagnostic entry when possible
-- return a distinct non-zero exit code
+### Storage and coordination
 
-Unexpected failures:
+Storage and session coordination have different failure semantics.
 
-- stop the operation immediately
-- receive a generated incident ID
-- write the full exception locally when possible
-- never continue in an unknown state
+Storage failure:
+
+```text
+new state not committed
+-> previous valid head remains authoritative
+```
+
+Coordination uncertainty:
+
+```text
+active reservation cannot be proven safely released
+-> World remains unavailable or Recovery needed
+-> do not start a competing writer
+```
+
+A remote timeout is not automatic proof that a write failed, a session ended, or another device may take over.
+
+### Desktop application boundary
+
+The desktop is the primary commercial application boundary.
+
+Expected typed failures should produce:
+
+- concise user-facing state;
+- one clear recovery action where possible;
+- no raw stack trace;
+- local diagnostic reference when useful.
+
+Operational failures should:
+
+- stop the affected operation;
+- preserve the last valid World;
+- preserve recovery evidence;
+- write local diagnostics when possible;
+- avoid presenting the World as Ready until safety is established.
+
+Unexpected failures should:
+
+- stop the current operation;
+- generate a local incident id;
+- persist diagnostic details where possible;
+- never continue in an unknown state.
+
+### Development CLI and tools
+
+The CLI and probes remain development boundaries. They may expose stable exit codes and more technical detail, but they must preserve the same state and recovery semantics as the desktop.
 
 ## Cancellation
 
-The CLI converts Ctrl+C into cancellation rather than immediate process termination.
+Cancellation propagates through discovery, import, preparation, process observation, capture, storage, transfer, verification, and recovery where supported.
 
-Cancellation tokens propagate through discovery, import, preparation, session observation, capture, storage, and recovery operations where supported.
+Before launch, cancellation may clean controlled temporary work.
 
-If cancellation occurs after gameplay has started, normal lifecycle failure handling can preserve the prepared workspace for recovery instead of pretending the session completed cleanly.
+After gameplay begins, cancellation is a failure path unless the adapter can still prove a clean session end and complete the handoff. Otherwise preserve the workspace and enter recovery.
 
-`OperationCanceledException` is treated as cancellation at the application boundary rather than an unexpected defect.
+Do not treat closing the UI as permission to abandon an active writable session.
 
-## Exit codes
+## Retry policy
 
-The development CLI uses stable categories:
+Retries are allowed only when the operation is explicitly safe and idempotent.
 
-```text
-0   success
-2   command/usage error
-10  controlled product/domain failure
-20  filesystem, storage, or persisted-data operational failure
-70  unexpected application failure
-130 user cancellation
-```
+Good candidates:
 
-A future desktop UI will map the same failure categories into UI states and recovery actions rather than process exit codes.
+- reading immutable metadata;
+- resuming a chunked download;
+- verifying already stored immutable bytes;
+- retrying an expected-head read;
+- idempotent publication where the backend guarantees it.
+
+Dangerous candidates that require explicit design:
+
+- launching a second game/server process;
+- sending repeated shutdown commands;
+- overwriting mutable save directories;
+- advancing the World head;
+- deleting recovery evidence;
+- releasing a reservation after uncertain network state.
+
+Retries must be bounded and observable.
 
 ## Diagnostics
 
-Operational and unexpected exceptions are written under the local SharedWorlds log directory when possible.
+A diagnostic entry may include:
 
-A diagnostic entry contains:
+- UTC timestamp;
+- incident id;
+- operation and lifecycle phase;
+- World id in a safe internal form;
+- adapter id;
+- starting revision and expected head;
+- process/session metadata;
+- OS/runtime information;
+- exception details.
 
-- UTC timestamp
-- generated incident ID
-- process ID
-- OS/runtime information
-- full exception details
+Never log:
 
-Diagnostics are local. They are not automatically uploaded.
+- authentication tokens;
+- passwords or private join tokens;
+- arbitrary save contents;
+- secrets from game/server configuration;
+- unnecessary personal data.
 
-Future telemetry or crash-upload functionality must be opt-in and must never include authentication tokens, private join tokens, arbitrary save contents, or other secrets.
+Diagnostics remain local unless the user explicitly chooses a future upload workflow.
+
+## User-facing lifecycle states
+
+Normal states:
+
+```text
+Ready
+Preparing
+Running
+Saving
+```
+
+Failure states:
+
+```text
+Blocked
+Recovery needed
+Cleanup needed
+```
+
+The UI should state what is safe, what is uncertain, and what action is available. It should not expose internal exception names as the normal product experience.
 
 ## Do not do this
 
-Avoid patterns such as:
-
 ```text
-try
-  risky operation
-catch
-  ignore
-continue as if successful
+try risky state-changing operation
+catch everything
+ignore failure
+mark World Ready
 ```
 
-Also avoid broad retries for destructive or state-changing operations. A retry must be explicitly safe and idempotent.
+Also avoid:
 
-## Design intent
+- freeing a World because one heartbeat was missed;
+- deleting a workspace to clear an error badge;
+- advancing the head because a newer file timestamp exists;
+- using a generic delay as proof that every game finished saving;
+- automatically choosing between divergent complete saves;
+- retrying a non-idempotent commit without an expected-head guard.
 
-The desired behavior is:
+## Desired outcome
 
 ```text
 known failure
 -> controlled stop
--> useful message
--> preserved canonical state
--> recovery path when possible
+-> previous valid state preserved
+-> recovery evidence preserved
+-> clear action
 
 unknown failure
 -> controlled stop
--> incident ID + local diagnostics
+-> incident id and local diagnostics
 -> no guessed continuation
 ```
 
-The product should fail visibly and recoverably, not silently and optimistically.
+The product should fail visibly and recoverably, never silently and optimistically.

@@ -34,10 +34,14 @@ jobs:
           dotnet-version: "10.0.x"
 
       - name: Restore
-        run: dotnet restore SharedWorlds.sln
+        run: |
+          dotnet restore SharedWorlds.sln
+          dotnet restore tests/SharedWorlds.Backend.PostgreSql.Tests/SharedWorlds.Backend.PostgreSql.Tests.csproj
 
       - name: Verify formatting
-        run: dotnet format SharedWorlds.sln --verify-no-changes --no-restore
+        run: |
+          dotnet format SharedWorlds.sln --verify-no-changes --no-restore
+          dotnet format tests/SharedWorlds.Backend.PostgreSql.Tests/SharedWorlds.Backend.PostgreSql.Tests.csproj --verify-no-changes --no-restore
 
   build-test:
     name: Build and test (${{ matrix.os }})
@@ -95,3 +99,43 @@ jobs:
           path: test.log
           if-no-files-found: ignore
           retention-days: 7
+
+  postgres-integration:
+    name: PostgreSQL integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: steward
+          POSTGRES_PASSWORD: steward
+          POSTGRES_DB: steward_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U steward -d steward_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      STEWARD_TEST_POSTGRES: Host=localhost;Port=5432;Username=steward;Password=steward;Database=steward_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore PostgreSQL integration tests
+        run: dotnet restore tests/SharedWorlds.Backend.PostgreSql.Tests/SharedWorlds.Backend.PostgreSql.Tests.csproj
+
+      - name: Test PostgreSQL persistence
+        run: >-
+          dotnet test tests/SharedWorlds.Backend.PostgreSql.Tests/SharedWorlds.Backend.PostgreSql.Tests.csproj
+          --configuration Release
+          --no-restore
+          --nologo
+          --verbosity minimal

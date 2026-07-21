@@ -101,10 +101,12 @@ public sealed class SharedWorldAccessServiceTests
         var invite = await fixture.Access.CreateInvitationAsync(outsider, fixture.WorldId, target.Subject);
         var transfer = await fixture.Access.TransferAccessManagerAsync(outsider, fixture.WorldId, target.Subject);
         var remove = await fixture.Access.RemoveMemberAsync(outsider, fixture.WorldId, target.Subject);
+        var leave = await fixture.Access.LeaveWorldAsync(outsider, fixture.WorldId);
 
         Assert.Equal(CreateWorldAccessInvitationStatus.NotFoundOrUnauthorized, invite.Status);
         Assert.Equal(TransferAccessManagerStatus.NotFoundOrUnauthorized, transfer);
         Assert.Equal(RemoveWorldMemberStatus.NotFoundOrUnauthorized, remove);
+        Assert.Equal(LeaveSharedWorldStatus.NotFoundOrUnauthorized, leave);
     }
 
     [Fact]
@@ -170,17 +172,48 @@ public sealed class SharedWorldAccessServiceTests
     }
 
     [Fact]
-    public async Task ManagerCannotRemoveSelfWithoutTransferringManagement()
+    public async Task ManagerCannotRemoveOrLeaveWithoutTransferringManagement()
     {
         var fixture = await Fixture.CreateAsync();
 
-        var result = await fixture.Access.RemoveMemberAsync(
+        var remove = await fixture.Access.RemoveMemberAsync(
             fixture.Manager,
             fixture.WorldId,
             fixture.Manager.Subject);
+        var leave = await fixture.Access.LeaveWorldAsync(fixture.Manager, fixture.WorldId);
 
-        Assert.Equal(RemoveWorldMemberStatus.CannotRemoveAccessManager, result);
+        Assert.Equal(RemoveWorldMemberStatus.CannotRemoveAccessManager, remove);
+        Assert.Equal(LeaveSharedWorldStatus.MustTransferAccessManager, leave);
         Assert.NotNull(await fixture.Metadata.GetAccessibleWorldAsync(fixture.Manager, fixture.WorldId));
+    }
+
+    [Fact]
+    public async Task ActiveMemberCanLeaveWhenNoWritableResponsibilityRemains()
+    {
+        var fixture = await Fixture.CreateAsync();
+        var member = await fixture.AddMemberAsync("76561198000000002");
+
+        var result = await fixture.Access.LeaveWorldAsync(member, fixture.WorldId);
+
+        Assert.Equal(LeaveSharedWorldStatus.Left, result);
+        Assert.Null(await fixture.Store.LoadMemberAsync(fixture.WorldId, member.Subject));
+        Assert.Null(await fixture.Metadata.GetAccessibleWorldAsync(member, fixture.WorldId));
+    }
+
+    [Fact]
+    public async Task MemberCannotLeaveWhileWritableResponsibilityIsUnresolved()
+    {
+        var fixture = await Fixture.CreateAsync();
+        var member = await fixture.AddMemberAsync("76561198000000002");
+        fixture.Responsibility.MarkUnresolved(fixture.WorldId, member.Subject);
+
+        var result = await fixture.Access.LeaveWorldAsync(member, fixture.WorldId);
+
+        Assert.Equal(LeaveSharedWorldStatus.ResponsibilityUnresolved, result);
+        Assert.Equal(
+            SharedWorldMemberStatus.Active,
+            Assert.IsType<SharedWorldMember>(
+                await fixture.Store.LoadMemberAsync(fixture.WorldId, member.Subject)).Status);
     }
 
     [Fact]
@@ -220,6 +253,31 @@ public sealed class SharedWorldAccessServiceTests
             await fixture.Store.ListMembersAsync(fixture.WorldId),
             candidate => candidate.Identity == member.Subject &&
                          candidate.Status == SharedWorldMemberStatus.RevocationPending);
+    }
+
+    [Fact]
+    public async Task PendingRevocationCompletesOnlyAfterWritableResponsibilityResolves()
+    {
+        var fixture = await Fixture.CreateAsync();
+        var member = await fixture.AddMemberAsync("76561198000000002");
+        fixture.Responsibility.MarkUnresolved(fixture.WorldId, member.Subject);
+        await fixture.Access.RemoveMemberAsync(fixture.Manager, fixture.WorldId, member.Subject);
+
+        var stillBlocked = await fixture.Access.CompletePendingRevocationAsync(
+            fixture.WorldId,
+            member.Subject);
+        fixture.Responsibility.Resolve(fixture.WorldId, member.Subject);
+        var completed = await fixture.Access.CompletePendingRevocationAsync(
+            fixture.WorldId,
+            member.Subject);
+        var replay = await fixture.Access.CompletePendingRevocationAsync(
+            fixture.WorldId,
+            member.Subject);
+
+        Assert.Equal(CompletePendingRevocationStatus.StillUnresolved, stillBlocked);
+        Assert.Equal(CompletePendingRevocationStatus.Completed, completed);
+        Assert.Equal(CompletePendingRevocationStatus.NotPending, replay);
+        Assert.Null(await fixture.Store.LoadMemberAsync(fixture.WorldId, member.Subject));
     }
 
     [Fact]
@@ -315,6 +373,9 @@ public sealed class SharedWorldAccessServiceTests
 
         public void MarkUnresolved(WorldId worldId, ExternalIdentityRef identity)
             => _unresolved.Add((worldId, identity));
+
+        public void Resolve(WorldId worldId, ExternalIdentityRef identity)
+            => _unresolved.Remove((worldId, identity));
 
         public Task<bool> HasUnresolvedWritableResponsibilityAsync(
             WorldId worldId,
@@ -549,6 +610,55 @@ public sealed class SharedWorldAccessServiceTests
 
                 _members.Remove((worldId, targetIdentity));
                 return Task.FromResult(StoreMemberRevocationStatus.Revoked);
+            }
+        }
+
+        public Task<StoreLeaveMemberStatus> TryLeaveWorldAsync(
+            WorldId worldId,
+            ExternalIdentityRef identity,
+            DateTimeOffset changedAt,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_gate)
+            {
+                if (!_worlds.TryGetValue(worldId, out var world) ||
+                    !_members.TryGetValue((worldId, identity), out var member) ||
+                    member.Status != SharedWorldMemberStatus.Active)
+                {
+                    return Task.FromResult(StoreLeaveMemberStatus.TargetNotActiveMember);
+                }
+
+                if (world.AccessManager == identity)
+                {
+                    return Task.FromResult(StoreLeaveMemberStatus.IsAccessManager);
+                }
+
+                _members.Remove((worldId, identity));
+                _worlds[worldId] = world with { UpdatedAt = changedAt };
+                return Task.FromResult(StoreLeaveMemberStatus.Left);
+            }
+        }
+
+        public Task<StoreCompletePendingRevocationStatus> TryCompletePendingRevocationAsync(
+            WorldId worldId,
+            ExternalIdentityRef identity,
+            DateTimeOffset changedAt,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_gate)
+            {
+                if (!_worlds.TryGetValue(worldId, out var world) ||
+                    !_members.TryGetValue((worldId, identity), out var member) ||
+                    member.Status != SharedWorldMemberStatus.RevocationPending)
+                {
+                    return Task.FromResult(StoreCompletePendingRevocationStatus.NotPending);
+                }
+
+                _members.Remove((worldId, identity));
+                _worlds[worldId] = world with { UpdatedAt = changedAt };
+                return Task.FromResult(StoreCompletePendingRevocationStatus.Completed);
             }
         }
 

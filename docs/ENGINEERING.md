@@ -1,184 +1,222 @@
 # Engineering Standards
 
-This document defines the default engineering rules for the product. These rules are intentionally stricter than a disposable prototype because the architecture is expected to survive additional games, storage backends, platforms, and user interfaces.
+## Purpose
+
+Steward is a commercial product moving beyond prototype validation. Engineering decisions must protect user-owned game state, support additional adapters without rewriting Core, and keep the product boundary narrow.
+
+Commercial quality means conservative state handling, recoverable failure, testable contracts, maintainable code, and dependable user-facing behavior. It does not mean adding speculative subsystems.
 
 ## Dependency direction
 
-The allowed direction is:
-
 ```text
-SharedWorlds.Cli / future desktop UI   (composition root)
-    |-- references SharedWorlds.Core
-    |-- references concrete infrastructure implementations
-    `-- references selected game adapter assemblies
+SharedWorlds.Desktop / SharedWorlds.Cli / tools   (composition boundaries)
+    |-- reference SharedWorlds.Core
+    |-- reference selected infrastructure implementations
+    `-- reference selected game adapter assemblies
 
 individual game adapter -> SharedWorlds.Core
 infrastructure          -> SharedWorlds.Core
 Core                    -X-> concrete adapter
 Core                    -X-> concrete storage backend
-Core                    -X-> Steam / CurseForge / Modrinth / launcher SDK
+Core                    -X-> Steam / launcher / mod-platform SDK
 ```
 
-`SharedWorlds.Core` owns product semantics and ports. Concrete integrations depend inward on those contracts. The composition root is the only layer expected to know which concrete implementations are assembled for a runnable product.
+`SharedWorlds.Core` owns universal product semantics and ports. Concrete integrations depend inward on those contracts.
 
-These project-reference rules are enforced by `SharedWorlds.Architecture.Tests`, not only by documentation.
+Architecture tests must enforce dependency direction; documentation alone is insufficient.
 
 ## Project boundaries
 
-- `SharedWorlds.Core`: domain models, World lifecycle, revision semantics, storage/session ports, adapter contract.
-- `SharedWorlds.Infrastructure`: replaceable technical implementations such as local storage and local session coordination.
-- `SharedWorlds.GameAdapters/<Game>`: one independently compiled adapter project per game.
-- `SharedWorlds.Cli`: temporary development composition root and manual test harness.
-- `tests/*`: automated tests aligned to production project boundaries, including architecture-boundary tests.
+- `SharedWorlds.Core`: World lifecycle, state/environment relationships, session/storage/recovery contracts, typed product failures.
+- `SharedWorlds.Infrastructure`: replaceable storage, coordination, persistence, and recovery implementations.
+- `SharedWorlds.GameAdapters/<Game>`: one independently compiled adapter per game.
+- `SharedWorlds.Desktop`: commercial Windows UI, background runtime composition, and user-facing application boundary.
+- `SharedWorlds.Cli`: development and diagnostic harness, not the final product model.
+- `tools/*`: focused probes and validation utilities.
+- `tests/*`: automated tests aligned with production boundaries.
 
-A future desktop client should be a new project. It must not absorb Core responsibilities.
+The desktop may coordinate services but must not absorb Core or adapter responsibilities.
 
 ## Build policy
 
 The repository uses:
 
-- .NET 10 target framework.
-- `global.json` to define the accepted SDK line.
-- warnings as errors.
-- nullable reference types.
-- deterministic builds.
-- code-style enforcement during build.
-- centralized NuGet package versions through `Directory.Packages.props`.
-- a repository-local `NuGet.Config` that clears inherited machine-level package sources and currently restores only from `nuget.org`.
+- .NET 10 SDK policy through `global.json`;
+- nullable reference types;
+- warnings as errors;
+- deterministic builds;
+- build-time code-style enforcement;
+- centralized NuGet package versions;
+- repository-local NuGet source policy;
+- explicit persisted-data schemas and migrations.
 
-The repository-local NuGet source policy is deliberate. A developer may have unrelated global sources configured for BepInEx, private feeds, or other projects; those sources must not silently change SharedWorlds restore behavior or trigger Central Package Management source warnings. If SharedWorlds later requires another feed, add it intentionally with explicit Package Source Mapping rather than relying on a developer's global configuration.
-
-Do not disable a warning globally to make one local problem disappear. Fix the code or suppress the warning at the narrowest justified scope with an explanation.
-
-## Continuous integration
-
-CI is required to verify the repository independently of a developer workstation.
-
-Current gates:
-
-- formatting verification on Linux
-- Release build on Linux
-- Release build on Windows
-- automated tests on Linux
-- automated tests on Windows
-
-Build and test output are preserved as short-lived CI artifacts so failures can be diagnosed even when the hosted-job log UI is truncated.
-
-A change is not considered integration-ready merely because one developer machine builds it.
-
-## Dependency maintenance
-
-Package versions are centralized in `Directory.Packages.props`.
-
-Dependabot is configured to check weekly for:
-
-- NuGet dependency updates
-- .NET SDK updates tracked through repository SDK configuration
-- GitHub Actions updates
-
-Dependency update pull requests still require normal CI and review. Automated discovery of a newer version is not automatic approval to merge it.
+Do not disable a warning globally to hide a local defect. Fix the code or apply the narrowest justified suppression with an explanation.
 
 ## Dependency policy
 
-External packages are added only when they remove meaningful implementation or maintenance risk.
+Add external packages only when they remove meaningful implementation, security, or maintenance risk.
 
-Before adding a package, ask:
+Before adding one, ask:
 
-1. Is the capability already in the .NET runtime or SDK?
-2. Is the dependency maintained and appropriately licensed?
-3. Does it need to exist in Core, or can it remain inside a concrete integration project?
-4. Can its version be managed centrally?
+1. Is the capability already provided by .NET, Steam, the game, or an existing adapter dependency?
+2. Is the package actively maintained and appropriately licensed for a commercial product?
+3. Can it remain inside one adapter or infrastructure project instead of Core?
+4. Can its version and update policy be controlled centrally?
+5. Does it add runtime, security, or supply-chain surface disproportionate to its value?
 
-Game-specific dependencies belong in that game's adapter project whenever possible.
+Game-specific SDKs and parsers belong inside the relevant adapter assembly.
 
-## Testing policy
+## Continuous integration
 
-Every fixed bug should gain a regression test when practical.
+Integration-ready changes must pass independent repository validation, including as applicable:
 
-Priority order:
+- formatting verification;
+- Release builds on supported CI platforms;
+- automated tests;
+- architecture-boundary tests;
+- persistence compatibility tests;
+- adapter tests that do not require real user saves;
+- artifact/log retention sufficient to diagnose CI failure.
 
-1. Core invariants and revision semantics.
-2. Storage durability and compatibility.
-3. Architecture/dependency boundaries.
-4. Adapter parsing/discovery logic that can run without launching the game.
-5. Integration tests against real game installations where automation is safe.
-6. Manual end-to-end acceptance tests for launch/session behavior.
+A developer-machine success is not sufficient evidence.
 
-Tests must not depend on a developer's real saves or modify a real game installation.
+## Testing priority
+
+1. Current-state and one-writer invariants.
+2. Canonical commit ordering and stale-head rejection.
+3. Storage integrity and compatibility.
+4. Workspace recovery and cleanup ownership.
+5. Architecture dependency boundaries.
+6. Adapter discovery, parsing, preparation, and capture logic.
+7. Background session/process observation.
+8. Real-game acceptance tests in controlled disposable environments.
+9. Two-device handoff tests.
+
+Every fixed defect should gain a regression test where practical.
+
+Automated tests must not require or mutate a developer's real saves or live game installation.
 
 ## Filesystem safety
 
-The product handles user data, so filesystem operations are treated as trust boundaries.
+User-owned game state is a trust boundary.
 
 Rules:
 
-- Never modify an imported source save during import.
-- Prepare work in isolated directories where the adapter supports it.
-- Prefer write-to-temporary-file plus controlled publish/replace for mutable metadata.
-- Publish immutable state metadata and payload only after both are fully written.
-- Never overwrite a published environment or state revision ID.
-- Do not advance the canonical World head until the new state payload is durably stored.
-- Keep previous immutable state revisions available for recovery.
-- Validate paths received from external metadata before destructive operations.
+- Never mutate the original source during import.
+- Prefer adapter-owned isolated workspaces.
+- Validate every path before destructive use.
 - Never recursively delete an unverified user-provided path.
+- Publish immutable revision metadata and payload only after both are complete.
+- Never overwrite a published revision identity.
+- Advance the current World head only after durable storage and verification.
+- Preserve post-launch workspaces on uncertain failure.
+- Delete captured packages only with explicit adapter cleanup authority.
+- Treat backups, caches, temporary packages, canonical state, and user sources as different ownership classes.
 
-## Cancellation and async behavior
+## State transaction policy
 
-Long-running I/O and process waits must accept and propagate `CancellationToken` where the surrounding contract supports it.
+A successful session may advance the current state exactly once.
 
-Avoid sync-over-async. Do not block worker threads while waiting for a game process, network operation, or large file copy.
+```text
+capture candidate
+-> durable immutable storage
+-> verification
+-> expected-head check
+-> atomic current-head advancement
+```
+
+A failed step leaves the previous valid state authoritative.
+
+Identical state may return `Unchanged`. A stale writer must return `HeadChanged` or an equivalent controlled conflict instead of overwriting a newer state.
+
+## Async, cancellation, and process behavior
+
+Long-running I/O, network transfer, process observation, and game/server waits must propagate cancellation where contracts allow it.
+
+Avoid sync-over-async and unbounded parallelism.
+
+Cancellation after gameplay begins is not equivalent to safe completion. It must preserve recovery state rather than releasing the World as successfully committed.
+
+Adapters own the real session lifecycle. Core must not assume one PID equals one session.
+
+## Bounded resource policy
+
+Queues, caches, histories, retries, workers, transfer concurrency, logs, and recovery retention must have explicit bounds.
+
+Do not repeatedly copy, hash, serialize, tokenize, or log large World payloads in hot paths without demonstrated need.
+
+Full-install hashing is reserved for explicit verification or investigation, not ordinary play.
 
 ## Failure semantics
 
-Failures should be explicit and recoverable.
+Unknown state-handling failures stop the current operation.
 
-A failed session commit must not silently advance the canonical World head. A crash or incomplete capture should preserve the last known-good revision and surface recovery state to the caller.
+Expected product failures use typed categories so the desktop can present recovery actions without parsing exception text.
 
-Stable product failure categories should use typed exceptions rather than requiring callers to parse human-readable messages. Current examples include missing Worlds, missing revisions, adapter mismatches, World-integrity problems, and session conflicts.
+A failed capture, upload, verification, or current-head update must never become user-visible success.
 
-Do not convert an unknown state into success merely to keep the UI moving.
+A cleanup failure after successful commit becomes cleanup debt, not rollback of the valid state.
 
-## Versioned data
+## Persistence compatibility
 
-Persisted manifests and future network messages must be treated as versioned contracts.
+Persisted metadata and future network messages are versioned product contracts.
 
-- `EnvironmentManifest.SchemaVersion` is part of the compatibility boundary.
-- Additive fields should be preferred over destructive schema changes.
-- Incompatible persisted data should fail with a controlled compatibility error rather than undefined behavior.
-- Migrations belong in infrastructure/application migration code, not scattered through UI logic.
-- Durable JSON metadata uses an explicit outer envelope with stable `documentType`, `schemaVersion`, and `payload` fields.
-- The initial unwrapped format is treated as schema 0 with an explicit migration path into the current schema.
+- Prefer additive schema evolution.
+- Use explicit outer document envelopes.
+- Register safe migrations deliberately.
+- Reject unknown future versions with typed compatibility errors.
+- Never overwrite unknown data with defaults.
+- Keep migration logic in stable persistence boundaries, not UI code.
 
-## Logging and observability
+## Logging, diagnostics, and privacy
 
-The current CLI owns the top-level diagnostic boundary and writes local incident logs for operational or unexpected failures when possible. A future structured logging abstraction should remain composition-root driven and must not leak platform-specific logging into Core.
+The desktop and development tools own top-level diagnostics.
 
-Never log secrets, authentication tokens, private join tokens, or arbitrary save contents.
+Never log:
+
+- authentication tokens;
+- private join credentials;
+- arbitrary save contents;
+- personal data unnecessary for diagnosis;
+- complete environment paths when a safer redacted form is sufficient.
+
+Diagnostics remain local unless a future explicit user-controlled upload workflow is added.
 
 ## Adapter rules
 
-An adapter owns game-specific knowledge including:
+An adapter owns:
 
-- installation discovery
-- save/world discovery
-- environment inspection
-- import capture
-- environment preparation
-- state restore/capture
-- host/client launch
-- real session-end detection
+- installation and World discovery;
+- environment inspection and preparation;
+- import capture;
+- state restore and capture;
+- local/host/client launch behavior;
+- process/server observation;
+- safe shutdown and capture readiness;
+- game-specific validation.
 
-Core must never add a branch such as `if (game == "factorio")`.
+An adapter must not redefine one-writer semantics, durable commit order, recovery policy, social governance, branches, or generic merging.
+
+## Documentation policy
+
+Active documents must match the current product boundary.
+
+When a direction is abandoned:
+
+- remove it from architecture, domain, lifecycle, decisions, and roadmap documents;
+- do not leave contradictory active plans for future readers to interpret;
+- preserve only evidence that remains useful to current implementation or validation.
 
 ## Definition of done
 
-A product change is not complete until, as applicable:
+A product change is complete only when applicable evidence shows:
 
-- the relevant project boundary is respected
-- automated tests cover the invariant or failure fixed
-- architecture-boundary tests remain green
-- `dotnet build` succeeds with warnings as errors on supported CI platforms
-- `dotnet test` succeeds on supported CI platforms
-- formatting verification succeeds
-- documentation is updated when behavior or architecture changes
-- no real user save is required or modified by automated tests
+- product and architecture boundaries remain intact;
+- state-safety and recovery invariants are preserved;
+- automated tests cover the changed behavior or fixed defect;
+- architecture tests remain green;
+- build, tests, and formatting succeed;
+- real-game validation is performed when automation cannot prove the behavior;
+- documentation is updated in the same change;
+- no real user save was required or modified by automated tests;
+- the change directly supports the World handoff product rather than expanding unrelated scope.

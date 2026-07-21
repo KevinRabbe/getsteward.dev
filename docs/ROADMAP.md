@@ -98,15 +98,18 @@ The current WPF layer still contains transitional runtime composition over older
 
 ## Milestone 1: Documentation and product-boundary consistency
 
-Status: **active**.
+Status: **complete for the active documentation set**.
 
-Required outcome:
+Completed outcome:
 
-- all active documents use the same product definition;
-- Fork, branching, merge, ownership-governance, party, and public-discovery plans are removed from active architecture and roadmap documents;
+- active documents use the same product definition;
+- Fork, branching, merge, ownership-governance, party, and public-discovery plans were removed from active architecture and roadmap workflows;
 - non-negotiable rules remain the highest product authority;
-- implementation status and future work are clearly separated;
-- obsolete documents are deleted instead of left as contradictory alternatives.
+- implementation status and future work are separated;
+- obsolete sections were removed instead of left as contradictory alternatives;
+- the Factorio and Palworld documents now describe validated adapter behavior rather than prototype plans.
+
+Future product-boundary changes must update the authoritative documents in the same change.
 
 ## Milestone 2: Shared durable World state
 
@@ -280,10 +283,9 @@ Not required for the first release:
 
 ## Immediate next sequence
 
-1. Finish reconciling active documentation with the current product boundary.
-2. Define the smallest shared-storage contract needed by the existing lifecycle.
-3. Define the smallest distributed session-reservation contract.
-4. Implement and test PC A -> PC B -> PC A handoff with one real World.
-5. Repeat against the other initial adapter.
-6. Harden the background runtime and simplify the desktop around Start World / Host World.
-7. Optimize transport only after correctness is proven.
+1. Define the smallest shared-storage contract needed by the existing lifecycle.
+2. Define the smallest distributed session-reservation contract.
+3. Implement and test PC A -> PC B -> PC A handoff with one real World.
+4. Repeat against the other initial adapter.
+5. Harden the background runtime and simplify the desktop around Start World / Host World.
+6. Optimize transport only after correctness is proven.

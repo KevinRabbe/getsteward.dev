@@ -173,7 +173,7 @@ public sealed class S3CompatibleImmutableObjectStoreTests
         {
             BucketName = bucket
         });
-        foreach (var entry in response.S3Objects)
+        foreach (var entry in response.S3Objects ?? [])
         {
             await client.DeleteObjectAsync(bucket, entry.Key);
         }

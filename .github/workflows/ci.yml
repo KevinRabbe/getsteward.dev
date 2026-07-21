@@ -37,11 +37,13 @@ jobs:
         run: |
           dotnet restore SharedWorlds.sln
           dotnet restore tests/SharedWorlds.Backend.PostgreSql.Tests/SharedWorlds.Backend.PostgreSql.Tests.csproj
+          dotnet restore tests/SharedWorlds.Backend.ObjectStorage.S3.Tests/SharedWorlds.Backend.ObjectStorage.S3.Tests.csproj
 
       - name: Verify formatting
         run: |
           dotnet format SharedWorlds.sln --verify-no-changes --no-restore
           dotnet format tests/SharedWorlds.Backend.PostgreSql.Tests/SharedWorlds.Backend.PostgreSql.Tests.csproj --verify-no-changes --no-restore
+          dotnet format tests/SharedWorlds.Backend.ObjectStorage.S3.Tests/SharedWorlds.Backend.ObjectStorage.S3.Tests.csproj --verify-no-changes --no-restore
 
   build-test:
     name: Build and test (${{ matrix.os }})
@@ -139,3 +141,57 @@ jobs:
           --no-restore
           --nologo
           --verbosity minimal
+
+  s3-integration:
+    name: S3-compatible integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      STEWARD_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+      STEWARD_TEST_S3_REGION: us-east-1
+      STEWARD_TEST_S3_ACCESS_KEY: steward
+      STEWARD_TEST_S3_SECRET_KEY: steward-secret
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Start disposable S3-compatible test service
+        shell: bash
+        run: |
+          docker run --detach --rm \
+            --name steward-minio \
+            --publish 9000:9000 \
+            --env MINIO_ROOT_USER=steward \
+            --env MINIO_ROOT_PASSWORD=steward-secret \
+            quay.io/minio/minio:RELEASE.2025-07-18T21-56-31Z \
+            server /data --address :9000
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:9000/minio/health/live >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker logs steward-minio
+          exit 1
+
+      - name: Restore S3-compatible integration tests
+        run: dotnet restore tests/SharedWorlds.Backend.ObjectStorage.S3.Tests/SharedWorlds.Backend.ObjectStorage.S3.Tests.csproj
+
+      - name: Test S3-compatible direct transfer
+        run: >-
+          dotnet test tests/SharedWorlds.Backend.ObjectStorage.S3.Tests/SharedWorlds.Backend.ObjectStorage.S3.Tests.csproj
+          --configuration Release
+          --no-restore
+          --nologo
+          --verbosity minimal
+
+      - name: Stop disposable S3-compatible test service
+        if: always()
+        run: docker rm --force steward-minio || true

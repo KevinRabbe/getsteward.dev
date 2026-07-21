@@ -7,28 +7,27 @@ namespace SharedWorlds.Core.Tests.Worlds;
 public sealed class WorldLifecycleResponsibilityTrackerTests
 {
     [Fact]
-    public void ReservationAcquisitionAttemptDoesNotClaimWritableResponsibilityBeforeSuccess()
+    public void ReservationAcquisitionAttemptIsGuardedUntilLifecycleResolvesIt()
     {
         var tracker = new WorldLifecycleResponsibilityTracker();
         var worldId = WorldId.New();
 
         tracker.OnPhaseChanged(Change(worldId, WorldLifecyclePhase.AcquiringReservation));
-        var snapshot = tracker.Current;
+        var acquiring = tracker.Current;
 
-        Assert.Equal(WorldLifecycleResponsibilityKind.None, snapshot.Kind);
-        Assert.Null(snapshot.WorldId);
-        Assert.Null(snapshot.Phase);
-        Assert.True(snapshot.CanQuitWithoutGuard);
-        Assert.True(snapshot.CanSelfUpdate);
+        Assert.Equal(WorldLifecycleResponsibilityKind.ActiveLifecycle, acquiring.Kind);
+        Assert.Equal(worldId, acquiring.WorldId);
+        Assert.Equal(WorldLifecyclePhase.AcquiringReservation, acquiring.Phase);
+        Assert.False(acquiring.CanQuitWithoutGuard);
+        Assert.False(acquiring.CanSelfUpdate);
 
-        tracker.OnPhaseChanged(Change(worldId, WorldLifecyclePhase.ResolvingWorld));
-        var acquired = tracker.Current;
+        tracker.OnPhaseChanged(Change(worldId, WorldLifecyclePhase.Completed));
+        var resolved = tracker.Current;
 
-        Assert.Equal(WorldLifecycleResponsibilityKind.ActiveLifecycle, acquired.Kind);
-        Assert.Equal(worldId, acquired.WorldId);
-        Assert.Equal(WorldLifecyclePhase.ResolvingWorld, acquired.Phase);
-        Assert.False(acquired.CanQuitWithoutGuard);
-        Assert.False(acquired.CanSelfUpdate);
+        Assert.Equal(WorldLifecycleResponsibilityKind.None, resolved.Kind);
+        Assert.Null(resolved.WorldId);
+        Assert.True(resolved.CanQuitWithoutGuard);
+        Assert.True(resolved.CanSelfUpdate);
     }
 
     [Fact]

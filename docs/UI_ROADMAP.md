@@ -98,6 +98,38 @@ The details surface shows only what is operationally useful:
 - environment or recovery warning;
 - small secondary metadata such as last updated time where useful.
 
+### UI-D003: Import locally before sharing
+
+Status: **approved**.
+
+Every imported World begins as a safe local Steward World on the importing PC. Import never uploads or shares automatically.
+
+```text
+select detected World
+-> capture source safely
+-> verify local managed state
+-> World is Ready on this PC
+-> optionally Share World as a separate action
+```
+
+Rules:
+
+- Detection and import are read-only toward the original source except for creating Steward-owned copies.
+- A successful local import remains valid even when shared setup later fails.
+- The user may test the imported World before sharing it.
+- **Host World** is unavailable until shared setup succeeds.
+- Sharing requires a separate explicit **Share World** action and clear confirmation of who receives access.
+- The primary UI uses **Only on this PC** rather than forcing users to understand `LocalOnly` as technical terminology.
+- The original save is never described as moved, deleted, or replaced.
+
+Post-import presentation:
+
+```text
+Status: Only on this PC
+Primary action: Start World
+Secondary action: Share World
+```
+
 ## UI boundaries
 
 The first-release UI owns:
@@ -105,7 +137,7 @@ The first-release UI owns:
 - supported game and World discovery presentation;
 - import selection;
 - lifecycle status;
-- Start World, Host World, Join, Stop and Save, and recovery actions where supported;
+- Start World, Host World, Join, Stop and Save, Share World, and recovery actions where supported;
 - progress and failure communication;
 - tray/background visibility;
 - compact settings and diagnostics.
@@ -126,14 +158,15 @@ The UI does not own:
 
 1. **World first:** the World is the primary selectable product object.
 2. **Game-first navigation:** a game workspace contains only that game's Worlds.
-3. **Explicit intent:** Start and Host remain separate where both are supported.
-4. **Background first:** the window may disappear while Steward keeps working.
-5. **No infrastructure exposure:** primary screens hide revisions, object keys, paths, and server folders.
-6. **No false certainty:** uncertainty appears as Recovery needed, never Ready.
-7. **No theatrical waiting:** progress corresponds to real lifecycle work.
-8. **Capability driven:** actions come from generic state and adapter capabilities.
-9. **Commercial clarity:** wording explains what happened, what is safe, and what happens next.
-10. **Low interaction cost:** Steward asks only for decisions the game or product genuinely requires.
+3. **Explicit intent:** Start, Host, Join, and Share are separate where supported.
+4. **Private by default:** import creates a World only on the current PC until sharing is explicit.
+5. **Background first:** the window may disappear while Steward keeps working.
+6. **No infrastructure exposure:** primary screens hide revisions, object keys, paths, and server folders.
+7. **No false certainty:** uncertainty appears as Recovery needed, never Ready.
+8. **No theatrical waiting:** progress corresponds to real lifecycle work.
+9. **Capability driven:** actions come from generic state and adapter capabilities.
+10. **Commercial clarity:** wording explains what happened, what is safe, and what happens next.
+11. **Low interaction cost:** Steward asks only for decisions the game or product genuinely requires.
 
 ## Navigation model
 
@@ -177,6 +210,8 @@ choose installed supported game
 -> select candidate
 -> review source details only when needed
 -> Import
+-> World becomes Only on this PC
+-> optionally Share World later
 ```
 
 Duplicate native World detection is adapter-owned.
@@ -223,12 +258,27 @@ Import
 -> choose game
 -> choose detected World
 -> capture source safely
--> managed World appears Ready
+-> verify managed local state
+-> World appears Ready and Only on this PC
 ```
 
 The original source is not moved or deleted. A failed import creates no fake usable World.
 
-### UJ-03: Start World locally
+### UJ-03: Share imported World
+
+```text
+Only on this PC
+-> Share World
+-> authenticate/verify shared service
+-> choose allowed Steam identities according to backend policy
+-> upload and verify current state
+-> shared setup commits
+-> World becomes Shared and Ready
+```
+
+A failed share operation leaves the local imported World intact and usable locally.
+
+### UJ-04: Start World locally
 
 ```text
 Ready
@@ -242,7 +292,7 @@ Ready
 
 Closing the game does not mean Ready until capture, durable storage, verification, and commit complete.
 
-### UJ-04: Host World temporarily
+### UJ-05: Host World temporarily
 
 ```text
 Ready shared World
@@ -256,7 +306,7 @@ Ready shared World
 
 A client exit does not end a dedicated-server session while the server remains active.
 
-### UJ-05: Active on another device
+### UJ-06: Active on another device
 
 ```text
 Someone is playing
@@ -267,7 +317,7 @@ or
 
 No competing writable action is offered.
 
-### UJ-06: Switch host
+### UJ-07: Switch host
 
 ```text
 current host finishes and commits
@@ -278,7 +328,7 @@ current host finishes and commits
 
 No live migration language or behavior.
 
-### UJ-07: Switch game
+### UJ-08: Switch game
 
 ```text
 finish current World
@@ -289,7 +339,7 @@ finish current World
 
 The interaction is shared; the Worlds are not converted between games.
 
-### UJ-08: Recovery needed
+### UJ-09: Recovery needed
 
 ```text
 open affected World
@@ -303,8 +353,9 @@ No silent promotion, stale overwrite, or generic merge.
 
 | State | Meaning | Primary action(s) | Secondary action |
 |---|---|---|---|
-| Ready, local-only | Safe local state, not shared | Start World | Enable sharing |
-| Ready, shared | Safe current shared state | Start World; Host World | None by default |
+| Ready, only on this PC | Safe local managed state, not shared | Start World | Share World |
+| Sharing | Upload/access setup is incomplete | None | Cancel only when rollback is safe |
+| Ready, shared | Safe current shared state | Start World; Host World | Manage access where needed |
 | Preparing | State/environment is being prepared | None | Cancel only before launch when safe |
 | Running locally here | This device owns local writable session | Open | None |
 | Hosting here | This device/server owns hosted session | Open | Stop and Save when supported |
@@ -369,6 +420,8 @@ Deliverables:
 - responsive details;
 - search/sort;
 - full import workspace;
+- explicit local-first import result;
+- Share World entry point;
 - empty, loading, partial-failure, and no-install states.
 
 ### UI-3: Lifecycle binding
@@ -382,6 +435,7 @@ Deliverables:
 
 ### UI-4: Shared World states
 
+- explicit sharing flow;
 - remote head refresh;
 - active-elsewhere state;
 - Join capability handling;
@@ -409,7 +463,6 @@ Deliverables:
 ## Decisions still required before UI-0 completes
 
 - Exact flat sharing/invitation UI after backend access policy is chosen.
-- Whether local-only Worlds remain a first-release user concept or import immediately offers shared setup.
 - Exact behavior when a shared World is offline but cached locally.
 - Join behavior priority: Steam automatic, adapter connection action, or manual fallback.
 - Recovery actions safe enough for first release.

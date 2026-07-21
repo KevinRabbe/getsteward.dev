@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="../SharedWorlds.Backend/SharedWorlds.Backend.csproj" />
+    <ProjectReference Include="../SharedWorlds.Backend.PostgreSql/SharedWorlds.Backend.PostgreSql.csproj" />
+    <ProjectReference Include="../SharedWorlds.Backend.ObjectStorage.S3/SharedWorlds.Backend.ObjectStorage.S3.csproj" />
+  </ItemGroup>
+</Project>

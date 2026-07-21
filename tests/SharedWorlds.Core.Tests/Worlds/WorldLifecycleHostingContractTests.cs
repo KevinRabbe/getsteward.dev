@@ -55,6 +55,45 @@ public sealed class WorldLifecycleHostingContractTests
         Assert.Equal(1, hostFixture.Adapter.HostLaunchCount);
     }
 
+    [Fact]
+    public async Task HostedLifecycleEmitsOrderedGenericPhases()
+    {
+        using var fixture = new Fixture();
+
+        await fixture.Service.ContinueAsHostAsync(
+            fixture.World.Id,
+            fixture.Adapter,
+            fixture.Installation,
+            fixture.User);
+
+        Assert.Equal(
+            new[]
+            {
+                WorldLifecyclePhase.AcquiringReservation,
+                WorldLifecyclePhase.ResolvingWorld,
+                WorldLifecyclePhase.PreparingEnvironment,
+                WorldLifecyclePhase.DownloadingState,
+                WorldLifecyclePhase.RestoringState,
+                WorldLifecyclePhase.RegisteringRecovery,
+                WorldLifecyclePhase.StartingSession,
+                WorldLifecyclePhase.Running,
+                WorldLifecyclePhase.WaitingForSafeCapture,
+                WorldLifecyclePhase.Capturing,
+                WorldLifecyclePhase.StoringCandidate,
+                WorldLifecyclePhase.Committing,
+                WorldLifecyclePhase.Finalizing,
+                WorldLifecyclePhase.Completed
+            },
+            fixture.Observer.Changes.Select(change => change.Phase));
+
+        Assert.All(
+            fixture.Observer.Changes,
+            change => Assert.Equal(ManagedWorldSessionMode.Hosted, change.Mode));
+        Assert.All(
+            fixture.Observer.Changes,
+            change => Assert.Equal(fixture.World.Id, change.WorldId));
+    }
+
     private sealed class Fixture : IDisposable
     {
         private readonly string _rootPath;
@@ -113,7 +152,13 @@ public sealed class WorldLifecycleHostingContractTests
             RecoveryStore = new FakeRecoveryStore();
             Adapter = new FakeGameAdapter(_rootPath, manifest);
             Installation = new GameInstallation("test-install", _rootPath, "test");
-            Service = new WorldLifecycleService(Storage, Coordinator, RecoveryStore);
+            Observer = new RecordingObserver();
+            Service = new WorldLifecycleService(
+                Storage,
+                Coordinator,
+                RecoveryStore,
+                new ManagedWritableSessionGate(),
+                Observer);
         }
 
         public UserIdentity User { get; }
@@ -125,6 +170,7 @@ public sealed class WorldLifecycleHostingContractTests
         public FakeRecoveryStore RecoveryStore { get; }
         public FakeGameAdapter Adapter { get; }
         public GameInstallation Installation { get; }
+        public RecordingObserver Observer { get; }
         public WorldLifecycleService Service { get; }
 
         public void Dispose()
@@ -144,6 +190,16 @@ public sealed class WorldLifecycleHostingContractTests
             {
                 // Test cleanup is best-effort.
             }
+        }
+    }
+
+    private sealed class RecordingObserver : IWorldLifecycleObserver
+    {
+        public List<WorldLifecyclePhaseChange> Changes { get; } = new();
+
+        public void OnPhaseChanged(WorldLifecyclePhaseChange change)
+        {
+            Changes.Add(change);
         }
     }
 

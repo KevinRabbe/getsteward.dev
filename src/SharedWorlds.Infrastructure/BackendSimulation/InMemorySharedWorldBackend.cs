@@ -497,14 +497,14 @@ public sealed class InMemorySharedWorldBackend
             return;
         }
 
-        var now = _utcNow();
-        if (now - reservation.LastHeartbeatAt < UncertaintyAfter)
+        var uncertaintyAt = reservation.LastHeartbeatAt + UncertaintyAfter;
+        if (_utcNow() < uncertaintyAt)
         {
             return;
         }
 
         reservation.State = SimulatedReservationState.Uncertain;
-        reservation.BecameUncertainAt = now;
+        reservation.BecameUncertainAt = uncertaintyAt;
     }
 
     private bool TryGetAuthorizedWorld(

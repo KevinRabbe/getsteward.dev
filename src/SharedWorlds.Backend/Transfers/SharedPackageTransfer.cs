@@ -60,4 +60,27 @@ public interface ISharedPackageTransferStore
         SharedPackageTransferState nextState,
         DateTimeOffset changedAt,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a bounded oldest-first batch for background reconciliation/cleanup. Implementations
+    /// used in production must support this; narrow test doubles that never run cleanup may rely on
+    /// the default NotSupportedException implementation.
+    /// </summary>
+    Task<IReadOnlyList<SharedPackageTransferRecord>> ListByStateExpiringBeforeAsync(
+        SharedPackageTransferState state,
+        DateTimeOffset expiresAtOrBefore,
+        int limit,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This transfer store does not support cleanup queries.");
+
+    /// <summary>
+    /// Deletes only when owner and state still match, preventing cleanup from erasing a transfer that
+    /// changed authority/state after it was selected.
+    /// </summary>
+    Task<bool> TryDeleteAsync(
+        SharedPackageTransferId transferId,
+        ExternalIdentityRef expectedOwner,
+        SharedPackageTransferState expectedState,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This transfer store does not support cleanup deletion.");
 }

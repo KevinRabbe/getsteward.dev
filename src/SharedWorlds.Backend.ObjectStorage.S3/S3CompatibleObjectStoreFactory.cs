@@ -17,6 +17,13 @@ public static class S3CompatibleObjectStoreFactory
         };
         var credentials = new BasicAWSCredentials(options.AccessKeyId, options.SecretAccessKey);
         var client = new AmazonS3Client(credentials, config);
-        return new S3CompatibleImmutableObjectStore(client, options.BucketName, ownsClient: true);
+        var protocol = options.ServiceUrl.Scheme == Uri.UriSchemeHttp
+            ? Protocol.HTTP
+            : Protocol.HTTPS;
+        return new S3CompatibleImmutableObjectStore(
+            client,
+            options.BucketName,
+            protocol,
+            ownsClient: true);
     }
 }

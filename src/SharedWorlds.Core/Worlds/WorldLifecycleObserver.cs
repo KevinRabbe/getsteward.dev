@@ -35,6 +35,11 @@ public sealed record WorldLifecyclePhaseChange(
     DateTimeOffset ObservedAt,
     string? Detail = null);
 
+/// <summary>
+/// Receives non-authoritative lifecycle projections for presentation/runtime status. An observer
+/// must not own session authority, storage, capture, or commit behavior, and implementations must
+/// not allow presentation failures to escape back into the lifecycle transaction.
+/// </summary>
 public interface IWorldLifecycleObserver
 {
     void OnPhaseChanged(WorldLifecyclePhaseChange change);

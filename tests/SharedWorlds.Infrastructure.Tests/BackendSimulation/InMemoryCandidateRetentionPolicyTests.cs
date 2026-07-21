@@ -172,4 +172,50 @@ public sealed class InMemoryCandidateRetentionPolicyTests
         Assert.Equal(abandonedAt, snapshot.LastActivityAt);
         Assert.True(snapshot.CleanupEligible);
     }
+
+    [Fact]
+    public void OlderActivityCannotShortenPartialTransferRetentionWindow()
+    {
+        var policy = new InMemoryCandidateRetentionPolicy();
+        var created = new DateTimeOffset(2026, 7, 1, 0, 0, 0, TimeSpan.Zero);
+        var latestActivity = created.AddHours(20);
+        policy.Track(
+            "transfer-1",
+            SimulatedCandidateRetentionKind.PartialTransfer,
+            created);
+        Assert.True(policy.RecordActivity("transfer-1", latestActivity));
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            policy.RecordActivity("transfer-1", created.AddHours(5)));
+        var snapshot = Assert.IsType<SimulatedCandidateRetentionSnapshot>(
+            policy.GetSnapshot("transfer-1", created.AddHours(30)));
+
+        Assert.Contains("cannot move backwards", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(latestActivity, snapshot.LastActivityAt);
+        Assert.False(snapshot.CleanupEligible);
+    }
+
+    [Fact]
+    public void KindTransitionCannotMoveRetentionClockBackwards()
+    {
+        var policy = new InMemoryCandidateRetentionPolicy();
+        var created = new DateTimeOffset(2026, 7, 1, 10, 0, 0, TimeSpan.Zero);
+        policy.Track(
+            "candidate-1",
+            SimulatedCandidateRetentionKind.UnresolvedLocal,
+            created);
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            policy.ChangeKind(
+                "candidate-1",
+                SimulatedCandidateRetentionKind.ExplicitlyAbandonedLocal,
+                created.AddHours(-5)));
+        var snapshot = Assert.IsType<SimulatedCandidateRetentionSnapshot>(
+            policy.GetSnapshot("candidate-1", created.AddDays(30)));
+
+        Assert.Contains("cannot move backwards", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(SimulatedCandidateRetentionKind.UnresolvedLocal, snapshot.Kind);
+        Assert.Equal(created, snapshot.LastActivityAt);
+        Assert.False(snapshot.CleanupEligible);
+    }
 }

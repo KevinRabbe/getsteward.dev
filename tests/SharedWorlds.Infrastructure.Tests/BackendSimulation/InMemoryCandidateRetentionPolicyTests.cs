@@ -101,4 +101,75 @@ public sealed class InMemoryCandidateRetentionPolicyTests
         Assert.True(Assert.IsType<SimulatedCandidateRetentionSnapshot>(
             policy.GetSnapshot("candidate-1", now)).CleanupEligible);
     }
+
+    [Fact]
+    public void ExactInitialTrackingReplayIsIdempotent()
+    {
+        var policy = new InMemoryCandidateRetentionPolicy();
+        var created = new DateTimeOffset(2026, 7, 1, 0, 0, 0, TimeSpan.Zero);
+        policy.Track(
+            "candidate-1",
+            SimulatedCandidateRetentionKind.UnresolvedLocal,
+            created,
+            recoveryPinned: true);
+
+        policy.Track(
+            "candidate-1",
+            SimulatedCandidateRetentionKind.UnresolvedLocal,
+            created,
+            recoveryPinned: true);
+
+        var snapshot = Assert.IsType<SimulatedCandidateRetentionSnapshot>(
+            policy.GetSnapshot("candidate-1", created.AddYears(1)));
+        Assert.Equal(SimulatedCandidateRetentionKind.UnresolvedLocal, snapshot.Kind);
+        Assert.True(snapshot.RecoveryPinned);
+        Assert.False(snapshot.CleanupEligible);
+    }
+
+    [Fact]
+    public void ConflictingTrackCannotOverwriteUnresolvedCandidateRetentionState()
+    {
+        var policy = new InMemoryCandidateRetentionPolicy();
+        var created = new DateTimeOffset(2026, 7, 1, 0, 0, 0, TimeSpan.Zero);
+        policy.Track(
+            "candidate-1",
+            SimulatedCandidateRetentionKind.UnresolvedLocal,
+            created);
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            policy.Track(
+                "candidate-1",
+                SimulatedCandidateRetentionKind.CommittedTemporary,
+                created.AddHours(1)));
+        var snapshot = Assert.IsType<SimulatedCandidateRetentionSnapshot>(
+            policy.GetSnapshot("candidate-1", created.AddYears(1)));
+
+        Assert.Contains("explicit activity, pin, or kind transition", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(SimulatedCandidateRetentionKind.UnresolvedLocal, snapshot.Kind);
+        Assert.Equal(created, snapshot.LastActivityAt);
+        Assert.False(snapshot.CleanupEligible);
+    }
+
+    [Fact]
+    public void ExplicitKindTransitionRemainsAvailableAfterInitialTracking()
+    {
+        var policy = new InMemoryCandidateRetentionPolicy();
+        var created = new DateTimeOffset(2026, 7, 1, 0, 0, 0, TimeSpan.Zero);
+        var abandonedAt = created.AddDays(1);
+        policy.Track(
+            "candidate-1",
+            SimulatedCandidateRetentionKind.UnresolvedLocal,
+            created);
+
+        Assert.True(policy.ChangeKind(
+            "candidate-1",
+            SimulatedCandidateRetentionKind.ExplicitlyAbandonedLocal,
+            abandonedAt));
+
+        var snapshot = Assert.IsType<SimulatedCandidateRetentionSnapshot>(
+            policy.GetSnapshot("candidate-1", abandonedAt.AddDays(7)));
+        Assert.Equal(SimulatedCandidateRetentionKind.ExplicitlyAbandonedLocal, snapshot.Kind);
+        Assert.Equal(abandonedAt, snapshot.LastActivityAt);
+        Assert.True(snapshot.CleanupEligible);
+    }
 }

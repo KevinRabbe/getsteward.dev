@@ -17,7 +17,7 @@ It must not become a second Steam, a social platform, a permanent game-hosting f
 
 ## Planning status
 
-Status: **planning locked**.
+Status: **planning locked — BE-0 in progress**.
 
 No backend implementation, database schema, API endpoint, service scaffold, provider integration, or infrastructure deployment begins until the backend planning gate and the master planning gate are complete.
 
@@ -29,6 +29,51 @@ Allowed work during the lock:
 - data-flow and failure analysis;
 - read-only inspection of current storage and coordination implementations;
 - disposable calculations that do not create product code or infrastructure.
+
+## Approved BE-0 decisions
+
+### BE-D001: Deliberately hybrid backend
+
+Status: **approved**.
+
+Steward uses Steam for identity and game-platform functionality, while a small Steward backend owns only the persistent cross-user authority that Steam does not provide.
+
+First-release conceptual deployment:
+
+```text
+Steward desktop clients
+        |
+        | Steam authentication ticket
+        v
+small Steward API / coordination service
+        |-- one transactional relational database
+        `-- immutable object/blob storage
+```
+
+The relational database is the authority for:
+
+- World metadata;
+- flat shared access records;
+- current state/environment head pointers;
+- active session reservation;
+- session generation and starting revision;
+- compare-and-swap commit state;
+- durable recovery/coordination metadata.
+
+Object storage contains opaque immutable World/environment packages. Object storage does not decide which revision is current.
+
+Rules:
+
+- Steam remains the identity and game/platform layer rather than Steward inventing another account, friend, party, Workshop, launch, or game-server ecosystem.
+- The Steward backend does not run Factorio, Palworld, or another game server.
+- World package bytes should normally transfer directly between the desktop and object storage through short-lived authorized upload/download mechanisms rather than being proxied through the API service.
+- The transactional database owns one-writer reservation and current-head advancement; no separate reservation service is required for the first release.
+- The first release does not require Redis, Kafka, a message broker, distributed cache, microservice fleet, Kubernetes, or permanent game-server compute.
+- Database and object-storage providers remain implementation/provider decisions; the product model must remain provider-independent.
+
+Core principle:
+
+> **Use Steam for what Steam already owns. Steward owns only the missing shared-World transaction.**
 
 ## Backend product boundary
 
@@ -54,25 +99,22 @@ The backend does not need to understand:
 - permanent host ownership;
 - branches, Forks, or merges.
 
-## Architectural assumption to validate
+## Approved backend architecture
 
-Current preferred shape:
+The approved first-release logical shape is:
 
 ```text
 Steward desktop clients
         |
         v
 small Steward API / coordination service
-        |-- metadata database
-        |-- immutable object/blob storage
-        `-- session reservation state
+        |-- transactional relational database
+        `-- immutable object/blob storage
 ```
 
-The service does not run Factorio, Palworld, or another game server.
+The API authenticates and authorizes requests, issues transfer authorization, and performs coordination transactions. The database stores the small authoritative records. Object storage stores the large immutable packages.
 
-Steam-only implementations remain candidates only when real testing proves they can provide the required authentication, object size, atomic head update, reservation, retry, and recovery semantics without forcing unsafe behavior.
-
-The planning phase must make this provider decision before implementation.
+The provider choice remains open until the provider/cost planning decision. No provider is allowed to redefine the Core product model.
 
 ## Minimal backend data model
 
@@ -432,7 +474,6 @@ Only after correctness:
 
 ## Decisions still required before BE-0 completes
 
-- Hosted Steward service, Steam-only primitives, or a deliberately hybrid design.
 - API style and transport.
 - Metadata database and object-storage provider.
 - Steam authentication mechanism for the Windows desktop.

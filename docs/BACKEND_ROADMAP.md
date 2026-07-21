@@ -131,7 +131,7 @@ A normal member may:
 
 The Access Manager may additionally:
 
-- invite/add another Steam identity through the approved invitation flow;
+- create a World-access invitation for another Steam identity;
 - revoke another member's future access;
 - transfer Access Manager responsibility to another existing member;
 - stop sharing/delete the shared World according to the later deletion policy.
@@ -148,24 +148,22 @@ Access Manager status gives **no**:
 
 #### Sharing and invitation
 
-Initial sharing follows the local-first UI rule:
-
 ```text
 Only on this PC
 -> Share World
 -> choose Steam identities
 -> upload and verify current World
 -> sharer becomes Access Manager
--> invitations are created
+-> World-access invitations are created
 -> invited user accepts
 -> accepted identity becomes an active member
 ```
 
 Pending invitations do not grant package download, reservation, or commit access before acceptance.
 
-The first release does not need a role editor or permission matrix.
-
 A Steward **World-access invitation** grants persistent membership only after acceptance. This is distinct from a Steam/game **multiplayer-session invitation**, which remains owned by Steam/the game and is used to join somebody who is currently hosting.
+
+The first release does not need a role editor or permission matrix.
 
 #### Revocation
 
@@ -250,6 +248,71 @@ Core principle:
 
 > **The API controls authority. Object storage moves bytes.**
 
+### BE-D005: Heartbeat, uncertainty, and deliberate reclaim
+
+Status: **approved**.
+
+A writable shared-World reservation is not a simple expiring lock. Loss of contact means uncertainty, not proof that the old writer stopped.
+
+Initial operational timings:
+
+- heartbeat approximately every **30 seconds**;
+- transition from Active to Uncertain after approximately **2 minutes** without a valid heartbeat;
+- deliberate reclaim by another active member becomes available after approximately **15 minutes** in Uncertain.
+
+These values are tunable operational constants. The safety semantics below are not tunable shortcuts.
+
+State model:
+
+```text
+Available
+-> Active
+-> Uncertain
+```
+
+From `Uncertain`:
+
+```text
+same still-valid session generation reconnects
+-> Active
+```
+
+or:
+
+```text
+deliberate recovery/reclaim
+-> atomically invalidate old generation
+-> resolve from last committed safe state
+-> Available
+```
+
+There is deliberately **no** automatic transition:
+
+```text
+Uncertain
+-X-> timeout alone
+-X-> Available
+```
+
+Rules:
+
+- Heartbeat authority uses backend/server time rather than trusting client timestamps.
+- A heartbeat identifies the authenticated World/session generation and installation/device; it carries no game-state bytes.
+- `Uncertain` blocks acquisition by every other writer.
+- The original still-valid session generation may reconnect and resume immediately while it has not been invalidated.
+- The original holder may deliberately abandon/recover its own unresolved session without waiting for another member's reclaim grace period, provided authority checks still succeed.
+- After the uncertainty grace period, **any active World member** may deliberately reclaim. Access Manager status gives no special reclaim privilege.
+- Reclaim is an explicit recovery action, not a silent timer behavior.
+- Reclaim is one atomic authority transaction that verifies the reservation is still Uncertain, the expected generation is still current, caller authorization remains valid, and the canonical head is still compatible with the recovery action.
+- Successful reclaim invalidates the old session generation before another writer may acquire the World.
+- A late client using an invalidated generation can never commit, even when its local save appears newer.
+- A late invalidated client enters recovery with its candidate/local evidence preserved rather than deleted or promoted automatically.
+- `Continue from last safe state` means deliberately abandoning the unresolved candidate only after reservation/head authority is safely resolved; it never merges or force-overwrites state.
+
+Core principle:
+
+> **A timer may create uncertainty. A timer may never manufacture a second writer.**
+
 ## Backend product boundary
 
 The backend must answer only:
@@ -259,9 +322,9 @@ The backend must answer only:
 3. What is the latest valid environment/state head for a World?
 4. Where is the immutable package?
 5. Is a writable session reserved?
-6. May this caller acquire or complete that reservation?
+6. May this caller acquire, resume, recover, or complete that reservation?
 7. Did a candidate state store and verify successfully?
-8. May the current head advance from the caller's expected starting revision?
+8. May the current head advance from the caller's expected starting revision and still-valid session generation?
 
 The backend does not need to understand:
 
@@ -353,9 +416,11 @@ A previous revision reference supports expected-head validation and diagnostics.
 - holder identity;
 - device/installation id;
 - local or hosted mode where useful;
-- acquired/heartbeat timestamps;
-- reservation state;
-- recovery/expiry metadata.
+- acquired timestamp;
+- last valid server-observed heartbeat time;
+- reservation state: Available/Active/Uncertain/RecoveryNeeded or equivalent transactional representation;
+- uncertainty/recovery metadata;
+- generation invalidation metadata where required.
 
 ### TransferRecord
 
@@ -376,7 +441,7 @@ The approved first-release authentication contract is BE-D002.
 
 Required behavior:
 
-- obtain Steam Web API authentication ticket in the Windows desktop;
+- obtain a Steam Web API authentication ticket in the Windows desktop;
 - verify it server-side with Steam;
 - derive authenticated SteamID64 only from successful verification;
 - bootstrap short-lived Steward access credentials and a renewable installation-bound refresh session;
@@ -445,7 +510,7 @@ Required properties:
 ```text
 commit candidate revision
 where current head == expected starting revision
-and reservation == caller's active session generation
+and reservation == caller's still-valid active session generation
 ```
 
 Results must distinguish at least:
@@ -453,7 +518,7 @@ Results must distinguish at least:
 - Committed;
 - Unchanged;
 - HeadChanged/stale caller;
-- ReservationMismatch;
+- ReservationMismatch/SessionInvalidated;
 - InvalidCandidate;
 - Unauthorized.
 
@@ -465,15 +530,15 @@ Acquire requires:
 
 - active authorized membership;
 - expected current state revision;
-- no safely active writer;
+- no Active or Uncertain writer;
 - unique session generation/token;
 - durable starting state.
 
 While active:
 
-- holder heartbeats at a planned bounded interval;
-- only that session generation may commit from its starting revision;
-- other clients see active/uncertain state and cannot acquire a competing writer.
+- holder heartbeats according to BE-D005;
+- only that still-valid session generation may commit from its starting revision;
+- other clients cannot acquire a competing writer while the reservation is Active or Uncertain.
 
 Complete requires:
 
@@ -484,26 +549,16 @@ Complete requires:
 
 ### Reservation uncertainty and crash recovery
 
-A missed heartbeat must not immediately prove the game/server session ended.
+The approved first-release reservation uncertainty contract is BE-D005.
 
-```text
-Available
--> Active
--> Uncertain
--> RecoveryNeeded or deliberately Reclaimed
--> Available
-```
+Required invariants:
 
-Safety rules:
-
-- expiry moves a session to Uncertain, not directly Available;
-- no second writer starts while uncertainty is unresolved;
-- the original device may reconnect and resume/finish while its session generation remains valid;
-- after an explicit grace/recovery decision, an authorized member may start from the last committed state;
-- reclaim invalidates the old session generation;
-- a late old device cannot commit after generation invalidation or head change.
-
-Heartbeat interval, uncertainty grace period, and reclaim authority remain BE-0 decisions.
+- missed heartbeat threshold moves Active to Uncertain, never directly to Available;
+- no second writer starts while Uncertain;
+- the original valid generation may reconnect/resume;
+- deliberate reclaim atomically invalidates the old generation;
+- late invalidated generations cannot commit;
+- recovery preserves local candidates/evidence rather than silently promoting or deleting them.
 
 ## Offline behavior
 
@@ -513,10 +568,11 @@ Current safe first-release default:
 - shared Worlds may be browsed from cache while offline;
 - a new writable shared session does not start unless backend identity, current head, and reservation can be verified;
 - an active session that loses connectivity may continue running locally;
+- BE-D005 moves the remote reservation to Uncertain after sustained heartbeat loss without releasing it;
 - captured updated state is preserved locally until upload/commit succeeds or recovery resolves;
 - unresolved shared state never becomes falsely Ready.
 
-Exact active-session outage/reconnect behavior remains to be completed in BE-0 and aligned with UI-D004.
+Exact active-session outage/reconnect and post-session Waiting-to-sync behavior remains the next BE-0 decision and must align with UI-D004.
 
 ## Storage and transfer requirements
 
@@ -551,7 +607,7 @@ The first commercial backend requires:
 - rate and payload bounds;
 - replay protection for reservation/commit tokens;
 - secret management;
-- audit events for access, invitation, revocation, reservation, commit, and administrative transfer;
+- audit events for access, invitation, revocation, reservation, reclaim, commit, and administrative transfer;
 - private-by-default sharing;
 - data deletion/export obligations;
 - backup/disaster-recovery policy;
@@ -563,7 +619,7 @@ The first commercial backend needs:
 
 - health/dependency checks;
 - structured logs without save contents or secrets;
-- metrics for transfer failure, reservation uncertainty, commit conflict, and storage integrity;
+- metrics for transfer failure, reservation uncertainty, reclaim, commit conflict, and storage integrity;
 - correlation ids across client handoff phases;
 - database backup/restore testing;
 - documented object durability assumptions;
@@ -607,6 +663,7 @@ After planning unlock:
 - simulate two independent clients/processes;
 - prove expected-head and reservation invariants;
 - test idempotent retries and stale session generations;
+- test Active -> Uncertain -> reconnect/reclaim transitions;
 - avoid provider-specific behavior in Core.
 
 ### BE-2: Authentication and World metadata service
@@ -633,6 +690,9 @@ After planning unlock:
 ### BE-4: Distributed reservation and commit
 
 - acquire/heartbeat/uncertain/reclaim/complete;
+- ~30-second heartbeat and ~2-minute uncertainty operational defaults;
+- no automatic Uncertain -> Available transition;
+- deliberate reclaim after planned grace period;
 - expected-head compare-and-swap;
 - idempotent retry behavior;
 - session generation invalidation;
@@ -647,7 +707,10 @@ After planning unlock:
 - PC A receives N+2;
 - competing writer rejected;
 - interrupted transfer resumed;
-- uncertain session recovered from last committed state.
+- temporary heartbeat loss resumes the same generation;
+- deliberate reclaim invalidates an old generation;
+- late old-session commit is rejected;
+- uncertain session recovers from the last committed state.
 
 ### BE-6: Commercial hardening
 
@@ -673,10 +736,9 @@ Only after correctness:
 ## Decisions still required before BE-0 completes
 
 - Metadata database and object-storage provider.
-- Reservation heartbeat interval, uncertainty grace period, and reclaim authority.
 - First-release package size and retention limits.
 - Whether environment packages share the same transfer model as state packages.
-- Exact offline behavior during an already active shared session.
+- Exact offline behavior during an already active shared session and Waiting-to-sync completion.
 - Candidate retention after failed or stale commit.
 - Required encryption, regional storage, privacy, and deletion guarantees.
 - Initial commercial pricing/cost assumptions that constrain storage and transfer.

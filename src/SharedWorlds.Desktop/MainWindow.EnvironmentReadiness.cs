@@ -10,7 +10,7 @@ public partial class MainWindow
     private async void VerifyEnvironmentButton_Click(object sender, System.Windows.RoutedEventArgs e)
     {
         var world = _selectedWorld;
-        if (world is null)
+        if (world is null || !TryGetAdapter(world.GameAdapterId, out var adapter))
         {
             return;
         }
@@ -19,12 +19,11 @@ public partial class MainWindow
             $"Verifying the exact environment for {world.Name}...",
             async () =>
             {
-                EnsureFactorioWorld(world);
-                var installation = await GetFactorioInstallationAsync();
+                var installation = await GetGameInstallationAsync(adapter);
                 var service = new WorldEnvironmentService(_storage);
                 _environmentVerification = await service.VerifyAsync(
                     world.Id,
-                    _factorioAdapter,
+                    adapter,
                     installation);
 
                 UpdateEnvironmentReadinessUi();
@@ -39,7 +38,9 @@ public partial class MainWindow
     private async void RepairEnvironmentButton_Click(object sender, System.Windows.RoutedEventArgs e)
     {
         var world = _selectedWorld;
-        if (world is null || _environmentVerification?.CanRepairAutomatically != true)
+        if (world is null ||
+            _environmentVerification?.CanRepairAutomatically != true ||
+            !TryGetAdapter(world.GameAdapterId, out var adapter))
         {
             return;
         }
@@ -48,12 +49,11 @@ public partial class MainWindow
             $"Repairing the local environment for {world.Name}...",
             async () =>
             {
-                EnsureFactorioWorld(world);
-                var installation = await GetFactorioInstallationAsync();
+                var installation = await GetGameInstallationAsync(adapter);
                 var service = new WorldEnvironmentService(_storage);
                 var result = await service.RepairAsync(
                     world.Id,
-                    _factorioAdapter,
+                    adapter,
                     installation);
 
                 _environmentVerification = result.Verification;

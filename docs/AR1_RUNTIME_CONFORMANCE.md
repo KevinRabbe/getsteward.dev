@@ -4,7 +4,7 @@ AR-1 hardens the generic runtime contract after P0 without implementing Factorio
 
 ## Current status
 
-Status: **in progress — generic lifecycle/concurrency/state contracts implemented; desktop responsibility gating and build confirmation remain**.
+Status: **implementation complete against the generic AR-1 contract; build/test confirmation pending**.
 
 Implemented in the current AR-1 slice:
 
@@ -21,7 +21,15 @@ Implemented in the current AR-1 slice:
 - pre-launch launch failure discards controlled prepared work and does not emit `RecoveryNeeded`;
 - post-launch/session-observation or capture failure preserves the workspace and recovery record as `RecoveryPending` and emits `RecoveryNeeded`;
 - workspace cleanup failure after a successful canonical commit ends at `CleanupPending` and no longer also emits the contradictory `Completed` phase;
-- device-wide lifecycle lease releases on every normal/exception path through structured disposal.
+- device-wide lifecycle lease releases on every normal/exception path through structured disposal;
+- `WorldLifecycleResponsibilityTracker` converts lifecycle phases and durable startup-recovery records into one conservative Quit/update responsibility signal;
+- an `Active` recovery record found after restart becomes `RecoveryNeeded` rather than being treated as Ready;
+- the WPF desktop lifecycle feeds that same responsibility tracker;
+- the tray icon is present whenever Steward runs, closing the window hides it, and explicit Quit is refused while active/unresolved World responsibility remains;
+- tray status maps runtime responsibility to the approved user-facing concepts such as Running, Saving World, Recovery needed, and Action required;
+- unified startup loads durable recovery responsibility before initializing the game/World surface;
+- unified and legacy Host action gating no longer requires persistent sharing; temporary Host depends on adapter capability plus the device hosting preference only;
+- the responsibility tracker exposes `CanSelfUpdate`; the current desktop has no self-update executor yet, so there is no updater path that can bypass the gate.
 
 ## Important compatibility boundary
 
@@ -32,23 +40,21 @@ Until AR-2/AR-3 provide controlled evidence and implement the provider contract:
 - existing adapters keep their current lifecycle behavior;
 - Core does not invent host-readiness or safe-capture facts;
 - Factorio/Palworld-specific process, readiness, graceful-stop, and identity limitations stay inside those adapters;
-- UI/Core do not branch on game name.
+- no new game-name branch is added to Core or to the unified action model.
 
 The current generic lifecycle still uses the established `WaitForSessionEndAsync` behavior for adapters that have not yet opted into the structured evidence provider. AR-2/AR-3 must prove the game-specific evidence before the production lifecycle treats that evidence as authoritative.
 
-## Remaining AR-1 work
+Likewise, generic graceful-stop and safe-capture result types now exist, but `Stop and Save` must not become available for an adapter until that adapter proves the corresponding capability. This is intentionally deferred to AR-2/AR-3 rather than guessed in AR-1.
 
-- connect runtime writable responsibility/phases to desktop tray, Quit, and self-update gating;
-- preserve startup recovery scan as a prerequisite before affected Worlds can be shown Ready;
-- define the production integration point for structured launch/readiness evidence once an adapter implements it, without making missing evidence equivalent to proof that no gameplay started;
-- define the production integration point for safe hosted Stop and Save once an adapter proves graceful-stop/safe-capture capability;
-- build/test confirmation under repository warnings-as-errors/nullability rules.
+## Remaining AR-1 gate
+
+- successful build/test confirmation under the repository warnings-as-errors/nullability rules.
 
 ## Milestone boundary
 
 AR-1 does not:
 
-- add game-name branches to Core/UI;
+- add game-name branches to Core or the unified action contract;
 - claim Factorio readiness/graceful stop is proven;
 - claim Palworld readiness/graceful stop/identity portability is proven;
 - implement the remote backend;
@@ -56,4 +62,4 @@ AR-1 does not:
 - add multiple simultaneous writable sessions per device;
 - add branches/merge/save-conflict behavior.
 
-AR-1 remains complete only when the generic conformance tests are green and the runtime exposes the approved lifecycle/evidence contracts without requiring provider- or game-specific guesses.
+AR-1 may be marked green only after the implementation/test suite executes successfully. Until then, the contract implementation is complete but validation remains pending.

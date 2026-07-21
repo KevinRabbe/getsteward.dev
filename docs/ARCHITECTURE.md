@@ -1,31 +1,23 @@
 # Architecture
 
-## Core product idea
+## Product kernel
 
 The product is the **World**.
 
-A World is not merely a save file and it is not tied to one game distribution platform. It represents the reproducible playable state shared by a group:
+> **One shared World. Different Steam players. Different times. No always-on game server.**
 
-- game identity
-- game version
-- save/world state
-- mods and mod versions where available
-- configuration
-- launch requirements
-- members and permissions
-- current canonical revision
-- current host/session state
+A World is the latest valid playable state plus the environment information required to run it. Players may continue it on different devices and at different times. Steward coordinates the handoff; the game and Steam continue to handle gameplay and multiplayer behavior.
 
-The central architectural rule is:
+The central rule is:
 
 > Core knows **what** must happen. Adapters know **how a game makes it happen**.
 
-The Core must not contain game-specific branches such as `if (game == Factorio)`.
+Core must never contain game-specific branches such as `if (game == Factorio)` or `if (game == Palworld)`.
 
 ## Dependency direction
 
 ```text
-Desktop / CLI
+Desktop / background runtime / development tools
     |
     v
 World Core
@@ -36,160 +28,162 @@ World Core
     |-- Storage contracts
     |
     +--> IGameAdapter
-    |       |
     |       +--> Factorio-specific behavior
-    |       +--> 7 Days to Die-specific behavior
-    |       +--> Project Zomboid-specific behavior
+    |       +--> Palworld-specific behavior
     |       +--> future game-specific behavior
     |
     +--> IWorldStorage
-    |       +--> Local filesystem backend
-    |       +--> future Steam-backed backend
-    |       +--> future other backends
+    |       +--> local filesystem backend
+    |       +--> future shared durable backend
     |
     +--> IWorldSessionCoordinator
-            +--> future Steam lobby implementation
-            +--> future other coordination implementations
+            +--> local coordinator
+            +--> future Steam-backed coordination
 ```
 
-The Core depends only on abstractions. Concrete platform and game behavior depends inward on Core contracts.
+Concrete platform and game integrations depend inward on Core contracts. Core does not depend on a concrete game, storage provider, launcher, or Steam SDK.
 
-## Platform neutrality
+## Steam as the product platform
 
-Steam may be the primary platform used by the application for identity, distribution, storage, coordination, or networking, but Steam is **not** a requirement for supported games.
+Steam is the primary product platform for identity, distribution, game discovery, launching, friends, invitations, native multiplayer joining, Workshop content, and dedicated-server tooling where those facilities are useful.
 
-A game adapter may internally use:
+That does not make game-specific Steam behavior a Core concern. An adapter may internally use Steam, Steam Workshop, CurseForge, Modrinth, Prism, a custom launcher, filesystem conventions, registry entries, or a game-specific API. The Core only sees the adapter contract.
 
-- Steam
-- Steam Workshop
-- CurseForge
-- Modrinth
-- Prism Launcher
-- another launcher
-- a game-specific API
-- filesystem conventions
-- registry entries
-- manual user-selected paths
+The product boundary is:
 
-The Core does not need to know which source is used.
+> Steam handles games and players. Steward handles continuity of the shared World.
 
-This permits a future Minecraft adapter, for example, to use CurseForge or Modrinth internally while participating in the exact same World lifecycle as Factorio.
+## World Core
 
-## Major boundaries
+Core owns the universal transaction:
 
-### World Core
+```text
+load latest valid state
+-> reserve one writable session
+-> prepare environment through adapter
+-> restore state through adapter
+-> launch local play or temporary hosting
+-> wait for adapter-observed session completion
+-> capture updated state
+-> durably store and verify it
+-> advance the current state last
+-> release the World for the next player
+```
 
-Owns universal behavior:
+Core also owns:
 
-- creating/importing Worlds
-- environment and state revision relationships
-- canonical World head
-- Continue workflow
-- future Fork, Sandbox, Restore, and host handoff workflows
-- calling adapters through `IGameAdapter`
-- calling durable storage through `IWorldStorage`
-- calling live coordination through `IWorldSessionCoordinator`
+- the one-active-writer invariant;
+- immutable environment and state revisions;
+- the mutable current-World head;
+- conservative commit ordering;
+- recovery state and typed failure boundaries;
+- calls to storage and session coordination abstractions.
 
-It must not know save locations, executable paths, mod layouts, launcher behavior, or game-specific command-line arguments.
+Core does not own save paths, executable paths, process names, mod layouts, shutdown commands, file-stabilization rules, or game-specific connection behavior.
 
-### Game adapters
+## Game adapters
 
-Own all game-specific knowledge.
+An adapter owns all game-specific knowledge required to complete the handoff:
 
-An adapter is responsible for:
+- installation and World discovery;
+- environment inspection and preparation;
+- state import, restore, capture, and validation;
+- local launch and temporary host launch;
+- relevant game, launcher, client, child-process, or server observation;
+- safe shutdown behavior;
+- determination of when capture is safe;
+- optional native join behavior.
 
-- locating installations
-- locating existing saves/worlds
-- inspecting the relevant environment
-- preparing the required environment
-- importing/capturing game state
-- restoring game state
-- launching a host
-- launching a client
-- detecting when the relevant game session has actually ended
+Adapters may be internally complicated. That complexity must remain isolated from Core.
 
-Adapters may be internally complicated. That complexity must remain isolated from the Core.
+## Background runtime
 
-### Storage
+Steward is background-first, not launcher-only.
+
+After the user starts or hosts a World, Steward remains responsible for:
+
+- observing the adapter-defined session;
+- keeping the World unavailable to competing writable Steward sessions;
+- waiting for a safe capture point;
+- capturing, storing, verifying, and committing the result;
+- preserving recovery evidence when completion is uncertain.
+
+The visible application may minimize or become quiet, but the lifecycle remains active until the handoff succeeds or enters a recoverable failure state.
+
+## Durable storage
 
 `IWorldStorage` is the durable persistence boundary.
 
-The current implementation is local filesystem storage. A future Steam-backed implementation can be added without changing World Core semantics.
+It stores:
 
-Storage is responsible for durable World metadata and revision packages. Storage is not the same thing as live session coordination.
+- World metadata;
+- immutable environment revisions;
+- immutable state revision metadata;
+- opaque state payloads.
 
-### Session coordination
+Storage does not determine whether a session is active. Durable state and transient coordination are separate concerns.
 
-`IWorldSessionCoordinator` represents transient shared-session state such as:
+The current implementation is local filesystem storage. The next product layer requires a shared durable implementation that allows another trusted Steam user or device to retrieve the latest state.
 
-- who currently owns the canonical host role
-- whether a World is available or hosting
-- host handoff requests
+## Session coordination
 
-A Steam lobby is one possible implementation. The Core does not depend directly on Steam lobbies.
+`IWorldSessionCoordinator` protects the one-active-writer rule.
+
+It answers only the operational questions Steward needs:
+
+- Is the World available?
+- Has one writable session been reserved?
+- Which session/device currently holds that reservation?
+- May the current state advance?
+- Has the reservation been released or moved into recovery?
+
+It is not a social, ownership, party, or governance model.
 
 ## Revisions
 
-Environment and state are versioned separately.
+Environment and state are versioned independently:
 
 ```text
 World = Environment E7 + State S143
 ```
 
-Normal play can advance only state:
+Normal play usually advances only state:
 
 ```text
 E7 + S143 -> E7 + S144
 ```
 
-Changing mods, game version, or relevant configuration can create a new environment revision:
+A relevant game, mod, or configuration change may create a new environment revision:
 
 ```text
 E7 -> E8
 ```
 
-This separation avoids duplicating an entire environment revision for every save update.
+Revisions are immutable after publication. The mutable value is the World pointer to the current valid revision.
 
-## Canonical host model
+Revision history exists for integrity, recovery, diagnostics, compatibility, and safe commit ordering. Steward is not a Git-style branching or generic save-merging product.
 
-Only one canonical host may advance the canonical World at a time.
+## Host switching
 
-If nobody is playing, the World is available. The first member who starts canonical play becomes the host. Other members join that host instead of creating conflicting canonical branches.
-
-Independent experimentation belongs in a Sandbox or Fork, not in a second canonical host session.
-
-## Host handoff
-
-Host handoff is intentionally a controlled restart, not live process migration:
+A host switch happens between sessions:
 
 ```text
-request handoff
--> current host saves
--> current session closes
--> latest state is captured and committed
--> new host restores latest state
--> new host launches
--> other members join new host
+current host finishes
+-> adapter observes safe session end
+-> updated state is captured and committed
+-> another device restores the latest state
+-> another temporary host starts
 ```
 
-This is much simpler and more reliable than trying to migrate a live game process.
-
-## Environment fingerprinting
-
-`EnvironmentManifest` is authoritative.
-
-`EnvironmentFingerprint` is only a temporary/cached comparison aid computed from a canonicalized manifest. It must not be treated as proof that every file in a game installation is intact.
-
-The system should not routinely hash entire game installations. Deep file hashing is reserved for explicit verification, repair, corruption investigation, or first-import integrity checks where justified.
+There is no live game-process migration.
 
 ## Architecture philosophy
 
-The project follows these principles:
-
-1. Build a narrow implementation of the final architecture, not a broad disposable prototype.
-2. Keep the Core boring and stable.
+1. Build the smallest system that creates the complete product effect.
+2. Keep Core stable, conservative, and game-agnostic.
 3. Push game-specific complexity into adapters.
-4. Delegate work to legitimate existing infrastructure whenever possible.
-5. Avoid owning infrastructure when a replaceable external service can provide it.
-6. Never let one strange game contaminate the universal World model.
-7. Prefer explicit contracts over hidden assumptions.
+4. Reuse Steam, games, dedicated servers, launchers, and mod ecosystems instead of rebuilding them.
+5. Generalize only after multiple real adapters prove a recurring pattern.
+6. Preserve the last valid World state on uncertainty.
+7. Complete the full handoff; launching alone is not success.
+8. Remove obsolete product concepts rather than allowing parallel architectures to accumulate.

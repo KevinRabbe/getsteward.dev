@@ -69,4 +69,34 @@ public sealed class InMemoryCanonicalRetentionPolicyTests
 
         Assert.False(policy.PinState("world-1", "missing"));
     }
+
+    [Fact]
+    public void SameImmutableStateEnvironmentMappingIsIdempotent()
+    {
+        var policy = new InMemoryCanonicalRetentionPolicy();
+        policy.RecordCanonicalState("world-1", "S0", "E0");
+
+        policy.RecordCanonicalState("world-1", "S0", "E0");
+        var snapshot = policy.GetSnapshot("world-1");
+
+        Assert.Equal("S0", snapshot.CurrentStateRevisionId);
+        Assert.Equal(new[] { "S0" }, snapshot.RetainedStateRevisionIds);
+        Assert.Equal(new[] { "E0" }, snapshot.RetainedEnvironmentRevisionIds);
+    }
+
+    [Fact]
+    public void ReusingImmutableStateWithDifferentEnvironmentIsRejectedWithoutMutation()
+    {
+        var policy = new InMemoryCanonicalRetentionPolicy();
+        policy.RecordCanonicalState("world-1", "S0", "E0");
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            policy.RecordCanonicalState("world-1", "S0", "E-other"));
+        var snapshot = policy.GetSnapshot("world-1");
+
+        Assert.Contains("different environment revision", exception.Message, StringComparison.Ordinal);
+        Assert.Equal("S0", snapshot.CurrentStateRevisionId);
+        Assert.Equal(new[] { "S0" }, snapshot.RetainedStateRevisionIds);
+        Assert.Equal(new[] { "E0" }, snapshot.RetainedEnvironmentRevisionIds);
+    }
 }

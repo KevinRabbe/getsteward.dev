@@ -22,7 +22,6 @@ public partial class MainWindow
     private readonly GameIconResolver _gameIconResolver = new();
     private readonly Dictionary<string, GamePresentation> _gamePresentationCache =
         new(StringComparer.Ordinal);
-
     private bool _unifiedGameUiInitialized;
 
     internal async void InitializeUnifiedGameUi()
@@ -36,25 +35,18 @@ public partial class MainWindow
 
         RefreshButton.Click -= RefreshButton_Click;
         RefreshButton.Click += UnifiedRefreshButton_Click;
-
         OpenImportButton.Click -= OpenImportButton_Click;
         OpenImportButton.Click += UnifiedOpenImportButton_Click;
-
         ScanImportsButton.Click -= ScanImportsButton_Click;
         ScanImportsButton.Click += UnifiedScanImportsButton_Click;
-
         ImportSelectedButton.Click -= ImportSelectedButton_Click;
         ImportSelectedButton.Click += UnifiedImportSelectedButton_Click;
-
         ImportCandidateComboBox.SelectionChanged -= ImportCandidateComboBox_SelectionChanged;
         ImportCandidateComboBox.SelectionChanged += UnifiedImportCandidateComboBox_SelectionChanged;
-
         ContinueButton.Click -= ContinueButton_Click;
         ContinueButton.Click += UnifiedContinueButton_Click;
-
         HostButton.Click -= HostButton_Click;
         HostButton.Click += UnifiedHostButton_Click;
-
         ShareButton.Click -= ShareButton_Click;
         ShareButton.Click += UnifiedShareButton_Click;
 
@@ -137,7 +129,6 @@ public partial class MainWindow
         _selectedWorld = selected.World;
         EmptyStateText.Visibility = Visibility.Collapsed;
         WorldDetailsPanel.Visibility = Visibility.Visible;
-
         WorldNameText.Text = selected.World.Name;
         GameText.Text = selected.GameName;
         SharingText.Text = FormatSharingMode(selected.World.SharingMode);
@@ -145,7 +136,6 @@ public partial class MainWindow
         WorldIdText.Text = selected.World.Id.ToString();
         EnvironmentRevisionText.Text = selected.World.CurrentEnvironmentRevisionId?.ToString() ?? "none";
         StateRevisionText.Text = selected.World.CurrentStateRevisionId?.ToString() ?? "none";
-
         UpdateUnifiedActionState();
     }
 
@@ -258,7 +248,7 @@ public partial class MainWindow
             var candidates = new List<UnifiedImportCandidate>();
             var installedGameCount = 0;
 
-            foreach (var adapter in _registeredGameAdapters.Values.OrderBy(adapter => adapter.DisplayName))
+            foreach (var adapter in _registeredGameAdapters.Values.OrderBy(value => value.DisplayName))
             {
                 var installations = await adapter.DiscoverInstallationsAsync();
                 if (installations.Count > 0)
@@ -471,18 +461,30 @@ public partial class MainWindow
     }
 
     private bool TryGetAdapter(string adapterId, out IGameAdapter adapter)
-        => _registeredGameAdapters.TryGetValue(adapterId, out adapter!);
+    {
+        if (_registeredGameAdapters.TryGetValue(adapterId, out var registered))
+        {
+            adapter = registered;
+            return true;
+        }
+
+        adapter = null!;
+        return false;
+    }
 
     private void UpdateUnifiedActionState()
     {
         var world = _selectedWorld;
-        var hasAdapter = world is not null && TryGetAdapter(world.GameAdapterId, out var adapter);
-        var canContinue = hasAdapter &&
-                          adapter!.Capabilities.HasFlag(
-                              GameAdapterCapabilities.AutomaticLocalLaunch);
-        var canHost = hasAdapter &&
-                      adapter!.Capabilities.HasFlag(
-                          GameAdapterCapabilities.AutomaticHostLaunch);
+        IGameAdapter? adapter = null;
+        if (world is not null)
+        {
+            _registeredGameAdapters.TryGetValue(world.GameAdapterId, out adapter);
+        }
+
+        var canContinue = adapter?.Capabilities.HasFlag(
+            GameAdapterCapabilities.AutomaticLocalLaunch) == true;
+        var canHost = adapter?.Capabilities.HasFlag(
+            GameAdapterCapabilities.AutomaticHostLaunch) == true;
 
         ContinueButton.Visibility = Visibility.Visible;
         HostButton.Visibility = Visibility.Visible;
@@ -520,28 +522,20 @@ public partial class MainWindow
 
     private static DataTemplate CreateImportCandidateTemplate()
     {
-        var root = new FrameworkElementFactory(typeof(Grid));
+        var root = new FrameworkElementFactory(typeof(DockPanel));
         root.SetValue(FrameworkElement.MarginProperty, new Thickness(2, 4, 2, 4));
-
-        var columns = new ColumnDefinitionCollection
-        {
-            new() { Width = new GridLength(36) },
-            new() { Width = new GridLength(1, GridUnitType.Star) }
-        };
-        root.SetValue(Grid.ColumnDefinitionsProperty, columns);
+        root.SetValue(DockPanel.LastChildFillProperty, true);
 
         var icon = new FrameworkElementFactory(typeof(Image));
         icon.SetValue(FrameworkElement.WidthProperty, 28d);
         icon.SetValue(FrameworkElement.HeightProperty, 28d);
         icon.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 0, 8, 0));
         icon.SetValue(Image.StretchProperty, Stretch.Uniform);
+        icon.SetValue(DockPanel.DockProperty, Dock.Left);
         icon.SetBinding(Image.SourceProperty, new Binding(nameof(UnifiedImportCandidate.GameIconPath)));
-        Grid.SetColumn(icon, 0);
         root.AppendChild(icon);
 
         var text = new FrameworkElementFactory(typeof(StackPanel));
-        Grid.SetColumn(text, 1);
-
         var name = new FrameworkElementFactory(typeof(TextBlock));
         name.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
         name.SetBinding(TextBlock.TextProperty, new Binding(nameof(UnifiedImportCandidate.Name)));
@@ -551,39 +545,29 @@ public partial class MainWindow
         subtitle.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 2, 0, 0));
         subtitle.SetValue(TextBlock.FontSizeProperty, 11d);
         subtitle.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
-        subtitle.SetResourceReference(TextBlock.ForegroundProperty, "MutedTextBrush");
-        subtitle.SetBinding(
-            TextBlock.TextProperty,
-            new Binding(nameof(UnifiedImportCandidate.Subtitle)));
+        subtitle.SetValue(UIElement.OpacityProperty, 0.72d);
+        subtitle.SetBinding(TextBlock.TextProperty, new Binding(nameof(UnifiedImportCandidate.Subtitle)));
         text.AppendChild(subtitle);
-
         root.AppendChild(text);
+
         return new DataTemplate { VisualTree = root };
     }
 
     private static DataTemplate CreateWorldItemTemplate()
     {
-        var root = new FrameworkElementFactory(typeof(Grid));
-
-        var columns = new ColumnDefinitionCollection
-        {
-            new() { Width = new GridLength(48) },
-            new() { Width = new GridLength(1, GridUnitType.Star) }
-        };
-        root.SetValue(Grid.ColumnDefinitionsProperty, columns);
+        var root = new FrameworkElementFactory(typeof(DockPanel));
+        root.SetValue(DockPanel.LastChildFillProperty, true);
 
         var icon = new FrameworkElementFactory(typeof(Image));
         icon.SetValue(FrameworkElement.WidthProperty, 40d);
         icon.SetValue(FrameworkElement.HeightProperty, 40d);
         icon.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 0, 8, 0));
         icon.SetValue(Image.StretchProperty, Stretch.Uniform);
+        icon.SetValue(DockPanel.DockProperty, Dock.Left);
         icon.SetBinding(Image.SourceProperty, new Binding(nameof(UnifiedWorldListItem.GameIconPath)));
-        Grid.SetColumn(icon, 0);
         root.AppendChild(icon);
 
         var text = new FrameworkElementFactory(typeof(StackPanel));
-        Grid.SetColumn(text, 1);
-
         var name = new FrameworkElementFactory(typeof(TextBlock));
         name.SetValue(TextBlock.FontSizeProperty, 15d);
         name.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
@@ -594,21 +578,19 @@ public partial class MainWindow
         subtitle.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 5, 0, 0));
         subtitle.SetValue(TextBlock.FontSizeProperty, 12d);
         subtitle.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
-        subtitle.SetResourceReference(TextBlock.ForegroundProperty, "MutedTextBrush");
-        subtitle.SetBinding(
-            TextBlock.TextProperty,
-            new Binding(nameof(UnifiedWorldListItem.Subtitle)));
+        subtitle.SetValue(UIElement.OpacityProperty, 0.72d);
+        subtitle.SetBinding(TextBlock.TextProperty, new Binding(nameof(UnifiedWorldListItem.Subtitle)));
         text.AppendChild(subtitle);
-
         root.AppendChild(text);
+
         return new DataTemplate { VisualTree = root };
     }
 
     private static GroupStyle CreateGameGroupStyle()
     {
-        var root = new FrameworkElementFactory(typeof(DockPanel));
+        var root = new FrameworkElementFactory(typeof(StackPanel));
+        root.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
         root.SetValue(FrameworkElement.MarginProperty, new Thickness(2, 16, 2, 8));
-        root.SetValue(DockPanel.LastChildFillProperty, false);
 
         var icon = new FrameworkElementFactory(typeof(Image));
         icon.SetValue(FrameworkElement.WidthProperty, 24d);
@@ -616,7 +598,6 @@ public partial class MainWindow
         icon.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 0, 8, 0));
         icon.SetValue(Image.StretchProperty, Stretch.Uniform);
         icon.SetBinding(Image.SourceProperty, new Binding("Items[0].GameIconPath"));
-        DockPanel.SetDock(icon, Dock.Left);
         root.AppendChild(icon);
 
         var name = new FrameworkElementFactory(typeof(TextBlock));
@@ -624,18 +605,16 @@ public partial class MainWindow
         name.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
         name.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
         name.SetBinding(TextBlock.TextProperty, new Binding("Name"));
-        DockPanel.SetDock(name, Dock.Left);
         root.AppendChild(name);
 
         var count = new FrameworkElementFactory(typeof(TextBlock));
         count.SetValue(FrameworkElement.MarginProperty, new Thickness(8, 0, 0, 0));
         count.SetValue(TextBlock.FontSizeProperty, 11d);
         count.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
-        count.SetResourceReference(TextBlock.ForegroundProperty, "MutedTextBrush");
+        count.SetValue(UIElement.OpacityProperty, 0.72d);
         count.SetBinding(
             TextBlock.TextProperty,
             new Binding("ItemCount") { StringFormat = "{0} Worlds" });
-        DockPanel.SetDock(count, Dock.Left);
         root.AppendChild(count);
 
         return new GroupStyle

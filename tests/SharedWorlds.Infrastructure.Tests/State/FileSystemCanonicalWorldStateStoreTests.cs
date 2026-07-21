@@ -18,16 +18,16 @@ public sealed class FileSystemCanonicalWorldStateStoreTests
             "world-1",
             expectedHeadRevisionId: null,
             CreateCapturedState(sourcePath, deleteAfterStore: true));
+        var head = Assert.IsType<CanonicalWorldStateHead>(result.Head);
 
         Assert.Equal(CanonicalWorldStateCommitStatus.Committed, result.Status);
         Assert.True(result.AdvancedHead);
-        Assert.NotNull(result.Head);
-        Assert.True(File.Exists(result.Head.PackagePath));
-        Assert.Equal("first-state", await File.ReadAllTextAsync(result.Head.PackagePath));
+        Assert.True(File.Exists(head.PackagePath));
+        Assert.Equal("first-state", await File.ReadAllTextAsync(head.PackagePath));
         Assert.False(File.Exists(sourcePath));
 
         var persistedHead = await coordinator.ReadHeadAsync("world-1");
-        Assert.Equal(result.Head, persistedHead);
+        Assert.Equal(head, persistedHead);
     }
 
     [Fact]
@@ -40,6 +40,7 @@ public sealed class FileSystemCanonicalWorldStateStoreTests
             "world-1",
             expectedHeadRevisionId: null,
             CreateCapturedState(firstSource, deleteAfterStore: true));
+        var firstHead = Assert.IsType<CanonicalWorldStateHead>(first.Head);
         var staleCandidate = await fixture.CreatePackageAsync("stale-state");
 
         var result = await coordinator.CommitAsync(
@@ -49,11 +50,11 @@ public sealed class FileSystemCanonicalWorldStateStoreTests
 
         Assert.Equal(CanonicalWorldStateCommitStatus.HeadChanged, result.Status);
         Assert.False(result.Succeeded);
-        Assert.Equal(first.Head?.RevisionId, result.ObservedHeadRevisionId);
+        Assert.Equal(firstHead.RevisionId, result.ObservedHeadRevisionId);
         Assert.True(File.Exists(staleCandidate));
 
         var persistedHead = await coordinator.ReadHeadAsync("world-1");
-        Assert.Equal(first.Head, persistedHead);
+        Assert.Equal(firstHead, persistedHead);
     }
 
     [Fact]
@@ -66,17 +67,18 @@ public sealed class FileSystemCanonicalWorldStateStoreTests
             "world-1",
             expectedHeadRevisionId: null,
             CreateCapturedState(firstSource, deleteAfterStore: true));
+        var firstHead = Assert.IsType<CanonicalWorldStateHead>(first.Head);
         var duplicateSource = await fixture.CreatePackageAsync("same-state");
 
         var duplicate = await coordinator.CommitAsync(
             "world-1",
-            first.Head?.RevisionId,
+            firstHead.RevisionId,
             CreateCapturedState(duplicateSource, deleteAfterStore: true));
 
         Assert.Equal(CanonicalWorldStateCommitStatus.Unchanged, duplicate.Status);
         Assert.True(duplicate.Succeeded);
         Assert.False(duplicate.AdvancedHead);
-        Assert.Equal(first.Head, duplicate.Head);
+        Assert.Equal(firstHead, duplicate.Head);
         Assert.False(File.Exists(duplicateSource));
     }
 
@@ -90,16 +92,17 @@ public sealed class FileSystemCanonicalWorldStateStoreTests
             "world-1",
             expectedHeadRevisionId: null,
             CreateCapturedState(firstSource, deleteAfterStore: true));
+        var firstHead = Assert.IsType<CanonicalWorldStateHead>(first.Head);
         var missingPath = Path.Combine(fixture.RootPath, "missing.zip");
 
         await Assert.ThrowsAsync<FileNotFoundException>(() => coordinator.CommitAsync(
             "world-1",
-            first.Head?.RevisionId,
+            firstHead.RevisionId,
             CreateCapturedState(missingPath, deleteAfterStore: true)));
 
         var persistedHead = await coordinator.ReadHeadAsync("world-1");
-        Assert.Equal(first.Head, persistedHead);
-        Assert.True(File.Exists(first.Head?.PackagePath));
+        Assert.Equal(firstHead, persistedHead);
+        Assert.True(File.Exists(firstHead.PackagePath));
     }
 
     private static CapturedState CreateCapturedState(string path, bool deleteAfterStore)

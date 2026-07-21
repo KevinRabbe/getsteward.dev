@@ -1,83 +1,100 @@
 # UI-0 Sign-off Checklist
 
-This is the final UI planning checkpoint. It preserves the approved UI-D001
-through UI-D006 decisions and records defaults for the remaining UI-0 choices.
-It does not lift the master planning lock.
+This is the final UI planning checkpoint for the first commercial release.
 
-## Proposed remaining decisions
+Status: **UI-0 approved. Master planning lock remains active.**
 
-### UI-D007: Flat World access flow
+The authoritative UI decisions are UI-D001 through UI-D009 in `UI_ROADMAP.md`.
 
-The first release uses one explicit **Share World** flow:
+## Approved decision mapping
 
-```text
-Only on this PC
--> Share World
--> verify Steam identity/service
--> upload and verify initial state
--> Access Manager
--> invite Steam identities
--> pending/accepted/revoked membership
--> Ready, shared
-```
+| Decision | Approved meaning |
+|---|---|
+| UI-D001 | Explicit Start World, Host World, and capability-driven Join |
+| UI-D002 | Responsive Games -> Worlds master-detail workspace |
+| UI-D003 | Import local-first; temporary Host is independent of persistent sharing |
+| UI-D004 | Shared authority must be verified before a new writer; active session may continue through outage |
+| UI-D005 | One generic Join action with automatic or guided-manual adapter capability |
+| UI-D006 | Evidence-driven recovery with Retry recovery, Export recovery copy, and Continue from last safe state when safe |
+| UI-D007 | Tray is present whenever the Steward user-session process is running |
+| UI-D008 | Fixed first-release terminology |
+| UI-D009 | Flat Share World / Manage access surface with one Access Manager |
 
-The Access Manager shows only the minimum useful information: member display
-name, membership state, invitation action, revoke action, and whether sharing
-setup is still processing. It has no roles, ownership hierarchy, gameplay
-permissions, public discovery, or multiplayer-session invitation controls.
+## Final terminology
 
-World-access invitations authorize durable Steward membership. Steam/game
-multiplayer invitations remain outside this surface.
+### Actions
 
-### UI-D008: Tray visibility
+- **Start World**
+- **Host World**
+- **Join**
+- **Share World**
+- **Manage access**
+- **Stop and Save**
+- **Retry connection**
+- **Retry sharing**
+- **Retry recovery**
+- **Export recovery copy**
+- **Continue from last safe state**
+- **Open Steward**
+- **Quit Steward**
 
-The tray/status surface is present while active lifecycle work, unresolved
-recovery evidence, or an unsynchronized candidate exists. When Steward is idle,
-the main window may be the only visible surface. Closing the window during active
-work minimizes to the background process and does not abandon the lifecycle.
-
-Explicit Quit is guarded while a writable lifecycle or unresolved candidate
-exists. Updates wait until no active or unresolved writable lifecycle remains.
-
-### UI-D009: Final terminology
-
-Use these first-release user-facing terms consistently:
+### States
 
 | Meaning | UI term |
 |---|---|
 | local managed World not shared | `Only on this PC` |
-| verified shared World available | `Ready, shared` |
+| World safe to begin a session | `Ready` |
+| persistent Steward sharing active | `Shared` |
+| initial shared setup incomplete | `Sharing` |
 | shared authority cannot be verified before start | `Connection required` |
 | lifecycle is preparing | `Preparing` |
-| local writable session | `Running locally here` |
-| hosted writable session | `Hosting here` |
-| remote host is starting | `Host starting elsewhere` |
-| remote host is ready | `Active elsewhere` |
-| capture/store/commit is in progress | `Saving` |
+| local writable session active here | `Running` |
+| hosted writable session active here | `Hosting` |
+| remote host owns the session but is not ready | `Host is starting` |
+| another device owns the active writable session | `Someone is playing` |
+| capture/store/verify/commit incomplete | `Saving World` |
 | candidate preserved while remote handoff is unresolved | `Waiting to sync` |
-| required capability/environment is unavailable | `Blocked` |
-| handoff authority or evidence is unresolved | `Recovery needed` |
+| environment/capability/identity issue requires intervention | `Action required` |
+| handoff authority/evidence is unresolved | `Recovery needed` |
 
-Actions remain `Start World`, `Host World`, `Join`, `Stop and Save`, `Share
-World`, `Retry recovery`, `Export recovery copy`, and `Continue from last safe
-state` when safe.
+Internal state names do not replace these terms.
+
+## Tray contract
+
+- whenever the Steward process is running, its tray icon is visible;
+- closing the main window hides the window and leaves Steward running;
+- ordinary Quit is available only when no active/unresolved World responsibility would be abandoned;
+- Running, Hosting, Saving World, Waiting to sync, and active recovery remain visible through the tray/background lifecycle;
+- application updates wait until no active or unresolved writable lifecycle remains.
+
+## Sharing/access contract
+
+- Import never shares automatically.
+- `Only on this PC` may Start World and may Host World when the adapter/runtime supports temporary hosting.
+- Share World is a separate explicit operation.
+- Sharer becomes the sole Access Manager after shared setup succeeds.
+- World-access invitation is distinct from Steam/game multiplayer-session invitation.
+- Pending invitations grant no package/reservation/commit access.
+- Membership is flat; there are no gameplay roles.
+- Access Manager may add/remove members and atomically transfer access management.
+- Revocation of an active writer remains pending until the responsibility resolves safely.
 
 ## UI-0 acceptance checks
 
 1. Import produces `Only on this PC` and never silently shares.
-2. Share World preserves local usability if sharing fails.
-3. Access Manager distinguishes World-access invitations from multiplayer
-   invitations.
-4. Ready shared actions match backend verification and adapter capabilities.
-5. Connection required disables new writable and Join actions as specified.
-6. Active elsewhere exposes Join only after host readiness and capability proof.
-7. Waiting to sync preserves the candidate and does not show Ready.
-8. Recovery needed exposes only proven-safe recovery actions.
+2. A local-only World may Host when the adapter/runtime supports temporary hosting.
+3. Failed sharing preserves local usability.
+4. World-access invitations remain separate from multiplayer invitations.
+5. `Connection required` disables new writable and Join actions.
+6. `Someone is playing` exposes Join only after host readiness and capability proof.
+7. `Waiting to sync` preserves the candidate and never presents Ready prematurely.
+8. `Recovery needed` exposes only proven-safe recovery actions.
 9. Tray/close/update behavior matches AR-0.
-10. Every term in the table maps to one backend/runtime meaning.
+10. Every UI term maps to exactly one backend/runtime meaning in `CROSS_WORKSTREAM_CONTRACT.md`.
+11. No screen depends on branches, merging, ownership hierarchy, gameplay roles, or permanent Steward game-server infrastructure.
 
 ## UI-0 gate
 
-UI-0 is ready for product approval when UI-D007 through UI-D009 are accepted or
-explicitly deferred, the checks above are represented in the UI acceptance
-plan, and the cross-workstream contract remains consistent.
+Status: **complete and approved**.
+
+UI implementation remains blocked only by the master planning lock.

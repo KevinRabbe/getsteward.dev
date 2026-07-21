@@ -1,300 +1,289 @@
 # Roadmap
 
-## Guiding rule
+## Product target
 
-Build a narrow implementation of the final architecture.
+> **One shared World. Different Steam players. Different times. No always-on game server.**
 
-Do not expand to many games or infrastructure providers until one complete World lifecycle is reliable.
+The roadmap is organized around proving that product effect reliably. It does not include Git-style branching, generic save merging, ownership hierarchies, social-platform features, or permanent game-server infrastructure.
 
-## Phase 1: Local Factorio vertical slice
+## Delivery principles
 
-Status: **end-to-end validated on a real Windows Steam installation**.
+1. Complete the full World handoff, not only launch.
+2. Preserve the last valid state on every uncertain failure.
+3. Prove boundaries with real games and real devices.
+4. Keep game-specific behavior inside adapters.
+5. Generalize only after Factorio, Palworld, or later adapters demonstrate the same pattern.
+6. Prefer Steam and game-native infrastructure over new Steward subsystems.
+7. Treat commercial reliability as mandatory without expanding scope unnecessarily.
 
-Validated flow:
+## Foundation status
 
-```text
-discover Factorio
--> discover save
--> import as LocalOnly World
--> create E1 + S1
--> Continue
--> prepare isolated workspace
--> restore canonical state
--> launch local Factorio
--> survive Steam process handoff
--> play and save inside isolated write-data
--> wait for real session end
--> capture new immutable state revision
--> persist revision
--> move canonical World head last
--> clean workspace/recovery record
--> Continue again
--> restore newly committed canonical state
-```
+### Generic lifecycle
 
-Real-machine validation confirmed:
-
-- non-default Steam library discovery
-- save discovery with autosave filtering
-- privacy-by-default import as `LocalOnly`
-- source-save preservation during import
-- Steam bootstrap/process-handoff tracking
-- isolated Factorio `write-data` for product-managed play
-- gameplay changes captured into SharedWorlds revision history
-- original source save remains unchanged during isolated play
-- canonical head advances only after durable state capture
-- clean-session workspace cleanup
-- no recovery record remains after successful completion
-- next Continue restores the newly committed visible gameplay state
-
-Phase 1 is complete for the tested Windows Steam configuration. Known platform-specific and custom-path edge cases remain adapter hardening work rather than blockers for the validated local lifecycle.
-
-## Phase 1b: Explicit sharing and hosted Factorio validation
-
-Status: **validated on the same real Windows Steam installation**.
-
-Validated flow:
+Implemented foundation:
 
 ```text
-LocalOnly
--> explicit share-world
--> Shared
--> host-factorio
--> prepare isolated workspace
--> restore canonical state
--> launch Factorio with --host
--> survive Steam process handoff
--> replacement Factorio process retains --host
--> Factorio owns active UDP endpoints
--> save and exit cleanly
--> capture new immutable state revision
--> advance canonical World head
--> clean workspace/recovery record
--> original imported source save remains unchanged
+discover
+-> import
+-> inspect environment
+-> prepare workspace
+-> restore state
+-> launch local or hosted session
+-> observe session end through adapter
+-> capture updated state
+-> store immutable revision
+-> advance current World head last
+-> preserve recovery state on failure
 ```
 
-The hosted validation advanced World `newme` from state revision `e8e0c36761934d0ca4ded2c0b125a378` to `669e8b7b10cc4b8da23a35b8f2ebd343`, left no prepared-workspace recovery records, and preserved the original source save SHA-256 at `9110897489D5CD73573A62DD949CBBDE5E1194972660EB5651C8D1E4DB2A879B`.
+### State safety
 
-This validates the current local host lifecycle and sharing gate. It does **not** yet validate multi-user Join, remote durable synchronization, invitations, cross-machine coordination, or host handoff.
+Implemented and tested foundations include:
 
-## Phase 2: Factorio environment reproduction
+- immutable environment and state revisions;
+- one active writable session boundary;
+- current-head advancement after durable state storage;
+- expected-head protection against stale commits;
+- unchanged-state detection;
+- workspace recovery records;
+- conservative cleanup ownership;
+- typed failure boundaries;
+- persistence schema envelopes and migration rules.
 
-Status: **first isolation/verification slice implemented, automated-test covered, and validated on the target Windows Steam installation**.
+### Factorio
 
-Implemented and validated in the current slice:
+Factorio has provided real-machine validation for:
 
-- create an adapter-owned workspace mod directory for every prepared World
-- generate a workspace-local `mod-list.json` from the EnvironmentManifest
-- locate required user mods by exact recorded version
-- copy only exact required user-mod artifacts into the workspace
-- exclude unrelated live mods from the prepared session
-- record a SHA-256 fingerprint of `mod-settings.dat` for new EnvironmentRevisions
-- verify startup-settings fingerprints before copying settings into a prepared workspace
-- fail with a controlled `EnvironmentReproductionException` instead of silently accepting missing exact mods or changed verified startup settings
-- launch Factorio with `--mod-directory <workspace>/mods` rather than the live user mod directory
-- enforce the exact required Factorio game version before preparation continues
-- real-machine exact-match launch for World version `2.1.11`
-- automated mismatch refusal when the installed version differs from the required World version
+- Steam/non-default-library discovery;
+- save discovery and import;
+- isolated preparation;
+- local play;
+- hosted launch paths;
+- Steam process handoff observation;
+- environment/mod handling;
+- capture and replay of updated state.
 
-Remaining targets:
+Remaining Factorio work is adapter hardening and commercial UX integration, not creation of a separate product architecture.
 
-- resolve actual custom write-data paths robustly during discovery
-- runtime-check player preference persistence on the target Windows machine
-- test Factorio native `--sync-mods` behavior on disposable environments
-- decide safe exact-version game/mod download and repair policy
-- validate save-derived mod startup-settings restoration
-- add an explicit Verify/Repair path for environment mismatches
+### Palworld
 
-Do not add automatic canonical mod synchronization until destructive or surprising behavior has been tested on disposable environments. Missing exact versions should continue to fail safely rather than mutating the user's live mod profile.
+Palworld has proven:
 
-## Phase 3: Local product UX
+- client and dedicated-server discovery;
+- local World discovery;
+- unchanged World migration into the dedicated-server save location;
+- dedicated server selection and launch;
+- process/server observation;
+- capture into a portable package;
+- exclusion of server backup noise;
+- canonical restore through staging and rollback;
+- byte verification after restore;
+- launch from the restored canonical state;
+- canonical state commit through the transaction boundary.
 
-Status: **initial CLI productization validated on the target Windows machine**.
+Player identity migration between local co-op host and dedicated-server identities remains a game-specific edge case and is not part of the generic product kernel.
 
-Implemented and real-machine validated:
+### Desktop
 
-- `worlds` managed-World listing
-- `world <selector>` details view
-- World selectors by unique name, full ID, or unique ID prefix
-- visible game, sharing mode, current environment revision, and current state revision
-- visible members and revision metadata
-- context-sensitive available actions
-- `LocalOnly` vs `Shared` status surfaced explicitly
+The desktop currently proves:
 
-Implemented and awaiting the next local replay:
+- one registered game-adapter pipeline;
+- Factorio and Palworld discovery;
+- game-first World browsing;
+- unified import;
+- adapter-driven lifecycle actions;
+- Steam/game artwork resolution.
 
-- prepared game-visible Factorio save names follow the SharedWorlds World display name instead of exposing the internal fallback name `world`
+The current WPF layer still contains transitional runtime composition over older UI code. It should be simplified after the product contract is stable, not expanded with obsolete social or ownership workflows.
 
-The first desktop flow should still provide:
+## Milestone 1: Documentation and product-boundary consistency
 
-- installed supported games
-- discovered/importable saves
-- Worlds library
-- Continue
-- World details
-- sharing status
-- environment status
-- revision history
-- Restore
+Status: **active**.
 
-Main UI should show only supported games that are actually installed. A separate Supported Games view may show supported but uninstalled titles.
+Required outcome:
 
-## Phase 4: Sandbox, Fresh Test World, Start Your Own, Restore
+- all active documents use the same product definition;
+- Fork, branching, merge, ownership-governance, party, and public-discovery plans are removed from active architecture and roadmap documents;
+- non-negotiable rules remain the highest product authority;
+- implementation status and future work are clearly separated;
+- obsolete documents are deleted instead of left as contradictory alternatives.
 
-Implement the local branching/recovery product model before shared networking.
+## Milestone 2: Shared durable World state
 
-### Sandbox
+Add a remote/shared `IWorldStorage` implementation capable of moving the latest valid state between trusted Steam users or devices.
 
-Disposable copy that never writes to canonical history.
+Required properties:
 
-### Fresh Test World
+- immutable state publication;
+- explicit current-head metadata;
+- integrity verification;
+- resumable/retryable transfers;
+- expected-head commit protection;
+- local caching;
+- conservative failure behavior;
+- state sizes tested with Factorio and Palworld Worlds.
 
-Same environment, new game state.
+The exact Steam storage mechanism must be tested before becoming permanent architecture.
 
-### Start Your Own
+## Milestone 3: Distributed one-writer coordination
 
-Permanent independent World with a new `WorldId` and independent history, derived from an existing starting point where the adapter can reproduce it. Seed or content equality never determines World identity.
+Add a shared `IWorldSessionCoordinator` implementation.
 
-### Restore
+It must support only the operational facts required by the product:
 
-Explicitly move canonical head to a previous known-good state while preserving history.
+- World Ready or currently in use;
+- one session reservation;
+- starting state revision;
+- active device/Steam identity;
+- local or hosted session mode where relevant;
+- safe release after commit;
+- conservative expiry and recovery after crashes.
 
-## Phase 5: Second adapter — 7 Days to Die
+It must not become a party, ownership, role, or governance system.
 
-Primary purpose: prove environment isolation for messy external mod setups.
+## Milestone 4: Two-device handoff proof
 
-Targets:
-
-- installation discovery
-- save/world discovery
-- exact relevant environment manifest
-- isolated mod/config profiles
-- avoid requiring many duplicated full game folders where possible
-- host/client launch
-- session-end capture
-
-This phase should reveal whether the generic environment contract is sufficient without changing Core semantics.
-
-## Phase 6: Third adapter — Project Zomboid
-
-Primary purpose: prove a Workshop-heavy adapter.
-
-Targets:
-
-- installation discovery
-- save/server-state discovery
-- Workshop environment representation
-- configuration capture
-- host/client flow
-- state capture
-
-## Phase 7: Remote durable World storage
-
-Add a remote `IWorldStorage` implementation.
-
-Steam-backed storage is a candidate, but the exact UGC/Workshop object model must be tested with multiple accounts before becoming canonical.
-
-Preferred conceptual model:
-
-- immutable revisions
-- explicit canonical head selection
-- avoid multiple users destructively overwriting one shared object when possible
-
-Local storage remains useful for cache, offline access, recovery, and testing.
-
-## Phase 8: Shared membership and live coordination
-
-Add:
-
-- World membership
-- invitations
-- live World availability
-- canonical host acquisition
-- Join instead of conflicting host launch
-- host handoff request/accept flow
-
-A Steam lobby may implement `IWorldSessionCoordinator`, but the Core remains platform-neutral.
-
-## Phase 9: Host handoff
-
-Implement the controlled restart flow:
+This is the decisive product milestone.
 
 ```text
-request
--> accept
--> save/close old host
--> stable capture
--> canonical commit
--> synchronize new host
--> prepare environment
--> launch new host
--> clients rejoin
+PC A imports or opens World at state N
+-> PC A plays and commits N+1
+-> PC B retrieves N+1
+-> PC B plays and commits N+2
+-> PC A retrieves N+2
 ```
 
-Add explicit failure and recovery handling for each transition.
+While PC B holds the writable session reservation:
 
-## Phase 10: Recovery hardening
+```text
+PC A attempts another writable start
+-> Steward rejects or waits
+```
 
-Add:
+The proof must be completed for at least one game before broader product claims. Repeating it with both Factorio and Palworld validates the adapter boundary more strongly.
 
-- pre-session snapshots where useful
-- save stabilization checks
-- crash detection
-- `RecoveryPending`
-- local recovery candidate preservation
-- controlled promotion of a recovered state
-- corruption detection
-- targeted Verify/Repair
+## Milestone 5: Background runtime hardening
 
-Never overwrite a known-good canonical revision merely because a newer local file exists.
+Steward should remain mostly out of the user's way while completing essential work.
 
-## Phase 11: Performance and transport optimization
+Required behavior:
 
-Only after correctness:
+- start with the desktop application;
+- remain active during the game/server session;
+- observe adapter-defined process/server lifecycle;
+- expose clear Ready, Preparing, Running, Saving, and Recovery-needed states;
+- survive UI minimization;
+- prevent accidental application exit while a writable session still requires capture;
+- resume recovery handling after application or OS interruption;
+- notify the user only when action is required.
 
-- caching
-- delta/deduplicated state transfer if worthwhile
-- direct P2P transfer for speed
-- background prefetching
-- storage compaction/retention policies
+Background-first must never become launcher-only.
 
-Durable storage and direct transfer can coexist: durable backend for history, P2P for fast current-state transfer.
+## Milestone 6: Simple commercial World UX
 
-## Initial release boundary
+The normal user flow should remain small:
 
-A credible first release should prioritize depth over game count:
+```text
+Games
+-> select game
+-> select World
+-> Start World or Host World
+-> play
+```
 
-- 2–3 excellent adapters
-- shared Worlds
-- save synchronization
-- supported environment/mod synchronization
-- Continue / Join
-- automatic clean-session commit
-- host handoff
-- Sandbox
-- Fresh Test World
-- Start Your Own
-- basic snapshot Restore
+Required product surfaces:
 
-Postpone until the foundation is proven:
+- Games Library;
+- one game-specific Worlds workspace;
+- World status and primary action;
+- import workspace;
+- clear progress during preparation and saving;
+- recovery action when needed;
+- compact settings and diagnostics.
 
-- large game catalog
-- every mod platform
-- advanced P2P networking
-- dedicated-server fleet orchestration
-- public adapter marketplace
-- cross-platform support that materially delays a reliable Windows release
+Do not expose revision hashes, storage packages, save paths, server folders, or adapter internals in the primary workflow.
 
-## Current immediate next step
+## Milestone 7: Steam product integration
 
-The local Continue path, replay path, World listing/details UX, explicit sharing gate, hosted Factorio lifecycle, workspace-local active mod path, and exact required game-version success path are validated on the target Windows Steam installation.
+Use Steam for the facilities it already owns:
 
-Next:
+- stable user identity;
+- game ownership/install detection;
+- launching;
+- friends/invitations where needed;
+- native multiplayer joining;
+- Workshop and dedicated-server tooling;
+- Steward distribution and updates.
 
-1. pull and replay the World-display-name save fix so `newme` appears as `newme` in Factorio rather than `world`
-2. runtime-check player preference persistence with one obvious setting change on the target Windows machine
-3. harden custom Factorio `write-data` path resolution
-4. test `--sync-mods` only in disposable isolated environments and define safe Verify/Repair behavior
-5. then move toward remote durable storage and live coordination required for genuine multi-user Join and host handoff
+Steward should add only the smallest integration needed for shared World state and one-writer coordination.
 
-The principle remains: prove each product boundary with a real game before adding another abstraction layer.
+## Milestone 8: Factorio and Palworld release hardening
+
+For each initial adapter:
+
+- repeatable clean import;
+- environment preparation and mismatch reporting;
+- reliable local launch;
+- reliable hosted launch where supported;
+- correct process/server observation;
+- graceful shutdown;
+- safe capture;
+- restore verification;
+- recovery after interrupted capture/store;
+- two-device handoff;
+- clear limitations for unresolved game-specific edge cases.
+
+A supported game must complete the lifecycle reliably. A partially working large catalog is not a release advantage.
+
+## Milestone 9: Performance optimization after correctness
+
+Optimize only after the two-device handoff is reliable:
+
+- content-addressed deduplication;
+- resumable chunk transfer;
+- compression tuning;
+- direct peer-to-peer acceleration;
+- background prefetching;
+- cache limits and cleanup;
+- bounded retries and transfer queues.
+
+Performance work must not weaken durable commit, verification, or recovery guarantees.
+
+## Initial commercial release boundary
+
+A credible first release should provide:
+
+- Windows desktop product;
+- Steam identity/platform integration;
+- Factorio and Palworld as reliable initial adapters;
+- import of existing Worlds;
+- local start and temporary hosting;
+- full background session observation;
+- automatic safe capture at session end;
+- shared durable latest state;
+- distributed one-writer protection;
+- cross-device continuation;
+- recovery from interrupted handoffs;
+- clear environment mismatch handling;
+- concise game-first UI.
+
+Not required for the first release:
+
+- generic save merging;
+- Fork/branch workflows;
+- parties, chat, public discovery, likes, or community feeds;
+- complex ownership or role systems;
+- permanent hosted game-server fleets;
+- live host migration;
+- universal support for every mod ecosystem;
+- a large game catalog.
+
+## Immediate next sequence
+
+1. Finish reconciling active documentation with the current product boundary.
+2. Define the smallest shared-storage contract needed by the existing lifecycle.
+3. Define the smallest distributed session-reservation contract.
+4. Implement and test PC A -> PC B -> PC A handoff with one real World.
+5. Repeat against the other initial adapter.
+6. Harden the background runtime and simplify the desktop around Start World / Host World.
+7. Optimize transport only after correctness is proven.

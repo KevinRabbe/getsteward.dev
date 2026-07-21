@@ -33,21 +33,13 @@ public partial class MainWindow
 
         _unifiedGameUiInitialized = true;
 
-        RefreshButton.Click -= RefreshButton_Click;
         RefreshButton.Click += UnifiedRefreshButton_Click;
-        OpenImportButton.Click -= OpenImportButton_Click;
         OpenImportButton.Click += UnifiedOpenImportButton_Click;
-        ScanImportsButton.Click -= ScanImportsButton_Click;
         ScanImportsButton.Click += UnifiedScanImportsButton_Click;
-        ImportSelectedButton.Click -= ImportSelectedButton_Click;
         ImportSelectedButton.Click += UnifiedImportSelectedButton_Click;
-        ImportCandidateComboBox.SelectionChanged -= ImportCandidateComboBox_SelectionChanged;
         ImportCandidateComboBox.SelectionChanged += UnifiedImportCandidateComboBox_SelectionChanged;
-        ContinueButton.Click -= ContinueButton_Click;
         ContinueButton.Click += UnifiedContinueButton_Click;
-        HostButton.Click -= HostButton_Click;
         HostButton.Click += UnifiedHostButton_Click;
-        ShareButton.Click -= ShareButton_Click;
         ShareButton.Click += UnifiedShareButton_Click;
 
         WorldList.SelectionChanged += UnifiedWorldList_SelectionChanged;
@@ -123,6 +115,7 @@ public partial class MainWindow
             EmptyStateText.Visibility = Visibility.Visible;
             WorldDetailsPanel.Visibility = Visibility.Collapsed;
             UpdateUnifiedActionState();
+            UpdateResponsibilityPresentation();
             return;
         }
 
@@ -137,6 +130,7 @@ public partial class MainWindow
         EnvironmentRevisionText.Text = selected.World.CurrentEnvironmentRevisionId?.ToString() ?? "none";
         StateRevisionText.Text = selected.World.CurrentStateRevisionId?.ToString() ?? "none";
         UpdateUnifiedActionState();
+        UpdateResponsibilityPresentation();
     }
 
     private async void UnifiedContinueButton_Click(object sender, RoutedEventArgs e)
@@ -394,6 +388,7 @@ public partial class MainWindow
         {
             SetBusy(false);
             UpdateUnifiedActionState();
+            UpdateResponsibilityPresentation();
         }
     }
 
@@ -407,6 +402,7 @@ public partial class MainWindow
         {
             UpdateUnifiedActionState();
             UpdateUnifiedImportActionState();
+            UpdateResponsibilityPresentation();
         }
     }
 
@@ -471,22 +467,22 @@ public partial class MainWindow
             _registeredGameAdapters.TryGetValue(world.GameAdapterId, out adapter);
         }
 
-        var canContinue = adapter?.Capabilities.HasFlag(
+        var canStart = adapter?.Capabilities.HasFlag(
             GameAdapterCapabilities.AutomaticLocalLaunch) == true;
         var canHost = adapter?.Capabilities.HasFlag(
             GameAdapterCapabilities.AutomaticHostLaunch) == true;
 
         ContinueButton.Visibility = Visibility.Visible;
         HostButton.Visibility = Visibility.Visible;
-        ContinueButton.IsEnabled = !_isBusy && canContinue;
+        ContinueButton.IsEnabled = !_isBusy && canStart;
         HostButton.IsEnabled = !_isBusy &&
                                canHost &&
                                _deviceSettings.AllowHosting;
 
         ContinueButton.ToolTip = world is null
             ? "Select a World."
-            : canContinue
-                ? $"Continue this {adapter!.DisplayName} World."
+            : canStart
+                ? $"Start this {adapter!.DisplayName} World on this device."
                 : $"{adapter?.DisplayName ?? world.GameAdapterId} does not support managed local launch yet.";
 
         HostButton.ToolTip = world is null

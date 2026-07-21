@@ -2,7 +2,7 @@
 
 This is the final backend planning checkpoint before BE-1.
 
-Status: **BE-0 approved. Master planning lock remains active.**
+Status: **BE-0 approved. Master planning lock is lifted; BE-1 is active under E1.**
 
 The authoritative backend decisions are BE-D001 through BE-D015 in `BACKEND_ROADMAP.md`.
 
@@ -122,16 +122,11 @@ BE-1 must prove at minimum:
 
 Status: **complete and approved**.
 
-BE-1 may begin only after:
-- UI-0 is complete;
-- AR-0 is complete;
-- cross-workstream contract is complete;
-- master planning lock is explicitly lifted by the product owner;
-- implementation maps to BE-1 and its acceptance matrix.
+BE-1 implementation is allowed under E1 and must map to `BE1_LOCAL_SIMULATION.md` and its acceptance matrix.
 
 ## First implementation slice
 
-After master approval, implement only provider-free BE-1:
+Implement only provider-free BE-1:
 - in-memory transactional records;
 - deterministic clock/failure injection;
 - World access checks;

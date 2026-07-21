@@ -6,17 +6,6 @@ public enum SimulatedBackendFailurePoint
     AfterDurableCommitBeforeResponse
 }
 
-public sealed class SimulatedBackendFailureException : Exception
-{
-    public SimulatedBackendFailureException(SimulatedBackendFailurePoint failurePoint)
-        : base($"Injected backend failure at '{failurePoint}'.")
-    {
-        FailurePoint = failurePoint;
-    }
-
-    public SimulatedBackendFailurePoint FailurePoint { get; }
-}
-
 public sealed partial class InMemoryBackendContractSimulation
 {
     private readonly Dictionary<SimulatedBackendFailurePoint, int> _pendingFailures = new();
@@ -74,6 +63,6 @@ public sealed partial class InMemoryBackendContractSimulation
             }
         }
 
-        throw new SimulatedBackendFailureException(failurePoint);
+        throw new InvalidOperationException($"Injected backend failure at '{failurePoint}'.");
     }
 }

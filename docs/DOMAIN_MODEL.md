@@ -1,201 +1,219 @@
 # Domain Model
 
+## Purpose
+
+The domain model exists to support one product effect:
+
+> **One shared World. Different Steam players. Different times. No always-on game server.**
+
+It must not grow into a social network, ownership hierarchy, gameplay-governance system, or Git-style save model.
+
 ## World
 
 `World` is the main product object.
 
-A World represents a canonical playable reality managed by SharedWorlds, independent of the particular game implementation. A World may remain entirely local or be explicitly opted into sharing.
+A World represents the current playable reality Steward manages for one game. It may remain local or become available to a trusted group through shared storage and coordination.
 
-Current fields:
+Current fields include:
 
-- `WorldId`
-- name
-- `GameAdapterId`
-- members
-- current environment revision id
-- current state revision id
-- `SharingMode`
-- `GameVersionPolicy`
+- `WorldId`;
+- display name;
+- `GameAdapterId`;
+- minimal authorized identities where sharing requires them;
+- current environment revision id;
+- current state revision id;
+- `SharingMode`;
+- `GameVersionPolicy`.
 
-The World stores references to its current heads rather than embedding all game data directly.
+The access list is operational: it determines who may retrieve and advance a shared World through Steward. It is not an ownership, role, party, or governance system.
+
+A World stores references to its current environment and state heads rather than embedding game data directly.
 
 ### WorldSharingMode
 
-Sharing is explicit and privacy-preserving by default:
+- `LocalOnly = 0`: the World remains on the current device and is not eligible for shared handoff.
+- `Shared = 1`: the World is eligible for shared storage, session coordination, and temporary hosting.
 
-- `LocalOnly = 0`: local Continue is allowed; Share / Host / Join workflows are blocked.
-- `Shared = 1`: the owner has explicitly opted the World into sharing workflows.
+`LocalOnly` deliberately has the zero value so newly imported and older persisted Worlds cannot become shared accidentally.
 
-`LocalOnly` deliberately has the zero value. This means newly imported Worlds and older persisted Worlds that predate the property resolve to local-only rather than accidentally becoming shared.
-
-Discovery does not create a World and never shares anything. Import creates a managed World but still defaults it to `LocalOnly`. Enabling sharing is a separate explicit operation.
+`Shared` does not mean publicly listed. It also does not promise that external copies can be deleted or made unique after another device receives the data.
 
 ### WorldGameVersionPolicy
 
-Every canonical World state belongs to one exact immutable `EnvironmentRevision`. The game version recorded by that environment is therefore exact regardless of update policy.
+Every World state belongs to one exact immutable `EnvironmentRevision`.
 
-The World-level policy only controls whether SharedWorlds should consider newer game versions as future candidates:
+- `KeepExact = 0`: keep using the known-good environment.
+- `AllowUpdateCandidates = 1`: a newer environment may later be offered through an explicit validated workflow.
 
-- `KeepExact = 0`: treat the current exact environment as known-good and ignore newer game versions for this World.
-- `AllowUpdateCandidates = 1`: newer versions may later be offered through an explicit review-and-test workflow.
-
-`KeepExact` deliberately has the zero value so existing persisted Worlds and newly imported Worlds remain on their current known-good version by default.
-
-Allowing update candidates does not mutate the current `EnvironmentRevision`, does not auto-update the game, and does not move the canonical World head. A future accepted update creates a new `EnvironmentRevision`; the prior Environment + State pair remains available for rollback.
+Allowing candidates does not automatically update the game, mutate the current environment, or advance the World.
 
 ## EnvironmentRevision
 
-An environment revision represents the reproducible game environment required to play a World state.
+An `EnvironmentRevision` describes the reproducible game environment required by a World state.
 
 It contains:
 
-- revision id
-- World id
-- optional parent environment revision
-- creation time
-- creator
-- `EnvironmentManifest`
-- temporary fingerprint
+- revision id;
+- World id;
+- optional previous environment revision id;
+- creation time;
+- `EnvironmentManifest`;
+- disposable comparison fingerprint.
 
-An environment revision changes when relevant environment requirements change, for example:
+It changes only when relevant requirements change, such as:
 
-- game version
-- enabled mods
-- exact mod versions where known
-- configuration
-- launch settings
+- game version;
+- enabled mods;
+- exact mod versions where known;
+- relevant configuration;
+- launch requirements.
+
+The optional previous revision link exists for compatibility, diagnostics, and recovery. It does not create a user-facing branch model.
 
 ## StateRevision
 
-A state revision represents a captured save/world state.
+A `StateRevision` represents one completely captured and durably stored game World state.
 
 It contains:
 
-- revision id
-- World id
-- optional parent state revision
-- creation time
-- creator
-- adapter id
-- storage package id
+- revision id;
+- World id;
+- optional previous state revision id;
+- creation time;
+- adapter id;
+- storage package id;
+- integrity metadata where available.
 
-A normal play session should generally produce one new canonical state revision at clean session end.
+A normal clean session produces one new state revision at session end.
+
+The previous link supports commit validation, recovery, audit, and diagnostics. Steward does not merge independently modified revisions.
 
 ## EnvironmentManifest
 
-The manifest is the adapter-produced description of the environment.
+The adapter produces the authoritative description of the required environment.
 
-Current structure:
+Its generic structure includes:
 
-- schema version
-- adapter id
-- game version
-- components
-- configuration
+- schema version;
+- adapter id;
+- game version;
+- components;
+- configuration.
 
-Each `EnvironmentComponent` contains:
-
-- kind
-- id
-- optional version
-- optional source
-- optional metadata
-
-Examples of components include mods, DLC, modpacks, runtime dependencies, or other adapter-defined environment elements.
-
-The Core does not interpret game-specific component meaning. The adapter does.
+Components may represent mods, DLC, modpacks, runtime dependencies, or other adapter-defined requirements. Core stores them but does not interpret game-specific meaning.
 
 ## EnvironmentFingerprint
 
-The fingerprint is SHA-256 over a canonicalized representation of the adapter-produced manifest.
+The fingerprint is a cheap comparison/cache aid computed from a canonicalized manifest.
 
-It exists for fast comparison and cache decisions.
-
-It is **not** the source of truth and does **not** imply full installation integrity.
-
-The manifest remains authoritative.
+It is not the source of truth and does not prove full installation integrity. Routine operation must not hash complete game installations.
 
 ## GameInstallation
 
-A discovered game installation contains:
+A discovered installation contains:
 
-- installation id
-- root path
-- source
-- optional adapter-owned metadata
+- installation id;
+- root path;
+- source;
+- adapter-owned metadata.
 
-The metadata allows an adapter to carry information such as executable paths or user-data paths without adding game-specific fields to Core types.
+The metadata allows an adapter to carry executable paths, user-data locations, or launcher details without adding game-specific fields to Core.
 
 ## DetectedWorld
 
-A detected world is an existing game save/world that has not necessarily been imported into the product yet.
+A `DetectedWorld` is read-only discovery metadata for an existing save or server World that has not yet been imported.
 
 It contains:
 
-- adapter-local id
-- display name
-- source path
+- adapter-local id;
+- display name;
+- source path or adapter-owned locator.
 
-A `DetectedWorld` is discovery metadata only. Finding it does not upload, publish, host, or otherwise share the source save.
+Discovery does not upload, publish, host, or mutate anything.
 
-Importing it converts adapter-owned state into a canonical `World` plus initial environment and state revisions. The imported World is `LocalOnly` by default.
+Import converts the detected state into a managed `World` with initial environment and state revisions. The original source remains untouched.
 
 ## PreparedWorld
 
-A prepared world represents an isolated local working environment ready for restore and launch.
+A `PreparedWorld` is an adapter-owned local workspace ready for restore and launch.
 
 It contains:
 
-- the selected `GameInstallation`
-- working directory
-- required `EnvironmentManifest`
+- selected installation;
+- working directory or equivalent workspace locator;
+- required environment manifest;
+- adapter-owned preparation metadata.
 
-The working directory is intentionally separate from the original imported save wherever possible so normal product operations do not mutate the user's source save directly.
+Where practical, the workspace is isolated from the original imported save.
+
+After gameplay begins, it may contain the newest recoverable state and must not be deleted merely because a later capture or upload failed.
 
 ## CapturedState and StatePackage
 
-A `CapturedState` contains:
+A `CapturedState` describes the result of adapter capture.
 
-- a `StatePackage`
-- capture timestamp
+A `StatePackage` points to the opaque adapter-produced payload. It may be a ZIP, directory archive, database export, or another validated representation.
 
-A `StatePackage` points to the adapter-produced package containing the captured game state.
+Core never assumes a universal save-file shape.
 
-The package format is adapter-defined. Factorio currently uses a copied save ZIP. A future game may require a directory archive or another representation.
-
-This is why the Core must not assume that every game state is a single file.
+The adapter explicitly states whether Core may delete the package after durable storage.
 
 ## GameSessionHandle
 
-A session handle identifies a launched game session.
+A `GameSessionHandle` identifies the adapter-observed session.
 
-It currently includes:
+It may contain a process id and start time, but Core must not assume one process equals one complete session. Launchers may hand off processes, and hosted games may use separate server and client processes.
 
-- process id
-- start time
+The adapter interprets the handle and determines when the session has safely ended.
 
-The adapter is responsible for interpreting this handle correctly when waiting for session end. The Core must not assume that waiting on one PID is universally correct because some launchers spawn or hand off to another process.
+## SessionReservation
+
+A session reservation protects one shared World from competing writable Steward sessions.
+
+It records only the operational facts needed for coordination:
+
+- World id;
+- session id;
+- starting state revision;
+- active device or external identity;
+- local-play or hosted mode where needed;
+- lifecycle state;
+- recovery/expiry metadata.
+
+It does not represent ownership of the World or permanent ownership of the host role.
 
 ## HostConnection
 
-Represents the adapter-facing information needed to join a host.
+`HostConnection` contains adapter-facing information needed to join a currently running hosted session, such as:
 
-Current fields:
+- address;
+- optional port;
+- optional token or password reference.
 
-- address
-- optional port
-- optional join token
-
-Different adapters may use these fields differently.
-
-A `HostConnection` is only relevant to a World whose sharing mode is `Shared`. Local-only Worlds are not eligible for Join.
+Steam or the game should handle invitations and joining where possible. Steward does not build a second social system around this record.
 
 ## UserIdentity
 
-A generic external identity:
+`UserIdentity` is a minimal external identity reference:
 
-- provider
-- external id
-- optional display name
+- provider;
+- stable external id;
+- optional display name.
 
-This avoids hard-coding Steam identities into the World model.
+For the commercial product, Steam is the primary identity provider. The generic shape keeps platform SDK details outside Core.
+
+## Explicitly absent concepts
+
+The active domain model does not include:
+
+- World ownership hierarchies;
+- granular social roles;
+- parties;
+- public discovery;
+- Git-style branches;
+- merge requests;
+- generic save merging;
+- tracking every external copy;
+- guaranteed deletion from other devices.
+
+Those concepts do not help complete the safe World handoff and therefore do not belong in the current model.

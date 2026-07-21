@@ -46,13 +46,7 @@ public partial class MainWindow
 
         InitializeManagedGameNavigation();
         InitializeImportWorkspace();
-
-        OpenImportButton.Click -= UnifiedOpenImportButton_Click;
         OpenImportButton.Click += ImportBrowserOpenButton_Click;
-
-        // The old compact ComboBox remains as a harmless XAML anchor, but it is no longer the UI.
-        ImportPanel.Visibility = Visibility.Collapsed;
-        ImportCandidateComboBox.Visibility = Visibility.Collapsed;
 
         var descriptor = DependencyPropertyDescriptor.FromProperty(
             ItemsControl.ItemsSourceProperty,
@@ -210,16 +204,25 @@ public partial class MainWindow
         }
 
         _managedGameTiles.Children.Clear();
+        var responsibility = _responsibilityTracker.Current;
         foreach (var group in _managedGameWorlds
                      .GroupBy(item => item.World.GameAdapterId, StringComparer.Ordinal)
                      .OrderBy(group => group.First().GameName, StringComparer.OrdinalIgnoreCase))
         {
             var first = group.First();
             var gameId = group.Key;
+            var detail = $"{group.Count()} World{(group.Count() == 1 ? string.Empty : "s")}";
+            if (responsibility.Kind != WorldLifecycleResponsibilityKind.None &&
+                responsibility.WorldId is { } responsibleWorldId &&
+                group.Any(item => item.World.Id == responsibleWorldId))
+            {
+                detail += $" • {FormatResponsibility(responsibility)}";
+            }
+
             var button = CreateGameTileButton(
                 first.GameName,
                 first.GameIconPath,
-                $"{group.Count()} World{(group.Count() == 1 ? string.Empty : "s")}",
+                detail,
                 string.Equals(gameId, _selectedManagedGameId, StringComparison.Ordinal));
             button.Click += (_, _) =>
             {
@@ -373,7 +376,7 @@ public partial class MainWindow
 
         footer.Children.Add(new TextBlock
         {
-            Text = "Detected saves stay private until you explicitly share the World.",
+            Text = "Detected Worlds stay private until you explicitly share the World.",
             VerticalAlignment = VerticalAlignment.Center,
             Foreground = (Brush)FindResource("MutedTextBrush"),
             TextWrapping = TextWrapping.Wrap

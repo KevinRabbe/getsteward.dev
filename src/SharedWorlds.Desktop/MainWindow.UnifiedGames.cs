@@ -24,7 +24,7 @@ public partial class MainWindow
         new(StringComparer.Ordinal);
     private bool _unifiedGameUiInitialized;
 
-    internal async void InitializeUnifiedGameUi()
+    internal async Task InitializeUnifiedGameUiAsync()
     {
         if (_unifiedGameUiInitialized)
         {

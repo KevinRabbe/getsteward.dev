@@ -6,7 +6,7 @@ remote backend contract, not a production API or database.
 
 ## Current status
 
-Status: **in progress — core authority/transfer/recovery simulation implemented; build confirmation and remaining contract cases pending**.
+Status: **in progress — core BE-1 contract implemented; recovery/reclaim idempotency and build confirmation remain**.
 
 Implemented in the current BE-1 slice:
 
@@ -22,16 +22,17 @@ Implemented in the current BE-1 slice:
 - retry-safe duplicate transfer parts;
 - provider-independent 20 GiB package safety ceiling;
 - idempotent acquire/finalize/commit replay with request-fingerprint conflict detection;
+- authoritative operation-result lookup after ambiguous response loss;
+- deterministic failure injection before commit and after durable commit/before response;
 - explicit `Continue from last safe state` that validates candidate evidence before releasing authority and preserves the abandoned candidate;
+- BE-D009 candidate cleanup-eligibility policy;
+- BE-D010 current + previous-two canonical retention with pinned recovery dependencies and reference-driven environment retention;
 - deterministic PC A -> PC B -> PC A handoff coverage.
 
 Still required before BE-1 may be marked complete:
 
 - successful build/test confirmation under repository warning/nullability rules;
-- durable operation-result/status lookup for ambiguous completed mutations, in addition to retry replay;
-- remaining idempotency coverage for recovery/reclaim mutations where required by the final contract;
-- deterministic canonical-retention/pinned-recovery cases required by BE-D009/BE-D010;
-- repeatable failure-injection points around publication/commit boundaries;
+- remaining idempotency coverage for deliberate reclaim and last-safe recovery mutations;
 - final pass against the complete deterministic test matrix below.
 
 No Steam integration, HTTP hosting, cloud SDK, provider credential, production database, or object-storage integration belongs in this milestone.
@@ -115,10 +116,13 @@ The first test suite must include:
 | Same idempotency key with different request | Rejected as key reuse conflict |
 | Truncated or altered package | Publication rejected by size/hash verification |
 | Package above first-release hard ceiling | Authorization/start is rejected before package bytes are accepted |
-| Commit timeout after server success | Retry and authoritative status lookup return the durable prior result |
+| Commit failure before transaction | Previous canonical head remains authoritative and no durable operation result exists |
+| Commit response loss after durable success | Retry and authoritative status lookup return the durable prior result |
 | Failed candidate commit | Candidate remains recoverable; current head is unchanged |
 | Invalid last-safe request | Valid reservation is not released before candidate/authority preconditions are proven |
 | Continue from last safe state | Candidate is explicitly abandoned only after authority is resolved and remains preserved |
+| Unresolved local candidate retention | Time alone never makes uncommitted gameplay cleanup-eligible |
+| Abandoned/remote/partial candidate retention | Each candidate follows its BE-D009 grace/pin rule |
 | Unauthorized World/revision/transfer access | No private existence or metadata is disclosed |
 | Canonical retention advances | Current + previous two remain, except older pinned recovery dependencies |
 

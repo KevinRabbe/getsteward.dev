@@ -11,5 +11,6 @@ public partial class MainWindow
         InitializeUnifiedHostingPreference();
         await LoadDeviceSettingsAsync();
         InitializeUnifiedGameUi();
+        InitializeUnifiedImportBrowser();
     }
 }

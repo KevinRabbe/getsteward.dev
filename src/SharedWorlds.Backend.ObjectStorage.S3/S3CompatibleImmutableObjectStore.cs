@@ -315,7 +315,7 @@ public sealed class S3CompatibleImmutableObjectStore : IPrivateImmutableObjectSt
         CancellationToken cancellationToken)
     {
         var parts = new List<CompletedPart>();
-        int? marker = null;
+        string? marker = null;
         while (true)
         {
             var response = await _client.ListPartsAsync(
@@ -350,7 +350,7 @@ public sealed class S3CompatibleImmutableObjectStore : IPrivateImmutableObjectSt
                 throw new InvalidOperationException("S3-compatible storage returned truncated parts without a continuation marker.");
             }
 
-            marker = nextMarker;
+            marker = nextMarker.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
         return parts.OrderBy(part => part.PartNumber).ToArray();

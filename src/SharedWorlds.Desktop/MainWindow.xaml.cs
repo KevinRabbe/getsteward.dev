@@ -31,17 +31,23 @@ public partial class MainWindow : Window
         var sharedWorldsRoot = Path.Combine(GetLocalDataRoot(), "SharedWorlds");
         var storageRoot = Path.Combine(sharedWorldsRoot, "data");
         _storage = new LocalWorldStorage(storageRoot);
+        _workspaceRecoveryStore = new LocalWorkspaceRecoveryStore(storageRoot);
         _lifecycle = new WorldLifecycleService(
             _storage,
             new LocalWorldSessionCoordinator(),
-            new LocalWorkspaceRecoveryStore(storageRoot));
+            _workspaceRecoveryStore,
+            new ManagedWritableSessionGate(),
+            CreateDesktopLifecycleObserver());
         _deviceSettingsStore = new DeviceSettingsStore(
             Path.Combine(sharedWorldsRoot, "settings", "device.json"));
+
+        InitializeTray();
         Loaded += MainWindow_Loaded;
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
+        await InitializeRuntimeResponsibilityAsync();
         await LoadDeviceSettingsAsync();
         await RefreshWorldsAsync();
     }
@@ -84,8 +90,8 @@ public partial class MainWindow : Window
             await _deviceSettingsStore.SaveAsync(updated);
             _deviceSettings = updated;
             StatusText.Text = updated.AllowHosting
-                ? "This device is now eligible to host shared Worlds."
-                : "This device is now join-only and will not host shared Worlds.";
+                ? "This device is now eligible to host Worlds."
+                : "This device will not host Worlds.";
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or JsonException)
@@ -226,7 +232,7 @@ public partial class MainWindow : Window
             {
                 var updated = await _lifecycle.SetSharingModeAsync(world.Id, nextMode);
                 StatusText.Text = nextMode == WorldSharingMode.Shared
-                    ? $"World '{updated.Name}' is now shared and eligible for Host / Join workflows."
+                    ? $"World '{updated.Name}' is now shared."
                     : $"World '{updated.Name}' is now local-only.";
                 await RefreshWorldsAsync(updated.Id, preserveStatus: true);
             });
@@ -279,7 +285,7 @@ public partial class MainWindow : Window
             ShowError(
                 "World imported, but hosting preference was not saved",
                 new InvalidOperationException(
-                    "The World was imported successfully. Enable 'Allow this device to host' manually if this device should host shared Worlds.",
+                    "The World was imported successfully. Enable 'Allow this device to host' manually if this device should host Worlds.",
                     exception));
         }
     }
@@ -496,10 +502,9 @@ public partial class MainWindow : Window
         ContinueButton.IsEnabled = !_isBusy && isFactorio;
         HostButton.IsEnabled = !_isBusy &&
                                isFactorio &&
-                               canHostOnThisDevice &&
-                               world?.SharingMode == WorldSharingMode.Shared;
+                               canHostOnThisDevice;
         HostButton.ToolTip = canHostOnThisDevice
-            ? "Host this shared World on this device."
+            ? "Host this World temporarily on this device. Persistent sharing is not required."
             : "Enable 'Allow this device to host' in Device settings first.";
         ShareButton.IsEnabled = !_isBusy && world is not null;
         ShareButton.Content = world?.SharingMode == WorldSharingMode.Shared
@@ -512,8 +517,8 @@ public partial class MainWindow : Window
 
     private void UpdateHostingPreferenceText()
         => HostingPreferenceText.Text = _deviceSettings.AllowHosting
-            ? "This device may host shared Worlds and can later participate in host handoff."
-            : "Join-only by default. This device will not be selected as a host.";
+            ? "This device may host Worlds."
+            : "Hosting is disabled on this device.";
 
     private static string GetGameDisplayName(string adapterId)
         => string.Equals(adapterId, "factorio", StringComparison.Ordinal)

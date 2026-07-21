@@ -127,9 +127,11 @@ public sealed class InMemorySharedWorldBackend
                 throw new InvalidOperationException($"World '{worldId}' already exists.");
             }
 
-            if (_revisions.ContainsKey(initialStateRevisionId))
+            var initialRevisionKey = RevisionKey(worldId, initialStateRevisionId);
+            if (_revisions.ContainsKey(initialRevisionKey))
             {
-                throw new InvalidOperationException($"Revision '{initialStateRevisionId}' already exists.");
+                throw new InvalidOperationException(
+                    $"Revision '{initialStateRevisionId}' already exists in World '{worldId}'.");
             }
 
             var members = new HashSet<string>(StringComparer.Ordinal)
@@ -148,7 +150,7 @@ public sealed class InMemorySharedWorldBackend
 
             var bytes = initialStateBytes.ToArray();
             _revisions.Add(
-                initialStateRevisionId,
+                initialRevisionKey,
                 new RevisionRecord(
                     initialStateRevisionId,
                     worldId,
@@ -318,10 +320,10 @@ public sealed class InMemorySharedWorldBackend
                 return new(PublishCandidateStatus.Unauthorized, null);
             }
 
-            if (_revisions.TryGetValue(revisionId, out var existing))
+            var revisionKey = RevisionKey(worldId, revisionId);
+            if (_revisions.TryGetValue(revisionKey, out var existing))
             {
-                var sameCandidate = existing.WorldId == worldId &&
-                    existing.ByteSize == expectedByteSize &&
+                var sameCandidate = existing.ByteSize == expectedByteSize &&
                     string.Equals(existing.Sha256, expectedSha256, StringComparison.OrdinalIgnoreCase);
 
                 return sameCandidate
@@ -339,7 +341,7 @@ public sealed class InMemorySharedWorldBackend
             }
 
             _revisions.Add(
-                revisionId,
+                revisionKey,
                 new RevisionRecord(revisionId, worldId, actualHash, bytes, published: true));
 
             return new(PublishCandidateStatus.Published, revisionId);
@@ -380,14 +382,13 @@ public sealed class InMemorySharedWorldBackend
                 return new(CommitCandidateStatus.HeadChanged, world.CurrentStateRevisionId, candidateRevisionId);
             }
 
-            if (!_revisions.TryGetValue(candidateRevisionId, out var candidate) ||
-                !candidate.Published ||
-                !string.Equals(candidate.WorldId, worldId, StringComparison.Ordinal))
+            var candidateKey = RevisionKey(worldId, candidateRevisionId);
+            if (!_revisions.TryGetValue(candidateKey, out var candidate) || !candidate.Published)
             {
                 return new(CommitCandidateStatus.InvalidCandidate, world.CurrentStateRevisionId, candidateRevisionId);
             }
 
-            var currentRevision = _revisions[world.CurrentStateRevisionId];
+            var currentRevision = _revisions[RevisionKey(worldId, world.CurrentStateRevisionId)];
             if (string.Equals(currentRevision.Sha256, candidate.Sha256, StringComparison.Ordinal))
             {
                 return new(CommitCandidateStatus.Unchanged, world.CurrentStateRevisionId, candidateRevisionId);
@@ -475,9 +476,8 @@ public sealed class InMemorySharedWorldBackend
                 return null;
             }
 
-            if (!_revisions.TryGetValue(revisionId, out var revision) ||
-                !revision.Published ||
-                !string.Equals(revision.WorldId, worldId, StringComparison.Ordinal))
+            if (!_revisions.TryGetValue(RevisionKey(worldId, revisionId), out var revision) ||
+                !revision.Published)
             {
                 return null;
             }
@@ -521,6 +521,9 @@ public sealed class InMemorySharedWorldBackend
         world = null!;
         return false;
     }
+
+    private static string RevisionKey(string worldId, string revisionId)
+        => $"{worldId}\u001f{revisionId}";
 
     private static SimulatedWorldSnapshot ToSnapshot(WorldRecord world)
         => new(

@@ -2,7 +2,7 @@
 
 This is the final UI planning checkpoint for the first commercial release.
 
-Status: **UI-0 approved. Master planning lock remains active.**
+Status: **UI-0 approved. Master planning lock is lifted; UI-1 may begin under E1.**
 
 The authoritative UI decisions are UI-D001 through UI-D009 in `UI_ROADMAP.md`.
 
@@ -97,4 +97,4 @@ Internal state names do not replace these terms.
 
 Status: **complete and approved**.
 
-UI implementation remains blocked only by the master planning lock.
+UI-1 implementation is allowed under E1 and must remain inside this frozen contract.

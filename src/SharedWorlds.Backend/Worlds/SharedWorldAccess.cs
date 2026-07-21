@@ -29,7 +29,7 @@ public enum StoreCreateInvitationStatus
 {
     Created,
     AlreadyInvited,
-    TargetAlreadyActiveMember
+    TargetAlreadyMember
 }
 
 public enum StoreInvitationResponseStatus

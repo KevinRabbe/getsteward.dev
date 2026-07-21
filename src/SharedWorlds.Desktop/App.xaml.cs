@@ -4,21 +4,17 @@ namespace SharedWorlds.Desktop;
 
 public partial class App : Application
 {
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
+        // MainWindow is created explicitly so its legacy Factorio-only Loaded handler can be
+        // removed before the window becomes visible. StartupUri would otherwise start both the
+        // legacy and unified refresh pipelines concurrently.
+        StartupUri = null;
         base.OnStartup(e);
-        Activated += App_Activated;
-    }
 
-    private void App_Activated(object? sender, EventArgs e)
-    {
-        if (MainWindow is not MainWindow window)
-        {
-            return;
-        }
-
-        Activated -= App_Activated;
-        window.InitializeUnifiedHostingPreference();
-        window.InitializeUnifiedGameUi();
+        var window = new MainWindow();
+        MainWindow = window;
+        await window.InitializeUnifiedStartupAsync();
+        window.Show();
     }
 }

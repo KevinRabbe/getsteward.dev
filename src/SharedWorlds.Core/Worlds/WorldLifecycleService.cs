@@ -307,6 +307,7 @@ public sealed class WorldLifecycleService
         ArgumentNullException.ThrowIfNull(launchSession);
 
         using var managedSessionLease = _managedSessionGate.Acquire(worldId);
+        await EnsureNoUnresolvedWorkspaceResponsibilityAsync(worldId, cancellationToken);
 
         Notify(worldId, mode, WorldLifecyclePhase.AcquiringReservation);
         await _sessionCoordinator.AcquireHostAsync(worldId, user, cancellationToken);
@@ -472,6 +473,35 @@ public sealed class WorldLifecycleService
                 }
             }
         }
+    }
+
+    private async Task EnsureNoUnresolvedWorkspaceResponsibilityAsync(
+        WorldId requestedWorldId,
+        CancellationToken cancellationToken)
+    {
+        var unresolved = (await _workspaceRecoveryStore.ListAsync(cancellationToken))
+            .Where(record => record.Status is
+                WorkspaceRecoveryStatus.Active or
+                WorkspaceRecoveryStatus.RecoveryPending or
+                WorkspaceRecoveryStatus.CleanupPending)
+            .OrderBy(record => record.CreatedAt)
+            .ThenBy(record => record.Id.ToString(), StringComparer.Ordinal)
+            .FirstOrDefault();
+
+        if (unresolved is null)
+        {
+            return;
+        }
+
+        var phase = unresolved.Status == WorkspaceRecoveryStatus.CleanupPending
+            ? WorldLifecyclePhase.CleanupPending
+            : WorldLifecyclePhase.RecoveryNeeded;
+        var reason =
+            $"Cannot start writable World '{requestedWorldId}' while unresolved workspace '{unresolved.Id}' " +
+            $"for World '{unresolved.WorldId}' is '{unresolved.Status}'. Resolve that responsibility first.";
+
+        Notify(unresolved.WorldId, mode: null, phase, reason);
+        throw new InvalidOperationException(reason);
     }
 
     private async Task<bool> CompleteSuccessfulWorkspaceAsync(

@@ -14,7 +14,7 @@ They deliver one product model. No workstream may invent a competing definition 
 
 ## Current mode: implementation unlocked
 
-Status: **P0 COMPLETE. E1 COMPLETE AND GREEN. E2 SHARED STATE FOUNDATION ACTIVE.**
+Status: **P0 COMPLETE. E1 COMPLETE AND GREEN. E2 SHARED STATE FOUNDATION ACTIVE — BE-2 COMPLETE, BE-3 ACTIVE.**
 
 The planning contracts remain the first-release implementation baseline. Changes remain possible, but any deliberate product-boundary or contract change must be documented before implementation changes follow it.
 
@@ -114,7 +114,7 @@ Canonical sources:
 - `BACKEND_ROADMAP.md`;
 - `BE0_SIGNOFF_CHECKLIST.md`.
 
-BE-D001 through BE-D015 define the first-release backend contract. Named production provider selection is explicitly deferred without blocking the provider-neutral implementation sequence.
+BE-D001 through BE-D015 define the first-release backend contract. Named production provider selection is explicitly deferred until the immutable-transfer milestone has enough measured evidence to choose one without redefining the product model.
 
 ## P0.4: AR-0 contract
 
@@ -212,6 +212,10 @@ E1 additionally proved the shared authority contract in a provider-free determin
 
 The E1 implementation was validated by GitHub Actions CI run `600` on head `fc22978ed46e5158e3cabdd06cd991f0d6c47c93`: formatter verification, Ubuntu Release build/tests, and Windows Release build/tests all passed.
 
+BE-2 replaced the simulated identity/access/metadata side with real backend contracts and durable PostgreSQL persistence: server-verified Steam identity, Steward access/refresh sessions, shared World metadata, flat membership + Access Manager administration, invitations/revocation/leave flows, and immutable state/environment metadata.
+
+BE-2 persistence was validated by GitHub Actions run `29866444653`: formatter verification, Ubuntu Release build/tests, Windows Release build/tests, and live PostgreSQL integration tests all passed. Canonical detail is recorded in `BE2_STATUS.md`.
+
 # Execution plan
 
 ## E1: Contract and conformance foundation — COMPLETE AND GREEN
@@ -231,16 +235,44 @@ No provider-specific or game-specific shortcut may bypass the E1 contracts as la
 
 ## E2: Shared state foundation — ACTIVE
 
-Implement the smallest real shared-state slice that preserves the green BE-1 invariants:
+E2 is replacing BE-1's simulated shared-state boundaries incrementally while preserving the same authority and failure semantics.
 
-- verified Steam identity boundary for shared operations;
-- persistent World metadata/access;
+### BE-2 — Authentication and World metadata service: COMPLETE AND GREEN
+
+Implemented and validated:
+
+- server-verified Steam identity boundary;
+- Steward access/refresh authentication sessions;
+- persistent shared World metadata;
+- flat membership + one Access Manager;
+- World-access invitations, acceptance/decline, revocation, pending revocation, leave, and manager transfer;
 - immutable state/environment metadata;
-- authorized upload/download boundary;
-- current-head commit;
-- client verification/cache integration.
+- provider-neutral PostgreSQL-compatible persistence;
+- live PostgreSQL integration coverage.
 
-E2 does **not** yet expand into broad adapter hardening or UI polish. Distributed reservation/heartbeat/reclaim integration is E3, although E2 persistence/API shapes must already be compatible with those frozen contracts.
+Canonical evidence:
+
+- `BE2_STATUS.md`;
+- CI run `29866444653`.
+
+### BE-3 — Immutable object transfer: ACTIVE
+
+Implement:
+
+- HTTPS/JSON transfer authorization control plane;
+- private immutable object-storage boundary;
+- bounded/resumable upload;
+- exact size/hash verification before publication;
+- immutable state/environment package publication;
+- resumable authorized download;
+- direct desktop/object-storage byte transfer;
+- orphan/partial cleanup;
+- BE-D009/BE-D010 retention integration;
+- client verification/cache/materialization contract.
+
+Provider selection may occur during BE-3 only after the provider-neutral contract is fixed and current EU storage/transfer economics have been measured. No provider may redefine World authority or package semantics.
+
+Canonical-head compare-and-swap commit and distributed reservation/generation authority remain **BE-4 / E3** concerns. Object storage never decides what revision is current.
 
 ## E3: Distributed one-writer coordination
 
@@ -345,4 +377,4 @@ Not required:
 
 # Immediate next step
 
-Begin **E2 / BE-2 shared state foundation** by defining and implementing the provider-neutral persistent service boundaries that replace BE-1's in-memory metadata/package authority incrementally. Preserve BE-1 result semantics and acceptance tests while keeping Steam verification, transport, persistence, and object-transfer concerns separable.
+Begin **E2 / BE-3 immutable object transfer** by defining the provider-neutral private object-storage and transfer-authorization contracts first. Preserve the 20 GiB hard ceiling, resumable transfer semantics, exact byte/hash verification, opaque package boundary, and direct client/object-store architecture before selecting a production storage provider.

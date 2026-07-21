@@ -80,6 +80,35 @@ public static class PostgreSqlBackendSchema
                 REFERENCES steward_environment_revisions(world_id, revision_id)
         );
 
+        CREATE TABLE IF NOT EXISTS steward_package_transfers (
+            transfer_id uuid PRIMARY KEY,
+            world_id uuid NOT NULL REFERENCES steward_shared_worlds(world_id) ON DELETE CASCADE,
+            revision_id uuid NOT NULL,
+            kind smallint NOT NULL CHECK (kind IN (0, 1)),
+            adapter_id text NOT NULL,
+            owner_provider text NOT NULL,
+            owner_external_id text NOT NULL,
+            object_key text NOT NULL,
+            provider_upload_id text NOT NULL UNIQUE,
+            expected_byte_size bigint NOT NULL CHECK (expected_byte_size > 0),
+            expected_sha256 text NOT NULL CHECK (length(expected_sha256) = 64),
+            required_environment_revision_id uuid NULL,
+            part_size_bytes integer NOT NULL CHECK (part_size_bytes > 0),
+            part_count integer NOT NULL CHECK (part_count > 0),
+            created_at timestamptz NOT NULL,
+            expires_at timestamptz NOT NULL,
+            state smallint NOT NULL CHECK (state IN (0, 1, 2, 3, 4)),
+            finalized_at timestamptz NULL,
+            FOREIGN KEY (world_id, required_environment_revision_id)
+                REFERENCES steward_environment_revisions(world_id, revision_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS ix_steward_package_transfers_owner
+            ON steward_package_transfers(owner_provider, owner_external_id, state);
+
+        CREATE INDEX IF NOT EXISTS ix_steward_package_transfers_expiry
+            ON steward_package_transfers(state, expires_at);
+
         CREATE TABLE IF NOT EXISTS steward_auth_sessions (
             session_id uuid PRIMARY KEY,
             identity_provider text NOT NULL,

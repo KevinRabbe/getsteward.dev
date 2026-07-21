@@ -1,16 +1,31 @@
+using System.Diagnostics;
+using System.IO.Compression;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.GameAdapters.Palworld;
 
 var hostRequested = args.Any(arg =>
     string.Equals(arg, "--host", StringComparison.OrdinalIgnoreCase));
+var captureRequested = args.Any(arg =>
+    string.Equals(arg, "--capture", StringComparison.OrdinalIgnoreCase));
+
+if (hostRequested && captureRequested)
+{
+    Console.Error.WriteLine("Use either --host or --capture, not both in the same probe run.");
+    Environment.ExitCode = 2;
+    return;
+}
 
 var adapter = new PalworldAdapter();
 var installations = await adapter.DiscoverInstallationsAsync();
 var hostStarted = false;
+var captureCompleted = false;
+var captureBlockedByRunningServer = false;
 
 Console.WriteLine(hostRequested
     ? "SharedWorlds Palworld probe (host test)"
-    : "SharedWorlds Palworld probe (read-only)");
+    : captureRequested
+        ? "SharedWorlds Palworld probe (state capture test)"
+        : "SharedWorlds Palworld probe (read-only)");
 Console.WriteLine();
 
 if (installations.Count == 0)
@@ -96,6 +111,53 @@ foreach (var installation in installations)
         }
     }
 
+    if (captureRequested && !captureCompleted && !captureBlockedByRunningServer)
+    {
+        var dedicatedWorld = worlds
+            .Where(world => world.Id.StartsWith("dedicated:", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(world => GetLastWriteTimeUtcSafe(Path.Combine(world.SourcePath, "Level.sav")))
+            .FirstOrDefault();
+
+        Console.WriteLine();
+        Console.WriteLine("State capture test:");
+
+        if (dedicatedWorld is null)
+        {
+            Console.WriteLine("  No dedicated Palworld world was detected for capture.");
+        }
+        else if (IsProcessRunning("PalServer"))
+        {
+            Console.WriteLine("  PalServer is still running.");
+            Console.WriteLine("  Capture was refused so the canonical package is not created from a world that may still be changing.");
+            Console.WriteLine("  Stop PalServer cleanly, then run the probe with --capture again.");
+            captureBlockedByRunningServer = true;
+        }
+        else
+        {
+            Console.WriteLine($"  Selected dedicated world: {dedicatedWorld.Id}");
+            Console.WriteLine($"  Source path: {dedicatedWorld.SourcePath}");
+
+            var captured = await adapter.CaptureDetectedWorldAsync(installation, dedicatedWorld);
+            var packageInspection = InspectStatePackage(captured.Package.Path);
+
+            Console.WriteLine($"  Package id: {captured.Package.Id}");
+            Console.WriteLine($"  Package path: {captured.Package.Path}");
+            Console.WriteLine($"  Captured at: {captured.CapturedAt:O}");
+            Console.WriteLine($"  Package entries: {packageInspection.EntryCount}");
+            Console.WriteLine($"  Contains Level.sav: {packageInspection.HasLevelSave}");
+            Console.WriteLine($"  Contains excluded backup data: {packageInspection.HasBackupData}");
+            Console.WriteLine($"  Delete after durable store: {captured.DeletePackageAfterStore}");
+
+            if (!packageInspection.HasLevelSave || packageInspection.HasBackupData)
+            {
+                throw new InvalidOperationException(
+                    "The captured Palworld package failed structural validation.");
+            }
+
+            captureCompleted = true;
+        }
+    }
+
     Console.WriteLine();
 }
 
@@ -108,6 +170,19 @@ if (hostRequested)
     else
     {
         Console.WriteLine("Host test failed to find a local world that could be launched.");
+        Environment.ExitCode = 1;
+    }
+}
+else if (captureRequested)
+{
+    if (captureCompleted)
+    {
+        Console.WriteLine("State capture test complete. A portable Palworld package was created through the adapter.");
+        Console.WriteLine("The probe leaves the temporary package in place because no durable State store is wired into this test yet.");
+    }
+    else
+    {
+        Console.WriteLine("State capture test did not create a package.");
         Environment.ExitCode = 1;
     }
 }
@@ -367,4 +442,40 @@ static long GetTotalSizeSafe(string path)
     }
 
     return total;
+}
+
+static bool IsProcessRunning(string processName)
+{
+    foreach (var process in Process.GetProcessesByName(processName))
+    {
+        using (process)
+        {
+            try
+            {
+                if (!process.HasExited)
+                {
+                    return true;
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // Process disappeared during inspection.
+            }
+        }
+    }
+
+    return false;
+}
+
+static (int EntryCount, bool HasLevelSave, bool HasBackupData) InspectStatePackage(string packagePath)
+{
+    using var archive = ZipFile.OpenRead(packagePath);
+    var hasLevelSave = archive.Entries.Any(entry =>
+        string.Equals(entry.FullName, "Level.sav", StringComparison.OrdinalIgnoreCase));
+    var hasBackupData = archive.Entries.Any(entry =>
+        entry.FullName
+            .Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .Any(segment => string.Equals(segment, "backup", StringComparison.OrdinalIgnoreCase)));
+
+    return (archive.Entries.Count, hasLevelSave, hasBackupData);
 }

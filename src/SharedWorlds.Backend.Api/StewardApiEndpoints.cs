@@ -493,7 +493,7 @@ public sealed record SharedWorldDto(
 {
     public static SharedWorldDto From(SharedWorldMetadata world)
         => new(
-            world.Id.Value,
+            world.WorldId.Value,
             world.AdapterId,
             world.DisplayName,
             world.CurrentStateRevisionId.Value,

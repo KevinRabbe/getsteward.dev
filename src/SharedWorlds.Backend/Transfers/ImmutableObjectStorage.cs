@@ -31,6 +31,10 @@ public sealed record DirectObjectTransferAuthorization(
 /// Implementations may use S3-compatible or equivalent storage, but must keep objects private and
 /// issue only narrowly scoped short-lived direct-transfer authorization.
 ///
+/// Multipart operations receive both the durable object key and provider upload ID. S3-compatible
+/// stores require both values to list, sign, complete, or abort an upload, so provider adapters must
+/// not depend on volatile process-local upload-ID mappings.
+///
 /// Exact object verification is part of this contract: returned SHA-256 values must represent the
 /// bytes actually stored, not an unverified checksum supplied by the desktop client.
 /// </summary>
@@ -43,10 +47,12 @@ public interface IPrivateImmutableObjectStore
         CancellationToken cancellationToken = default);
 
     Task<ImmutableUploadSnapshot?> GetMultipartUploadAsync(
+        string objectKey,
         string providerUploadId,
         CancellationToken cancellationToken = default);
 
     Task<DirectObjectTransferAuthorization> AuthorizeUploadPartAsync(
+        string objectKey,
         string providerUploadId,
         int partNumber,
         long expectedByteSize,
@@ -58,10 +64,12 @@ public interface IPrivateImmutableObjectStore
     /// integrity metadata. Repeating this after a successful completion must return the same object.
     /// </summary>
     Task<ImmutableStoredObject> CompleteMultipartUploadAsync(
+        string objectKey,
         string providerUploadId,
         CancellationToken cancellationToken = default);
 
     Task AbortMultipartUploadAsync(
+        string objectKey,
         string providerUploadId,
         CancellationToken cancellationToken = default);
 

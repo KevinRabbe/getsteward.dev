@@ -1,7 +1,7 @@
 <Window x:Class="SharedWorlds.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="SharedWorlds"
+        Title="Steward"
         Width="1180"
         Height="760"
         MinWidth="920"
@@ -21,10 +21,10 @@
                 BorderThickness="0,0,0,1">
             <DockPanel LastChildFill="False">
                 <StackPanel DockPanel.Dock="Left">
-                    <TextBlock Text="SharedWorlds"
+                    <TextBlock Text="Steward"
                                FontSize="24"
                                FontWeight="SemiBold" />
-                    <TextBlock Text="I want to play this World."
+                    <TextBlock Text="Click World. Play."
                                Margin="0,4,0,0"
                                Foreground="{StaticResource MutedTextBrush}"
                                FontSize="13" />
@@ -57,7 +57,7 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Worlds"
+                        <TextBlock Text="Games"
                                    Grid.Column="0"
                                    FontSize="18"
                                    FontWeight="SemiBold"
@@ -67,16 +67,16 @@
                                 Content="Import"
                                 Padding="12,6"
                                 MinHeight="32"
-                                Margin="0,0,8,0"
-                                Click="OpenImportButton_Click" />
+                                Margin="0,0,8,0" />
                         <Button x:Name="RefreshButton"
                                 Grid.Column="2"
                                 Content="Refresh"
                                 Padding="12,6"
-                                MinHeight="32"
-                                Click="RefreshButton_Click" />
+                                MinHeight="32" />
                     </Grid>
 
+                    <!-- Transitional structural anchor for the unified import browser. The active
+                         product import surface is created by MainWindow.UnifiedImportBrowser.cs. -->
                     <Border x:Name="ImportPanel"
                             Grid.Row="1"
                             Visibility="Collapsed"
@@ -87,10 +87,10 @@
                             BorderThickness="1"
                             CornerRadius="10">
                         <StackPanel>
-                            <TextBlock Text="Import a local save"
+                            <TextBlock Text="Import a local World"
                                        FontSize="15"
                                        FontWeight="SemiBold" />
-                            <TextBlock Text="Detected saves stay private until you explicitly share the World."
+                            <TextBlock Text="Detected Worlds stay private until you explicitly share them through Steward."
                                        Margin="0,5,0,10"
                                        Foreground="{StaticResource MutedTextBrush}"
                                        FontSize="12"
@@ -98,22 +98,7 @@
 
                             <ComboBox x:Name="ImportCandidateComboBox"
                                       MinHeight="38"
-                                      MaxDropDownHeight="320"
-                                      SelectionChanged="ImportCandidateComboBox_SelectionChanged">
-                                <ComboBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <StackPanel Margin="2,4">
-                                            <TextBlock Text="{Binding Name}"
-                                                       FontWeight="SemiBold" />
-                                            <TextBlock Text="{Binding Subtitle}"
-                                                       Margin="0,2,0,0"
-                                                       Foreground="{StaticResource MutedTextBrush}"
-                                                       FontSize="11"
-                                                       TextWrapping="Wrap" />
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </ComboBox.ItemTemplate>
-                            </ComboBox>
+                                      MaxDropDownHeight="320" />
 
                             <TextBlock x:Name="ImportDiscoveryText"
                                        Margin="0,8,0,0"
@@ -125,16 +110,13 @@
                                 <Button x:Name="ImportSelectedButton"
                                         Content="Import World"
                                         Style="{StaticResource PrimaryButtonStyle}"
-                                        Margin="0,0,8,8"
-                                        Click="ImportSelectedButton_Click" />
+                                        Margin="0,0,8,8" />
                                 <Button x:Name="ScanImportsButton"
                                         Content="Scan again"
-                                        Margin="0,0,8,8"
-                                        Click="ScanImportsButton_Click" />
+                                        Margin="0,0,8,8" />
                                 <Button x:Name="CancelImportButton"
                                         Content="Close"
-                                        Margin="0,0,8,8"
-                                        Click="CancelImportButton_Click" />
+                                        Margin="0,0,8,8" />
                             </WrapPanel>
                         </StackPanel>
                     </Border>
@@ -144,7 +126,6 @@
                              Background="Transparent"
                              BorderThickness="0"
                              Foreground="{StaticResource TextBrush}"
-                             SelectionChanged="WorldList_SelectionChanged"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemContainerStyle>
                             <Style TargetType="ListBoxItem">
@@ -166,11 +147,17 @@
                                             </Border>
                                             <ControlTemplate.Triggers>
                                                 <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource PanelAltBrush}" />
+                                                    <Setter TargetName="ItemBorder"
+                                                            Property="Background"
+                                                            Value="{StaticResource PanelAltBrush}" />
                                                 </Trigger>
                                                 <Trigger Property="IsSelected" Value="True">
-                                                    <Setter TargetName="ItemBorder" Property="Background" Value="#252C3B" />
-                                                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                    <Setter TargetName="ItemBorder"
+                                                            Property="Background"
+                                                            Value="#252C3B" />
+                                                    <Setter TargetName="ItemBorder"
+                                                            Property="BorderBrush"
+                                                            Value="{StaticResource AccentBrush}" />
                                                 </Trigger>
                                             </ControlTemplate.Triggers>
                                         </ControlTemplate>
@@ -178,20 +165,6 @@
                                 </Setter>
                             </Style>
                         </ListBox.ItemContainerStyle>
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <StackPanel>
-                                    <TextBlock Text="{Binding Name}"
-                                               FontSize="15"
-                                               FontWeight="SemiBold" />
-                                    <TextBlock Text="{Binding Subtitle}"
-                                               Margin="0,5,0,0"
-                                               Foreground="{StaticResource MutedTextBrush}"
-                                               FontSize="12"
-                                               TextWrapping="Wrap" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
                     </ListBox>
 
                     <Expander Grid.Row="3"
@@ -206,14 +179,13 @@
                                 CornerRadius="8">
                             <StackPanel>
                                 <CheckBox x:Name="AllowHostingCheckBox"
-                                          Content="Allow this device to host"
-                                          Click="AllowHostingCheckBox_Click" />
+                                          Content="Allow this device to host" />
                                 <TextBlock x:Name="HostingPreferenceText"
                                            Margin="22,6,0,0"
                                            Foreground="{StaticResource MutedTextBrush}"
                                            FontSize="11"
                                            TextWrapping="Wrap"
-                                           Text="Join-only devices stay out of host selection." />
+                                           Text="Hosting is disabled on this device." />
                             </StackPanel>
                         </Border>
                     </Expander>
@@ -226,7 +198,7 @@
                             MaxWidth="760"
                             HorizontalAlignment="Left">
                     <TextBlock x:Name="EmptyStateText"
-                               Text="Select a World to continue."
+                               Text="Select a World."
                                Foreground="{StaticResource MutedTextBrush}"
                                FontSize="18" />
 
@@ -258,66 +230,21 @@
                             </Border>
                         </WrapPanel>
 
-                        <Border Margin="0,26,0,0"
-                                Background="{StaticResource PanelBrush}"
-                                BorderBrush="{StaticResource BorderBrush}"
-                                BorderThickness="1"
-                                CornerRadius="12"
-                                Padding="20">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-
-                                <TextBlock Grid.Row="0" Grid.Column="0"
-                                           Text="World ID"
-                                           Foreground="{StaticResource MutedTextBrush}"
-                                           Margin="0,0,24,10" />
-                                <TextBlock x:Name="WorldIdText"
-                                           Grid.Row="0" Grid.Column="1"
-                                           Margin="0,0,0,10" />
-
-                                <TextBlock Grid.Row="1" Grid.Column="0"
-                                           Text="Environment"
-                                           Foreground="{StaticResource MutedTextBrush}"
-                                           Margin="0,0,24,10" />
-                                <TextBlock x:Name="EnvironmentRevisionText"
-                                           Grid.Row="1" Grid.Column="1"
-                                           Margin="0,0,0,10" />
-
-                                <TextBlock Grid.Row="2" Grid.Column="0"
-                                           Text="State"
-                                           Foreground="{StaticResource MutedTextBrush}"
-                                           Margin="0,0,24,0" />
-                                <TextBlock x:Name="StateRevisionText"
-                                           Grid.Row="2" Grid.Column="1" />
-                            </Grid>
-                        </Border>
-
                         <TextBlock Text="Play"
-                                   Margin="0,30,0,12"
+                                   Margin="0,26,0,12"
                                    FontSize="18"
                                    FontWeight="SemiBold" />
                         <WrapPanel>
                             <Button x:Name="ContinueButton"
-                                    Content="Continue"
+                                    Content="Start World"
                                     Style="{StaticResource PrimaryButtonStyle}"
-                                    Margin="0,0,10,10"
-                                    Click="ContinueButton_Click" />
+                                    Margin="0,0,10,10" />
                             <Button x:Name="HostButton"
-                                    Content="Host"
-                                    Margin="0,0,10,10"
-                                    Click="HostButton_Click" />
+                                    Content="Host World"
+                                    Margin="0,0,10,10" />
                             <Button x:Name="ShareButton"
                                     Content="Share World"
-                                    Margin="0,0,10,10"
-                                    Click="ShareButton_Click" />
+                                    Margin="0,0,10,10" />
                         </WrapPanel>
 
                         <TextBlock Text="World settings"
@@ -371,10 +298,57 @@
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Margin="0,18,0,0"
-                                   Foreground="{StaticResource MutedTextBrush}"
-                                   Text="The first desktop slice intentionally exposes only the actions already proven by the Core lifecycle. Join, host handoff, Restore, Sandbox and Start Your Own will appear as those workflows become real."
-                                   TextWrapping="Wrap" />
+                        <Expander Header="Technical details"
+                                  Foreground="{StaticResource TextBrush}"
+                                  Margin="0,26,0,0">
+                            <Border Margin="0,10,0,0"
+                                    Background="{StaticResource PanelBrush}"
+                                    BorderBrush="{StaticResource BorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="12"
+                                    Padding="20">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Grid.Row="0"
+                                               Grid.Column="0"
+                                               Text="World ID"
+                                               Foreground="{StaticResource MutedTextBrush}"
+                                               Margin="0,0,24,10" />
+                                    <TextBlock x:Name="WorldIdText"
+                                               Grid.Row="0"
+                                               Grid.Column="1"
+                                               Margin="0,0,0,10" />
+
+                                    <TextBlock Grid.Row="1"
+                                               Grid.Column="0"
+                                               Text="Environment"
+                                               Foreground="{StaticResource MutedTextBrush}"
+                                               Margin="0,0,24,10" />
+                                    <TextBlock x:Name="EnvironmentRevisionText"
+                                               Grid.Row="1"
+                                               Grid.Column="1"
+                                               Margin="0,0,0,10" />
+
+                                    <TextBlock Grid.Row="2"
+                                               Grid.Column="0"
+                                               Text="State"
+                                               Foreground="{StaticResource MutedTextBrush}"
+                                               Margin="0,0,24,0" />
+                                    <TextBlock x:Name="StateRevisionText"
+                                               Grid.Row="2"
+                                               Grid.Column="1" />
+                                </Grid>
+                            </Border>
+                        </Expander>
                     </StackPanel>
                 </StackPanel>
             </ScrollViewer>

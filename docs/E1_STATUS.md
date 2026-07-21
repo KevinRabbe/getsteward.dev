@@ -50,24 +50,31 @@ AR-1 is not green until the repository compiles and the tests execute successful
 
 ## UI-1 — Shell/navigation replacement
 
-Status: **in progress**.
+Status: **implementation requirements complete; Windows build/test confirmation pending**.
 
-Implemented so far:
+Implemented:
 
-- persistent tray/background lifetime;
-- close window -> hide, not quit;
+- persistent tray/background lifetime and close-to-tray behavior;
 - guarded Quit from runtime responsibility;
 - recovery loaded before unified game/World startup;
-- Host-vs-Share semantics corrected in unified and legacy action paths;
-- fake local `Shared` transition removed from the active unified Share action.
+- approved Start World / Host World / Share World terminology and Host-vs-Share semantics;
+- truthful `Only on this PC` / `Shared` presentation with no fake local Shared transition;
+- Steward product shell/branding and collapsed technical revision details;
+- responsive wide master-detail and narrow focused World view with `Back to Worlds`;
+- old Factorio-only desktop execution path and legacy XAML action handlers removed;
+- one authoritative game-first Import workspace; duplicate compact Import pipeline/anchors removed;
+- runtime responsibility surfaced on selected World and used to guard writable actions;
+- Games-level runtime attention indicator for Preparing, Running, Saving World, Recovery needed, and Action required;
+- direct WPF template construction retained instead of unnecessary helper abstractions.
 
-Still open:
+UI-1 is not green until the Windows desktop project compiles and repository tests execute successfully under warnings-as-errors/nullability rules. Real Share World / Manage access remains intentionally deferred to BE-2/UI-4 because `Shared` must mean real backend authority exists.
 
-- remove/quarantine obsolete legacy Factorio-only desktop composition;
-- finish intended global shell/navigation and responsive workspace cleanup;
-- surface recovery/attention state directly in unified World presentation;
-- real Share World / Manage access implementation waits for BE-2/UI-4 shared authority.
+## E1 aggregate status
+
+**All three E1 implementation slices are complete against their frozen contracts. E1 remains execution-evidence blocked, not implementation blocked.**
+
+The available GitHub connector does not expose push-run listing or workflow dispatch for this branch, combined commit status currently exposes no checks, the local execution environment cannot reach GitHub and does not contain the .NET SDK, and no trustworthy build/test result has therefore been obtained yet.
 
 ## E1 rule
 
-Do not start BE-2, AR-2/AR-3 game-specific hardening, or later release work merely to avoid the remaining E1 build/test and UI-1 gates.
+Do not start BE-2, AR-2/AR-3 game-specific hardening, or later release work merely to avoid the unresolved build/test gate. The next allowed step is to obtain real restore/format/build/test evidence for the current branch and fix any failures before E2 begins.

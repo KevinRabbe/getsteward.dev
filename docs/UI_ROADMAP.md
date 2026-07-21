@@ -10,7 +10,7 @@ Steward is background-first. The user should enter briefly to select a World, st
 
 ## Planning status
 
-Status: **planning locked — UI-0 in progress**.
+Status: **planning locked — UI-0 waiting on backend access-policy decision**.
 
 No production UI implementation or refactor begins until UI-0 and the master planning gate are complete.
 
@@ -250,7 +250,7 @@ Recovery never offers:
 - silent candidate promotion;
 - silent candidate deletion.
 
-Typical recovery presentation:
+Typical presentation:
 
 > **Recovery needed**
 >
@@ -294,7 +294,7 @@ During an active World session the tray may show:
 
 During post-game work it may show statuses such as:
 
-- Saving;
+- Saving World;
 - Waiting to sync;
 - Recovery needed.
 
@@ -308,7 +308,7 @@ no active or unresolved World responsibility
 ```
 
 ```text
-Running / Hosting / Saving / Waiting to sync / active recovery
+Running / Hosting / Saving World / Waiting to sync / active recovery
 -> ordinary Quit must not silently abandon the responsibility
 ```
 
@@ -318,13 +318,60 @@ Rules:
 - no invisible user-session background process: if Steward is running, its tray presence is visible;
 - the tray does not browse Games, Worlds, imports, settings, or diagnostics as a second application shell;
 - active hosted sessions end through the correct adapter/runtime session-ending path;
-- Saving and Waiting to sync cannot be silently abandoned;
+- Saving World and Waiting to sync cannot be silently abandoned;
 - explicit exceptional exits, when later defined, must preserve recovery evidence;
 - **Start Steward when I sign in** is a separate user setting and does not change lifecycle semantics.
 
 Core principle:
 
 > **The UI window may close. The responsibility may not.**
+
+### UI-D008: Fixed first-release terminology
+
+Status: **approved**.
+
+The first release uses a small plain-language vocabulary. Internal implementation state names do not automatically become user-facing terminology.
+
+#### Actions
+
+- **Start World**
+- **Host World**
+- **Join**
+- **Share World**
+- **Stop and Save**
+- **Retry connection**
+- **Retry recovery**
+- **Export recovery copy**
+- **Continue from last safe state**
+- **Open Steward**
+- **Quit Steward**
+
+#### User-facing states
+
+| Term | Meaning |
+|---|---|
+| **Ready** | The World can safely begin a new session. |
+| **Only on this PC** | Managed locally and not shared. |
+| **Shared** | Available through Steward to permitted identities/devices. |
+| **Preparing** | Steward is getting the World and required environment ready. |
+| **Running** | A local/non-hosted session is active on this device. |
+| **Hosting** | A hosted session is active on this device/server. |
+| **Host is starting** | Another device owns a hosted session but it is not ready to accept Join yet. |
+| **Someone is playing** | Another device owns the active writable session. |
+| **Saving World** | Steward is capturing, storing, verifying, and/or committing the session result. |
+| **Waiting to sync** | New state is preserved locally but the remote handoff cannot finish yet. |
+| **Connection required** | Shared truth cannot currently be verified, so writable play cannot begin. |
+| **Action required** | An environment/capability issue requires user intervention. |
+| **Recovery needed** | The previous handoff did not complete safely and recovery evidence requires resolution. |
+
+Rules:
+
+- internal `Blocked` is presented to the user as **Action required**;
+- internal generic `Saving` is presented as **Saving World**;
+- **Recovery needed** remains explicit because it signals that a new writable session must not simply begin;
+- **Connection required** and **Waiting to sync** remain separate because one prevents a new session while the other protects changes already created;
+- **Stop and Save** is retained for controlled hosted shutdown because the important product action is safely ending the World session, not merely stopping infrastructure;
+- technical lifecycle substeps remain available only as secondary progress/detail when useful.
 
 ## UI boundaries
 
@@ -382,7 +429,7 @@ Shows installed supported games as large cards with:
 
 - game artwork and name;
 - managed World count;
-- attention indicator when a World is active, blocked, waiting to sync, or requires recovery.
+- attention indicator when a World is active, requires action, is waiting to sync, or requires recovery.
 
 ### Game Workspace
 
@@ -471,7 +518,7 @@ Ready
 -> Running
 -> main window may hide to tray
 -> game ends
--> Saving
+-> Saving World
 -> Ready
 ```
 
@@ -484,7 +531,7 @@ Ready / Shared
 -> Hosting
 -> main window may hide to tray
 -> Stop and Save or adapter-observed safe end
--> Saving
+-> Saving World
 -> Ready
 ```
 
@@ -523,7 +570,7 @@ open shared World
 -> backend verification fails
 -> Connection required
 -> no writable action
--> Retry
+-> Retry connection
 ```
 
 ### UJ-10: Connection lost during active session
@@ -588,18 +635,18 @@ When an active or unresolved responsibility exists, ordinary Quit is blocked or 
 
 | State | Meaning | Primary action(s) | Secondary action |
 |---|---|---|---|
-| Ready, only on this PC | Safe local managed state, not shared | Start World | Share World |
+| Ready / Only on this PC | Safe local managed state, not shared | Start World | Share World |
 | Sharing | Upload/access setup incomplete | None | Cancel only when rollback is safe |
-| Ready, shared | Current shared state and reservation service verified | Start World; Host World | Manage access where needed |
+| Ready / Shared | Current shared state and reservation service verified | Start World; Host World | Manage access where needed |
 | Connection required | Shared current head/reservation cannot be verified before start | Retry connection | Cached information only |
 | Preparing | State/environment is being prepared | None | Cancel only before launch when safe |
-| Running locally here | This device owns local writable session | Open | None |
-| Hosting here | This device/server owns hosted session | Open | Stop and Save when supported |
-| Host starting elsewhere | Another device owns hosted session but is not ready to accept players | Wait | Refresh/status |
-| Active elsewhere | Another device owns a ready hosted session | Join when supported | Wait/refresh |
-| Saving | Capture/store/commit incomplete | None | None |
+| Running | This device owns a local writable session | Open | None |
+| Hosting | This device/server owns a hosted session | Open | Stop and Save when supported |
+| Host is starting | Another device owns a hosted session but is not ready to accept players | Wait | Refresh/status |
+| Someone is playing | Another device owns a ready active session | Join when supported | Wait/refresh |
+| Saving World | Capture/store/verify/commit incomplete | None | None |
 | Waiting to sync | Updated state is preserved locally but remote handoff is incomplete | Automatic retry; manual Retry when useful | Diagnostics |
-| Blocked | Required environment/capability unavailable | Resolve issue | Diagnostics |
+| Action required | Required environment/capability unavailable | Resolve issue | Diagnostics |
 | Recovery needed | Previous handoff did not finish safely | Best proven-safe recovery action | Other proven-safe recovery/export actions |
 
 ## Progress contract
@@ -645,6 +692,12 @@ Deliverables:
 - explicit first-release exclusions;
 - cross-workstream contract with backend and runtime.
 
+Current status:
+
+- UI-D001 through UI-D008 are approved;
+- exact flat sharing/access UI remains intentionally blocked on the backend access-policy decision;
+- UI-0 does not invent that policy independently.
+
 ### UI-1: Shell and navigation replacement
 
 - global rail;
@@ -683,7 +736,7 @@ Deliverables:
 - Connection required and Waiting to sync behavior;
 - minimal access/invitation surface after backend policy is approved.
 
-### UI-5: Recovery and blocked states
+### UI-5: Recovery and action-required states
 
 - recovery evidence presentation;
 - Retry recovery only when safe;
@@ -707,16 +760,17 @@ Deliverables:
 
 ## Decisions still required before UI-0 completes
 
-- Exact flat sharing/invitation UI after backend access policy is chosen.
-- Final terminology for Stop and Save, Saving, Blocked, Recovery needed, Connection required, Waiting to sync, and related concise status wording.
+Only one UI decision remains unresolved:
 
-The sharing/invitation question is intentionally blocked on the backend access-policy decision and must not be guessed by UI planning.
+- **Exact flat sharing/access UI after the backend access policy is approved.**
+
+This question is intentionally blocked on BE-0. UI planning must not invent an ownership, party, role, or social model to fill the gap.
 
 ## UI planning completion gate
 
 UI planning is complete only when:
 
-- all remaining decisions are resolved or explicitly deferred without blocking implementation;
+- the backend access policy is approved and the matching flat sharing/access UI is defined;
 - backend and runtime expose every required state/action;
 - no screen depends on social, ownership, branch, or merge models;
 - first-release navigation and journeys are accepted;

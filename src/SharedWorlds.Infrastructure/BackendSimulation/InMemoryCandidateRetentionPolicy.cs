@@ -76,6 +76,7 @@ public sealed class InMemoryCandidateRetentionPolicy
                 return false;
             }
 
+            EnsureActivityDoesNotRegress(candidate, activityAt);
             candidate.LastActivityAt = activityAt;
             return true;
         }
@@ -111,6 +112,7 @@ public sealed class InMemoryCandidateRetentionPolicy
                 return false;
             }
 
+            EnsureActivityDoesNotRegress(candidate, activityAt);
             candidate.Kind = kind;
             candidate.LastActivityAt = activityAt;
             return true;
@@ -158,6 +160,18 @@ public sealed class InMemoryCandidateRetentionPolicy
             SimulatedCandidateRetentionKind.UnchangedTemporary => true,
             _ => false
         };
+    }
+
+    private static void EnsureActivityDoesNotRegress(
+        CandidateRecord candidate,
+        DateTimeOffset activityAt)
+    {
+        if (activityAt < candidate.LastActivityAt)
+        {
+            throw new InvalidOperationException(
+                $"Candidate '{candidate.CandidateId}' activity time cannot move backwards from " +
+                $"'{candidate.LastActivityAt:O}' to '{activityAt:O}'.");
+        }
     }
 
     private static void ValidateRequired(string value, string parameterName)

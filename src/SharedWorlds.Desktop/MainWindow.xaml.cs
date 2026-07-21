@@ -26,6 +26,12 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
+        Title = "Steward";
+        ContinueButton.Content = "Start World";
+        HostButton.Content = "Host World";
+
+        // Keep the existing local data root for persistence compatibility while the product shell
+        // moves from the old SharedWorlds working name to Steward.
         var sharedWorldsRoot = Path.Combine(GetLocalDataRoot(), "SharedWorlds");
         var storageRoot = Path.Combine(sharedWorldsRoot, "data");
         _storage = new LocalWorldStorage(storageRoot);

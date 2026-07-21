@@ -16,7 +16,6 @@ public partial class MainWindow
         }
 
         _unifiedHostingPreferenceInitialized = true;
-        AllowHostingCheckBox.Click -= AllowHostingCheckBox_Click;
         AllowHostingCheckBox.Click += UnifiedAllowHostingCheckBox_Click;
     }
 
@@ -46,5 +45,6 @@ public partial class MainWindow
 
         UpdateHostingPreferenceText();
         UpdateUnifiedActionState();
+        UpdateResponsibilityPresentation();
     }
 }

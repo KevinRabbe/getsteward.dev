@@ -4,7 +4,7 @@ UI-1 replaces transitional desktop behavior with the approved first-release shel
 
 ## Current status
 
-Status: **in progress — runtime/tray/action semantics and legacy-path quarantine implemented; shell/navigation replacement and build confirmation remain**.
+Status: **in progress — runtime/tray/action semantics and responsive master-detail shell implemented; final import-anchor cleanup, Games attention, and build confirmation remain**.
 
 Implemented in the current UI-1 slice:
 
@@ -17,14 +17,19 @@ Implemented in the current UI-1 slice:
 - startup loads durable workspace-recovery records before the unified game/World surface initializes;
 - a recovery record found after restart cannot be silently presented as normal Ready state;
 - the generic runtime also hard-blocks new writable Start/Host before coordinator acquisition while durable responsibility remains;
-- selected-World presentation now surfaces `Preparing`, `Running`, `Saving World`, `Recovery needed`, or `Action required` directly from the runtime responsibility tracker;
+- selected-World presentation surfaces `Preparing`, `Running`, `Saving World`, `Recovery needed`, or `Action required` directly from the runtime responsibility tracker;
 - Start World / Host World are disabled whenever this desktop has active or unresolved writable responsibility, including when that responsibility belongs to another World;
-- temporary `Host World` no longer depends on persistent Steward sharing in Core, legacy desktop action gating, or the unified action layer;
+- temporary `Host World` no longer depends on persistent Steward sharing in Core or UI action gating;
 - Host availability is driven by adapter host capability plus the local device hosting preference;
-- unified Host tooltips/text no longer instruct the user to Share first;
-- approved `Start World` / `Host World` terminology replaces the transitional Continue/Host labels in the active desktop;
+- approved `Start World` / `Host World` terminology replaces the transitional Continue/Host labels;
 - `Only on this PC` replaces the transitional `Local only` wording;
-- the old Factorio-only desktop execution path has been removed; XAML-named legacy handlers remain only as inert structural anchors until the shell markup itself is replaced;
+- the desktop/window branding now says Steward with the product-facing `Click World. Play.` shell line;
+- technical World/environment/state revision identifiers moved behind a collapsed `Technical details` expander;
+- wide layout keeps World navigation beside selected-World details;
+- narrow layout uses the approved focused master-detail behavior with `Back to Worlds`;
+- window minimum width was reduced so the narrow layout can actually be reached;
+- the old Factorio-only desktop execution path and its XAML event-handler contract have been removed;
+- the duplicate compact import execution pipeline was removed from the unified Games code; the real game-first Import workspace remains authoritative;
 - `Share World` no longer flips a local enum and falsely claims persistent remote sharing;
 - until BE-2/UI-4 connects real remote World authority/access, Share/Manage access remains an honest entry point that leaves canonical local state unchanged;
 - WinForms is used only for `NotifyIcon`; its namespace is kept explicit so existing WPF `Application`/`MessageBox` usage is not polluted by implicit WinForms imports.
@@ -33,7 +38,7 @@ Implemented in the current UI-1 slice:
 
 `Shared` means a real Steward backend/access relationship exists. A local metadata mutation is not sufficient.
 
-Therefore the transitional desktop must not present a World as Shared until the backend flow has actually:
+Therefore the desktop must not present a World as Shared until the backend flow has actually:
 
 1. authenticated the caller;
 2. registered shared World authority;
@@ -46,9 +51,8 @@ This keeps UI-D003/UI-D009 aligned with BE-D002/003 rather than allowing the des
 
 ## Remaining UI-1 work
 
-- finish the intended global shell/navigation replacement instead of layering more dynamic UI over the transitional XAML;
-- preserve Games -> Worlds hierarchy and responsive selected-World details while removing the remaining structural legacy controls/markup anchors;
-- add Games-level attention indication where a managed World requires action/recovery;
+- remove the final compact ImportPanel/ImportCandidateComboBox structural anchors and their one isolated detach-compatibility hook from `UnifiedImportBrowser`;
+- add Games-level attention indication where a managed World is active, saving, requires action, or requires recovery;
 - keep `Share World` / `Manage access` non-destructive until BE-2/UI-4 provides the real access flow;
 - add automated desktop-level tests where practical for close-to-tray and safe-Quit policy;
 - build/test confirmation on Windows under warnings-as-errors.

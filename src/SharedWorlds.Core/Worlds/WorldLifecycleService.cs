@@ -310,7 +310,21 @@ public sealed class WorldLifecycleService
         await EnsureNoUnresolvedWorkspaceResponsibilityAsync(worldId, cancellationToken);
 
         Notify(worldId, mode, WorldLifecyclePhase.AcquiringReservation);
-        await _sessionCoordinator.AcquireHostAsync(worldId, user, cancellationToken);
+        try
+        {
+            await _sessionCoordinator.AcquireHostAsync(worldId, user, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            // Coordinator implementations may throw only after resolving an ambiguous transport
+            // outcome and proving that this caller did not acquire writable authority.
+            Notify(
+                worldId,
+                mode,
+                WorldLifecyclePhase.Completed,
+                $"Writable reservation was not acquired: {exception.Message}");
+            throw;
+        }
 
         Exception? operationException = null;
         PreparedWorldContext? context = null;

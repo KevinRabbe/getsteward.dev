@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Windows;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Worlds;
 using Forms = System.Windows.Forms;
@@ -57,6 +58,8 @@ public partial class MainWindow
 
     private void OnLifecyclePhaseChanged(WorldLifecyclePhaseChange change)
     {
+        ArgumentNullException.ThrowIfNull(change);
+
         if (!Dispatcher.CheckAccess())
         {
             _ = Dispatcher.BeginInvoke(UpdateTrayStatus);

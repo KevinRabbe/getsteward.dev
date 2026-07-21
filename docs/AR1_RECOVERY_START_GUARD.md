@@ -1,42 +1,44 @@
 # AR-1 Durable Recovery Start Guard
 
-Status: **open AR-1 correctness gate**.
+Status: **implemented; build/test confirmation pending**.
 
-The current AR-1 implementation loads durable workspace-recovery records into `WorldLifecycleResponsibilityTracker` before unified startup and uses that responsibility to guard Quit/self-update behavior.
+The runtime now enforces durable workspace responsibility before every new writable `Start World` / `Host World` lifecycle.
 
-That is necessary but not sufficient.
+## Enforced invariant
 
-## Required invariant
+> **A durable unresolved workspace responsibility blocks every new writable Start World / Host World lifecycle on that desktop until the responsibility is safely resolved.**
 
-> **A durable unresolved workspace responsibility must block every new writable Start World / Host World lifecycle on that desktop until the responsibility is safely resolved.**
+The rule is enforced inside `WorldLifecycleService`, not only by WPF button state.
 
-The rule must be enforced at the generic runtime/lifecycle boundary, not only by button state.
-
-Reason:
-
-- an application restart releases all in-memory `ManagedWritableSessionGate` leases;
-- the durable `IWorkspaceRecoveryStore` may still contain `Active`, `RecoveryPending`, or `CleanupPending` evidence from the previous process;
-- allowing a new writable lifecycle merely because the in-memory gate is empty would violate the first-release one-active/unresolved-responsibility-per-device rule;
-- UI gating alone is insufficient because callers other than the current WPF buttons may invoke the lifecycle later.
-
-## Required AR-1 completion behavior
+## Implemented ordering
 
 Before a new `ContinueLocalAsync` or `ContinueAsHostAsync` transaction acquires the distributed/per-World writer reservation:
 
-1. acquire the process-local device gate so concurrent starts still serialize;
-2. inspect durable workspace recovery records;
-3. when an unresolved record exists, reject the new writable lifecycle with a deterministic generic result/error;
-4. do not call `IWorldSessionCoordinator.AcquireHostAsync`;
-5. preserve the existing recovery evidence;
-6. surface `Recovery needed` or `Action required` according to the durable record state;
-7. allow the future dedicated recovery path to bypass/resolve this guard only after its own authority checks succeed.
+1. the process-local `ManagedWritableSessionGate` is acquired;
+2. `IWorkspaceRecoveryStore` is inspected;
+3. `Active`, `RecoveryPending`, and `CleanupPending` records are treated as unresolved responsibility;
+4. a blocking record prevents `IWorldSessionCoordinator.AcquireHostAsync` from being called;
+5. the existing recovery record remains untouched;
+6. `Active` / `RecoveryPending` surface `RecoveryNeeded` through the lifecycle observer;
+7. `CleanupPending` surfaces `CleanupPending` / Action required;
+8. an unreadable recovery store fails closed rather than being interpreted as an empty recovery store.
 
-Required tests:
+The blocking record is selected deterministically when corrupt/legacy state contains more than one unresolved record. Normal first-release behavior should still produce at most one unresolved writable responsibility per device.
 
-- restart + `Active` record blocks Start/Host before coordinator acquisition;
-- `RecoveryPending` blocks Start/Host;
-- unresolved cleanup/recovery does not disappear because a new process has an empty in-memory gate;
-- resolving/removing the durable responsibility permits the next writable lifecycle;
-- two simultaneous starts remain serialized by `ManagedWritableSessionGate` even when the recovery store is empty.
+## Regression coverage
 
-Until this guard is integrated and the repository build/tests execute successfully, AR-1 is **not green**.
+`WorldLifecycleRecoveryStartGuardTests` covers:
+
+- restart-style `Active` record blocks Start before coordinator acquisition;
+- `Active` record blocks Host before coordinator acquisition;
+- `RecoveryPending` blocks Start and Host;
+- `CleanupPending` blocks Start and Host and maps to the attention phase;
+- blocking evidence is preserved;
+- removing/resolving the durable record allows the next writable lifecycle to reach coordination;
+- recovery-store read failure fails closed before coordination.
+
+Device-wide serialization itself remains covered independently by `ManagedWritableSessionGateTests` and `WorldLifecycleDeviceConcurrencyTests`.
+
+## Remaining gate
+
+The implementation is not declared green until the repository compiles and its tests execute successfully under the repository's warnings-as-errors/nullability configuration.

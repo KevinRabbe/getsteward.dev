@@ -4,275 +4,264 @@
 
 > **One shared World. Different Steam players. Different times. No always-on game server.**
 
-The master roadmap coordinates three implementation workstreams:
+Steward coordinates three implementation workstreams:
 
 1. [UI and UX Roadmap](UI_ROADMAP.md)
 2. [Backend Roadmap](BACKEND_ROADMAP.md)
 3. [Adapter and Background Runtime Roadmap](ADAPTER_RUNTIME_ROADMAP.md)
 
-The workstreams may contain different technical milestones, but they deliver one product. None may create its own product model.
+They deliver one product model. No workstream may invent a competing definition of World, session, sharing, hosting, recovery, or authority.
 
 ## Current mode: planning lock
 
-Status: **ACTIVE — no production code until planning is complete.**
+Status: **ACTIVE — P0 planning is complete; explicit product-owner lock lift is pending.**
 
-The repository has enough validated implementation to plan against real behavior. The next risk is not lack of code; it is coding before the UI, backend, runtime, recovery, and cross-device contracts agree.
+All required first-release planning contracts are now approved/reconciled. Production implementation remains blocked only because the master lock has not yet been explicitly lifted.
 
-Until this lock is explicitly lifted, do not add or modify:
-
-- production UI behavior or layout;
-- backend/service code or infrastructure;
-- storage or coordination schemas;
-- adapter contracts or lifecycle code;
-- Factorio or Palworld implementation behavior;
-- background/tray runtime code;
+Until that explicit decision, do not add or modify:
+- production UI behavior/layout;
+- backend/service code or production infrastructure;
+- storage/coordination schemas intended as implementation;
+- adapter contracts/lifecycle behavior;
+- Factorio/Palworld production behavior;
+- background/tray implementation;
 - new game adapters;
 - speculative prototypes intended to become product code.
 
-Allowed during the planning lock:
-
-- documentation and diagrams;
-- decision research and cost analysis;
-- threat modeling;
+Allowed while the lock remains active:
+- documentation corrections;
 - read-only repository inspection;
-- real-game fact verification using copied/disposable data only when necessary to settle a planning decision;
-- removal of contradictory documentation;
-- acceptance-test specification without implementation.
+- final sign-off review;
+- acceptance-test specification;
+- research/calculation that does not create product implementation.
 
-The lock is lifted only by an explicit product decision after all planning exit criteria are satisfied.
+## Product boundaries
 
-## Why three workstreams
-
-### UI and UX
-
-Defines what the user sees and does:
-
+### UI/UX owns
 - Games Library;
-- game-specific World workspace;
+- per-game World workspace;
 - import;
 - Start World / Host World / Join;
-- lifecycle progress;
-- background/tray behavior;
-- blocked and recovery states.
+- Share World / Manage access;
+- lifecycle/progress presentation;
+- tray/background visibility;
+- Connection required / Waiting to sync / Action required / Recovery needed presentation.
 
-It must not invent backend or adapter behavior to make a screen convenient.
+UI never invents backend authority or game-specific lifecycle behavior.
 
-### Backend
+### Backend owns
+- verified Steam identity for shared operations;
+- flat World membership + one Access Manager;
+- immutable package publication/transfer authorization;
+- canonical state/environment heads;
+- one-writer reservation/generation;
+- uncertainty/reclaim;
+- expected-head commit;
+- remote recovery/retention/security/operations boundaries.
 
-Defines persistent cross-device truth:
+Backend never interprets game saves or runs permanent game servers.
 
-- verified Steam identity;
-- minimal World access;
-- immutable state storage and transfer;
-- current-head commit;
-- distributed one-writer reservation;
-- uncertainty/reclaim behavior;
-- security, operations, and cost boundaries.
+### Runtime/adapters own
 
-It must not understand game saves or run game servers.
+Runtime owns generic session orchestration, device-wide writable concurrency, local cache/materialization/recovery lifecycle, and tray/background responsibility.
 
-### Adapter and Background Runtime
-
-Defines the complete local session transaction:
-
-- resolve current World;
-- reserve it;
-- prepare/restore through the adapter;
-- launch and observe the real session;
-- stop safely;
-- capture and validate;
-- upload/store/verify/commit;
-- remain alive in the background;
-- preserve recovery evidence.
-
-It must not invent social, ownership, or merge semantics.
+Adapters own game-specific discovery, environment facts, restore/capture shape, launch/host/join details, session/readiness evidence, graceful stop, safe capture, and game-specific limitations.
 
 ## Workstream dependency model
 
-The roadmaps are separate for clarity, not independence.
-
 ```text
-UI requirements
-    <-> generic runtime states/actions
-    <-> backend reservation/commit states
-    <-> adapter capabilities and limitations
+UI states/actions
+    <-> generic runtime lifecycle
+    <-> backend authority/transaction state
+    <-> adapter capabilities/evidence
 ```
 
 Rules:
+- UI requests only actions supported by runtime/backend/adapter contracts.
+- Runtime exposes states the UI can communicate consistently.
+- Backend uncertainty/recovery semantics match runtime connectivity/crash behavior.
+- Adapter capabilities determine Start/Host/Join/Stop and Save availability without game-name branches in Core/UI.
+- No workstream may add a concept rejected by `NON_NEGOTIABLE_RULES.md` or `PRODUCT_BOUNDARY.md`.
 
-- UI may request only actions supported by the runtime/backend contracts.
-- Runtime may expose only states the UI can communicate clearly.
-- Backend uncertainty and recovery semantics must match runtime crash/connectivity behavior.
-- Adapter capability declarations determine whether Start, Host, Join, Stop and Save, Repair, or manual fallback is available.
-- No workstream may add a concept rejected by the product boundary.
+# Planning phase P0
 
-## Planning phase P0
-
-### P0.1: Roadmap structure
+## P0.1: Roadmap structure
 
 Status: **complete**.
 
 Deliverables:
-
 - master roadmap;
-- UI and UX roadmap;
+- UI roadmap;
 - backend roadmap;
-- adapter/background runtime roadmap;
+- adapter/runtime roadmap;
 - planning lock and drift-control rules.
 
-### P0.2: UI contract decisions
+## P0.2: UI-0 contract
 
-Status: **proposed complete; UI-0 approval pending**.
+Status: **complete and approved**.
 
-Use the proposed [UI-0 Sign-off Checklist](UI0_SIGNOFF_CHECKLIST.md) as the
-working review contract for the remaining sharing, tray, and terminology
-decisions.
+Canonical sources:
+- `UI_ROADMAP.md`;
+- `UI0_SIGNOFF_CHECKLIST.md`.
 
-Resolve every first-release decision listed in `UI_ROADMAP.md`, including:
+Approved scope includes:
+- Games -> Worlds navigation;
+- explicit Start World / Host World / Join;
+- local-first import;
+- Host independent of persistent sharing;
+- shared verification before new writable play;
+- capability-driven Join including guided manual fallback;
+- evidence-driven recovery;
+- persistent tray whenever Steward process runs;
+- fixed terminology;
+- flat Share World / Manage access surface.
 
-- navigation and screen structure;
-- Start versus Host action model;
-- state/action matrix;
-- shared/offline behavior presentation;
-- tray/background behavior;
-- recovery actions and terminology;
-- accessibility and commercial polish boundary.
+## P0.3: BE-0 contract
 
-Output: approved UI-0 contract.
+Status: **complete and approved**.
 
-### P0.3: Backend contract decisions
+Canonical sources:
+- `BACKEND_ROADMAP.md`;
+- `BE0_SIGNOFF_CHECKLIST.md`.
 
-Status: **proposed complete; BE-0 approval pending**.
-
-Resolve every first-release decision listed in `BACKEND_ROADMAP.md`, including:
-
-- hosted service versus Steam-only/hybrid design;
+BE-D001 through BE-D015 define:
+- hybrid backend;
 - Steam authentication;
-- minimal access/invitation/revocation policy;
-- logical data model;
-- package transfer and limits;
-- current-head compare-and-swap;
-- reservation heartbeat, uncertainty, reclaim, and generation invalidation;
-- offline behavior;
-- security, privacy, operations, and cost assumptions.
+- flat membership + Access Manager;
+- HTTPS/JSON control API + direct object transfer;
+- heartbeat/Uncertain/reclaim;
+- last-safe authority resolution;
+- provider-neutral BE-1;
+- active-session connectivity loss;
+- candidate retention;
+- canonical retention;
+- common state/environment transfer pipeline;
+- package limits;
+- deterministic API result/error/idempotency contract;
+- security/privacy baseline;
+- one authoritative EU deployment.
 
-Output: approved BE-0 contract.
+Named provider selection is explicitly deferred without blocking BE-1.
 
-### P0.4: Adapter/runtime contract decisions
+## P0.4: AR-0 contract
 
-Status: **complete — AR-0 approved; implementation remains gated by the master lock**.
+Status: **complete and approved**.
 
-Resolve every first-release decision listed in `ADAPTER_RUNTIME_ROADMAP.md`,
-using the proposed [AR-0 Sign-off Checklist](AR0_SIGNOFF_CHECKLIST.md) as the
-working review contract. This includes:
+Canonical sources:
+- `ADAPTER_RUNTIME_ROADMAP.md`;
+- `AR0_SIGNOFF_CHECKLIST.md`.
 
-- desktop/tray process model;
-- one-active-session-per-device limit;
-- lifecycle state machine;
-- adapter capability model;
-- session evidence and safe capture contracts;
-- close/shutdown/update behavior;
-- connectivity-loss and recovery behavior;
-- Factorio and Palworld capability/limitation matrices;
-- release acceptance tests.
+Approved scope includes:
+- one user-session desktop/tray process;
+- one active writable managed session per device;
+- generic lifecycle ownership;
+- structured session evidence;
+- safe cancellation/stop/capture boundaries;
+- connectivity-loss/recovery behavior;
+- capability-driven Join;
+- Factorio and Palworld first-release validation boundaries;
+- adapter/runtime acceptance tests.
 
-Output: approved AR-0 contract.
+## P0.5: Cross-workstream reconciliation
 
-### P0.5: Cross-workstream contract review
+Status: **complete and approved**.
 
-Status: **draft complete; final cross-workstream approval pending**.
+Canonical source:
+- `CROSS_WORKSTREAM_CONTRACT.md`.
 
-Use the shared [Cross-Workstream Contract](CROSS_WORKSTREAM_CONTRACT.md), which
-contains:
-
-- each user-visible state;
-- its backend meaning;
-- its runtime meaning;
-- allowed user actions;
+The final matrix reconciles:
+- every user-visible state;
+- backend meaning;
+- runtime meaning;
+- allowed actions;
 - adapter capability requirements;
-- failure/recovery transition;
-- authoritative source of truth.
+- authority source;
+- failure/recovery transitions.
 
-No state may have contradictory meanings across documents. Changes to a
-workstream roadmap must update that contract when they alter a state, action,
-authority, or recovery transition.
+Important reconciled rules:
+- `Only on this PC` may Host when temporary-host capability exists;
+- persistent sharing is not a prerequisite for temporary hosting;
+- final UI terms are Running, Hosting, Host is starting, Someone is playing, Saving World, Action required, etc.;
+- Waiting to sync preserves an unresolved candidate;
+- Join never creates a second writer;
+- access administration never grants gameplay/reservation priority.
 
-### P0.6: First-release acceptance plan
+## P0.6: First-release acceptance plan
 
-Status: **specified; execution deferred until implementation**.
+Status: **complete as a specification; execution occurs during implementation/release validation**.
 
-Use the acceptance plan in the [Cross-Workstream Contract](CROSS_WORKSTREAM_CONTRACT.md)
-and extend it with evidence required before release:
+Canonical source:
+- `CROSS_WORKSTREAM_CONTRACT.md`.
 
+Required evidence includes:
+- Factorio import/local/host/capture/replay;
+- Palworld dedicated host/readiness/stop/capture/restore;
 - PC A -> PC B -> PC A handoff;
 - competing writer rejection;
 - interrupted upload resume;
-- backend outage during an active session;
-- stale reservation reclaim;
-- late old-session commit rejection;
-- application crash/restart recovery;
-- Factorio local/host/capture/replay;
-- Palworld dedicated host/capture/restore;
-- safe failure when environment or player identity limitations block continuation;
-- UI flow from import to Ready to Running to Saving to Ready;
-- security and backup/restore checks.
+- backend outage during active session;
+- Waiting to sync completion;
+- stale reservation deliberate reclaim;
+- late old-generation commit rejection;
+- desktop crash/restart recovery;
+- safe environment/identity limitation handling;
+- last-safe recovery semantics;
+- package limit/integrity/resume/disk-preflight behavior;
+- canonical/candidate retention;
+- security/redacted diagnostics/backup/restore/EU residency;
+- exact UI state/action sequence.
 
-### P0.7: Explicit planning sign-off
+## P0.7: Explicit planning sign-off
 
-Status: **pending user approval**.
+Status: **pending one explicit product-owner decision**.
 
-The planning lock is lifted only when:
+All objective planning exit criteria are satisfied:
+- UI-0 complete;
+- BE-0 complete;
+- AR-0 complete;
+- cross-workstream matrix complete;
+- acceptance plan complete as specification;
+- provider/vendor questions that do not block E1 are explicitly deferred;
+- release boundary remains inside Non-Negotiable Rules/Product Boundary.
 
-- UI-0, BE-0, and AR-0 are complete;
-- the cross-workstream matrix is complete;
-- the first-release acceptance plan is complete;
-- unresolved questions are either answered or explicitly deferred without affecting the first implementation slice;
-- the release boundary remains within the Non-Negotiable Rules and Product Boundary;
-- the user explicitly approves moving from planning to implementation.
+The planning lock is lifted only when the product owner explicitly approves moving from planning to implementation.
 
-## Drift-control rules
+# Drift-control rules after unlock
 
-### One active planning question
+## Every code change maps to the roadmap
 
-Resolve one decision group at a time. Do not jump between UI styling, infrastructure providers, adapter edge cases, and pricing without closing the current question or recording why it is blocked.
-
-### Roadmap-linked implementation only
-
-After the lock is lifted, every product code change must map to:
-
+Every production change must map to:
 - one workstream;
 - one numbered milestone;
 - one acceptance criterion.
 
 A change without that mapping does not begin.
 
-### Parking lot for new ideas
+## Finish before expanding
 
-A new idea that does not unblock the active milestone goes into a parking lot for later review. It does not enter implementation merely because it sounds useful.
+Do not jump to later features to avoid a difficult current requirement.
 
-### Finish before expanding
+## Parking lot new ideas
 
-Do not begin a later milestone to avoid a difficult unfinished requirement in the current milestone.
+Ideas that do not unblock the active milestone are recorded/deferred. They do not enter implementation merely because they sound useful.
 
-### Boundary change requires documentation first
+## Boundary changes update documentation first
 
-A deliberate product-boundary change must update, in order:
+A deliberate product-boundary change updates, in order where applicable:
 
-1. Non-Negotiable Rules when required;
-2. Product Boundary;
-3. Design Decisions;
-4. affected roadmap contracts;
+1. `NON_NEGOTIABLE_RULES.md`;
+2. `PRODUCT_BOUNDARY.md`;
+3. `DECISIONS.md`;
+4. affected roadmap/cross-workstream contracts;
 5. implementation.
 
-### Evidence over assumption
+## Evidence over assumption
 
-A claim about Factorio, Palworld, Steam, storage limits, process behavior, or failure recovery remains conditional until documentation or a controlled test proves it.
+Claims about Factorio, Palworld, Steam, package behavior, process ownership, safe capture, or recovery remain conditional until documentation/controlled tests prove them.
 
-## Validated foundation
+# Validated implementation foundation
 
-### Generic lifecycle
-
-The existing implementation already provides valuable foundations:
+Existing implementation already provides useful foundations to build on after unlock:
 
 ```text
 discover
@@ -281,193 +270,150 @@ discover
 -> prepare workspace
 -> restore state
 -> launch local or hosted session
--> observe session end through adapter
+-> adapter observes session
 -> capture updated state
 -> store immutable revision
--> advance current World head last
--> preserve recovery state on failure
+-> advance canonical head last
+-> preserve recovery evidence on failure
 ```
 
-### State safety
-
 Implemented/tested foundations include:
-
-- immutable environment and state revisions;
-- one active writable session boundary;
+- immutable environment/state revisions;
 - expected-head protection;
 - unchanged-state detection;
 - canonical head advancement after durable storage;
 - workspace recovery records;
 - explicit cleanup ownership;
 - typed failure boundaries;
-- persisted schema envelopes and migrations.
+- persisted schema envelopes/migrations;
+- Factorio real-machine discovery/import/local/host/process/capture evidence;
+- Palworld client/dedicated discovery, migration, launch, portable capture, restore/verification, canonical commit evidence;
+- unified WPF adapter registry and game-first UI proof.
 
-### Factorio
+The existing desktop composition remains transitional and is replaced/hardened only after lock lift according to UI-1.
 
-Real-machine evidence includes:
+# Execution plan after planning unlock
 
-- Steam/non-default-library discovery;
-- save import with source preservation;
-- isolated environment/write-data handling;
-- local and hosted launch paths;
-- Steam process handoff observation;
-- state capture, commit, and replay.
+## E1: Contract and conformance foundation
 
-### Palworld
+Begin only after explicit P0.7 approval.
 
-Real-machine evidence includes:
-
-- client and dedicated-server discovery;
-- local/dedicated World discovery;
-- unchanged World migration into the server layout;
-- dedicated server launch;
-- portable capture excluding backup noise;
-- staging/rollback restore;
-- restored-byte verification;
-- launch from restored canonical state;
-- canonical state commit.
-
-### Desktop
-
-The WPF desktop proves:
-
-- a unified Factorio/Palworld adapter registry;
-- game-first browsing and import concepts;
-- artwork resolution;
-- direct lifecycle actions.
-
-Its composition remains transitional and should not be expanded until UI-0 is approved.
-
-## Execution plan after planning unlock
-
-### E1: Contract and conformance foundation
-
-Parallel work may begin only after P0 sign-off:
-
-- backend local deterministic simulation from BE-1;
-- runtime lifecycle/conformance tests from AR-1;
-- UI shell work from UI-1 using the frozen state/action contract.
+Parallel first slices:
+- **BE-1** provider-free deterministic backend simulation;
+- **AR-1** generic runtime/conformance extraction and tests;
+- **UI-1** shell/navigation work using the frozen state/action contract.
 
 No provider-specific or game-specific shortcut may bypass the contracts.
 
-### E2: Shared state foundation
+## E2: Shared state foundation
 
 - verified Steam identity;
 - World metadata/access;
-- immutable state upload/download;
+- immutable state/environment metadata;
+- authorized upload/download;
 - current-head commit;
-- client cache/verification integration.
+- client verification/cache integration.
 
-### E3: Distributed one-writer coordination
+## E3: Distributed one-writer coordination
 
-- acquire/heartbeat/uncertain/reclaim/complete;
-- session generation invalidation;
+- acquire;
+- heartbeat;
+- Uncertain;
+- reconnect/reclaim;
+- generation invalidation;
 - stale/late writer rejection;
-- UI active-elsewhere and recovery states.
+- UI active-elsewhere/recovery states.
 
-### E4: Background runtime integration
+## E4: Background runtime integration
 
 - desktop/tray lifetime;
-- shared reservation and transfer integration;
-- safe session start/end;
+- shared reservation/transfer integration;
+- safe start/end;
 - candidate preservation;
 - startup recovery scan;
-- safe application close/update behavior.
+- safe close/update behavior.
 
-### E5: Development two-device proof
-
-Use one real game and controlled test accounts/devices:
+## E5: Development two-device proof
 
 ```text
 PC A commits N+1
--> PC B restores and commits N+2
+-> PC B restores/continues N+1
+-> PC B commits N+2
 -> PC A restores N+2
 ```
 
-Also prove competing writer rejection and recovery from interruption.
+Also prove competing writer rejection and interruption/recovery behavior.
 
 No broad UI polishing or new adapter work takes priority over this proof.
 
-### E6: Commercial UI completion
+## E6: Commercial UI completion
 
-- Games Library and game workspace;
+- Games Library/workspace;
 - import;
 - Start/Host/Join;
+- Share/Manage access;
 - lifecycle progress;
-- tray/background state;
-- recovery and blocked flows;
-- commercial polish and accessibility.
+- tray/background;
+- recovery/blocked flows;
+- accessibility/commercial polish.
 
-### E7: Second-adapter handoff proof
+## E7: Second-adapter handoff proof
 
-Repeat the two-device flow with the other initial adapter. Resolve only game-specific issues inside that adapter.
+Repeat the two-device flow with the other initial adapter. Keep game-specific issues inside its adapter.
 
-### E8: Release hardening
+## E8: Release hardening
 
 - security review;
 - backup/restore proof;
-- long-session and large-World tests;
+- long-session/large-World tests;
 - installer/update behavior;
 - bounded retries/cache/retention;
-- diagnostics and support workflow;
-- release acceptance plan executed completely.
+- diagnostics/support workflow;
+- EU residency/deployment verification;
+- complete acceptance plan execution.
 
-### E9: Performance optimization
+## E9: Evidence-driven performance optimization
 
 Only after correctness:
-
 - deduplication;
-- direct peer-to-peer acceleration;
+- peer-assisted transfer;
+- CDN/immutable replication;
 - background prefetch;
 - compression tuning;
-- retention compaction.
+- retention compaction/delta/chunk reuse where measurements justify it.
 
-## Initial commercial release boundary
+# Initial commercial release boundary
 
 Required:
-
 - Windows desktop/tray product;
 - Steam identity/platform integration;
 - Factorio and Palworld as reliable initial adapters;
-- import of existing Worlds;
-- local start and temporary hosting;
+- import existing Worlds;
+- local Start and temporary Host;
 - background session observation;
-- safe automatic capture and commit;
-- shared durable latest state;
+- safe capture/commit;
+- durable shared latest state;
 - distributed one-writer protection;
+- explicit sharing/access;
 - cross-device continuation;
 - interrupted-handoff recovery;
-- clear environment/adapter limitations;
+- clear environment/adapter/identity limitations;
 - concise game-first UI.
 
 Not required:
-
 - generic save merging;
 - Fork/branch workflows;
-- parties, chat, public discovery, likes, or community feeds;
-- complex ownership or gameplay roles;
-- permanent hosted game-server fleets;
+- parties/chat/public discovery/community feeds;
+- gameplay role hierarchy;
+- permanent hosted game-server fleet;
 - live host migration;
 - every mod ecosystem;
-- a large game catalog.
+- broad game catalog;
+- active-active global authority;
+- premature delta/P2P optimization.
 
-## Cross-workstream decisions that must be resolved first
+# Immediate next step
 
-The first planning sequence should close these questions in order:
+There is no remaining planning question required to begin E1.
 
-1. Exact first-release user actions: Start World, Host World, Join, Stop and Save.
-2. Desktop lifetime: single tray process and one active managed session per device.
-3. Shared backend shape: hosted service, Steam-only, or hybrid.
-4. Minimal shared access/invitation/revocation model.
-5. Reservation uncertainty, reclaim, and late-session rejection.
-6. Shared World offline behavior.
-7. Recovery candidate actions and UI wording.
-8. Factorio final hosted-session model.
-9. Palworld graceful stop/readiness and player identity limitation treatment.
-10. Package size, retention, cost, security, and provider constraints.
-
-## Immediate next step
-
-Do not implement.
-
-Begin P0.2 by resolving the UI action model and user-visible state/action matrix, because those decisions define what the backend and runtime must expose without deciding their internal implementation.
+The only remaining gate is the explicit product-owner decision to lift the master planning lock and approve implementation.

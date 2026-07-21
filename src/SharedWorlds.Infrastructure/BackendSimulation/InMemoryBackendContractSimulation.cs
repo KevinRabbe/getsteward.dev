@@ -184,14 +184,10 @@ public sealed partial class InMemoryBackendContractSimulation
 
         lock (_gate)
         {
-            if (!_transfers.TryGetValue(transferId, out var transfer))
+            if (!_transfers.TryGetValue(transferId, out var transfer) ||
+                !string.Equals(transfer.CallerIdentityId, callerIdentityId, StringComparison.Ordinal))
             {
                 return UploadTransferPartStatus.TransferNotFound;
-            }
-
-            if (!string.Equals(transfer.CallerIdentityId, callerIdentityId, StringComparison.Ordinal))
-            {
-                return UploadTransferPartStatus.Unauthorized;
             }
 
             if (transfer.State != SimulatedTransferState.Active)
@@ -242,17 +238,13 @@ public sealed partial class InMemoryBackendContractSimulation
 
         lock (_gate)
         {
-            if (!_transfers.TryGetValue(transferId, out var foundTransfer))
+            if (!_transfers.TryGetValue(transferId, out var foundTransfer) ||
+                !string.Equals(foundTransfer.CallerIdentityId, callerIdentityId, StringComparison.Ordinal))
             {
                 return new(FinalizeTransferStatus.TransferNotFound, null);
             }
 
             transfer = foundTransfer;
-
-            if (!string.Equals(transfer.CallerIdentityId, callerIdentityId, StringComparison.Ordinal))
-            {
-                return new(FinalizeTransferStatus.Unauthorized, null);
-            }
 
             if (transfer.State == SimulatedTransferState.Finalized)
             {
@@ -303,14 +295,10 @@ public sealed partial class InMemoryBackendContractSimulation
 
         lock (_gate)
         {
-            if (!_transfers.TryGetValue(transferId, out var transfer))
+            if (!_transfers.TryGetValue(transferId, out var transfer) ||
+                !string.Equals(transfer.CallerIdentityId, callerIdentityId, StringComparison.Ordinal))
             {
                 return AbandonTransferStatus.TransferNotFound;
-            }
-
-            if (!string.Equals(transfer.CallerIdentityId, callerIdentityId, StringComparison.Ordinal))
-            {
-                return AbandonTransferStatus.Unauthorized;
             }
 
             if (transfer.State == SimulatedTransferState.Abandoned)

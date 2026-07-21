@@ -47,7 +47,6 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
@@ -76,54 +75,8 @@
                                 MinHeight="32" />
                     </Grid>
 
-                    <!-- Transitional structural anchor for the unified import browser. The active
-                         product import surface is created by MainWindow.UnifiedImportBrowser.cs. -->
-                    <Border x:Name="ImportPanel"
-                            Grid.Row="1"
-                            Visibility="Collapsed"
-                            Margin="0,0,0,14"
-                            Padding="14"
-                            Background="{StaticResource PanelAltBrush}"
-                            BorderBrush="{StaticResource BorderBrush}"
-                            BorderThickness="1"
-                            CornerRadius="10">
-                        <StackPanel>
-                            <TextBlock Text="Import a local World"
-                                       FontSize="15"
-                                       FontWeight="SemiBold" />
-                            <TextBlock Text="Detected Worlds stay private until you explicitly share them through Steward."
-                                       Margin="0,5,0,10"
-                                       Foreground="{StaticResource MutedTextBrush}"
-                                       FontSize="12"
-                                       TextWrapping="Wrap" />
-
-                            <ComboBox x:Name="ImportCandidateComboBox"
-                                      MinHeight="38"
-                                      MaxDropDownHeight="320" />
-
-                            <TextBlock x:Name="ImportDiscoveryText"
-                                       Margin="0,8,0,0"
-                                       Foreground="{StaticResource MutedTextBrush}"
-                                       FontSize="11"
-                                       TextWrapping="Wrap" />
-
-                            <WrapPanel Margin="0,12,0,0">
-                                <Button x:Name="ImportSelectedButton"
-                                        Content="Import World"
-                                        Style="{StaticResource PrimaryButtonStyle}"
-                                        Margin="0,0,8,8" />
-                                <Button x:Name="ScanImportsButton"
-                                        Content="Scan again"
-                                        Margin="0,0,8,8" />
-                                <Button x:Name="CancelImportButton"
-                                        Content="Close"
-                                        Margin="0,0,8,8" />
-                            </WrapPanel>
-                        </StackPanel>
-                    </Border>
-
                     <ListBox x:Name="WorldList"
-                             Grid.Row="2"
+                             Grid.Row="1"
                              Background="Transparent"
                              BorderThickness="0"
                              Foreground="{StaticResource TextBrush}"
@@ -168,7 +121,7 @@
                         </ListBox.ItemContainerStyle>
                     </ListBox>
 
-                    <Expander Grid.Row="3"
+                    <Expander Grid.Row="2"
                               Header="Device settings"
                               Foreground="{StaticResource TextBrush}"
                               Margin="2,14,2,0">

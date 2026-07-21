@@ -146,9 +146,6 @@ public partial class MainWindow : Window
         _isBusy = isBusy;
         RefreshButton.IsEnabled = !isBusy;
         OpenImportButton.IsEnabled = !isBusy;
-        ScanImportsButton.IsEnabled = !isBusy;
-        CancelImportButton.IsEnabled = !isBusy;
-        ImportCandidateComboBox.IsEnabled = !isBusy;
         AllowHostingCheckBox.IsEnabled = !isBusy;
         WorldList.IsEnabled = !isBusy;
         UpdateUnifiedActionState();

@@ -17,18 +17,26 @@ public sealed class S3CompatibleImmutableObjectStore : IPrivateImmutableObjectSt
 
     private readonly IAmazonS3 _client;
     private readonly string _bucketName;
+    private readonly Protocol _presignedProtocol;
     private readonly bool _ownsClient;
     private bool _disposed;
 
     public S3CompatibleImmutableObjectStore(
         IAmazonS3 client,
         string bucketName,
+        Protocol presignedProtocol,
         bool ownsClient = false)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentException.ThrowIfNullOrWhiteSpace(bucketName);
+        if (presignedProtocol is not Protocol.HTTP and not Protocol.HTTPS)
+        {
+            throw new ArgumentOutOfRangeException(nameof(presignedProtocol));
+        }
+
         _client = client;
         _bucketName = bucketName;
+        _presignedProtocol = presignedProtocol;
         _ownsClient = ownsClient;
     }
 
@@ -122,6 +130,7 @@ public sealed class S3CompatibleImmutableObjectStore : IPrivateImmutableObjectSt
             BucketName = _bucketName,
             Key = handle.ObjectKey,
             Verb = HttpVerb.PUT,
+            Protocol = _presignedProtocol,
             Expires = expiresAt.UtcDateTime,
             UploadId = handle.NativeUploadId,
             PartNumber = partNumber
@@ -275,6 +284,7 @@ public sealed class S3CompatibleImmutableObjectStore : IPrivateImmutableObjectSt
             BucketName = _bucketName,
             Key = objectKey,
             Verb = HttpVerb.GET,
+            Protocol = _presignedProtocol,
             Expires = expiresAt.UtcDateTime
         };
         var url = await _client.GetPreSignedURLAsync(request);

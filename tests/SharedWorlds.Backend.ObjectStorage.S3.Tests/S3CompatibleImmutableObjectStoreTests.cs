@@ -22,7 +22,7 @@ public sealed class S3CompatibleImmutableObjectStoreTests
         var bytes = CreatePayload(7 * MiB);
         var sha256 = Convert.ToHexString(SHA256.HashData(bytes));
 
-        await using var clientOne = CreateClient(settings);
+        using var clientOne = CreateClient(settings);
         await clientOne.PutBucketAsync(new PutBucketRequest { BucketName = bucket });
         try
         {
@@ -57,7 +57,7 @@ public sealed class S3CompatibleImmutableObjectStoreTests
                 Assert.False(progress.IsCompleted);
             }
 
-            await using var clientTwo = CreateClient(settings);
+            using var clientTwo = CreateClient(settings);
             using var restartedStore = new S3CompatibleImmutableObjectStore(clientTwo, bucket);
 
             var resumed = Assert.IsType<ImmutableUploadSnapshot>(
@@ -105,7 +105,7 @@ public sealed class S3CompatibleImmutableObjectStoreTests
         var bytes = CreatePayload(6 * MiB);
         var sha256 = Convert.ToHexString(SHA256.HashData(bytes));
 
-        await using var client = CreateClient(settings);
+        using var client = CreateClient(settings);
         await client.PutBucketAsync(new PutBucketRequest { BucketName = bucket });
         try
         {

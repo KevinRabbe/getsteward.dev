@@ -1,7 +1,6 @@
 using System.IO;
 using System.Text.Json;
 using System.Windows;
-using System.Windows.Controls;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Worlds;
@@ -26,10 +25,6 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        Title = "Steward";
-        ContinueButton.Content = "Start World";
-        HostButton.Content = "Host World";
-
         // Keep the existing local data root for persistence compatibility while the product shell
         // moves from the old SharedWorlds working name to Steward.
         var sharedWorldsRoot = Path.Combine(GetLocalDataRoot(), "SharedWorlds");
@@ -46,56 +41,6 @@ public partial class MainWindow : Window
             Path.Combine(sharedWorldsRoot, "settings", "device.json"));
 
         InitializeTray();
-    }
-
-    // These handlers remain only because the current XAML still names them while UI-1 is replacing
-    // the transitional shell. Unified startup removes/replaces them before the active product path is
-    // used. They intentionally contain no legacy Factorio-specific behavior.
-    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
-    {
-    }
-
-    private void RefreshButton_Click(object sender, RoutedEventArgs e)
-    {
-    }
-
-    private void OpenImportButton_Click(object sender, RoutedEventArgs e)
-    {
-    }
-
-    private void ScanImportsButton_Click(object sender, RoutedEventArgs e)
-    {
-    }
-
-    private void CancelImportButton_Click(object sender, RoutedEventArgs e)
-        => ImportPanel.Visibility = Visibility.Collapsed;
-
-    private void ImportCandidateComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-    }
-
-    private void AllowHostingCheckBox_Click(object sender, RoutedEventArgs e)
-    {
-    }
-
-    private void ImportSelectedButton_Click(object sender, RoutedEventArgs e)
-    {
-    }
-
-    private void WorldList_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-    }
-
-    private void ContinueButton_Click(object sender, RoutedEventArgs e)
-    {
-    }
-
-    private void HostButton_Click(object sender, RoutedEventArgs e)
-    {
-    }
-
-    private void ShareButton_Click(object sender, RoutedEventArgs e)
-    {
     }
 
     private async Task LoadDeviceSettingsAsync()

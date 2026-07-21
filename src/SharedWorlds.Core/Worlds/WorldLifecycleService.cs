@@ -306,19 +306,17 @@ public sealed class WorldLifecycleService
         ArgumentNullException.ThrowIfNull(user);
         ArgumentNullException.ThrowIfNull(launchSession);
 
-        // The desktop supervises at most one writable managed lifecycle at a time, even when
-        // two different Worlds would otherwise have independent per-World coordinator leases.
         using var managedSessionLease = _managedSessionGate.Acquire(worldId);
 
         Notify(worldId, mode, WorldLifecyclePhase.AcquiringReservation);
-
-        // Local play and temporary hosting share the same canonical-writer transaction.
-        // Persistent Steward sharing is a separate concern and is never a prerequisite for Host.
         await _sessionCoordinator.AcquireHostAsync(worldId, user, cancellationToken);
+
         Exception? operationException = null;
         PreparedWorldContext? context = null;
         WorkspaceRecoveryRecord? workspaceRecord = null;
         var sessionStarted = false;
+        var unresolvedResponsibility = false;
+        var lifecycleFinalized = false;
 
         try
         {
@@ -347,8 +345,6 @@ public sealed class WorldLifecycleService
                 Status: WorkspaceRecoveryStatus.Active);
 
             Notify(worldId, mode, WorldLifecyclePhase.RegisteringRecovery);
-            // Register before launch. A hard process/OS crash after this point leaves an
-            // Active record that can be surfaced as an interrupted-session candidate.
             await _workspaceRecoveryStore.SaveAsync(workspaceRecord, cancellationToken);
 
             Notify(worldId, mode, WorldLifecyclePhase.StartingSession);
@@ -386,19 +382,14 @@ public sealed class WorldLifecycleService
                 };
 
                 Notify(worldId, mode, WorldLifecyclePhase.Committing);
-                // Advance the canonical head only after the new immutable revision is durable.
                 await _storage.SaveWorldAsync(updatedWorld, cancellationToken);
 
                 Notify(worldId, mode, WorldLifecyclePhase.Finalizing);
-                var finalized = await CompleteSuccessfulWorkspaceAsync(
+                lifecycleFinalized = await CompleteSuccessfulWorkspaceAsync(
                     adapter,
                     context.PreparedWorld,
                     workspaceRecord);
-
-                if (finalized)
-                {
-                    Notify(worldId, mode, WorldLifecyclePhase.Completed);
-                }
+                unresolvedResponsibility = !lifecycleFinalized;
 
                 return updatedWorld;
             }
@@ -413,12 +404,13 @@ public sealed class WorldLifecycleService
 
             if (sessionStarted)
             {
+                unresolvedResponsibility = true;
                 Notify(worldId, mode, WorldLifecyclePhase.RecoveryNeeded, exception.Message);
             }
 
             if (context is not null && workspaceRecord is not null)
             {
-                await HandleFailedWorkspaceAsync(
+                unresolvedResponsibility |= await HandleFailedWorkspaceAsync(
                     adapter,
                     context.PreparedWorld,
                     workspaceRecord,
@@ -427,29 +419,57 @@ public sealed class WorldLifecycleService
             }
             else if (context is not null)
             {
-                // Recovery registration failed before launch. No gameplay occurred, so this
-                // prepared workspace contains only canonical input and can be discarded.
-                await TryFinalizePreparedWorldAsync(
+                var discarded = await TryFinalizePreparedWorldAsync(
                     adapter,
                     context.PreparedWorld,
                     PreparedWorldDisposition.Discard);
+                if (!discarded)
+                {
+                    unresolvedResponsibility = true;
+                    Notify(
+                        worldId,
+                        mode,
+                        WorldLifecyclePhase.CleanupPending,
+                        "Prepared workspace could not be discarded after recovery registration failed.");
+                }
             }
 
             throw;
         }
         finally
         {
+            var reservationReleased = false;
             try
             {
                 await _sessionCoordinator.ReleaseHostAsync(
                     worldId,
                     user,
                     CancellationToken.None);
+                reservationReleased = true;
             }
-            catch when (operationException is not null)
+            catch (Exception releaseException)
             {
-                // Preserve the primary lifecycle failure. Remote coordinators should also
-                // use lease expiry so a failed cleanup cannot hold a canonical session forever.
+                unresolvedResponsibility = true;
+                Notify(
+                    worldId,
+                    mode,
+                    WorldLifecyclePhase.RecoveryNeeded,
+                    $"Writable reservation could not be released safely: {releaseException.Message}");
+
+                if (operationException is null)
+                {
+                    throw;
+                }
+            }
+
+            if (reservationReleased && !unresolvedResponsibility)
+            {
+                // Completed means the whole managed responsibility is over: canonical work is
+                // finalized (or a pre-launch failure was safely cleaned) and authority is released.
+                if (operationException is not null || lifecycleFinalized)
+                {
+                    Notify(worldId, mode, WorldLifecyclePhase.Completed);
+                }
             }
         }
     }
@@ -468,7 +488,7 @@ public sealed class WorldLifecycleService
         }
         catch (Exception exception)
         {
-            Notify(record.WorldId, mode: null, WorldLifecyclePhase.CleanupPending, exception.Message);
+            Notify(record.WorldId, null, WorldLifecyclePhase.CleanupPending, exception.Message);
             await TrySaveWorkspaceStatusAsync(
                 record,
                 WorkspaceRecoveryStatus.CleanupPending,
@@ -481,15 +501,17 @@ public sealed class WorldLifecycleService
             return true;
         }
 
-        Notify(
-            record.WorldId,
-            mode: null,
-            WorldLifecyclePhase.CleanupPending,
-            "Canonical commit and workspace cleanup succeeded, but recovery-record removal failed.");
+        const string reason =
+            "Canonical commit and workspace cleanup succeeded, but recovery-record removal failed.";
+        Notify(record.WorldId, null, WorldLifecyclePhase.CleanupPending, reason);
+        await TrySaveWorkspaceStatusAsync(
+            record,
+            WorkspaceRecoveryStatus.CleanupPending,
+            reason);
         return false;
     }
 
-    private async Task HandleFailedWorkspaceAsync(
+    private async Task<bool> HandleFailedWorkspaceAsync(
         IGameAdapter adapter,
         PreparedWorld preparedWorld,
         WorkspaceRecoveryRecord record,
@@ -507,7 +529,7 @@ public sealed class WorldLifecycleService
                 adapter,
                 preparedWorld,
                 PreparedWorldDisposition.PreserveForRecovery);
-            return;
+            return true;
         }
 
         var discarded = await TryFinalizePreparedWorldAsync(
@@ -517,23 +539,27 @@ public sealed class WorldLifecycleService
 
         if (discarded)
         {
-            if (!await TryRemoveWorkspaceRecordAsync(record.Id))
+            if (await TryRemoveWorkspaceRecordAsync(record.Id))
             {
-                Notify(
-                    record.WorldId,
-                    mode: null,
-                    WorldLifecyclePhase.CleanupPending,
-                    "Session never started and workspace discard succeeded, but recovery-record removal failed.");
+                return false;
             }
 
-            return;
+            const string reason =
+                "Session never started and workspace discard succeeded, but recovery-record removal failed.";
+            Notify(record.WorldId, null, WorldLifecyclePhase.CleanupPending, reason);
+            await TrySaveWorkspaceStatusAsync(
+                record,
+                WorkspaceRecoveryStatus.CleanupPending,
+                reason);
+            return true;
         }
 
-        Notify(record.WorldId, mode: null, WorldLifecyclePhase.CleanupPending, failure.Message);
+        Notify(record.WorldId, null, WorldLifecyclePhase.CleanupPending, failure.Message);
         await TrySaveWorkspaceStatusAsync(
             record,
             WorkspaceRecoveryStatus.CleanupPending,
             $"Session never started and the prepared workspace could not be discarded after failure: {failure.Message}");
+        return true;
     }
 
     private async Task<bool> TryFinalizePreparedWorldAsync(
@@ -573,7 +599,7 @@ public sealed class WorldLifecycleService
         }
         catch
         {
-            // The previously persisted Active record remains a conservative recovery signal.
+            // The previously persisted record remains a conservative recovery signal.
         }
     }
 
@@ -588,8 +614,6 @@ public sealed class WorldLifecycleService
         }
         catch
         {
-            // A stale record is safer than deleting recoverability metadata prematurely.
-            // Startup reconciliation can remove records whose workspaces no longer exist.
             return false;
         }
     }

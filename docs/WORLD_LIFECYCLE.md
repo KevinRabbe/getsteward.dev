@@ -118,7 +118,7 @@ When another device is already hosting the World, Steward must not start a compe
 
 Where supported, the user may join through:
 
-- Steam invitation or native joining;
+- Steam/game multiplayer invitation or native joining;
 - the game's own server browser or connection system;
 - adapter-provided connection information.
 

@@ -194,3 +194,71 @@ A competing writable start must be rejected while one session is active.
 **Decision:** When a product direction is abandoned, remove it from active architecture, lifecycle, domain, decision, and roadmap documents.
 
 **Reason:** A commercial codebase cannot rely on readers guessing which contradictory document is current.
+
+## D-030 / BE-D004: Versioned HTTPS/JSON API with direct package transfer
+
+**Decision:** Steward uses a versioned HTTPS request/response API with JSON for
+authentication, metadata, World access, reservations, recovery, and commit
+operations. Transactional operations may use explicit command endpoints rather
+than artificial CRUD. Large World and environment packages transfer directly
+between authorized clients and private object storage through scoped,
+resumable transfer targets rather than through JSON or normally through the API
+service.
+
+Retryable mutations use idempotency semantics. WebSockets, gRPC, and custom
+binary protocols are not first-release dependencies.
+
+**Reason:** Small control-plane operations benefit from a boring, inspectable
+contract, while large opaque packages should not consume API-service memory or
+bandwidth. Correctness remains concentrated in authorization, idempotency,
+reservation generation, and atomic current-head advancement.
+
+**Consequence:** The desktop communicates with the Steward API over HTTPS/JSON,
+and performs large transfers only through short-lived, authorized object-store
+targets. Provider details remain behind infrastructure adapters.
+
+## D-031 / BE-D014: First-release security baseline
+
+**Decision:** The first release uses server-verified Steam identity, TLS for
+control and transfer traffic, private encrypted object storage and backups,
+per-resource authorization, short-lived scoped transfer targets, idempotency and
+reservation-generation checks, bounded payload/rate/timeout/retry controls,
+redacted diagnostics, audit events, secret isolation, and tested backup/restore.
+Steward uses established cryptographic primitives and provider security features
+instead of creating custom cryptography.
+
+**Reason:** The backend handles private World state and identity, so the safety
+baseline must be explicit without expanding the product into a cryptography
+platform.
+
+## D-032 / BE-D015: One authoritative EU backend deployment
+
+**Decision:** The first release uses one authoritative Steward backend deployment
+in the EU. Transactional metadata, primary object storage, identity/access
+metadata, reservation state, and canonical World coordination remain inside the
+documented EU residency boundary. Encrypted disaster-recovery backups may use
+another suitable EU location.
+
+Multiple service instances and availability zones may support that deployment,
+but active-active multi-region World authority and cross-region reservation
+consensus are deferred. Immutable package delivery may later use replicas,
+caches, CDN delivery, or peer-assisted transfer without moving canonical
+revision or reservation authority.
+
+**Reason:** One authoritative transaction source keeps current-head and
+reservation-generation decisions unambiguous while the product gathers real
+latency, package-size, and cost evidence.
+
+## D-033 / AR-0: Runtime and adapter contract approved
+
+**Decision:** The first-release runtime uses one user-session desktop/tray
+process, one active writable managed session per device, runtime-owned generic
+orchestration, adapter-owned game evidence and safe capture, conservative
+pre/post-launch cancellation, capability-driven Stop and Save/Join behavior,
+preserved recovery evidence, and the approved Factorio/Palworld validation
+boundaries recorded in `AR0_SIGNOFF_CHECKLIST.md`.
+
+**Consequence:** Runtime implementation remains blocked by the master planning
+lock, but future AR-1 work has an approved contract and must validate the
+documented evidence requirements without adding game-name branches to Core or
+UI.

@@ -92,7 +92,8 @@ An adapter owns all game-specific knowledge required to complete the handoff:
 - relevant game, launcher, client, child-process, or server observation;
 - safe shutdown behavior;
 - determination of when capture is safe;
-- optional native join behavior.
+- validated adapter Join capability, which may be native/game/Steam automatic,
+  adapter-controlled automatic, or guided manual.
 
 Adapters may be internally complicated. That complexity must remain isolated from Core.
 

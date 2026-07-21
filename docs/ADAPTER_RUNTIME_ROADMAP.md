@@ -18,7 +18,7 @@ Steward is background-first because this runtime remains active while the user i
 
 ## Planning status
 
-Status: **planning locked**.
+Status: **AR-0 approved; master planning lock remains active**.
 
 No production runtime refactor, adapter contract change, new adapter behavior, tray/service implementation, process supervisor, or shared-backend integration begins until this roadmap and the master planning gate are complete.
 
@@ -57,7 +57,8 @@ The adapter owns:
 - safe stop behavior;
 - safe capture timing;
 - game-specific package validation;
-- native join behavior where supported.
+- validated adapter Join capability, which may be native/game/Steam automatic,
+  adapter-controlled automatic, or guided manual.
 
 The UI owns presentation and user commands. The backend owns remote durable state and distributed reservation truth.
 
@@ -123,6 +124,11 @@ ReservationUncertain
 ```
 
 Not every state must be shown separately to the user. The UI maps them into Ready, Preparing, Running, Saving, Blocked, and Recovery needed.
+
+Compatibility note: the current Core session and workspace-recovery enums use
+the internal name `RecoveryPending`. The cross-workstream and user-facing
+contract uses `RecoveryNeeded`. AR-0 must preserve or deliberately migrate that
+internal name while keeping the user-facing meaning consistent.
 
 ## Session start contract
 
@@ -269,7 +275,7 @@ Planning default:
 
 - closing the main window minimizes to tray while active work exists;
 - explicit Quit during Running or Saving requires a clear warning and attempts a safe stop when supported;
-- forced termination may leave an Active/RecoveryPending record;
+- forced termination may leave an Active/RecoveryNeeded record;
 - OS shutdown receives best-effort graceful handling but never promises completion;
 - application self-update is deferred until no active writable session or unresolved capture exists;
 - startup scans recovery records before presenting affected Worlds as Ready.
@@ -284,7 +290,7 @@ Minimum planned capabilities:
 - World discovery/import;
 - local launch;
 - temporary host launch;
-- native/client join;
+- validated adapter Join capability;
 - automatic session observation;
 - graceful hosted stop;
 - automatic safe capture;
@@ -296,6 +302,12 @@ Minimum planned capabilities:
 - automatic repair where validated.
 
 Capabilities describe proven support. An adapter must not advertise a capability merely because a command or API may exist.
+
+Compatibility note: the current Core capability flags include
+`AutomaticClientJoin` but do not yet represent guided manual Join. AR-0 must
+define the capability/result shape that can express native/game/Steam automatic,
+adapter-controlled automatic, guided manual, and unsupported without game-name
+branches in UI or Core.
 
 ## Current adapter capability baseline
 
@@ -387,7 +399,7 @@ Required real-system validation:
 - graceful and forced termination;
 - network interruption during Running and Saving;
 - PC A -> PC B -> PC A handoff;
-- application restart with Active/RecoveryPending records.
+- application restart with Active/RecoveryNeeded records.
 
 ## Adapter/runtime roadmap milestones
 
@@ -467,7 +479,12 @@ After planning unlock:
 - long-session and large-World validation;
 - explicit unsupported-capability behavior.
 
-## Decisions still required before AR-0 completes
+## AR-0 decisions and implementation validation
+
+The approved defaults and validation checklist are collected in
+[AR0_SIGNOFF_CHECKLIST.md](AR0_SIGNOFF_CHECKLIST.md). The items below now guide
+implementation evidence and release validation; they are not permission to
+start production runtime work before the master planning gate is lifted.
 
 - Confirm single desktop/tray process versus separate background service.
 - Confirm one active writable session per device for first release.

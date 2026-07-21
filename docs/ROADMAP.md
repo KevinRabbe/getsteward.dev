@@ -122,6 +122,12 @@ Deliverables:
 
 ### P0.2: UI contract decisions
 
+Status: **proposed complete; UI-0 approval pending**.
+
+Use the proposed [UI-0 Sign-off Checklist](UI0_SIGNOFF_CHECKLIST.md) as the
+working review contract for the remaining sharing, tray, and terminology
+decisions.
+
 Resolve every first-release decision listed in `UI_ROADMAP.md`, including:
 
 - navigation and screen structure;
@@ -135,6 +141,8 @@ Resolve every first-release decision listed in `UI_ROADMAP.md`, including:
 Output: approved UI-0 contract.
 
 ### P0.3: Backend contract decisions
+
+Status: **proposed complete; BE-0 approval pending**.
 
 Resolve every first-release decision listed in `BACKEND_ROADMAP.md`, including:
 
@@ -152,7 +160,11 @@ Output: approved BE-0 contract.
 
 ### P0.4: Adapter/runtime contract decisions
 
-Resolve every first-release decision listed in `ADAPTER_RUNTIME_ROADMAP.md`, including:
+Status: **complete — AR-0 approved; implementation remains gated by the master lock**.
+
+Resolve every first-release decision listed in `ADAPTER_RUNTIME_ROADMAP.md`,
+using the proposed [AR-0 Sign-off Checklist](AR0_SIGNOFF_CHECKLIST.md) as the
+working review contract. This includes:
 
 - desktop/tray process model;
 - one-active-session-per-device limit;
@@ -168,7 +180,10 @@ Output: approved AR-0 contract.
 
 ### P0.5: Cross-workstream contract review
 
-Create one agreed contract matrix containing:
+Status: **draft complete; final cross-workstream approval pending**.
+
+Use the shared [Cross-Workstream Contract](CROSS_WORKSTREAM_CONTRACT.md), which
+contains:
 
 - each user-visible state;
 - its backend meaning;
@@ -178,11 +193,16 @@ Create one agreed contract matrix containing:
 - failure/recovery transition;
 - authoritative source of truth.
 
-No state may have contradictory meanings across documents.
+No state may have contradictory meanings across documents. Changes to a
+workstream roadmap must update that contract when they alter a state, action,
+authority, or recovery transition.
 
 ### P0.6: First-release acceptance plan
 
-Specify the evidence required before release:
+Status: **specified; execution deferred until implementation**.
+
+Use the acceptance plan in the [Cross-Workstream Contract](CROSS_WORKSTREAM_CONTRACT.md)
+and extend it with evidence required before release:
 
 - PC A -> PC B -> PC A handoff;
 - competing writer rejection;
@@ -198,6 +218,8 @@ Specify the evidence required before release:
 - security and backup/restore checks.
 
 ### P0.7: Explicit planning sign-off
+
+Status: **pending user approval**.
 
 The planning lock is lifted only when:
 

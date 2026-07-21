@@ -52,8 +52,18 @@ Steward moves the latest valid World state into a playable session and returns t
 
 - [Master Roadmap](ROADMAP.md) — planning lock, workstream dependencies, drift-control rules, planning exit criteria, execution order, and release boundary.
 - [UI and UX Roadmap](UI_ROADMAP.md) — navigation, user journeys, state/action contract, tray/background experience, recovery UX, milestones, and unresolved UI decisions.
+- [UI-0 Sign-off Checklist](UI0_SIGNOFF_CHECKLIST.md) — proposed flat sharing flow, tray behavior, terminology, and final UI planning checks.
 - [Backend Roadmap](BACKEND_ROADMAP.md) — authentication, minimal access, immutable transfer, current-head commit, distributed reservation, offline behavior, security, operations, and backend milestones.
+- [BE-1 Local Contract Simulation](BE1_LOCAL_SIMULATION.md) — provider-free deterministic reservation, transfer, head-commit, retry, and recovery proof.
+- [Backend Provider Evaluation](BE_PROVIDER_EVALUATION.md) — EU residency, security, transfer, restore, workload, and cost criteria for selecting production infrastructure.
+- [Backend API Contract](BE_API_CONTRACT.md) — versioned HTTPS/JSON control operations, resource shapes, error semantics, idempotency, and direct package transfer.
+- [Backend Schema and Data Lifecycle](BE_SCHEMA_AND_LIFECYCLE.md) — logical records, invariants, transaction boundaries, migrations, retention, cleanup, and restore behavior.
+- [Backend Operations and Recovery](BE_OPERATIONS_RUNBOOK.md) — health, metrics, diagnostics, deployment, incident handling, backup, restore, and disaster-recovery rules.
+- [Backend Security Threat Model](BE_SECURITY_THREAT_MODEL.md) — assets, trust boundaries, threats, controls, residual risks, and security acceptance tests.
+- [BE-0 Sign-off Checklist](BE0_SIGNOFF_CHECKLIST.md) — final backend verification items and the explicit gate before BE-1 implementation.
 - [Adapter and Background Runtime Roadmap](ADAPTER_RUNTIME_ROADMAP.md) — lifecycle state machine, process model, adapter capabilities, safe capture, background lifetime, Factorio/Palworld completion contracts, and runtime milestones.
+- [AR-0 Sign-off Checklist](AR0_SIGNOFF_CHECKLIST.md) — proposed runtime process, lifecycle, cancellation, capability, recovery, and adapter acceptance decisions.
+- [Cross-Workstream Contract](CROSS_WORKSTREAM_CONTRACT.md) — shared UI/backend/runtime states, actions, authorities, recovery rules, and first-release acceptance plan.
 
 Roadmap items do not override product rules. A planned feature still has to support shared World continuity directly.
 

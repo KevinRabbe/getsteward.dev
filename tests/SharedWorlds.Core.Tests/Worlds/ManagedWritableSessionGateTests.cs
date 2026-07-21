@@ -17,7 +17,7 @@ public sealed class ManagedWritableSessionGateTests
         var exception = Assert.Throws<InvalidOperationException>(() => gate.Acquire(secondWorld));
 
         Assert.Equal(firstWorld, gate.ActiveWorldId);
-        Assert.Contains(firstWorld.ToString(), exception.Message, StringComparison.Ordinal);
+        Assert.Contains(firstWorld.ToString(), exception.Message);
     }
 
     [Fact]

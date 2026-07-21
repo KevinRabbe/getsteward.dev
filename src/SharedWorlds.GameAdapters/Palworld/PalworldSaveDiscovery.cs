@@ -6,6 +6,8 @@ internal static class PalworldSaveDiscovery
 {
     private const string LevelSaveFileName = "Level.sav";
     private const string PlayersDirectoryName = "Players";
+    private const string SharedWorldsBackupMarker = ".sharedworlds-backup";
+    private const string SharedWorldsStagingMarker = ".sharedworlds-staging-";
 
     public static IReadOnlyList<DetectedWorld> Discover(GameInstallation installation)
     {
@@ -69,6 +71,12 @@ internal static class PalworldSaveDiscovery
             var profileId = Path.GetFileName(profileDirectory);
             foreach (var worldDirectory in EnumerateDirectoriesSafe(profileDirectory))
             {
+                var worldId = Path.GetFileName(worldDirectory);
+                if (IsSharedWorldsInternalDirectoryName(worldId))
+                {
+                    continue;
+                }
+
                 var levelSavePath = Path.Combine(worldDirectory, LevelSaveFileName);
                 if (!File.Exists(levelSavePath))
                 {
@@ -91,7 +99,6 @@ internal static class PalworldSaveDiscovery
                     continue;
                 }
 
-                var worldId = Path.GetFileName(worldDirectory);
                 var shortWorldId = worldId.Length <= 8 ? worldId : worldId[..8];
                 var hasPlayers = Directory.Exists(Path.Combine(worldDirectory, PlayersDirectoryName));
                 var displaySuffix = hasPlayers ? string.Empty : " • no Players folder";
@@ -102,6 +109,12 @@ internal static class PalworldSaveDiscovery
                     SourcePath: normalizedPath));
             }
         }
+    }
+
+    private static bool IsSharedWorldsInternalDirectoryName(string directoryName)
+    {
+        return directoryName.Contains(SharedWorldsBackupMarker, StringComparison.OrdinalIgnoreCase) ||
+               directoryName.Contains(SharedWorldsStagingMarker, StringComparison.OrdinalIgnoreCase);
     }
 
     private static IEnumerable<string> EnumerateDirectoriesSafe(string path)

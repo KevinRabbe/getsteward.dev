@@ -1,6 +1,6 @@
 # BE-3 S3-Compatible Transfer Checkpoint
 
-Status: **BE-3 active; provider-neutral transfer, durable persistence, the generic S3-compatible adapter, and the versioned HTTP/JSON control plane are implemented and green. Partial/orphan cleanup and retention eligibility are the active slice.**
+Status: **BE-3 active; provider-neutral transfer, durable persistence, the generic S3-compatible adapter, versioned HTTP/JSON control plane, and conservative transfer cleanup/retention reconciliation are implemented and green. Desktop download verification/cache/materialization is the active slice.**
 
 ## Completed before this checkpoint
 
@@ -148,17 +148,53 @@ It proves:
 - invalid package kind -> stable validation outcome;
 - canonical World head remains unchanged after BE-3 revision publication.
 
+## Transfer cleanup and retention reconciliation — COMPLETE AND GREEN
+
+`SharedPackageTransferCleanupService` now owns conservative cleanup of transfer-session artifacts only.
+
+The safety boundary is explicit:
+
+- expired incomplete multipart uploads may be aborted;
+- dead incomplete transfer rows may be deleted only through owner + expected-state guarded deletion;
+- a completed exact candidate is preserved as `Abandoned` rather than silently deleted;
+- exact verified candidates older than the ordinary seven-day grace period become **cleanup-eligible only**;
+- this worker does not physically delete a verified candidate because transfer state alone cannot prove that no authoritative revision/recovery reference exists;
+- integrity failures and publication conflicts are preserved as evidence;
+- matching published revision metadata repairs stale transfer state to `Finalized`;
+- every expired `Abandoned` transfer is reconciled on each pass, so the seven-day retention window never delays publication/conflict repair;
+- canonical revision retention remains a separate BE-D010 authority.
+
+PostgreSQL cleanup persistence is proven against a live database:
+
+- cleanup queries are state-filtered;
+- cutoff-filtered;
+- bounded;
+- oldest-first;
+- cleanup deletion rejects the wrong owner;
+- cleanup deletion rejects the wrong expected state;
+- only the exact owner/state tuple may delete the row.
+
+The API process runs cleanup as a low-frequency background responsibility:
+
+- default interval: 15 minutes;
+- default verified-candidate grace: 7 days;
+- default batch size: 100;
+- configuration is bounded;
+- cleanup waits for its first interval instead of becoming an API-startup dependency;
+- transient cleanup failures are logged and retried on the next pass;
+- multiple API instances may run the worker because destructive operations use compare-and-set/idempotent boundaries rather than a new Redis/distributed-lock dependency.
+
 ### Current five-gate evidence
 
-CI run `29873796392` on commit `d17fa0103f98f6f2ffee107c181db4e484f77601` passed:
+CI run `29874640734` on commit `7ea5045f9ca5e900e116f7b0daba2945174aca7b` passed:
 
 - Quality;
-- Ubuntu build + full tests, including HTTP TestServer contract tests;
-- Windows build + full tests, including HTTP TestServer contract tests;
-- PostgreSQL integration;
+- Ubuntu build + full tests, including cleanup semantics and HTTP TestServer contracts;
+- Windows build + full tests;
+- PostgreSQL integration, including cleanup query/delete persistence;
 - S3-compatible direct-transfer integration.
 
-Formatter output is now retained as a CI artifact so future Quality failures are diagnosable without relying on truncated job logs.
+Formatter output is retained as a CI artifact so future Quality failures are diagnosable without relying on truncated job logs.
 
 ## Provider selection status
 
@@ -168,7 +204,6 @@ That is deployment evidence, not an architectural dependency. Production-provide
 
 ## Remaining BE-3 work
 
-- integrate partial/orphan cleanup and BE-D009/BE-D010 retention eligibility;
 - define/implement the desktop download verification/cache/materialization boundary;
 - perform provider-targeted deployment verification only after the generic transfer stack is green.
 

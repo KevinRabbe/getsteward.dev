@@ -10,6 +10,61 @@ internal static partial class PalworldDedicatedServerHosting
     private const string DedicatedProfileId = "0";
     private const string LevelSaveFileName = "Level.sav";
     private const string ConfigBackupSuffix = ".sharedworlds-backup";
+    private const string HostingModeKey = "hostingMode";
+    private const string DedicatedServerNameKey = "dedicatedServerName";
+    private const string DedicatedHostingMode = "dedicated-server";
+
+    public static EnvironmentManifest InspectEnvironment(DetectedWorld world)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        var worldId = GetWorldIdFromPath(world.SourcePath);
+        return CreateDedicatedEnvironment(worldId);
+    }
+
+    public static PreparedWorld PrepareEnvironment(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment)
+    {
+        ArgumentNullException.ThrowIfNull(installation);
+        ArgumentNullException.ThrowIfNull(requiredEnvironment);
+
+        EnsureSupportedPlatform();
+        EnsureDedicatedServerAvailable(installation);
+
+        if (!string.Equals(requiredEnvironment.AdapterId, "palworld", StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                $"Environment belongs to adapter '{requiredEnvironment.AdapterId}', not Palworld.",
+                nameof(requiredEnvironment));
+        }
+
+        if (requiredEnvironment.Configuration.TryGetValue(HostingModeKey, out var hostingMode) &&
+            !string.Equals(hostingMode, DedicatedHostingMode, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Palworld environment hosting mode '{hostingMode}' is not supported by the dedicated-host path.");
+        }
+
+        if (!requiredEnvironment.Configuration.TryGetValue(DedicatedServerNameKey, out var worldId) ||
+            string.IsNullOrWhiteSpace(worldId))
+        {
+            throw new InvalidOperationException(
+                $"Palworld environment is missing required configuration '{DedicatedServerNameKey}'.");
+        }
+
+        ValidateWorldId(worldId);
+
+        var serverRoot = GetRequiredMetadata(
+            installation,
+            PalworldInstallationDiscovery.DedicatedServerRootPathKey);
+        var destinationWorldPath = GetDedicatedWorldPath(serverRoot, worldId);
+        Directory.CreateDirectory(Path.GetDirectoryName(destinationWorldPath)!);
+
+        return new PreparedWorld(
+            Installation: installation,
+            WorkingDirectory: destinationWorldPath,
+            Environment: requiredEnvironment);
+    }
 
     public static PreparedWorld PrepareDetectedWorld(
         GameInstallation installation,
@@ -18,24 +73,8 @@ internal static partial class PalworldDedicatedServerHosting
         ArgumentNullException.ThrowIfNull(installation);
         ArgumentNullException.ThrowIfNull(world);
 
-        if (!OperatingSystem.IsWindows())
-        {
-            throw new PlatformNotSupportedException(
-                "The Palworld dedicated-host preparation path is currently validated only on Windows.");
-        }
-
-        var serverRoot = GetRequiredMetadata(
-            installation,
-            PalworldInstallationDiscovery.DedicatedServerRootPathKey);
-        var serverExecutable = GetRequiredMetadata(
-            installation,
-            PalworldInstallationDiscovery.DedicatedServerExecutablePathKey);
-
-        if (!Directory.Exists(serverRoot) || !File.Exists(serverExecutable))
-        {
-            throw new InvalidOperationException(
-                "The Palworld dedicated server is not installed or is no longer available at the discovered path.");
-        }
+        EnsureSupportedPlatform();
+        EnsureDedicatedServerAvailable(installation);
 
         var sourceWorldPath = Path.GetFullPath(world.SourcePath);
         if (!Directory.Exists(sourceWorldPath) ||
@@ -45,22 +84,14 @@ internal static partial class PalworldDedicatedServerHosting
                 $"The detected Palworld world is no longer available: {sourceWorldPath}");
         }
 
-        var worldId = Path.GetFileName(Path.TrimEndingDirectorySeparator(sourceWorldPath));
-        if (string.IsNullOrWhiteSpace(worldId))
+        var worldId = GetWorldIdFromPath(sourceWorldPath);
+        var environment = CreateDedicatedEnvironment(worldId);
+        var prepared = PrepareEnvironment(installation, environment) with
         {
-            throw new InvalidOperationException(
-                $"Could not determine the Palworld world id from: {sourceWorldPath}");
-        }
+            DisplayName = world.DisplayName
+        };
 
-        var saveGamesRoot = Path.Combine(
-            serverRoot,
-            "Pal",
-            "Saved",
-            "SaveGames",
-            DedicatedProfileId);
-        Directory.CreateDirectory(saveGamesRoot);
-
-        var destinationWorldPath = Path.GetFullPath(Path.Combine(saveGamesRoot, worldId));
+        var destinationWorldPath = Path.GetFullPath(prepared.WorkingDirectory);
         var pathComparer = OperatingSystem.IsWindows()
             ? StringComparer.OrdinalIgnoreCase
             : StringComparer.Ordinal;
@@ -77,29 +108,24 @@ internal static partial class PalworldDedicatedServerHosting
                 $"The prepared Palworld dedicated world is incomplete: {destinationWorldPath}");
         }
 
-        SelectDedicatedWorld(serverRoot, worldId);
-
-        var environment = new EnvironmentManifest(
-            SchemaVersion: 1,
-            AdapterId: "palworld",
-            GameVersion: "unknown",
-            Components: [],
-            Configuration: new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["hostingMode"] = "dedicated-server",
-                ["dedicatedServerName"] = worldId
-            });
-
-        return new PreparedWorld(
-            Installation: installation,
-            WorkingDirectory: destinationWorldPath,
-            Environment: environment,
-            DisplayName: world.DisplayName);
+        return prepared;
     }
 
     public static GameSessionHandle Launch(PreparedWorld world)
     {
         ArgumentNullException.ThrowIfNull(world);
+
+        EnsureSupportedPlatform();
+        EnsureDedicatedServerAvailable(world.Installation);
+
+        if (!world.Environment.Configuration.TryGetValue(DedicatedServerNameKey, out var worldId) ||
+            string.IsNullOrWhiteSpace(worldId))
+        {
+            throw new InvalidOperationException(
+                $"Prepared Palworld environment is missing '{DedicatedServerNameKey}'.");
+        }
+
+        ValidateWorldId(worldId);
 
         var serverRoot = GetRequiredMetadata(
             world.Installation,
@@ -107,12 +133,25 @@ internal static partial class PalworldDedicatedServerHosting
         var serverExecutable = GetRequiredMetadata(
             world.Installation,
             PalworldInstallationDiscovery.DedicatedServerExecutablePathKey);
+        var expectedWorldPath = GetDedicatedWorldPath(serverRoot, worldId);
+        var actualWorldPath = Path.GetFullPath(world.WorkingDirectory);
+        var pathComparer = OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
 
-        if (!File.Exists(serverExecutable))
+        if (!pathComparer.Equals(expectedWorldPath, actualWorldPath))
         {
             throw new InvalidOperationException(
-                $"The Palworld dedicated server executable is no longer available: {serverExecutable}");
+                $"Prepared Palworld world path does not match the required dedicated world '{worldId}'.");
         }
+
+        if (!File.Exists(Path.Combine(actualWorldPath, LevelSaveFileName)))
+        {
+            throw new InvalidOperationException(
+                $"The prepared Palworld dedicated world has no {LevelSaveFileName}: {actualWorldPath}");
+        }
+
+        SelectDedicatedWorld(serverRoot, worldId);
 
         var process = Process.Start(new ProcessStartInfo
         {
@@ -122,6 +161,86 @@ internal static partial class PalworldDedicatedServerHosting
         }) ?? throw new InvalidOperationException("Palworld dedicated server failed to start.");
 
         return new GameSessionHandle(process.Id, DateTimeOffset.UtcNow);
+    }
+
+    private static EnvironmentManifest CreateDedicatedEnvironment(string worldId)
+    {
+        ValidateWorldId(worldId);
+        return new EnvironmentManifest(
+            SchemaVersion: 1,
+            AdapterId: "palworld",
+            GameVersion: "unknown",
+            Components: [],
+            Configuration: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [HostingModeKey] = DedicatedHostingMode,
+                [DedicatedServerNameKey] = worldId
+            });
+    }
+
+    private static string GetWorldIdFromPath(string worldPath)
+    {
+        var fullPath = Path.GetFullPath(worldPath);
+        var worldId = Path.GetFileName(Path.TrimEndingDirectorySeparator(fullPath));
+        if (string.IsNullOrWhiteSpace(worldId))
+        {
+            throw new InvalidOperationException(
+                $"Could not determine the Palworld world id from: {fullPath}");
+        }
+
+        ValidateWorldId(worldId);
+        return worldId;
+    }
+
+    private static void ValidateWorldId(string worldId)
+    {
+        if (string.IsNullOrWhiteSpace(worldId) ||
+            string.Equals(worldId, ".", StringComparison.Ordinal) ||
+            string.Equals(worldId, "..", StringComparison.Ordinal) ||
+            Path.IsPathRooted(worldId) ||
+            !string.Equals(Path.GetFileName(worldId), worldId, StringComparison.Ordinal) ||
+            worldId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            throw new InvalidOperationException(
+                $"Palworld dedicated world id is not a safe directory name: '{worldId}'.");
+        }
+    }
+
+    private static string GetDedicatedWorldPath(string serverRoot, string worldId)
+    {
+        ValidateWorldId(worldId);
+        return Path.GetFullPath(Path.Combine(
+            serverRoot,
+            "Pal",
+            "Saved",
+            "SaveGames",
+            DedicatedProfileId,
+            worldId));
+    }
+
+    private static void EnsureSupportedPlatform()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException(
+                "The Palworld dedicated-host path is currently validated only on Windows.");
+        }
+    }
+
+    private static void EnsureDedicatedServerAvailable(GameInstallation installation)
+    {
+        var serverRoot = GetRequiredMetadata(
+            installation,
+            PalworldInstallationDiscovery.DedicatedServerRootPathKey);
+        var serverExecutable = GetRequiredMetadata(
+            installation,
+            PalworldInstallationDiscovery.DedicatedServerExecutablePathKey);
+
+        if (!Directory.Exists(serverRoot) || !File.Exists(serverExecutable))
+        {
+            throw new InvalidOperationException(
+                "The Palworld dedicated server is not installed or is no longer available at the discovered path.");
+        }
     }
 
     private static void SelectDedicatedWorld(string serverRoot, string worldId)

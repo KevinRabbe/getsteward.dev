@@ -1,77 +1,145 @@
 # BE-0 Sign-off Checklist
 
-This is the final backend planning checkpoint before BE-1 implementation. It
-does not lift the master planning lock. Production code begins only after the
-remaining proposed decisions are verified and the user explicitly approves the
-transition to implementation.
+This is the final backend planning checkpoint before BE-1.
+
+Status: **BE-0 approved. Master planning lock remains active.**
+
+The authoritative backend decisions are BE-D001 through BE-D015 in `BACKEND_ROADMAP.md`.
 
 ## Contract coverage
 
-| Area | Evidence | Status |
-|---|---|---|
-| Backend shape | Hosted Steward API; one authoritative EU deployment | Proposed BE-D015 |
-| Steam authentication | Server-validated Steam session ticket; backend-only publisher credential | Proposed BE-D001 |
-| World access | Flat membership; World-access invitation; creator-managed invite/revoke | Proposed BE-D002/003 |
-| Multiplayer joining | Steam/game/session invitations remain outside Steward | Aligned |
-| Control API | Versioned HTTPS/JSON; explicit command endpoints | Locked BE-D004 |
-| Package transfer | Scoped resumable object transfer; size/hash verification | Specified |
-| Immutable revisions | Verified candidate before publication; current head is mutable pointer only | Specified |
-| Current-head commit | Expected-head compare-and-swap plus session generation | Specified |
-| Reservation | One active writer; heartbeat; uncertainty; recovery; reclaim | Proposed BE-D005 |
-| Abandon recovery | Continue-from-last-safe-state invalidates authority before availability | Proposed BE-D006 |
-| Offline behavior | No new shared writer offline; active session may continue; candidate preserved | Specified |
-| Security | BE-D014 baseline and threat model | Approved baseline |
-| Geography | EU authority and EU-resident primary data/backups | Proposed BE-D015 |
-| Schema/lifecycle | Logical records, invariants, migrations, retention, restore | Specified |
-| Operations | Health, metrics, alerts, rollback, incidents, disaster recovery | Specified |
-| Provider choice | PostgreSQL-compatible plus S3-compatible contract; named vendor deferred | Explicitly deferred |
-| Package limits | 10 GiB state, 2 GiB environment, 64 MiB chunks, 30-day candidate/recovery retention | Provisional BE-D008; validate before BE-3 |
-| BE-1 proof | Deterministic two-client simulation and failure matrix | Specified |
-| Cross-workstream mapping | UI/runtime/backend state and action matrix | Drafted; UI/runtime sign-off required |
+| Area | Canonical decision/status |
+|---|---|
+| Backend shape | BE-D001 — hybrid Steward API + transactional relational DB + immutable object storage |
+| Steam authentication | BE-D002 — server-verified Steam ticket bootstraps Steward session |
+| World access | BE-D003 — flat members + exactly one Access Manager |
+| World-access vs multiplayer invitation | BE-D003 — separate concepts |
+| Control API | BE-D004 — versioned HTTPS/JSON control plane; direct object transfer |
+| Reservation | BE-D005 — one writer; heartbeat; Uncertain; deliberate reclaim |
+| Last-safe recovery | BE-D006 — authority resolved before candidate abandonment |
+| Provider strategy | BE-D007 — provider-neutral BE-1; named vendor deferred |
+| Active-session outage | BE-D008 — gameplay may continue; Waiting to sync; revalidate before commit |
+| Candidate retention | BE-D009 — unresolved local candidate has no automatic time-based deletion |
+| Canonical retention | BE-D010 — current + previous 2, plus pinned recovery dependencies |
+| State/environment transfer | BE-D011 — one immutable package pipeline, logically separate revisions |
+| Package limits | BE-D012 — 20 GiB hard ceiling/package; ~64 MiB multipart target |
+| API result/error contract | BE-D013 — machine-readable domain results + idempotency |
+| Security/privacy | BE-D014 — TLS, encryption at rest, minimal data, private-by-default |
+| Geography | BE-D015 — one authoritative EU deployment; EU-resident primary data/backups |
+| Cross-workstream mapping | Finalized in `CROSS_WORKSTREAM_CONTRACT.md` |
 
-## Verification required before coding
+## Canonical operational defaults
 
-The user/product owner must verify these choices:
+### Reservation timing
 
-1. Hosted Steward API is the intended backend shape.
-2. BE-D001 through BE-D003 are accepted as the first-release identity/access
-   model.
-3. BE-D005 timing is accepted: 30-second heartbeat, 90-second uncertainty,
-   15-minute reconnect grace, authorized-member reclaim after grace.
-4. BE-D006 candidate-preservation behavior is accepted.
-5. BE-D015 one-authoritative-EU deployment is accepted as the first-release
-   geography and residency boundary.
-6. Provider selection may remain deferred through BE-1 and be decided only after
-   measured package, transfer, restore, and cost evidence.
-7. BE-D008 limits are accepted as provisional safety defaults, not final
-   commercial entitlements.
-8. The shared contract agrees with the final UI-0 and AR-0 decisions.
+- heartbeat: approximately **30 seconds**;
+- Active -> Uncertain: approximately **2 minutes** without valid heartbeat;
+- deliberate reclaim by another active member: approximately **15 minutes** in Uncertain.
 
-## Implementation release gate
+These are tunable operational defaults. The no-auto-release/generation-invalidation rules are safety invariants.
 
-BE-1 may begin only after all of the following are true:
+### Candidate retention
 
-- UI-0 is complete or its remaining decisions are explicitly deferred;
-- AR-0 is complete or its remaining decisions are explicitly deferred;
-- the cross-workstream contract has no contradictory state/action meaning;
-- this checklist is verified;
-- the user explicitly says the master planning lock is lifted and BE-1 is
-  approved;
-- the implementation maps to BE-1 and the BE-1 acceptance matrix.
+| Data | First-release retention |
+|---|---|
+| unresolved local recovery/unsynchronized candidate | no automatic time-based deletion |
+| explicitly abandoned local candidate | approximately 7-day recovery grace |
+| verified remote candidate not committed | approximately 7 days, extended while legitimately referenced by active recovery |
+| partial/incomplete upload | approximately 24 hours after abandonment/inactivity |
+| successfully committed/Unchanged temporary candidate | cleanup-eligible after durable result |
+
+Disk pressure on unresolved gameplay changes becomes **Action required**, not silent deletion.
+
+### Canonical revision retention
+
+- current canonical state;
+- previous two successfully committed canonical states;
+- any older state/environment revision still pinned by active transaction or unresolved recovery evidence.
+
+Retained canonical revisions are recovery assets, not normal selectable branches/history.
+
+### Package/transfer defaults
+
+- global hard ceiling: **20 GiB per immutable State or Steward-hosted Environment package**;
+- adapter may enforce a smaller validated limit;
+- large transfer multipart target: approximately **64 MiB** parts where appropriate;
+- expected size and content hash are verified before publication eligibility;
+- resumable upload/download where package size justifies it;
+- local disk-space preflight before large materialization;
+- full immutable-package transfer first; delta/chunk reuse deferred until evidence justifies it.
+
+## Provider/cost decision
+
+Named production provider selection is explicitly deferred through BE-1.
+
+BE-1 requires no provider guess because it is a deterministic provider-free simulation.
+
+Before production BE-3 deployment, choose providers that satisfy:
+- PostgreSQL-compatible transactional semantics or equivalent;
+- private immutable object storage with scoped direct transfers;
+- resumable large-object support;
+- encryption at rest/TLS;
+- EU deployment/residency requirements;
+- measured durability, storage, egress, restore, and operational cost requirements.
+
+Commercial pricing/plan entitlements are not required to unlock BE-1. Technical safety ceilings and cost telemetry requirements are already bounded.
+
+## API/transaction verification
+
+BE-1 must prove at minimum:
+
+1. active membership required for shared operations;
+2. expected-head reservation acquisition;
+3. only one Active/Uncertain writer;
+4. 30-second heartbeat / ~2-minute uncertainty behavior under deterministic clock;
+5. same valid generation reconnects;
+6. deliberate reclaim after grace atomically invalidates old generation;
+7. late invalidated generation cannot commit;
+8. candidate publication requires expected size/hash verification;
+9. expected-head + still-valid generation commit succeeds exactly once;
+10. stale head returns deterministic conflict without replacing canonical state;
+11. idempotent retry returns the original logical result;
+12. reused idempotency key with different logical input is rejected;
+13. active-session connectivity loss preserves local responsibility;
+14. offline session end enters Waiting to sync with durable local candidate;
+15. reconnect revalidates auth/generation/head before commit;
+16. Continue from last safe state resolves authority before making World available;
+17. unresolved candidate retention is independent from authority rejection;
+18. canonical retention and pinned recovery dependencies behave deterministically.
+
+## Cross-workstream verification
+
+- UI-0 terminology matches `UI_ROADMAP.md`.
+- `Only on this PC` may Host when adapter/runtime supports temporary hosting; sharing is not a hosting prerequisite.
+- `Connection required` blocks a new shared writer.
+- an already valid active session may continue through backend outage.
+- `Waiting to sync` means local candidate preserved and remote handoff incomplete.
+- `Recovery needed` means authority/evidence must be resolved before another normal writable lifecycle.
+- Join never acquires a second writable reservation.
+- Access Manager has no gameplay/reservation priority.
+
+## BE-0 gate
+
+Status: **complete and approved**.
+
+BE-1 may begin only after:
+- UI-0 is complete;
+- AR-0 is complete;
+- cross-workstream contract is complete;
+- master planning lock is explicitly lifted by the product owner;
+- implementation maps to BE-1 and its acceptance matrix.
 
 ## First implementation slice
 
-After approval, implement only the provider-free deterministic simulation in
-[BE1_LOCAL_SIMULATION.md](BE1_LOCAL_SIMULATION.md):
-
+After master approval, implement only provider-free BE-1:
 - in-memory transactional records;
-- deterministic clock and failure injection;
+- deterministic clock/failure injection;
 - World access checks;
-- immutable transfer/publication behavior;
-- acquire/heartbeat/uncertain/recovery/reclaim;
+- immutable candidate publication simulation;
+- acquire/heartbeat/Uncertain/reconnect/reclaim;
 - expected-head commit;
 - idempotency;
-- two-client and stale-generation tests.
+- candidate preservation and last-safe recovery;
+- two-client/stale-generation tests.
 
-Do not add Steam integration, HTTP hosting, cloud SDKs, production credentials,
-or infrastructure in the first slice.
+Do not add Steam integration, HTTP hosting, cloud SDKs, production credentials, or infrastructure in BE-1.

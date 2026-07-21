@@ -40,10 +40,29 @@ jobs:
           dotnet restore tests/SharedWorlds.Backend.ObjectStorage.S3.Tests/SharedWorlds.Backend.ObjectStorage.S3.Tests.csproj
 
       - name: Verify formatting
+        shell: pwsh
         run: |
-          dotnet format SharedWorlds.sln --verify-no-changes --no-restore
-          dotnet format tests/SharedWorlds.Backend.PostgreSql.Tests/SharedWorlds.Backend.PostgreSql.Tests.csproj --verify-no-changes --no-restore
-          dotnet format tests/SharedWorlds.Backend.ObjectStorage.S3.Tests/SharedWorlds.Backend.ObjectStorage.S3.Tests.csproj --verify-no-changes --no-restore
+          dotnet format SharedWorlds.sln --verify-no-changes --no-restore *> format.log
+          $formatExitCode = $LASTEXITCODE
+          if ($formatExitCode -eq 0) {
+            dotnet format tests/SharedWorlds.Backend.PostgreSql.Tests/SharedWorlds.Backend.PostgreSql.Tests.csproj --verify-no-changes --no-restore *>> format.log
+            $formatExitCode = $LASTEXITCODE
+          }
+          if ($formatExitCode -eq 0) {
+            dotnet format tests/SharedWorlds.Backend.ObjectStorage.S3.Tests/SharedWorlds.Backend.ObjectStorage.S3.Tests.csproj --verify-no-changes --no-restore *>> format.log
+            $formatExitCode = $LASTEXITCODE
+          }
+          Get-Content format.log
+          exit $formatExitCode
+
+      - name: Upload formatter log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: format-log
+          path: format.log
+          if-no-files-found: ignore
+          retention-days: 7
 
   build-test:
     name: Build and test (${{ matrix.os }})

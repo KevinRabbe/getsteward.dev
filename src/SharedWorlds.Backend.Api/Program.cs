@@ -28,6 +28,25 @@ var objectStorageAccessKey = RequireConfiguration(builder.Configuration, "Object
 var objectStorageSecretKey = RequireConfiguration(builder.Configuration, "ObjectStorage:SecretAccessKey");
 var objectStorageForcePathStyle = builder.Configuration.GetValue("ObjectStorage:ForcePathStyle", false);
 
+var cleanupIntervalMinutes = ParseBoundedInt32(
+    builder.Configuration,
+    "Cleanup:IntervalMinutes",
+    defaultValue: 15,
+    minimum: 1,
+    maximum: 24 * 60);
+var cleanupVerifiedCandidateRetentionDays = ParseBoundedInt32(
+    builder.Configuration,
+    "Cleanup:VerifiedCandidateRetentionDays",
+    defaultValue: 7,
+    minimum: 1,
+    maximum: 365);
+var cleanupBatchSize = ParseBoundedInt32(
+    builder.Configuration,
+    "Cleanup:BatchSize",
+    defaultValue: 100,
+    minimum: 1,
+    maximum: 1000);
+
 builder.Services.AddHttpClient("steam-identity");
 builder.Services.AddSingleton(_ => new NpgsqlDataSourceBuilder(connectionString).Build());
 
@@ -75,6 +94,19 @@ builder.Services.AddSingleton(services => new SharedPackageTransferService(
     services.GetRequiredService<IPrivateImmutableObjectStore>(),
     () => DateTimeOffset.UtcNow));
 
+builder.Services.AddSingleton(new SharedPackageTransferCleanupOptions(
+    TimeSpan.FromDays(cleanupVerifiedCandidateRetentionDays),
+    cleanupBatchSize));
+builder.Services.AddSingleton(new SharedPackageTransferCleanupWorkerOptions(
+    TimeSpan.FromMinutes(cleanupIntervalMinutes)));
+builder.Services.AddSingleton(services => new SharedPackageTransferCleanupService(
+    services.GetRequiredService<ISharedPackageTransferStore>(),
+    services.GetRequiredService<ISharedRevisionMetadataStore>(),
+    services.GetRequiredService<IPrivateImmutableObjectStore>(),
+    () => DateTimeOffset.UtcNow,
+    services.GetRequiredService<SharedPackageTransferCleanupOptions>()));
+builder.Services.AddHostedService<SharedPackageTransferCleanupWorker>();
+
 var app = builder.Build();
 
 await PostgreSqlBackendSchema.InitializeAsync(app.Services.GetRequiredService<NpgsqlDataSource>());
@@ -101,6 +133,30 @@ static uint ParseRequiredUInt32(IConfiguration configuration, string key)
     if (!uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) || parsed == 0)
     {
         throw new InvalidOperationException($"Required configuration '{key}' must be a positive UInt32.");
+    }
+
+    return parsed;
+}
+
+static int ParseBoundedInt32(
+    IConfiguration configuration,
+    string key,
+    int defaultValue,
+    int minimum,
+    int maximum)
+{
+    var value = configuration[key];
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        return defaultValue;
+    }
+
+    if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) ||
+        parsed < minimum ||
+        parsed > maximum)
+    {
+        throw new InvalidOperationException(
+            $"Configuration '{key}' must be an integer between {minimum} and {maximum}.");
     }
 
     return parsed;

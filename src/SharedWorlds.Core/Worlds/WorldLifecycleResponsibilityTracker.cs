@@ -47,6 +47,12 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
         {
             switch (change.Phase)
             {
+                case WorldLifecyclePhase.AcquiringReservation:
+                    // A reservation request is a transient attempt, not proof that this process
+                    // already owns writable authority. The lifecycle emits ResolvingWorld only
+                    // after acquisition succeeds; that is where guarded responsibility begins.
+                    break;
+
                 case WorldLifecyclePhase.Completed:
                     _kind = WorldLifecycleResponsibilityKind.None;
                     _worldId = null;

@@ -8,6 +8,7 @@ internal static class PalworldSaveDiscovery
     private const string PlayersDirectoryName = "Players";
     private const string SharedWorldsBackupMarker = ".sharedworlds-backup";
     private const string SharedWorldsStagingMarker = ".sharedworlds-staging-";
+    private const string SharedWorldsRollbackMarker = ".sharedworlds-rollback-";
 
     public static IReadOnlyList<DetectedWorld> Discover(GameInstallation installation)
     {
@@ -114,7 +115,8 @@ internal static class PalworldSaveDiscovery
     private static bool IsSharedWorldsInternalDirectoryName(string directoryName)
     {
         return directoryName.Contains(SharedWorldsBackupMarker, StringComparison.OrdinalIgnoreCase) ||
-               directoryName.Contains(SharedWorldsStagingMarker, StringComparison.OrdinalIgnoreCase);
+               directoryName.Contains(SharedWorldsStagingMarker, StringComparison.OrdinalIgnoreCase) ||
+               directoryName.Contains(SharedWorldsRollbackMarker, StringComparison.OrdinalIgnoreCase);
     }
 
     private static IEnumerable<string> EnumerateDirectoriesSafe(string path)

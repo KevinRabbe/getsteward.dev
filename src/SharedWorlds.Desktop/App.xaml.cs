@@ -18,6 +18,6 @@ public partial class App : Application
         }
 
         Activated -= App_Activated;
-        window.InitializePalworldUi();
+        window.InitializeUnifiedGameUi();
     }
 }

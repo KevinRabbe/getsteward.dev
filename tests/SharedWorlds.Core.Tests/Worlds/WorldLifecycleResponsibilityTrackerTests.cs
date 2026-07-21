@@ -7,6 +7,31 @@ namespace SharedWorlds.Core.Tests.Worlds;
 public sealed class WorldLifecycleResponsibilityTrackerTests
 {
     [Fact]
+    public void ReservationAcquisitionAttemptDoesNotClaimWritableResponsibilityBeforeSuccess()
+    {
+        var tracker = new WorldLifecycleResponsibilityTracker();
+        var worldId = WorldId.New();
+
+        tracker.OnPhaseChanged(Change(worldId, WorldLifecyclePhase.AcquiringReservation));
+        var snapshot = tracker.Current;
+
+        Assert.Equal(WorldLifecycleResponsibilityKind.None, snapshot.Kind);
+        Assert.Null(snapshot.WorldId);
+        Assert.Null(snapshot.Phase);
+        Assert.True(snapshot.CanQuitWithoutGuard);
+        Assert.True(snapshot.CanSelfUpdate);
+
+        tracker.OnPhaseChanged(Change(worldId, WorldLifecyclePhase.ResolvingWorld));
+        var acquired = tracker.Current;
+
+        Assert.Equal(WorldLifecycleResponsibilityKind.ActiveLifecycle, acquired.Kind);
+        Assert.Equal(worldId, acquired.WorldId);
+        Assert.Equal(WorldLifecyclePhase.ResolvingWorld, acquired.Phase);
+        Assert.False(acquired.CanQuitWithoutGuard);
+        Assert.False(acquired.CanSelfUpdate);
+    }
+
+    [Fact]
     public void ActiveLifecycleBlocksUnguardedQuitAndSelfUpdateUntilCompleted()
     {
         var tracker = new WorldLifecycleResponsibilityTracker();

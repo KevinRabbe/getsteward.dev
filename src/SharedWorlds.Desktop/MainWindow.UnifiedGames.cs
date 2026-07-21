@@ -422,17 +422,20 @@ public partial class MainWindow
         icon.SetBinding(Image.SourceProperty, new Binding(nameof(UnifiedWorldListItem.GameIconPath)));
         root.AppendChild(icon);
 
-        var text = new StackPanelFactory();
-        text.Append(new TextBlockFactory(
-            nameof(UnifiedWorldListItem.Name),
-            fontSize: 15,
-            semiBold: true));
-        text.Append(new TextBlockFactory(
-            nameof(UnifiedWorldListItem.Subtitle),
-            fontSize: 12,
-            topMargin: 5,
-            wrap: true));
-        root.AppendChild(text.Element);
+        var text = new FrameworkElementFactory(typeof(StackPanel));
+        var name = new FrameworkElementFactory(typeof(TextBlock));
+        name.SetValue(TextBlock.FontSizeProperty, 15d);
+        name.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
+        name.SetBinding(TextBlock.TextProperty, new Binding(nameof(UnifiedWorldListItem.Name)));
+        text.AppendChild(name);
+
+        var subtitle = new FrameworkElementFactory(typeof(TextBlock));
+        subtitle.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 5, 0, 0));
+        subtitle.SetValue(TextBlock.FontSizeProperty, 12d);
+        subtitle.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
+        subtitle.SetBinding(TextBlock.TextProperty, new Binding(nameof(UnifiedWorldListItem.Subtitle)));
+        text.AppendChild(subtitle);
+        root.AppendChild(text);
 
         return new DataTemplate { VisualTree = root };
     }
@@ -472,46 +475,6 @@ public partial class MainWindow
         {
             HeaderTemplate = new DataTemplate { VisualTree = root }
         };
-    }
-
-    private sealed class StackPanelFactory
-    {
-        public FrameworkElementFactory Element { get; } = new(typeof(StackPanel));
-
-        public void Append(TextBlockFactory text)
-            => Element.AppendChild(text.Element);
-    }
-
-    private sealed class TextBlockFactory
-    {
-        public TextBlockFactory(
-            string bindingPath,
-            double fontSize,
-            bool semiBold = false,
-            double topMargin = 0,
-            bool wrap = false)
-        {
-            Element = new FrameworkElementFactory(typeof(TextBlock));
-            Element.SetValue(TextBlock.FontSizeProperty, fontSize);
-            if (semiBold)
-            {
-                Element.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
-            }
-
-            if (topMargin > 0)
-            {
-                Element.SetValue(FrameworkElement.MarginProperty, new Thickness(0, topMargin, 0, 0));
-            }
-
-            if (wrap)
-            {
-                Element.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
-            }
-
-            Element.SetBinding(TextBlock.TextProperty, new Binding(bindingPath));
-        }
-
-        public FrameworkElementFactory Element { get; }
     }
 
     private sealed record GamePresentation(string GameName, string? IconPath);

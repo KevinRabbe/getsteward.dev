@@ -48,6 +48,7 @@ Steward moves the latest valid World state into a playable session and returns t
 
 - [Game Adapter Guide](ADAPTER_GUIDE.md) — adapter responsibilities, contract rules, and adding a game without contaminating Core.
 - [Factorio Adapter](FACTORIO.md) — Factorio discovery, environment handling, state capture, restore, launch, limitations, and validation.
+- [Palworld Adapter](PALWORLD.md) — Palworld client/server discovery, dedicated hosting, capture, restore verification, canonical commit, and player-identity limitation.
 
 Additional adapter documents belong here when their behavior becomes product-relevant.
 

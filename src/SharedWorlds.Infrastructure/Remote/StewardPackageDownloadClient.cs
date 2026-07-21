@@ -113,8 +113,7 @@ public sealed class StewardPackageDownloadClient
         var authorization = data.Authorization;
         if (!string.Equals(authorization.Method, "GET", StringComparison.OrdinalIgnoreCase) ||
             data.ExpectedByteSize <= 0 ||
-            authorization.ExpectedByteSize != data.ExpectedByteSize ||
-            !string.Equals(data.ExpectedSha256, authorization.ExpectedSha256, StringComparison.OrdinalIgnoreCase))
+            authorization.ExpectedByteSize != data.ExpectedByteSize)
         {
             throw new InvalidDataException("Steward returned inconsistent immutable package metadata.");
         }
@@ -147,6 +146,5 @@ public sealed class StewardPackageDownloadClient
         string Method,
         Dictionary<string, string>? RequiredHeaders,
         DateTimeOffset ExpiresAt,
-        long ExpectedByteSize,
-        string ExpectedSha256);
+        long ExpectedByteSize);
 }

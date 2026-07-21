@@ -2,7 +2,7 @@
 
 This is the final adapter/runtime planning checkpoint.
 
-Status: **AR-0 approved. Master planning lock remains active.**
+Status: **AR-0 approved. Master planning lock is lifted; AR-1 may begin under E1.**
 
 The authoritative runtime/adapter contract is `ADAPTER_RUNTIME_ROADMAP.md`.
 
@@ -97,4 +97,4 @@ Implementation/release evidence must verify:
 
 Status: **complete and approved**.
 
-AR-1 remains blocked only by the master planning lock.
+AR-1 implementation is allowed under E1 and must remain inside this frozen contract.

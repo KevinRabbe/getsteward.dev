@@ -390,12 +390,16 @@ public sealed class WorldLifecycleService
                 await _storage.SaveWorldAsync(updatedWorld, cancellationToken);
 
                 Notify(worldId, mode, WorldLifecyclePhase.Finalizing);
-                await CompleteSuccessfulWorkspaceAsync(
+                var finalized = await CompleteSuccessfulWorkspaceAsync(
                     adapter,
                     context.PreparedWorld,
                     workspaceRecord);
 
-                Notify(worldId, mode, WorldLifecyclePhase.Completed);
+                if (finalized)
+                {
+                    Notify(worldId, mode, WorldLifecyclePhase.Completed);
+                }
+
                 return updatedWorld;
             }
             finally
@@ -450,7 +454,7 @@ public sealed class WorldLifecycleService
         }
     }
 
-    private async Task CompleteSuccessfulWorkspaceAsync(
+    private async Task<bool> CompleteSuccessfulWorkspaceAsync(
         IGameAdapter adapter,
         PreparedWorld preparedWorld,
         WorkspaceRecoveryRecord record)
@@ -469,10 +473,20 @@ public sealed class WorldLifecycleService
                 record,
                 WorkspaceRecoveryStatus.CleanupPending,
                 $"Canonical commit succeeded, but workspace cleanup failed: {exception.Message}");
-            return;
+            return false;
         }
 
-        await TryRemoveWorkspaceRecordAsync(record.Id);
+        if (await TryRemoveWorkspaceRecordAsync(record.Id))
+        {
+            return true;
+        }
+
+        Notify(
+            record.WorldId,
+            mode: null,
+            WorldLifecyclePhase.CleanupPending,
+            "Canonical commit and workspace cleanup succeeded, but recovery-record removal failed.");
+        return false;
     }
 
     private async Task HandleFailedWorkspaceAsync(
@@ -503,7 +517,15 @@ public sealed class WorldLifecycleService
 
         if (discarded)
         {
-            await TryRemoveWorkspaceRecordAsync(record.Id);
+            if (!await TryRemoveWorkspaceRecordAsync(record.Id))
+            {
+                Notify(
+                    record.WorldId,
+                    mode: null,
+                    WorldLifecyclePhase.CleanupPending,
+                    "Session never started and workspace discard succeeded, but recovery-record removal failed.");
+            }
+
             return;
         }
 
@@ -555,18 +577,20 @@ public sealed class WorldLifecycleService
         }
     }
 
-    private async Task TryRemoveWorkspaceRecordAsync(WorkspaceId workspaceId)
+    private async Task<bool> TryRemoveWorkspaceRecordAsync(WorkspaceId workspaceId)
     {
         try
         {
             await _workspaceRecoveryStore.RemoveAsync(
                 workspaceId,
                 CancellationToken.None);
+            return true;
         }
         catch
         {
             // A stale record is safer than deleting recoverability metadata prematurely.
             // Startup reconciliation can remove records whose workspaces no longer exist.
+            return false;
         }
     }
 

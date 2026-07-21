@@ -105,4 +105,6 @@ static uint ParseRequiredUInt32(IConfiguration configuration, string key)
     return parsed;
 }
 
-public partial class Program;
+public partial class Program
+{
+}

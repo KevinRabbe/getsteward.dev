@@ -160,6 +160,82 @@ public sealed class PostgreSqlSharedPackageTransferStore : ISharedPackageTransfe
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
+    public async Task<IReadOnlyList<SharedPackageTransferRecord>> ListByStateExpiringBeforeAsync(
+        SharedPackageTransferState state,
+        DateTimeOffset expiresAtOrBefore,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit is < 1 or > 1000)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limit));
+        }
+
+        const string sql = """
+            SELECT
+                transfer_id,
+                world_id,
+                revision_id,
+                kind,
+                adapter_id,
+                owner_provider,
+                owner_external_id,
+                object_key,
+                provider_upload_id,
+                expected_byte_size,
+                expected_sha256,
+                required_environment_revision_id,
+                part_size_bytes,
+                part_count,
+                created_at,
+                expires_at,
+                state,
+                finalized_at
+            FROM steward_package_transfers
+            WHERE state = @state
+              AND expires_at <= @expires_at_or_before
+            ORDER BY expires_at, transfer_id
+            LIMIT @limit;
+            """;
+
+        await using var command = _dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("state", (short)state);
+        command.Parameters.AddWithValue("expires_at_or_before", expiresAtOrBefore);
+        command.Parameters.AddWithValue("limit", limit);
+
+        var transfers = new List<SharedPackageTransferRecord>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            transfers.Add(ReadTransfer(reader));
+        }
+
+        return transfers;
+    }
+
+    public async Task<bool> TryDeleteAsync(
+        SharedPackageTransferId transferId,
+        ExternalIdentityRef expectedOwner,
+        SharedPackageTransferState expectedState,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(expectedOwner);
+        const string sql = """
+            DELETE FROM steward_package_transfers
+            WHERE transfer_id = @transfer_id
+              AND owner_provider = @owner_provider
+              AND owner_external_id = @owner_external_id
+              AND state = @expected_state;
+            """;
+
+        await using var command = _dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("transfer_id", transferId.Value);
+        command.Parameters.AddWithValue("owner_provider", expectedOwner.Provider);
+        command.Parameters.AddWithValue("owner_external_id", expectedOwner.ExternalId);
+        command.Parameters.AddWithValue("expected_state", (short)expectedState);
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
     private static SharedPackageTransferRecord ReadTransfer(NpgsqlDataReader reader)
     {
         var environmentOrdinal = reader.GetOrdinal("required_environment_revision_id");

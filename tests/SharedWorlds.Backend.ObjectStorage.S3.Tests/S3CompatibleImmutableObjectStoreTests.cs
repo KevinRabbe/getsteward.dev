@@ -21,13 +21,14 @@ public sealed class S3CompatibleImmutableObjectStoreTests
         var objectKey = $"packages/test/{Guid.NewGuid():N}.package";
         var bytes = CreatePayload(7 * MiB);
         var sha256 = Convert.ToHexString(SHA256.HashData(bytes));
+        var protocol = GetProtocol(settings.Endpoint);
 
         using var clientOne = CreateClient(settings);
         await clientOne.PutBucketAsync(new PutBucketRequest { BucketName = bucket });
         try
         {
             string durableHandle;
-            using (var firstStore = new S3CompatibleImmutableObjectStore(clientOne, bucket))
+            using (var firstStore = new S3CompatibleImmutableObjectStore(clientOne, bucket, protocol))
             {
                 var upload = await firstStore.BeginMultipartUploadAsync(
                     objectKey,
@@ -58,7 +59,7 @@ public sealed class S3CompatibleImmutableObjectStoreTests
             }
 
             using var clientTwo = CreateClient(settings);
-            using var restartedStore = new S3CompatibleImmutableObjectStore(clientTwo, bucket);
+            using var restartedStore = new S3CompatibleImmutableObjectStore(clientTwo, bucket, protocol);
 
             var resumed = Assert.IsType<ImmutableUploadSnapshot>(
                 await restartedStore.GetMultipartUploadAsync(durableHandle));
@@ -104,12 +105,13 @@ public sealed class S3CompatibleImmutableObjectStoreTests
         var objectKey = $"packages/test/{Guid.NewGuid():N}.package";
         var bytes = CreatePayload(6 * MiB);
         var sha256 = Convert.ToHexString(SHA256.HashData(bytes));
+        var protocol = GetProtocol(settings.Endpoint);
 
         using var client = CreateClient(settings);
         await client.PutBucketAsync(new PutBucketRequest { BucketName = bucket });
         try
         {
-            using var store = new S3CompatibleImmutableObjectStore(client, bucket);
+            using var store = new S3CompatibleImmutableObjectStore(client, bucket, protocol);
             var upload = await store.BeginMultipartUploadAsync(
                 objectKey,
                 bytes.LongLength,
@@ -140,6 +142,9 @@ public sealed class S3CompatibleImmutableObjectStoreTests
             new BasicAWSCredentials(settings.AccessKey, settings.SecretKey),
             config);
     }
+
+    private static Protocol GetProtocol(Uri endpoint)
+        => endpoint.Scheme == Uri.UriSchemeHttp ? Protocol.HTTP : Protocol.HTTPS;
 
     private static async Task PutPartAsync(
         HttpClient http,

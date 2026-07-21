@@ -23,6 +23,82 @@ internal static class PalworldWorldState
         return CaptureWorldDirectoryAsync(world.WorkingDirectory, cancellationToken);
     }
 
+    public static async Task RestorePreparedWorldAsync(
+        PreparedWorld world,
+        StatePackage state,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(state);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var packagePath = Path.GetFullPath(state.Path);
+        if (!File.Exists(packagePath))
+        {
+            throw new FileNotFoundException(
+                "The Palworld state package does not exist.",
+                packagePath);
+        }
+
+        var destinationPath = Path.GetFullPath(world.WorkingDirectory);
+        var parentPath = Path.GetDirectoryName(destinationPath)
+            ?? throw new InvalidOperationException(
+                $"Could not determine the parent directory for Palworld world '{destinationPath}'.");
+        Directory.CreateDirectory(parentPath);
+
+        var operationId = Guid.NewGuid().ToString("N");
+        var stagingPath = destinationPath + ".sharedworlds-staging-" + operationId;
+        var rollbackPath = destinationPath + ".sharedworlds-rollback-" + operationId;
+        var movedExistingWorld = false;
+
+        try
+        {
+            await ExtractPackageAsync(packagePath, stagingPath, cancellationToken);
+
+            if (!File.Exists(Path.Combine(stagingPath, LevelSaveFileName)))
+            {
+                throw new InvalidOperationException(
+                    $"The Palworld state package has no root {LevelSaveFileName}.");
+            }
+
+            if (Directory.Exists(destinationPath))
+            {
+                Directory.Move(destinationPath, rollbackPath);
+                movedExistingWorld = true;
+            }
+
+            Directory.Move(stagingPath, destinationPath);
+
+            if (movedExistingWorld)
+            {
+                TryDeleteDirectory(rollbackPath);
+            }
+        }
+        catch (Exception restoreException)
+        {
+            TryDeleteDirectory(stagingPath);
+
+            if (movedExistingWorld &&
+                !Directory.Exists(destinationPath) &&
+                Directory.Exists(rollbackPath))
+            {
+                try
+                {
+                    Directory.Move(rollbackPath, destinationPath);
+                }
+                catch (Exception rollbackException)
+                {
+                    throw new AggregateException(
+                        "Palworld state restore failed and the previous world could not be rolled back automatically.",
+                        restoreException,
+                        rollbackException);
+                }
+            }
+
+            throw;
+        }
+    }
+
     private static async Task<CapturedState> CaptureWorldDirectoryAsync(
         string sourceWorldPath,
         CancellationToken cancellationToken)
@@ -102,6 +178,75 @@ internal static class PalworldWorldState
         }
     }
 
+    private static async Task ExtractPackageAsync(
+        string packagePath,
+        string stagingPath,
+        CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(stagingPath);
+
+        var stagingRoot = Path.GetFullPath(stagingPath);
+        var stagingPrefix = stagingRoot + Path.DirectorySeparatorChar;
+        var pathComparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        var pathComparer = OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+        var extractedFiles = new HashSet<string>(pathComparer);
+
+        using var archive = ZipFile.OpenRead(packagePath);
+        foreach (var entry in archive.Entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (string.IsNullOrWhiteSpace(entry.FullName))
+            {
+                continue;
+            }
+
+            var relativePath = entry.FullName
+                .Replace('/', Path.DirectorySeparatorChar)
+                .Replace('\\', Path.DirectorySeparatorChar);
+            if (Path.IsPathRooted(relativePath))
+            {
+                throw new InvalidOperationException(
+                    $"Palworld state package contains an absolute path: '{entry.FullName}'.");
+            }
+
+            var destinationPath = Path.GetFullPath(Path.Combine(stagingRoot, relativePath));
+            if (!destinationPath.StartsWith(stagingPrefix, pathComparison))
+            {
+                throw new InvalidOperationException(
+                    $"Palworld state package contains a path outside the world root: '{entry.FullName}'.");
+            }
+
+            if (string.IsNullOrEmpty(entry.Name))
+            {
+                Directory.CreateDirectory(destinationPath);
+                continue;
+            }
+
+            if (!extractedFiles.Add(destinationPath))
+            {
+                throw new InvalidOperationException(
+                    $"Palworld state package contains duplicate file path '{entry.FullName}'.");
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+            await using var sourceStream = entry.Open();
+            await using var destinationStream = new FileStream(
+                destinationPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 128 * 1024,
+                useAsync: true);
+            await sourceStream.CopyToAsync(destinationStream, cancellationToken);
+            await destinationStream.FlushAsync(cancellationToken);
+        }
+    }
+
     private static bool ShouldExclude(string relativePath)
     {
         return relativePath
@@ -111,7 +256,8 @@ internal static class PalworldWorldState
             .Any(segment =>
                 string.Equals(segment, "backup", StringComparison.OrdinalIgnoreCase) ||
                 segment.Contains(".sharedworlds-backup", StringComparison.OrdinalIgnoreCase) ||
-                segment.Contains(".sharedworlds-staging-", StringComparison.OrdinalIgnoreCase));
+                segment.Contains(".sharedworlds-staging-", StringComparison.OrdinalIgnoreCase) ||
+                segment.Contains(".sharedworlds-rollback-", StringComparison.OrdinalIgnoreCase));
     }
 
     private static string CreatePackagePath(string worldId)
@@ -161,6 +307,25 @@ internal static class PalworldWorldState
         catch (UnauthorizedAccessException)
         {
             // Best-effort cleanup after a failed capture.
+        }
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+        }
+        catch (IOException)
+        {
+            // Best-effort cleanup. A failed cleanup must not hide the restore result.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Best-effort cleanup. A failed cleanup must not hide the restore result.
         }
     }
 }

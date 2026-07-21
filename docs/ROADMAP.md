@@ -12,32 +12,24 @@ Steward coordinates three implementation workstreams:
 
 They deliver one product model. No workstream may invent a competing definition of World, session, sharing, hosting, recovery, or authority.
 
-## Current mode: planning lock
+## Current mode: implementation unlocked
 
-Status: **ACTIVE — P0 planning is complete; explicit product-owner lock lift is pending.**
+Status: **P0 COMPLETE — master planning lock lifted by explicit product-owner approval. E1 may begin.**
 
-All required first-release planning contracts are now approved/reconciled. Production implementation remains blocked only because the master lock has not yet been explicitly lifted.
+The planning contracts are frozen as the first-release implementation baseline. Changes remain possible, but any deliberate product-boundary or contract change must be documented before implementation changes follow it.
 
-Until that explicit decision, do not add or modify:
-- production UI behavior/layout;
-- backend/service code or production infrastructure;
-- storage/coordination schemas intended as implementation;
-- adapter contracts/lifecycle behavior;
-- Factorio/Palworld production behavior;
-- background/tray implementation;
-- new game adapters;
-- speculative prototypes intended to become product code.
+Implementation is now allowed only when it maps to:
 
-Allowed while the lock remains active:
-- documentation corrections;
-- read-only repository inspection;
-- final sign-off review;
-- acceptance-test specification;
-- research/calculation that does not create product implementation.
+- one workstream;
+- one numbered milestone;
+- one acceptance criterion.
+
+The first implementation phase is **E1: Contract and conformance foundation**.
 
 ## Product boundaries
 
 ### UI/UX owns
+
 - Games Library;
 - per-game World workspace;
 - import;
@@ -50,6 +42,7 @@ Allowed while the lock remains active:
 UI never invents backend authority or game-specific lifecycle behavior.
 
 ### Backend owns
+
 - verified Steam identity for shared operations;
 - flat World membership + one Access Manager;
 - immutable package publication/transfer authorization;
@@ -77,6 +70,7 @@ UI states/actions
 ```
 
 Rules:
+
 - UI requests only actions supported by runtime/backend/adapter contracts.
 - Runtime exposes states the UI can communicate consistently.
 - Backend uncertainty/recovery semantics match runtime connectivity/crash behavior.
@@ -89,22 +83,17 @@ Rules:
 
 Status: **complete**.
 
-Deliverables:
-- master roadmap;
-- UI roadmap;
-- backend roadmap;
-- adapter/runtime roadmap;
-- planning lock and drift-control rules.
-
 ## P0.2: UI-0 contract
 
 Status: **complete and approved**.
 
 Canonical sources:
+
 - `UI_ROADMAP.md`;
 - `UI0_SIGNOFF_CHECKLIST.md`.
 
 Approved scope includes:
+
 - Games -> Worlds navigation;
 - explicit Start World / Host World / Join;
 - local-first import;
@@ -121,64 +110,31 @@ Approved scope includes:
 Status: **complete and approved**.
 
 Canonical sources:
+
 - `BACKEND_ROADMAP.md`;
 - `BE0_SIGNOFF_CHECKLIST.md`.
 
-BE-D001 through BE-D015 define:
-- hybrid backend;
-- Steam authentication;
-- flat membership + Access Manager;
-- HTTPS/JSON control API + direct object transfer;
-- heartbeat/Uncertain/reclaim;
-- last-safe authority resolution;
-- provider-neutral BE-1;
-- active-session connectivity loss;
-- candidate retention;
-- canonical retention;
-- common state/environment transfer pipeline;
-- package limits;
-- deterministic API result/error/idempotency contract;
-- security/privacy baseline;
-- one authoritative EU deployment.
-
-Named provider selection is explicitly deferred without blocking BE-1.
+BE-D001 through BE-D015 define the first-release backend contract. Named production provider selection is explicitly deferred without blocking BE-1.
 
 ## P0.4: AR-0 contract
 
 Status: **complete and approved**.
 
 Canonical sources:
+
 - `ADAPTER_RUNTIME_ROADMAP.md`;
 - `AR0_SIGNOFF_CHECKLIST.md`.
-
-Approved scope includes:
-- one user-session desktop/tray process;
-- one active writable managed session per device;
-- generic lifecycle ownership;
-- structured session evidence;
-- safe cancellation/stop/capture boundaries;
-- connectivity-loss/recovery behavior;
-- capability-driven Join;
-- Factorio and Palworld first-release validation boundaries;
-- adapter/runtime acceptance tests.
 
 ## P0.5: Cross-workstream reconciliation
 
 Status: **complete and approved**.
 
 Canonical source:
+
 - `CROSS_WORKSTREAM_CONTRACT.md`.
 
-The final matrix reconciles:
-- every user-visible state;
-- backend meaning;
-- runtime meaning;
-- allowed actions;
-- adapter capability requirements;
-- authority source;
-- failure/recovery transitions.
-
 Important reconciled rules:
+
 - `Only on this PC` may Host when temporary-host capability exists;
 - persistent sharing is not a prerequisite for temporary hosting;
 - final UI terms are Running, Hosting, Host is starting, Someone is playing, Saving World, Action required, etc.;
@@ -191,46 +147,21 @@ Important reconciled rules:
 Status: **complete as a specification; execution occurs during implementation/release validation**.
 
 Canonical source:
-- `CROSS_WORKSTREAM_CONTRACT.md`.
 
-Required evidence includes:
-- Factorio import/local/host/capture/replay;
-- Palworld dedicated host/readiness/stop/capture/restore;
-- PC A -> PC B -> PC A handoff;
-- competing writer rejection;
-- interrupted upload resume;
-- backend outage during active session;
-- Waiting to sync completion;
-- stale reservation deliberate reclaim;
-- late old-generation commit rejection;
-- desktop crash/restart recovery;
-- safe environment/identity limitation handling;
-- last-safe recovery semantics;
-- package limit/integrity/resume/disk-preflight behavior;
-- canonical/candidate retention;
-- security/redacted diagnostics/backup/restore/EU residency;
-- exact UI state/action sequence.
+- `CROSS_WORKSTREAM_CONTRACT.md`.
 
 ## P0.7: Explicit planning sign-off
 
-Status: **pending one explicit product-owner decision**.
+Status: **complete — product owner explicitly approved continuing into implementation.**
 
-All objective planning exit criteria are satisfied:
-- UI-0 complete;
-- BE-0 complete;
-- AR-0 complete;
-- cross-workstream matrix complete;
-- acceptance plan complete as specification;
-- provider/vendor questions that do not block E1 are explicitly deferred;
-- release boundary remains inside Non-Negotiable Rules/Product Boundary.
-
-The planning lock is lifted only when the product owner explicitly approves moving from planning to implementation.
+The master planning lock is lifted.
 
 # Drift-control rules after unlock
 
 ## Every code change maps to the roadmap
 
 Every production change must map to:
+
 - one workstream;
 - one numbered milestone;
 - one acceptance criterion.
@@ -261,7 +192,7 @@ Claims about Factorio, Palworld, Steam, package behavior, process ownership, saf
 
 # Validated implementation foundation
 
-Existing implementation already provides useful foundations to build on after unlock:
+Existing implementation already provides useful foundations:
 
 ```text
 discover
@@ -277,31 +208,19 @@ discover
 -> preserve recovery evidence on failure
 ```
 
-Implemented/tested foundations include:
-- immutable environment/state revisions;
-- expected-head protection;
-- unchanged-state detection;
-- canonical head advancement after durable storage;
-- workspace recovery records;
-- explicit cleanup ownership;
-- typed failure boundaries;
-- persisted schema envelopes/migrations;
-- Factorio real-machine discovery/import/local/host/process/capture evidence;
-- Palworld client/dedicated discovery, migration, launch, portable capture, restore/verification, canonical commit evidence;
-- unified WPF adapter registry and game-first UI proof.
+Implemented/tested foundations include immutable environment/state revisions, expected-head protection, unchanged-state detection, canonical head advancement after durable storage, workspace recovery records, explicit cleanup ownership, typed failure boundaries, persisted schema envelopes/migrations, Factorio lifecycle evidence, Palworld lifecycle evidence, and the unified WPF adapter registry/game-first UI proof.
 
-The existing desktop composition remains transitional and is replaced/hardened only after lock lift according to UI-1.
+# Execution plan
 
-# Execution plan after planning unlock
+## E1: Contract and conformance foundation — ACTIVE
 
-## E1: Contract and conformance foundation
+First slices may proceed independently but must stay inside the frozen contracts:
 
-Begin only after explicit P0.7 approval.
-
-Parallel first slices:
 - **BE-1** provider-free deterministic backend simulation;
 - **AR-1** generic runtime/conformance extraction and tests;
 - **UI-1** shell/navigation work using the frozen state/action contract.
+
+Current implementation priority begins with **BE-1**, because it proves the shared authority invariants without introducing Steam, HTTP, cloud SDKs, credentials, or provider assumptions.
 
 No provider-specific or game-specific shortcut may bypass the contracts.
 
@@ -354,7 +273,7 @@ No broad UI polishing or new adapter work takes priority over this proof.
 - Share/Manage access;
 - lifecycle progress;
 - tray/background;
-- recovery/blocked flows;
+- recovery/action-required flows;
 - accessibility/commercial polish.
 
 ## E7: Second-adapter handoff proof
@@ -375,6 +294,7 @@ Repeat the two-device flow with the other initial adapter. Keep game-specific is
 ## E9: Evidence-driven performance optimization
 
 Only after correctness:
+
 - deduplication;
 - peer-assisted transfer;
 - CDN/immutable replication;
@@ -385,6 +305,7 @@ Only after correctness:
 # Initial commercial release boundary
 
 Required:
+
 - Windows desktop/tray product;
 - Steam identity/platform integration;
 - Factorio and Palworld as reliable initial adapters;
@@ -401,6 +322,7 @@ Required:
 - concise game-first UI.
 
 Not required:
+
 - generic save merging;
 - Fork/branch workflows;
 - parties/chat/public discovery/community feeds;
@@ -414,6 +336,4 @@ Not required:
 
 # Immediate next step
 
-There is no remaining planning question required to begin E1.
-
-The only remaining gate is the explicit product-owner decision to lift the master planning lock and approve implementation.
+Implement **BE-1 provider-free deterministic backend simulation** according to `BE1_LOCAL_SIMULATION.md`, then validate its deterministic acceptance matrix before adding Steam/HTTP/cloud integration.

@@ -122,6 +122,21 @@ public sealed class JoinCapabilityResultTests
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public virtual Task<JoinCapabilityResult> GetJoinCapabilityAsync(
+            PreparedWorld world,
+            HostConnection host,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(world);
+            ArgumentNullException.ThrowIfNull(host);
+
+            return Task.FromResult(
+                Capabilities.HasFlag(GameAdapterCapabilities.AutomaticClientJoin)
+                    ? JoinCapabilityResult.SupportedAutomatic()
+                    : JoinCapabilityResult.Unsupported(
+                        $"{DisplayName} does not expose a validated Join path yet."));
+        }
+
         public Task WaitForSessionEndAsync(
             GameSessionHandle session,
             CancellationToken cancellationToken = default)
@@ -143,7 +158,7 @@ public sealed class JoinCapabilityResultTests
     {
         public override GameAdapterCapabilities Capabilities => GameAdapterCapabilities.None;
 
-        public Task<JoinCapabilityResult> GetJoinCapabilityAsync(
+        public override Task<JoinCapabilityResult> GetJoinCapabilityAsync(
             PreparedWorld world,
             HostConnection host,
             CancellationToken cancellationToken = default)

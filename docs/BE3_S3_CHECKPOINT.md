@@ -1,6 +1,6 @@
 # BE-3 S3-Compatible Transfer Checkpoint
 
-Status: **BE-3 active; provider-neutral transfer contracts, durable transfer persistence, and the generic S3-compatible production adapter are implemented. Disposable S3 protocol integration validation is the current gate.**
+Status: **BE-3 active; provider-neutral transfer contracts, durable transfer persistence, and the generic S3-compatible production adapter are implemented and green. The S3-compatible protocol gate is complete. HTTP/JSON control-plane exposure is the active slice.**
 
 ## Completed before this checkpoint
 
@@ -73,15 +73,16 @@ Implemented S3 behavior:
 - idempotent abort;
 - private presigned GET authorization;
 - object deletion;
-- streamed full-object SHA-256 inspection with bounded memory.
+- streamed full-object SHA-256 inspection with bounded memory;
+- presigned PUT/GET protocol explicitly follows the configured S3 endpoint scheme.
 
-## Current compatibility gate
+## S3-compatible protocol gate — COMPLETE AND GREEN
 
-A separate S3-compatible integration test project now exercises a disposable MinIO instance in CI.
+A separate S3-compatible integration test project exercises a disposable MinIO instance in CI.
 
 MinIO is used only as a local S3 protocol compatibility harness. It is **not** a production runtime dependency and is **not** the selected commercial storage provider.
 
-The integration proof requires:
+The integration proof now passes:
 
 ```text
 begin multipart
@@ -99,7 +100,19 @@ begin multipart
 -> delete object
 ```
 
-A separate abort proof requires repeated abort to remain safe and not create a completed object.
+A separate abort proof confirms repeated abort is safe and does not create a completed object.
+
+The integration gate exposed and fixed one real provider-compatibility defect: presigned URLs had initially defaulted to HTTPS independently of an HTTP custom S3 endpoint. The production adapter now carries the configured endpoint protocol explicitly into every presigned PUT/GET request.
+
+### Five-gate evidence
+
+CI run `29871686999` on commit `e6995c1f1366fc95d0e7848581844ec405326559` passed:
+
+- Quality;
+- Ubuntu build/tests;
+- Windows build/tests;
+- PostgreSQL integration;
+- S3-compatible direct-transfer integration.
 
 ## Provider selection status
 
@@ -107,9 +120,8 @@ Current research shows Hetzner Object Storage is a plausible first EU deployment
 
 That is deployment evidence, not an architectural dependency. Production-provider selection remains subordinate to the generic BE-3 contract and must not change World authority, revision semantics, transfer limits, or recovery rules.
 
-## Remaining BE-3 work after the compatibility gate
+## Remaining BE-3 work
 
-- fix any real S3 compatibility issues revealed by the disposable service test;
 - add HTTPS/JSON control-plane endpoints over the already-tested application contracts;
 - integrate partial/orphan cleanup and BE-D009/BE-D010 retention eligibility;
 - define/implement the desktop download verification/cache/materialization boundary;

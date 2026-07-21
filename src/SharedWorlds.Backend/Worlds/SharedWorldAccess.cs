@@ -47,6 +47,19 @@ public enum StoreMemberRevocationStatus
     ManagerChanged
 }
 
+public enum StoreLeaveMemberStatus
+{
+    Left,
+    TargetNotActiveMember,
+    IsAccessManager
+}
+
+public enum StoreCompletePendingRevocationStatus
+{
+    Completed,
+    NotPending
+}
+
 public enum StoreTransferAccessManagerStatus
 {
     Transferred,
@@ -91,6 +104,18 @@ public interface ISharedWorldAccessStore
         ExternalIdentityRef expectedAccessManager,
         ExternalIdentityRef targetIdentity,
         bool deferForUnresolvedResponsibility,
+        DateTimeOffset changedAt,
+        CancellationToken cancellationToken = default);
+
+    Task<StoreLeaveMemberStatus> TryLeaveWorldAsync(
+        WorldId worldId,
+        ExternalIdentityRef identity,
+        DateTimeOffset changedAt,
+        CancellationToken cancellationToken = default);
+
+    Task<StoreCompletePendingRevocationStatus> TryCompletePendingRevocationAsync(
+        WorldId worldId,
+        ExternalIdentityRef identity,
         DateTimeOffset changedAt,
         CancellationToken cancellationToken = default);
 

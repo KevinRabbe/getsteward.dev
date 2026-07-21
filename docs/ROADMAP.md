@@ -14,17 +14,17 @@ They deliver one product model. No workstream may invent a competing definition 
 
 ## Current mode: implementation unlocked
 
-Status: **P0 COMPLETE — master planning lock lifted by explicit product-owner approval. E1 may begin.**
+Status: **P0 COMPLETE. E1 COMPLETE AND GREEN. E2 SHARED STATE FOUNDATION ACTIVE.**
 
-The planning contracts are frozen as the first-release implementation baseline. Changes remain possible, but any deliberate product-boundary or contract change must be documented before implementation changes follow it.
+The planning contracts remain the first-release implementation baseline. Changes remain possible, but any deliberate product-boundary or contract change must be documented before implementation changes follow it.
 
-Implementation is now allowed only when it maps to:
+Implementation is allowed only when it maps to:
 
 - one workstream;
 - one numbered milestone;
 - one acceptance criterion.
 
-The first implementation phase is **E1: Contract and conformance foundation**.
+The active implementation phase is **E2: Shared state foundation**.
 
 ## Product boundaries
 
@@ -114,7 +114,7 @@ Canonical sources:
 - `BACKEND_ROADMAP.md`;
 - `BE0_SIGNOFF_CHECKLIST.md`.
 
-BE-D001 through BE-D015 define the first-release backend contract. Named production provider selection is explicitly deferred without blocking BE-1.
+BE-D001 through BE-D015 define the first-release backend contract. Named production provider selection is explicitly deferred without blocking the provider-neutral implementation sequence.
 
 ## P0.4: AR-0 contract
 
@@ -192,7 +192,7 @@ Claims about Factorio, Palworld, Steam, package behavior, process ownership, saf
 
 # Validated implementation foundation
 
-Existing implementation already provides useful foundations:
+Existing implementation now provides:
 
 ```text
 discover
@@ -208,30 +208,39 @@ discover
 -> preserve recovery evidence on failure
 ```
 
-Implemented/tested foundations include immutable environment/state revisions, expected-head protection, unchanged-state detection, canonical head advancement after durable storage, workspace recovery records, explicit cleanup ownership, typed failure boundaries, persisted schema envelopes/migrations, Factorio lifecycle evidence, Palworld lifecycle evidence, and the unified WPF adapter registry/game-first UI proof.
+E1 additionally proved the shared authority contract in a provider-free deterministic simulation: one-writer generations, uncertainty/reclaim, resumable verified candidate transfer, idempotent mutation replay/result lookup, expected-head commit, retention, recovery preservation, and PC A -> PC B -> PC A handoff behavior.
+
+The E1 implementation was validated by GitHub Actions CI run `600` on head `fc22978ed46e5158e3cabdd06cd991f0d6c47c93`: formatter verification, Ubuntu Release build/tests, and Windows Release build/tests all passed.
 
 # Execution plan
 
-## E1: Contract and conformance foundation — ACTIVE
+## E1: Contract and conformance foundation — COMPLETE AND GREEN
 
-First slices may proceed independently but must stay inside the frozen contracts:
+Completed slices:
 
 - **BE-1** provider-free deterministic backend simulation;
 - **AR-1** generic runtime/conformance extraction and tests;
-- **UI-1** shell/navigation work using the frozen state/action contract.
+- **UI-1** shell/navigation replacement using the frozen state/action contract.
 
-Current implementation priority begins with **BE-1**, because it proves the shared authority invariants without introducing Steam, HTTP, cloud SDKs, credentials, or provider assumptions.
+Canonical evidence:
 
-No provider-specific or game-specific shortcut may bypass the contracts.
+- `E1_STATUS.md`;
+- CI run `600` on `fc22978ed46e5158e3cabdd06cd991f0d6c47c93`.
 
-## E2: Shared state foundation
+No provider-specific or game-specific shortcut may bypass the E1 contracts as later phases replace simulated boundaries with real services.
 
-- verified Steam identity;
-- World metadata/access;
+## E2: Shared state foundation — ACTIVE
+
+Implement the smallest real shared-state slice that preserves the green BE-1 invariants:
+
+- verified Steam identity boundary for shared operations;
+- persistent World metadata/access;
 - immutable state/environment metadata;
-- authorized upload/download;
+- authorized upload/download boundary;
 - current-head commit;
 - client verification/cache integration.
+
+E2 does **not** yet expand into broad adapter hardening or UI polish. Distributed reservation/heartbeat/reclaim integration is E3, although E2 persistence/API shapes must already be compatible with those frozen contracts.
 
 ## E3: Distributed one-writer coordination
 
@@ -336,4 +345,4 @@ Not required:
 
 # Immediate next step
 
-Implement **BE-1 provider-free deterministic backend simulation** according to `BE1_LOCAL_SIMULATION.md`, then validate its deterministic acceptance matrix before adding Steam/HTTP/cloud integration.
+Begin **E2 / BE-2 shared state foundation** by defining and implementing the provider-neutral persistent service boundaries that replace BE-1's in-memory metadata/package authority incrementally. Preserve BE-1 result semantics and acceptance tests while keeping Steam verification, transport, persistence, and object-transfer concerns separable.

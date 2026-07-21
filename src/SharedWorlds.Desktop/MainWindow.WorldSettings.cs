@@ -55,7 +55,7 @@ public partial class MainWindow
                     ? $"World '{updated.Name}' will stay on its exact known-good game version."
                     : $"World '{updated.Name}' may consider future update candidates; updates remain explicit.";
 
-                await RefreshWorldsAsync(updated.Id, preserveStatus: true);
+                await RefreshUnifiedWorldsAsync(updated.Id, preserveStatus: true);
             });
 
         UpdateWorldVersionPolicyUi();

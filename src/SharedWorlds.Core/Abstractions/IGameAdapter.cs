@@ -95,6 +95,26 @@ public interface IGameAdapter
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Describes how this adapter can join a validated ready host on this device.
+    /// The default preserves the existing AutomaticClientJoin capability; adapters may override
+    /// this to expose guided manual Join or an explicit blocked/unsupported reason.
+    /// </summary>
+    Task<JoinCapabilityResult> GetJoinCapabilityAsync(
+        PreparedWorld world,
+        HostConnection host,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(host);
+
+        return Task.FromResult(
+            Capabilities.HasFlag(GameAdapterCapabilities.AutomaticClientJoin)
+                ? JoinCapabilityResult.SupportedAutomatic()
+                : JoinCapabilityResult.Unsupported(
+                    $"{DisplayName} does not expose a validated Join path yet."));
+    }
+
+    /// <summary>
     /// Waits until the game-specific session represented by the handle has actually ended.
     /// Adapters own this because launchers may spawn or hand off to other processes.
     /// </summary>
@@ -124,6 +144,52 @@ public enum GameAdapterCapabilities
     ExactModVersions = 1 << 4,
     EnvironmentIsolation = 1 << 5,
     AutomaticLocalLaunch = 1 << 6
+}
+
+public enum JoinCapabilityKind
+{
+    SupportedAutomatic,
+    SupportedGuidedManual,
+    Unsupported,
+    BlockedByEnvironment,
+    BlockedByIdentityLimitation
+}
+
+public sealed record JoinCapabilityResult(
+    JoinCapabilityKind Kind,
+    string? Guidance = null,
+    string? Reason = null)
+{
+    public bool IsSupported => Kind is
+        JoinCapabilityKind.SupportedAutomatic or
+        JoinCapabilityKind.SupportedGuidedManual;
+
+    public static JoinCapabilityResult SupportedAutomatic()
+        => new(JoinCapabilityKind.SupportedAutomatic);
+
+    public static JoinCapabilityResult SupportedGuidedManual(string guidance)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(guidance);
+        return new(JoinCapabilityKind.SupportedGuidedManual, Guidance: guidance);
+    }
+
+    public static JoinCapabilityResult Unsupported(string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        return new(JoinCapabilityKind.Unsupported, Reason: reason);
+    }
+
+    public static JoinCapabilityResult BlockedByEnvironment(string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        return new(JoinCapabilityKind.BlockedByEnvironment, Reason: reason);
+    }
+
+    public static JoinCapabilityResult BlockedByIdentityLimitation(string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        return new(JoinCapabilityKind.BlockedByIdentityLimitation, Reason: reason);
+    }
 }
 
 public enum PreparedWorldDisposition

@@ -9,8 +9,10 @@ public sealed class JoinCapabilityResultTests
     [Fact]
     public async Task ExistingAutomaticClientJoinFlagMapsToSupportedAutomatic()
     {
-        var adapter = new AutomaticJoinAdapter();
-        var result = await adapter.GetJoinCapabilityAsync(CreatePreparedWorld(), new HostConnection("127.0.0.1", 1234));
+        IGameAdapter adapter = new AutomaticJoinAdapter();
+        var result = await adapter.GetJoinCapabilityAsync(
+            CreatePreparedWorld(),
+            new HostConnection("127.0.0.1", 1234));
 
         Assert.Equal(JoinCapabilityKind.SupportedAutomatic, result.Kind);
         Assert.True(result.IsSupported);
@@ -21,8 +23,10 @@ public sealed class JoinCapabilityResultTests
     [Fact]
     public async Task AdapterCanExposeGuidedManualJoinWithoutAddingGameSpecificCoreState()
     {
-        var adapter = new GuidedJoinAdapter();
-        var result = await adapter.GetJoinCapabilityAsync(CreatePreparedWorld(), new HostConnection("127.0.0.1", 8211));
+        IGameAdapter adapter = new GuidedJoinAdapter();
+        var result = await adapter.GetJoinCapabilityAsync(
+            CreatePreparedWorld(),
+            new HostConnection("127.0.0.1", 8211));
 
         Assert.Equal(JoinCapabilityKind.SupportedGuidedManual, result.Kind);
         Assert.True(result.IsSupported);

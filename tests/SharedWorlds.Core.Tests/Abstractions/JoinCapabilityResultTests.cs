@@ -77,9 +77,7 @@ public sealed class JoinCapabilityResultTests
             GameInstallation installation,
             DetectedWorld world,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(world is null
-                ? throw new ArgumentNullException(nameof(world))
-                : CreatePreparedWorld().Environment);
+            => Task.FromResult(CreatePreparedWorld().Environment);
 
         public Task<CapturedState> CaptureDetectedWorldAsync(
             GameInstallation installation,

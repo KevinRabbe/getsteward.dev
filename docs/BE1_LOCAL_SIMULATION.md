@@ -6,7 +6,7 @@ remote backend contract, not a production API or database.
 
 ## Current status
 
-Status: **in progress — core BE-1 contract implemented; recovery/reclaim idempotency and build confirmation remain**.
+Status: **implementation complete against the BE-1 contract matrix; build/test confirmation pending**.
 
 Implemented in the current BE-1 slice:
 
@@ -21,7 +21,7 @@ Implemented in the current BE-1 slice:
 - resumable multipart transfer state;
 - retry-safe duplicate transfer parts;
 - provider-independent 20 GiB package safety ceiling;
-- idempotent acquire/finalize/commit replay with request-fingerprint conflict detection;
+- idempotent acquire/finalize/commit/reclaim/last-safe recovery replay with request-fingerprint conflict detection;
 - authoritative operation-result lookup after ambiguous response loss;
 - deterministic failure injection before commit and after durable commit/before response;
 - explicit `Continue from last safe state` that validates candidate evidence before releasing authority and preserves the abandoned candidate;
@@ -29,11 +29,7 @@ Implemented in the current BE-1 slice:
 - BE-D010 current + previous-two canonical retention with pinned recovery dependencies and reference-driven environment retention;
 - deterministic PC A -> PC B -> PC A handoff coverage.
 
-Still required before BE-1 may be marked complete:
-
-- successful build/test confirmation under repository warning/nullability rules;
-- remaining idempotency coverage for deliberate reclaim and last-safe recovery mutations;
-- final pass against the complete deterministic test matrix below.
+The deterministic test matrix below now has an implementation/test case for every listed scenario. BE-1 is not marked fully green until the repository build/test suite actually executes successfully under warnings-as-errors/nullability rules.
 
 No Steam integration, HTTP hosting, cloud SDK, provider credential, production database, or object-storage integration belongs in this milestone.
 

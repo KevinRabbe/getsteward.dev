@@ -34,8 +34,8 @@ public partial class MainWindow
             await _deviceSettingsStore.SaveAsync(updated);
             _deviceSettings = updated;
             StatusText.Text = updated.AllowHosting
-                ? "This device is now eligible to host shared Worlds."
-                : "This device is now join-only and will not host shared Worlds.";
+                ? "This device is now eligible to host Worlds."
+                : "Hosting is disabled on this device.";
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or JsonException)

@@ -9,9 +9,7 @@ public sealed class PalworldAdapter : IGameAdapter
     public string Id => "palworld";
     public string DisplayName => "Palworld";
 
-    // The dedicated-host bootstrap, native state capture, and canonical restore path are now wired,
-    // but capabilities stay conservative until the full lifecycle is runtime-validated end to end.
-    public GameAdapterCapabilities Capabilities => GameAdapterCapabilities.None;
+    public GameAdapterCapabilities Capabilities => GameAdapterCapabilities.AutomaticHostLaunch;
 
     public Task<IReadOnlyList<GameInstallation>> DiscoverInstallationsAsync(
         CancellationToken cancellationToken = default)
@@ -132,5 +130,12 @@ public sealed class PalworldAdapter : IGameAdapter
         PreparedWorld world,
         PreparedWorldDisposition disposition,
         CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // PalServer requires its native world to remain under SaveGames\0. The directory is a
+        // reusable runtime materialization of canonical state rather than a disposable workspace.
+        return Task.CompletedTask;
+    }
 }

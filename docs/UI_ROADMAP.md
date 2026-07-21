@@ -10,9 +10,9 @@ Steward is background-first. The user should enter briefly to select a World, st
 
 ## Planning status
 
-Status: **planning locked — UI-0 waiting on backend access-policy decision**.
+Status: **planning locked — UI-0 product decisions complete; cross-workstream validation pending**.
 
-No production UI implementation or refactor begins until UI-0 and the master planning gate are complete.
+No production UI implementation or refactor begins until the master planning gate is complete and explicitly lifted.
 
 Allowed during the lock:
 
@@ -30,12 +30,9 @@ Status: **approved**.
 The first release does not use one contextual `Play` action that guesses the user's intent.
 
 ```text
-Ready, only on this PC
+Ready
 -> Start World
-
-Ready, shared
--> Start World
--> Host World
+-> Host World, when supported
 
 World active on another device
 -> Join, when supported
@@ -104,7 +101,7 @@ Rules:
 
 - a successful local import remains valid even when sharing later fails;
 - the user may test the imported World before sharing it;
-- Host World is unavailable until shared setup succeeds;
+- **Host World is independent of persistent sharing** and is available for an Only on this PC World whenever the adapter/runtime supports temporary hosting;
 - sharing is a separate explicit **Share World** action;
 - the primary UI uses **Only on this PC** instead of exposing the technical `LocalOnly` term;
 - the original save is never described as moved, deleted, or replaced.
@@ -114,7 +111,8 @@ Post-import presentation:
 ```text
 Status: Only on this PC
 Primary action: Start World
-Secondary action: Share World
+Secondary action: Host World, when supported
+Separate action: Share World
 ```
 
 ### UI-D004: Shared Worlds require verification before writable play
@@ -219,14 +217,16 @@ Retry is unavailable when the candidate is stale, invalid, or cannot safely adva
 
 #### Continue from last safe state
 
-This abandons the incomplete candidate and returns the World to the last successfully committed state only after explicit confirmation.
+This abandons the incomplete candidate and returns the World to the last successfully committed state only after explicit confirmation and backend authority is safely resolved.
 
 Rules:
 
 - the candidate is never silently discarded;
 - the UI clearly states that newer local changes may be abandoned;
-- shared reservation/recovery state must be resolved before another writer begins;
-- this action never combines the candidate with the committed state.
+- shared reservation/recovery state must be resolved and the interrupted session generation invalidated where required before another writer begins;
+- the backend must verify the current canonical head before exposing the World as Ready;
+- this action never combines the candidate with the committed state;
+- candidate retention/deletion follows the backend recovery-retention policy rather than being implied by the action itself.
 
 #### Export recovery copy
 
@@ -332,19 +332,23 @@ Status: **approved**.
 
 The first release uses a small plain-language vocabulary. Internal implementation state names do not automatically become user-facing terminology.
 
-#### Actions
+#### Main actions
 
 - **Start World**
 - **Host World**
 - **Join**
 - **Share World**
+- **Manage access**
 - **Stop and Save**
 - **Retry connection**
+- **Retry sharing**
 - **Retry recovery**
 - **Export recovery copy**
 - **Continue from last safe state**
 - **Open Steward**
 - **Quit Steward**
+
+Access-specific actions are defined by UI-D009 and remain flat rather than becoming a permission-role vocabulary.
 
 #### User-facing states
 
@@ -353,6 +357,7 @@ The first release uses a small plain-language vocabulary. Internal implementatio
 | **Ready** | The World can safely begin a new session. |
 | **Only on this PC** | Managed locally and not shared. |
 | **Shared** | Available through Steward to permitted identities/devices. |
+| **Sharing** | Initial package/access setup is still incomplete. |
 | **Preparing** | Steward is getting the World and required environment ready. |
 | **Running** | A local/non-hosted session is active on this device. |
 | **Hosting** | A hosted session is active on this device/server. |
@@ -373,14 +378,132 @@ Rules:
 - **Stop and Save** is retained for controlled hosted shutdown because the important product action is safely ending the World session, not merely stopping infrastructure;
 - technical lifecycle substeps remain available only as secondary progress/detail when useful.
 
+### UI-D009: Flat Share World and Manage access surface
+
+Status: **approved**.
+
+The first release reflects the backend's flat membership model directly. It does not create gameplay roles, permission tiers, parties, or an ownership hierarchy.
+
+#### Share World
+
+For a World that is **Only on this PC**:
+
+```text
+Share World
+-> choose/add Steam identities
+-> review
+-> Sharing
+-> upload and verify initial shared state
+-> shared authority commits
+-> sharer becomes the sole Access Manager
+-> selected identities receive World-access invitations
+-> Ready / Shared
+```
+
+Rules:
+
+- sharing is explicit and never happens automatically during import;
+- the sharer becomes Access Manager without a separate role-configuration step;
+- a pending World-access invitation does not grant package download, reservation, or commit access;
+- invited users become active members only after accepting;
+- **World-access invitations** are Steward membership/consent, while **multiplayer-session invitations** remain owned by Steam/the game;
+- failed sharing leaves the original local managed World intact and usable;
+- failed sharing may expose **Retry sharing** and must never falsely present the World as Shared.
+
+#### People with access
+
+The surface shows Steam identity information sufficient to avoid accidental selection, preferably display name/avatar when available.
+
+Conceptually it contains:
+
+- active members;
+- pending invitations marked **Invited**;
+- the current **Access Manager** label;
+- **Add person** for the Access Manager.
+
+There is no permission dropdown and no Reader/Writer/Host/Admin/Moderator role model.
+
+#### Invitation acceptance
+
+An invited Steam identity sees a World-access invitation with:
+
+- World identity;
+- inviter identity when useful;
+- **Accept**;
+- **Decline**.
+
+Accept creates active membership. Decline leaves the user unauthorized and does not expose World package bytes.
+
+#### Manage access
+
+**Manage access** is a focused World-level surface, not another global navigation destination.
+
+For a normal member it may expose:
+
+- people with access;
+- current Access Manager;
+- **Leave World**.
+
+For the Access Manager it additionally exposes:
+
+- **Add person**;
+- **Remove access**;
+- **Transfer access management**;
+- **Stop sharing** only where the later backend deletion/retention contract proves the exact action safe and its consequences are clear.
+
+#### Removing access
+
+For an idle member:
+
+```text
+Remove access
+-> confirm
+-> access removed
+```
+
+For a member who currently owns an authorized writable responsibility:
+
+```text
+Remove access
+-> revocation becomes pending
+-> current session/recovery responsibility resolves safely
+-> revocation becomes effective
+```
+
+The UI communicates that access will end after the active responsibility finishes. Access management never destroys an active World transaction.
+
+#### Transfer access management
+
+```text
+Transfer access management
+-> choose existing active member
+-> confirm
+-> backend performs atomic transfer
+```
+
+The confirmation explains that the recipient will manage membership but gains no special gameplay, hosting, reservation, or revision authority.
+
+#### Leaving a World
+
+Any ordinary member may **Leave World** when they own no active or unresolved World responsibility.
+
+Leaving is unavailable while doing so would abandon a session, candidate, or recovery responsibility.
+
+The Access Manager cannot leave while still being the sole Access Manager. They must first transfer access management or follow the later approved stop-sharing/deletion path.
+
+Core principle:
+
+> **Members use the World. The Access Manager manages only who is a member.**
+
 ## UI boundaries
 
 The first-release UI owns:
 
 - supported game and World discovery presentation;
 - import and sharing entry points;
+- flat World-access management presentation;
 - lifecycle status;
-- Start World, Host World, Join, Stop and Save, Share World, retry, and recovery actions where supported;
+- Start World, Host World, Join, Stop and Save, Share World, Manage access, retry, and recovery actions where supported;
 - progress and failure communication;
 - tray/background visibility;
 - compact settings and diagnostics.
@@ -394,6 +517,7 @@ The UI does not own:
 - storage transactions;
 - Steam friend or party systems;
 - World ownership hierarchies;
+- gameplay permission hierarchies;
 - branches, Forks, or merges;
 - public server discovery.
 
@@ -412,6 +536,7 @@ The UI does not own:
 11. **Commercial clarity:** wording explains what happened, what is safe, and what happens next.
 12. **Low interaction cost:** Steward asks only for decisions the product genuinely requires.
 13. **Recovery is evidence-driven:** destructive or authority-changing actions appear only when their safety can be proven.
+14. **Flat access:** membership management never becomes a gameplay-role system.
 
 ## Navigation model
 
@@ -461,6 +586,12 @@ The tray is present whenever Steward runs and exposes compact status plus only t
 
 It is not another Games/Worlds navigation surface.
 
+### Manage access surface
+
+Manage access stays inside the selected World context. It shows flat membership/invitation information and only the administrative actions allowed by UI-D009.
+
+It is not another global social/friends/party screen.
+
 ### Recovery Surface
 
 Shows:
@@ -501,9 +632,11 @@ Import
 Only on this PC
 -> Share World
 -> verify shared service
--> choose allowed Steam identities according to backend policy
+-> choose Steam identities
+-> Sharing
 -> upload and verify current state
 -> shared setup commits
+-> invitations remain pending until individually accepted
 -> Ready / Shared
 ```
 
@@ -525,8 +658,8 @@ Ready
 ### UJ-05: Host World temporarily
 
 ```text
-Ready / Shared
--> Host World
+Ready, whether Only on this PC or Shared
+-> Host World, when adapter/runtime host capability exists
 -> Preparing
 -> Hosting
 -> main window may hide to tray
@@ -534,6 +667,8 @@ Ready / Shared
 -> Saving World
 -> Ready
 ```
+
+Persistent Steward sharing is not a prerequisite for temporary game hosting.
 
 ### UJ-06: Active on another device
 
@@ -583,9 +718,11 @@ Running/Hosting
 -> Waiting to sync
 -> tray remains visible
 -> reconnect
--> commit
+-> verify authority and commit when still valid
 -> Ready
 ```
+
+If the prior session generation was invalidated or the current head changed, the World enters Recovery needed instead of overwriting shared authority.
 
 ### UJ-11: Join active hosted World
 
@@ -593,8 +730,8 @@ Running/Hosting
 Someone is playing
 -> host becomes ready
 -> Join
--> Steward selects best validated connection method
--> game/session join begins
+-> Steward selects best validated adapter Join capability
+-> game/session join begins or guided manual Join is shown
 ```
 
 ### UJ-12: Recovery needed
@@ -631,13 +768,35 @@ no active/unresolved responsibility
 
 When an active or unresolved responsibility exists, ordinary Quit is blocked or redirected to the correct safe action rather than abandoning the World transaction.
 
+### UJ-15: Accept a World-access invitation
+
+```text
+World-access invitation received
+-> review World/inviter
+-> Accept
+-> active membership created
+-> shared World appears in Steward
+```
+
+Decline leaves the user unauthorized and creates no package access.
+
+### UJ-16: Manage access
+
+```text
+Shared World
+-> Manage access
+-> view members/invitations
+-> Add person / Remove access / Transfer access management when caller is Access Manager
+-> Leave World when caller owns no unresolved responsibility
+```
+
 ## User-visible state and action contract
 
 | State | Meaning | Primary action(s) | Secondary action |
 |---|---|---|---|
-| Ready / Only on this PC | Safe local managed state, not shared | Start World | Share World |
-| Sharing | Upload/access setup incomplete | None | Cancel only when rollback is safe |
-| Ready / Shared | Current shared state and reservation service verified | Start World; Host World | Manage access where needed |
+| Ready / Only on this PC | Safe local managed state, not shared | Start World; Host World when supported | Share World |
+| Sharing | Initial upload/access setup incomplete | None | Retry/Cancel only when rollback is safe |
+| Ready / Shared | Current shared state and reservation service verified | Start World; Host World | Manage access |
 | Connection required | Shared current head/reservation cannot be verified before start | Retry connection | Cached information only |
 | Preparing | State/environment is being prepared | None | Cancel only before launch when safe |
 | Running | This device owns a local writable session | Open | None |
@@ -690,13 +849,15 @@ Deliverables:
 - approved terminology;
 - adapter capability presentation rules;
 - explicit first-release exclusions;
+- flat sharing/access surface aligned with backend policy;
 - cross-workstream contract with backend and runtime.
 
 Current status:
 
-- UI-D001 through UI-D008 are approved;
-- exact flat sharing/access UI remains intentionally blocked on the backend access-policy decision;
-- UI-0 does not invent that policy independently.
+- UI-D001 through UI-D009 are approved;
+- all standalone first-release UI product-model decisions are resolved;
+- remaining work is cross-workstream validation that backend/runtime expose the required states and actions;
+- no further UI concept is invented merely to keep the planning phase moving.
 
 ### UI-1: Shell and navigation replacement
 
@@ -729,12 +890,13 @@ Current status:
 
 ### UI-4: Shared World states
 
-- explicit sharing flow;
+- explicit Sharing flow;
+- flat World-access invitation/acceptance surface;
+- Manage access surface;
 - remote head refresh;
 - host-starting and active-elsewhere states;
 - capability-driven Join behavior;
-- Connection required and Waiting to sync behavior;
-- minimal access/invitation surface after backend policy is approved.
+- Connection required and Waiting to sync behavior.
 
 ### UI-5: Recovery and action-required states
 
@@ -760,19 +922,21 @@ Current status:
 
 ## Decisions still required before UI-0 completes
 
-Only one UI decision remains unresolved:
+There are **no remaining standalone UI product-model decisions**.
 
-- **Exact flat sharing/access UI after the backend access policy is approved.**
+UI-D001 through UI-D009 define the first-release UI contract. The remaining UI-0 work is validation rather than invention:
 
-This question is intentionally blocked on BE-0. UI planning must not invent an ownership, party, role, or social model to fill the gap.
+- backend/runtime must expose every state and action the UI depends on;
+- the cross-workstream contract must contain the same meanings and safety transitions;
+- any contradiction found during P0.5 is reconciled without introducing a new product model unless evidence genuinely requires one.
 
 ## UI planning completion gate
 
-UI planning is complete only when:
+The UI product decision set is complete. UI-0 is ready for cross-workstream sign-off when:
 
-- the backend access policy is approved and the matching flat sharing/access UI is defined;
 - backend and runtime expose every required state/action;
-- no screen depends on social, ownership, branch, or merge models;
-- first-release navigation and journeys are accepted;
+- the cross-workstream matrix contains the Sharing, Join, Waiting to sync, recovery, access-management, and last-safe-state semantics defined here;
+- no screen depends on social, gameplay-role, ownership, branch, or merge models;
+- first-release navigation and journeys remain accepted;
 - milestones have observable acceptance criteria;
-- the master planning lock is explicitly lifted.
+- the master planning lock remains active until the overall P0 sign-off explicitly lifts it.

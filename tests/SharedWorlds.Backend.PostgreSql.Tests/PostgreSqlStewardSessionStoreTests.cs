@@ -71,8 +71,8 @@ public sealed class PostgreSqlStewardSessionStoreTests : IAsyncLifetime
         var clock = new TestClock();
         var service = CreateService(
             clock,
-            accessTokens: ["access-one", "access-two"],
-            refreshTokens: ["refresh-one", "refresh-two"]);
+            accessTokens: ["access-one", "access-two", "access-three"],
+            refreshTokens: ["refresh-one", "refresh-two", "refresh-three"]);
         await service.CreateSessionAsync(Steam("76561198000000001"), "device-a");
 
         Assert.Equal(
@@ -88,6 +88,7 @@ public sealed class PostgreSqlStewardSessionStoreTests : IAsyncLifetime
         Assert.Equal(
             RefreshStewardSessionStatus.Refreshed,
             (await service.RefreshAsync("refresh-two", "device-a")).Status);
+        Assert.NotNull(await service.ValidateAccessTokenAsync("access-three"));
     }
 
     [Fact]

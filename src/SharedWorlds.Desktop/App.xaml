@@ -1,7 +1,6 @@
 <Application x:Class="SharedWorlds.Desktop.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             StartupUri="MainWindow.xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Application.Resources>
         <Color x:Key="AppBackgroundColor">#111318</Color>
         <Color x:Key="PanelColor">#191C22</Color>

@@ -1,122 +1,164 @@
-# Palworld adapter plan
+# Palworld Adapter
 
-## Why Palworld is next
+## Purpose
 
-Palworld moves ahead of Valheim in the implementation order because it gives SharedWorlds an immediate real-world multi-device test group:
+Palworld is one of Steward's initial commercial validation adapters.
 
-- three active players
-- three separate PCs
-- an existing shared World
-- two players already familiar with SaveSync
+It stresses a different path from Factorio:
 
-The goal is not to prove that Palworld is a better game or a cleaner adapter target. The goal is to maximize test leverage and move from a single-machine technical proof to a real group product proof.
+- a normal Steam client installation;
+- a separate dedicated-server installation;
+- directory-based World state;
+- server configuration selecting one World id;
+- a dedicated server process that owns the writable session;
+- player identity differences between local co-op and dedicated-server play.
 
-North Star for this slice:
+The adapter must keep those details out of Core.
 
-> Three people, three PCs, one World, no save juggling.
+## Validated lifecycle
 
-## Safety rule
-
-The first Palworld experiments must use a copied test World.
-
-Do not mutate or migrate the group's live Palworld / SaveSync World until the adapter has proven that it can preserve the complete World and player identity state through a dedicated-server round trip.
-
-## Adapter boundary
-
-Core should not learn Palworld-specific concepts.
-
-The Palworld adapter owns:
-
-- Steam client discovery
-- Palworld Dedicated Server discovery
-- Palworld save layout
-- server configuration
-- exact environment inspection
-- server startup and readiness
-- REST API save / shutdown control
-- client connection details
-- capture and restore of the authoritative World state
-
-Core continues to own only the generic World lifecycle and revision semantics.
-
-## Official dedicated-server primitives
-
-Current official Palworld server documentation describes:
-
-- a separate Palworld Dedicated Server application
-- SteamCMD app ID `2394010` for the dedicated server
-- `PalServer.exe` on Windows
-- a configurable listening port, defaulting to `8211`
-- private dedicated servers that players join by IP address and port
-- `RESTAPIEnabled` and `RESTAPIPort` server settings
-- REST endpoints for saving the World and shutting down the server
-
-These primitives are a good fit for the same high-level lifecycle SharedWorlds proved with Factorio:
+The following path has been validated on a real Windows Steam installation:
 
 ```text
-restore canonical World state
--> start authoritative dedicated server
--> prove server ready
--> players join
--> play
--> request authoritative save
--> shut server down cleanly
--> capture authoritative state
--> commit new StateRevision
+discover Palworld client
+-> discover Palworld dedicated server
+-> discover local and dedicated Worlds
+-> select one local World
+-> copy the World directory unchanged into the dedicated-server save layout
+-> configure the server to select that World id
+-> launch PalServer
+-> connect through the normal Palworld client
+-> preserve the original World state
 ```
 
-Palworld-specific mechanics stay inside the adapter.
+The key result is:
 
-## Important unknown: automatic client Join
+> **The World format did not require a generic rewrite before dedicated hosting.**
 
-The official connection guide currently documents entering an IP address and port in the in-game server list.
+The adapter coordinates the existing Palworld client, dedicated server, save layout, and configuration instead of teaching Core about Palworld serialization.
 
-No supported client command-line auto-connect mechanism has been proven yet.
+## Discovery
 
-Therefore:
+The adapter identifies:
 
-- do not mark `AutomaticClientJoin` as supported yet
-- do not add brittle mouse / keyboard automation
-- first prove dedicated-server hosting and safe World capture
-- investigate a supported automatic Join mechanism separately
+- Palworld client installations;
+- Palworld dedicated-server installations;
+- local player-profile save roots;
+- dedicated-server save roots;
+- native World ids;
+- the server configuration used to select the active World.
 
-A temporary manual Join step is acceptable during adapter validation. The final product target remains one-click Join.
+When the same native World appears in local and dedicated locations, discovery should avoid presenting accidental duplicate products. Source preference remains Palworld-adapter logic.
 
-## First implementation sequence
+## Preparation and restore
 
-1. Discover the installed Palworld Steam client.
-2. Discover the optional Palworld Dedicated Server installation independently.
-3. Inspect the real three-player setup without modifying it.
-4. Copy the World into a disposable test location.
-5. Determine the complete authoritative save boundary, including player identity data.
-6. Prove copied-World -> dedicated-server -> save -> shutdown -> copied-World round trip.
-7. Build an immutable Palworld `EnvironmentManifest` from the minimum exact information required to reproduce the World.
-8. Move server runtime into an adapter-owned workspace.
-9. Use the REST API for readiness/control where appropriate, especially save and shutdown.
-10. Add real multi-PC Join and remote state synchronization.
-11. Test host changes among the three players.
-12. Compare the repeated real workflow directly against SaveSync.
+For dedicated hosting, the adapter prepares the server World location and configures the server to select the intended native World id.
 
-## Product proof
-
-Factorio proved:
-
-> SharedWorlds can own an authoritative server lifecycle correctly.
-
-Palworld should prove:
-
-> A real friend group can continue the same World across multiple PCs without thinking about save ownership or who hosted last time.
-
-## Infrastructure rule
-
-This work must not depend on a SharedWorlds-operated fleet of permanent Palworld servers.
-
-The intended model remains:
+Canonical restore has been validated through a controlled staging/rollback flow:
 
 ```text
-World persists
--> host is temporary
--> authoritative server runs only when somebody is playing
+open canonical package
+-> stage restored World
+-> validate required contents
+-> replace prepared server World safely
+-> verify restored files against package bytes
+-> reject unexpected files
+-> launch PalServer from restored state
 ```
 
-Optional paid infrastructure may exist later for services that genuinely cost recurring money, such as managed backup or relaying, but the Palworld World lifecycle itself must remain usable without a mandatory subscription.
+The original imported local source remains outside normal managed-session mutation.
+
+## Session observation
+
+The writable hosted session is represented by the Palworld dedicated-server process, not by one player's graphical client.
+
+The adapter must therefore:
+
+- launch and track `PalServer`;
+- determine readiness using Palworld/server-relevant signals;
+- keep the Steward World reserved while the server remains active;
+- avoid treating a client exit as server-session completion;
+- stop the server safely before final capture;
+- capture only after the server has completed its writes.
+
+Core must not hard-code the process name, network port, save path, or shutdown behavior.
+
+## Capture
+
+The adapter captures the authoritative dedicated-server World directory into a portable package.
+
+Validated behavior includes:
+
+- inclusion of the required World state;
+- exclusion of the server backup subtree from the canonical package;
+- package restore into a clean prepared location;
+- byte-for-byte verification of restored files;
+- rejection of unexpected restored files;
+- confirmation that required save content such as `Level.sav` is present.
+
+Backups generated by the game may remain useful local recovery material, but they are not automatically canonical World payload.
+
+## Canonical commit
+
+Captured Palworld state has been committed through Steward's canonical state transaction boundary.
+
+Required invariant:
+
+```text
+previous canonical state
+-> capture candidate
+-> durable immutable storage
+-> atomic head advancement
+```
+
+A failed capture, store, verification, or head update leaves the previous valid state authoritative.
+
+## Player identity limitation
+
+Palworld may represent the same human player differently between:
+
+- a local/co-op host save;
+- a dedicated-server save;
+- Steam identity;
+- Palworld's native player GUID files.
+
+World migration and player identity migration are separate problems.
+
+Current status:
+
+```text
+World state migration: validated
+Generic World format rewrite: not required
+Player identity migration: unresolved Palworld-specific edge case
+```
+
+This limitation must remain inside the Palworld adapter or a validated Palworld-specific migration tool. It must not expand the universal World model.
+
+## Product acceptance criteria
+
+Palworld support is commercially ready only when it repeatedly proves:
+
+1. correct client and server discovery;
+2. correct World discovery without confusing duplicate sources;
+3. safe import that leaves the source untouched;
+4. deterministic preparation and restore;
+5. reliable server launch and readiness;
+6. background observation of the real server session;
+7. graceful stop and safe capture;
+8. durable store, verification, and commit;
+9. recovery after interrupted capture/store;
+10. cross-device latest-state handoff;
+11. clear handling or disclosure of player identity limitations.
+
+## Non-goals
+
+The Palworld adapter does not require Steward to provide:
+
+- generic save merging;
+- branch or Fork workflows;
+- gameplay-semantic editing;
+- permanent game-server hosting;
+- ownership or party systems;
+- conversion of Palworld Worlds into another game's Worlds.
+
+Its job is to make the latest valid Palworld World state portable, temporarily hostable, safely capturable, and ready for the next session.

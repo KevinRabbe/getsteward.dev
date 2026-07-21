@@ -1,118 +1,99 @@
 # Storage
 
+## Purpose
+
+Storage exists to preserve the latest valid World state between sessions, players, devices, and time periods.
+
+It must support the product promise:
+
+> **One shared World. Different Steam players. Different times. No always-on game server.**
+
+Storage is not a branching, merging, social, or ownership system.
+
 ## Boundary
 
-Durable persistence is defined by `IWorldStorage`.
+Durable persistence is defined by `IWorldStorage` and the canonical state commit boundary.
 
-The Core depends on this abstraction rather than on a specific filesystem, Steam, database, or cloud implementation.
+Core depends on storage abstractions rather than a specific filesystem, database, cloud provider, or Steam API.
 
-Current responsibilities:
+Durable responsibilities include:
 
-- save/load World metadata
-- save/load environment revisions
-- store/load state revision metadata
-- store/open opaque state revision payloads
+- save and load World metadata;
+- save and load environment revisions;
+- store and load state revision metadata;
+- store and open opaque state payloads;
+- preserve immutable published revisions;
+- advance the current World head only after successful storage;
+- validate integrity at trust boundaries.
 
-Live session state is deliberately not part of this boundary. That belongs to `IWorldSessionCoordinator`.
+Live session availability is separate. It belongs to `IWorldSessionCoordinator`.
 
-## Current implementation: LocalWorldStorage
+## Local filesystem implementation
 
-`LocalWorldStorage` is the first persistence backend.
+The current local backend stores data under the platform local application-data root.
 
-The development CLI creates it under the platform local application-data root:
-
-```text
-<LocalApplicationData>/SharedWorlds/data
-```
-
-On Windows, `LocalApplicationData` normally resolves to the current user's local AppData directory.
-
-## Current layout
+A representative layout is:
 
 ```text
-SharedWorlds/
-  data/
-    worlds/
-      <world-id>/
-        world.json
-        environments/
-          <environment-revision-id>.json
-        states/
-          <state-revision-id>/
-            revision.json
-            payload.bin
+<LocalApplicationData>/SharedWorlds/data/
+  worlds/
+    <world-id>/
+      world.json
+      environments/
+        <environment-revision-id>.json
+      states/
+        <state-revision-id>/
+          revision.json
+          payload.bin
 ```
 
-### `world.json`
+The exact layout is an implementation detail, but these semantics are required:
 
-Stores mutable `World` metadata, including references to the current environment and state revision heads.
+- `world.json` contains mutable current-head metadata;
+- environment revisions are immutable after publication;
+- state revision metadata and payload are published together;
+- opaque payload bytes are never interpreted by Core.
 
-### `environments/<revision-id>.json`
+For Factorio, the payload may be a copied save ZIP. For Palworld, it may represent an archived World directory. Other adapters may use different portable package formats.
 
-Stores one immutable `EnvironmentRevision`, including its authoritative `EnvironmentManifest`.
+## Publication and atomicity
 
-### `states/<revision-id>/revision.json`
-
-Stores immutable metadata for one `StateRevision`.
-
-### `states/<revision-id>/payload.bin`
-
-Stores the opaque adapter-produced state package belonging to that revision.
-
-The `.bin` extension is intentionally generic. The Core does not interpret the payload format.
-
-For the current Factorio adapter the payload content is effectively a copied Factorio save ZIP, but another adapter may produce a completely different package format.
-
-## Publication and atomicity model
-
-World-head metadata and immutable revisions have different write semantics.
-
-### World metadata
-
-`world.json` is mutable because the canonical revision heads advance over time.
-
-The local backend writes a temporary JSON file first and replaces the destination only after serialization completes.
-
-### Environment revisions
-
-Environment revision IDs are immutable.
-
-The backend writes through a temporary file and publishes it without overwrite. Attempting to store the same environment revision ID again fails rather than replacing history.
-
-### State revisions
-
-State revision metadata and payload are staged together in a temporary directory:
+A state commit has two logical stages:
 
 ```text
-<revision-id>.<random>.tmp/
-  revision.json
-  payload.bin
+store immutable candidate revision
+-> advance mutable World head
 ```
 
-Only after both files are fully written is the directory moved to the final revision path:
+The order must never be reversed.
 
-```text
-states/<revision-id>/
-```
+If candidate storage fails, the current head remains unchanged.
 
-An existing final revision directory is never overwritten.
+If candidate storage succeeds but head advancement fails, the result may be an unreferenced immutable candidate. That is safer than a head pointing to incomplete or missing data.
 
-This means readers should not observe a published local state revision containing only metadata or only payload under normal operation.
+The canonical commit implementation additionally protects head advancement with an expected-head check. A stale writer receives `HeadChanged` instead of overwriting a newer result.
 
-The higher-level World lifecycle still performs two durable operations when committing a new state:
+## Canonical state transaction
 
-```text
-store immutable StateRevision
--> update mutable world.json canonical head
-```
+The filesystem canonical state store follows these rules:
 
-That ordering is intentional. If revision storage fails, the canonical head remains unchanged. If the process stops after revision storage but before the head update, the result is an unreferenced immutable revision that can be garbage-collected or recovered later; the last canonical World remains valid.
+- hash the package while copying it into controlled storage;
+- store immutable revision content keyed by its content identity;
+- serialize concurrent commit attempts for one World;
+- durably write candidate data before touching the head;
+- atomically replace `head.json` or equivalent current-head metadata;
+- return `Unchanged` for an identical candidate;
+- return `HeadChanged` when the caller started from a stale head;
+- delete a temporary candidate only after a durable committed or unchanged result;
+- leave the previous head authoritative on any failure.
 
-## Immutability model
+The user does not see these transaction concepts. They exist to guarantee that the next player receives a complete valid state.
 
-Revisions are immutable once published.
+## Immutability
 
-The mutable object is the World's current-head metadata:
+Published environment and state revisions are immutable.
+
+The mutable data is the World's current pointer:
 
 ```text
 World
@@ -120,70 +101,85 @@ World
   CurrentStateRevisionId       -> S144
 ```
 
-Historical revisions remain addressable even when the current head changes.
+Previous revisions remain addressable for:
 
-This is important for:
+- recovery;
+- diagnostics;
+- audit and support investigation;
+- compatibility checks;
+- safe rollback when explicitly required;
+- orphan detection and retention decisions.
 
-- Restore
-- Fork
-- recovery
-- audit/history
-- debugging
+They are not a user-facing Git history, branch graph, or merge system.
 
-The storage port exposes state revision metadata independently of payload bytes so Core can validate adapter identity and future lineage/history operations without interpreting game-specific data.
+## Orphans and retention
 
-## Orphan handling
+Interrupted operations may leave immutable revisions not referenced by the current World head.
 
-A failed multi-step operation can leave an immutable revision that no current World references. That is safer than advancing a canonical head to incomplete data.
+A maintenance subsystem must distinguish:
 
-A future maintenance subsystem should distinguish:
+- the current referenced revision;
+- retained recovery or diagnostic revisions;
+- temporary transfer artifacts;
+- truly unreferenced data eligible for cleanup.
 
-- referenced canonical/history revisions
-- intentional Fork/Sandbox ancestry
-- temporary transfer artifacts
-- truly orphaned revisions eligible for garbage collection
+Deletion eligibility must never be inferred from age alone. Recovery evidence and user-owned data must be preserved conservatively.
 
-Garbage collection must never infer deletion eligibility from age alone.
+## Shared durable storage
 
-## Future remote storage
+The next commercial storage milestone is a shared implementation that lets another trusted Steam identity or device retrieve the latest state.
 
-A future Steam-backed or other remote `IWorldStorage` implementation should preserve the same logical model.
+Required properties:
 
-Preferred properties:
+- immutable state objects;
+- explicit current-head metadata;
+- resumable and retryable transfer;
+- integrity validation;
+- idempotent publication where possible;
+- local caching;
+- conservative failure behavior;
+- support for the same expected-head commit rule across devices.
 
-- immutable revision objects
-- explicit canonical head selection
-- no assumption that all members destructively overwrite one shared object
-- local caching
-- resumable/retriable transfer
-- integrity validation at trust boundaries
-- idempotent publication where the remote API permits it
+The exact Steam storage mechanism must be validated with real accounts and real state sizes before becoming permanent architecture.
 
-The exact Steam UGC/Workshop object model must be tested with multiple real accounts before it becomes a permanent storage design.
-
-## Storage versus transport
+## Storage versus transfer
 
 Durable storage and fast transfer are separate concerns.
 
-A future design may use:
+A future implementation may combine:
 
-- durable backend for canonical history
-- direct P2P transfer for fast synchronization of the newest state
+- durable shared storage for the current valid state and recovery;
+- direct peer-to-peer transfer for speed;
+- local cache to avoid repeated downloads.
 
-Using P2P for speed does not remove the need for durable canonical storage.
+A fast transport path must not bypass durable commit and integrity rules.
 
 ## Storage versus session coordination
 
-Do not use storage presence alone as proof that a World is currently hosted.
+Do not use storage presence as proof that a World is currently active.
 
-Likewise, do not use a live lobby as the only durable copy of World state.
-
-The two lifecycles are different:
+Do not use a live Steam lobby or transient peer connection as the only durable copy of World state.
 
 ```text
 IWorldStorage
--> durable history
+-> durable World state
 
 IWorldSessionCoordinator
--> transient host/session ownership
+-> transient one-writer reservation
 ```
+
+Both are needed for a safe two-device handoff.
+
+## Explicit non-goals
+
+Storage does not provide:
+
+- generic save merging;
+- branch or Fork graphs;
+- merge conflict resolution;
+- permanent host ownership;
+- social roles;
+- tracking or deleting every external copy;
+- a permanently running game server.
+
+Its job is smaller and stricter: preserve one latest valid shared World state and make it safely retrievable for the next session.

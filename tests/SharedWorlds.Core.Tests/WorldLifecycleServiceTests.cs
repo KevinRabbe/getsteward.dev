@@ -150,7 +150,7 @@ public sealed class WorldLifecycleServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ContinueAsHost_RejectsLocalOnlyWorld_BeforeSessionAcquisition()
+    public async Task ContinueAsHost_AllowsLocalOnlyWorld_WithoutChangingSharingMode()
     {
         var storage = new InMemoryWorldStorage();
         var sessions = new RecordingSessionCoordinator();
@@ -160,14 +160,19 @@ public sealed class WorldLifecycleServiceTests : IDisposable
         var world = SeedPlayableWorld(storage, adapter, user, WorldSharingMode.LocalOnly);
         var lifecycle = new WorldLifecycleService(storage, sessions, recovery);
 
-        await Assert.ThrowsAsync<WorldSharingRequiredException>(() => lifecycle.ContinueAsHostAsync(
+        var updated = await lifecycle.ContinueAsHostAsync(
             world.Id,
             adapter,
             adapter.Installation,
-            user));
+            user);
 
-        Assert.Equal(0, sessions.AcquireCount);
-        Assert.Equal(0, adapter.HostLaunchCount);
+        Assert.NotEqual(world.CurrentStateRevisionId, updated.CurrentStateRevisionId);
+        Assert.Equal(WorldSharingMode.LocalOnly, updated.SharingMode);
+        Assert.Equal(WorldSharingMode.LocalOnly, storage.Worlds[world.Id].SharingMode);
+        Assert.Equal(0, adapter.LocalLaunchCount);
+        Assert.Equal(1, adapter.HostLaunchCount);
+        Assert.Equal(1, sessions.AcquireCount);
+        Assert.Equal(1, sessions.ReleaseCount);
     }
 
     [Fact]

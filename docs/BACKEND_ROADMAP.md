@@ -75,6 +75,44 @@ Core principle:
 
 > **Use Steam for what Steam already owns. Steward owns only the missing shared-World transaction.**
 
+### BE-D002: Steam authentication bootstraps a Steward session
+
+Status: **approved**.
+
+The Windows desktop does not create or require a separate Steward username/password account.
+
+Authentication flow:
+
+```text
+Steward starts
+-> obtain Steam Web API authentication ticket scoped to the Steward backend
+-> send ticket to Steward backend
+-> backend verifies ticket directly with Steam
+-> verified SteamID64 becomes the external authenticated identity
+-> backend creates a Steward session
+-> desktop uses Steward session credentials for normal API calls
+```
+
+Rules:
+
+- A client-supplied SteamID is never trusted as authentication by itself.
+- Steam authentication tickets are used to prove identity and bootstrap/re-authenticate the Steward session; they are not sent for every normal API operation.
+- Steam publisher/Web API secrets remain server-side and are never embedded in the desktop client.
+- The initial session design uses a short-lived access credential, planned at **15 minutes**, plus a renewable installation-bound refresh session, planned at **30 days**.
+- Refresh-session lifetime values are operational defaults and may be tuned later without changing the authentication model.
+- The refresh credential is stored using Windows-protected credential storage rather than plaintext application configuration.
+- A random Steward installation/device id distinguishes installations for session revocation, reservation diagnostics, and recovery. It is not itself authentication and must not become invasive hardware fingerprinting.
+- A Steam account identity change requires reauthentication. A session authenticated as Steam user A never silently continues as Steam user B.
+- Existing active/recovery evidence is preserved across identity-change handling; it is not reassigned to the newly signed-in Steam account.
+- Authentication failure prevents new writable shared-World sessions but does not unnecessarily disable unrelated safe local-only behavior.
+- Steward stores the stable SteamID64 and may cache presentation metadata such as persona name/avatar, but it stores no Steam password, email, payment data, or equivalent Steam credentials.
+- **Sign out of Steward** revokes the current installation refresh session. Per-device/session revocation remains possible without creating a larger account-management product.
+- Browser/OpenID authentication may later serve a web/account surface, but the first-release Windows desktop uses native Steam-ticket authentication.
+
+Core principle:
+
+> **Steam proves who you are. Steward decides what that verified identity may do.**
+
 ## Backend product boundary
 
 The backend must answer only these questions:
@@ -190,16 +228,20 @@ Only when resumable upload/download requires durable tracking:
 
 ### Authentication
 
-The backend must verify Steam identity without trusting a client-supplied Steam id alone.
+The approved first-release authentication contract is BE-D002.
 
-Planning must define:
+Required behavior:
 
-- Steam authentication flow;
-- desktop token/session lifetime;
-- refresh/re-authentication behavior;
-- device binding where useful;
-- lost/revoked credential behavior;
-- what identity data is retained.
+- obtain a Steam Web API authentication ticket in the Windows desktop;
+- verify that ticket server-side with Steam;
+- derive the authenticated SteamID64 only from successful verification;
+- bootstrap a short-lived Steward access credential and renewable installation-bound refresh session;
+- protect the refresh credential with Windows credential protection;
+- reauthenticate when Steam identity changes;
+- support sign-out and installation/session revocation;
+- retain only minimal identity data.
+
+The backend never authenticates a request from a client-supplied SteamID alone and never exposes Steam publisher/Web API secrets to the client.
 
 ### World access
 
@@ -476,7 +518,6 @@ Only after correctness:
 
 - API style and transport.
 - Metadata database and object-storage provider.
-- Steam authentication mechanism for the Windows desktop.
 - Flat access policy: who can invite, revoke, or transfer administrative control without creating gameplay ownership.
 - Reservation heartbeat interval, uncertainty grace period, and reclaim authority.
 - First-release package size and retention limits.

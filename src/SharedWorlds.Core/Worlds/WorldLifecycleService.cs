@@ -177,7 +177,6 @@ public sealed class WorldLifecycleService
             "SharedWorlds",
             "materialized",
             $"{Guid.NewGuid():N}.package");
-
         Directory.CreateDirectory(Path.GetDirectoryName(materializedPackagePath)!);
 
         await using (var source = await _storage.OpenRevisionAsync(
@@ -222,7 +221,6 @@ public sealed class WorldLifecycleService
             adapter,
             installation,
             user,
-            requireSharedWorld: false,
             launchSession: adapter.LaunchLocalAsync,
             cancellationToken: cancellationToken);
 
@@ -237,7 +235,6 @@ public sealed class WorldLifecycleService
             adapter,
             installation,
             user,
-            requireSharedWorld: true,
             launchSession: adapter.LaunchHostAsync,
             cancellationToken: cancellationToken);
 
@@ -246,7 +243,6 @@ public sealed class WorldLifecycleService
         IGameAdapter adapter,
         GameInstallation installation,
         UserIdentity user,
-        bool requireSharedWorld,
         Func<PreparedWorld, CancellationToken, Task<GameSessionHandle>> launchSession,
         CancellationToken cancellationToken)
     {
@@ -255,16 +251,8 @@ public sealed class WorldLifecycleService
         ArgumentNullException.ThrowIfNull(user);
         ArgumentNullException.ThrowIfNull(launchSession);
 
-        if (requireSharedWorld)
-        {
-            var world = await _storage.LoadWorldAsync(worldId, cancellationToken)
-                ?? throw new WorldNotFoundException(worldId);
-            EnsureShared(world);
-        }
-
-        // The current coordinator acts as the canonical-writer lease for both local play
-        // and shared hosting. A future distributed implementation may expose richer session modes,
-        // but only one canonical session may advance a World at a time.
+        // Local play and temporary hosting share the same canonical-writer transaction.
+        // Persistent Steward sharing is a separate concern and is never a prerequisite for Host.
         await _sessionCoordinator.AcquireHostAsync(worldId, user, cancellationToken);
         Exception? operationException = null;
         PreparedWorldContext? context = null;
@@ -278,11 +266,6 @@ public sealed class WorldLifecycleService
                 adapter,
                 installation,
                 cancellationToken);
-
-            if (requireSharedWorld)
-            {
-                EnsureShared(context.World);
-            }
 
             var baseStateRevisionId = context.World.CurrentStateRevisionId
                 ?? throw new WorldIntegrityException(
@@ -388,14 +371,6 @@ public sealed class WorldLifecycleService
                 // Preserve the primary lifecycle failure. Remote coordinators should also
                 // use lease expiry so a failed cleanup cannot hold a canonical session forever.
             }
-        }
-    }
-
-    private static void EnsureShared(World world)
-    {
-        if (world.SharingMode != WorldSharingMode.Shared)
-        {
-            throw new WorldSharingRequiredException(world.Id);
         }
     }
 

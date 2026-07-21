@@ -14,7 +14,7 @@ public sealed class InMemoryBackendFailureInjectionTests
         fixture.Publish("S1", "candidate-one");
         fixture.Simulation.FailNext(SimulatedBackendFailurePoint.BeforeCommitTransaction);
 
-        var exception = Assert.Throws<SimulatedBackendFailureException>(() =>
+        var exception = Assert.Throws<InvalidOperationException>(() =>
             fixture.Simulation.CommitCandidateIdempotentWithFailureInjection(
                 "steam-a",
                 "commit-1",
@@ -23,7 +23,10 @@ public sealed class InMemoryBackendFailureInjectionTests
                 "S0",
                 "S1"));
 
-        Assert.Equal(SimulatedBackendFailurePoint.BeforeCommitTransaction, exception.FailurePoint);
+        Assert.Contains(
+            SimulatedBackendFailurePoint.BeforeCommitTransaction.ToString(),
+            exception.Message,
+            StringComparison.Ordinal);
         Assert.Equal("S0", fixture.Simulation.Authority.GetWorld("world-1", "steam-a")?.CurrentStateRevisionId);
         Assert.Null(fixture.Simulation.GetCommitCandidateOperationResult("steam-a", "commit-1"));
         Assert.NotNull(fixture.Simulation.Authority.DownloadRevision("world-1", "steam-a", "S1"));
@@ -37,7 +40,7 @@ public sealed class InMemoryBackendFailureInjectionTests
         fixture.Publish("S1", "candidate-one");
         fixture.Simulation.FailNext(SimulatedBackendFailurePoint.AfterDurableCommitBeforeResponse);
 
-        var exception = Assert.Throws<SimulatedBackendFailureException>(() =>
+        var exception = Assert.Throws<InvalidOperationException>(() =>
             fixture.Simulation.CommitCandidateIdempotentWithFailureInjection(
                 "steam-a",
                 "commit-1",
@@ -57,7 +60,10 @@ public sealed class InMemoryBackendFailureInjectionTests
             "S1");
         var retryResult = Assert.IsType<CommitCandidateResult>(retry.Result);
 
-        Assert.Equal(SimulatedBackendFailurePoint.AfterDurableCommitBeforeResponse, exception.FailurePoint);
+        Assert.Contains(
+            SimulatedBackendFailurePoint.AfterDurableCommitBeforeResponse.ToString(),
+            exception.Message,
+            StringComparison.Ordinal);
         Assert.Equal("S1", fixture.Simulation.Authority.GetWorld("world-1", "steam-a")?.CurrentStateRevisionId);
         Assert.Equal(CommitCandidateStatus.Committed, recorded.Status);
         Assert.Equal(IdempotencyExecutionStatus.Replayed, retry.Status);

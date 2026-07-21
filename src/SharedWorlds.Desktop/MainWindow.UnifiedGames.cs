@@ -230,7 +230,7 @@ public partial class MainWindow
             {
                 var updated = await _lifecycle.SetSharingModeAsync(world.Id, nextMode);
                 StatusText.Text = nextMode == WorldSharingMode.Shared
-                    ? $"World '{updated.Name}' is now shared and eligible for Host / Join workflows."
+                    ? $"World '{updated.Name}' is now shared through Steward."
                     : $"World '{updated.Name}' is now local-only.";
                 await RefreshUnifiedWorldsAsync(updated.Id, preserveStatus: true);
             });
@@ -491,8 +491,7 @@ public partial class MainWindow
         ContinueButton.IsEnabled = !_isBusy && canContinue;
         HostButton.IsEnabled = !_isBusy &&
                                canHost &&
-                               _deviceSettings.AllowHosting &&
-                               world?.SharingMode == WorldSharingMode.Shared;
+                               _deviceSettings.AllowHosting;
 
         ContinueButton.ToolTip = world is null
             ? "Select a World."
@@ -506,9 +505,7 @@ public partial class MainWindow
                 ? $"{adapter?.DisplayName ?? world.GameAdapterId} does not support managed hosting yet."
                 : !_deviceSettings.AllowHosting
                     ? "Enable 'Allow this device to host' in Device settings first."
-                    : world.SharingMode != WorldSharingMode.Shared
-                        ? "Use Share World before hosting."
-                        : $"Host this {adapter!.DisplayName} World on this device.";
+                    : $"Host this {adapter!.DisplayName} World temporarily on this device.";
 
         ShareButton.IsEnabled = !_isBusy && world is not null;
         ShareButton.Content = world?.SharingMode == WorldSharingMode.Shared

@@ -4,294 +4,260 @@
 
 Users should think:
 
-> I want to continue this world.
+> **Open the World, play, and leave the newest valid state ready for whoever continues next.**
 
-They should not need to think about which machine owns the save, which mod folder is active, which person is the permanent host, or where the canonical files live.
+They should not manage save folders, server installations, revision packages, host ownership, branches, or merge conflicts.
 
-For shared Worlds, the product should make this true:
+## Canonical World rule
 
-> The group owns the World. Nobody permanently owns the host.
+A Steward-managed World has:
 
-For private Worlds, the product should make this true:
+- one current valid environment revision;
+- one current valid state revision;
+- at most one active writable Steward session.
 
-> Nothing is shared unless I explicitly choose to share it.
+A local session and a temporarily hosted session are both writers. They use the same exclusive session-reservation boundary.
 
-## Canonical World
+The rule prevents Steward from creating competing save histories. It does not attempt to control manual copies outside Steward.
 
-A canonical World has one current environment revision and one current state revision.
-
-Only one canonical session may advance the canonical World at a time. A local single-player Continue and a shared hosted session are both canonical writers, so they use the same exclusive session coordination boundary internally.
-
-This avoids conflicting save histories and impossible automatic merging.
-
-## Privacy and sharing
-
-Sharing is opt-in.
-
-A World has one of two current sharing modes:
+## Lifecycle overview
 
 ```text
-LocalOnly
-Shared
+Ready
+-> Preparing
+-> Running
+-> Capturing
+-> Storing
+-> Ready
 ```
 
-Rules:
+Failure after gameplay may lead to:
 
-- discovery never shares anything
-- import creates a `LocalOnly` World
-- local Continue is allowed for `LocalOnly`
-- Host and Join are blocked for `LocalOnly`
-- changing to `Shared` requires an explicit user action
-- changing back to `LocalOnly` disables future Host / Join workflows
+```text
+Recovery needed
+```
 
-The UI should therefore present Share / Host / Join only where the World is explicitly shared. A hidden or missing UI button is not the security boundary; Core also rejects hosted play for a `LocalOnly` World.
+The previous valid state remains current until the new state has been completely captured, stored, verified, and committed.
+
+## Discovery
+
+Adapters discover installations and existing saves or server Worlds.
+
+Discovery is read-only. It must not:
+
+- mutate the source;
+- upload it;
+- publish it;
+- host it;
+- mark it shared.
 
 ## Import
 
-Import converts an existing game save/world into the product model.
+Import turns one detected save or server World into a Steward-managed World.
 
 ```text
 DetectedWorld
--> adapter inspects environment
--> validate adapter/environment identity
+-> inspect environment
 -> adapter captures source state
--> create EnvironmentRevision E1
--> create StateRevision S1
--> durably store E1 and S1
--> persist LocalOnly World pointing to E1 + S1 last
--> clean adapter-declared temporary capture package
+-> create initial EnvironmentRevision
+-> create initial StateRevision
+-> durably store both
+-> save World metadata last
 ```
 
-Import must not mutate the original source save.
+Import must leave the original source untouched.
 
-Import also must not publish, upload, host, or otherwise share the source save merely because it was discovered or imported.
+A newly imported World starts as `LocalOnly` unless the user explicitly enables shared handoff.
 
-The World metadata is written last so a partially failed import cannot create a canonical World that points at incomplete revision data.
+## Start World locally
 
-## Continue local
-
-Local Continue means: play the current canonical World without exposing it as a multiplayer host.
+Local play means advancing the current World without exposing a multiplayer host through Steward.
 
 ```text
-acquire exclusive canonical-session lease
--> load World
--> validate World adapter identity
--> load current environment revision
--> validate environment adapter identity
--> load current state revision metadata
--> validate state adapter identity
--> adapter prepares isolated workspace
+load World
+-> acquire exclusive session reservation
+-> load current environment and state
+-> adapter prepares workspace
 -> adapter restores state
--> adapter launches local/single-player session
--> adapter observes session end
--> adapter captures resulting state
--> durably store next immutable StateRevision
--> move World's canonical state head forward last
--> clean adapter-declared temporary capture package
--> release canonical-session lease
+-> adapter launches local session
+-> adapter observes real session end
+-> adapter captures updated state
+-> store and verify immutable StateRevision
+-> advance World head last
+-> finalize workspace
+-> release reservation
 ```
 
-For Factorio, local Continue uses the game's single-player load path rather than the multiplayer host path.
+The adapter owns the difference between local play and hosted play.
 
-A local-only World can use this flow.
+## Host World temporarily
 
-## Host
-
-Host means: advance a shared canonical World while exposing the game session for multiplayer according to adapter behavior.
-
-Before the session coordinator is acquired, Core verifies that the World is explicitly `Shared`.
+Hosted play advances the same World while the current device temporarily runs the game's multiplayer host or dedicated server.
 
 ```text
-verify World is Shared
--> acquire exclusive canonical-session lease
--> prepare canonical state
--> adapter launches host
--> adapter observes session end
--> capture and commit next immutable StateRevision
--> advance canonical head last
--> release canonical-session lease
+load shared World
+-> acquire exclusive session reservation
+-> prepare and restore current state
+-> adapter launches temporary host
+-> Steam/game handles players joining
+-> adapter observes the host session
+-> host stops safely
+-> adapter captures updated state
+-> store and verify immutable StateRevision
+-> advance World head last
+-> release reservation
 ```
 
-Attempting to Host a `LocalOnly` World fails with `WorldSharingRequiredException`.
+The host contributes resources for that session. Hosting does not transfer ownership because Steward does not require a permanent World-owner/host hierarchy.
 
-## Join
+For a dedicated server, closing one player's client does not necessarily end the World session. The adapter must observe the server lifecycle that actually owns the writable state.
 
-Future shared behavior:
+## Join active session
 
-If another member already owns the canonical hosted session, the UI should offer Join rather than starting a conflicting host.
+When another device is already hosting the World, Steward must not start a competing writable session.
 
-The adapter receives a generic `HostConnection` and performs game-specific connection behavior.
+Where supported, the user may join through:
 
-Join is only meaningful for a World whose sharing mode is `Shared`.
+- Steam invitation or native joining;
+- the game's own server browser or connection system;
+- adapter-provided connection information.
 
-## Sharing transitions
+Joining does not create or advance a separate Steward World state. The active host remains the only writer.
 
-Current development commands expose the intended domain transition:
+## Session observation
+
+Session observation is adapter-owned.
+
+The adapter determines:
+
+- which process or processes represent the session;
+- whether a launcher handed off to another process;
+- whether a dedicated server remains active after clients close;
+- how the session stops safely;
+- when the save is no longer being written;
+- whether required state files are complete and valid.
+
+Core calls the adapter contract and does not guess from a process name or fixed delay.
+
+## Capture and commit
+
+A session is not complete when the game launches or even when the process exits. Steward's job is complete only after the resulting state is safely handed off.
 
 ```text
-share-world <world-id>
-unshare-world <world-id>
+capture candidate
+-> package opaque game state
+-> validate required contents
+-> durably store package and metadata
+-> verify stored result
+-> atomically advance current World state
 ```
 
-These commands change the World's sharing eligibility. They do not imply that every future remote backend action is already implemented.
+Commit rule:
 
-A future desktop UI should make this a deliberate control, for example:
+> The current World state advances last.
+
+A failed capture, upload, verification, or metadata write leaves the previous valid revision authoritative.
+
+## Switching host
+
+Switching host happens between sessions:
 
 ```text
-Private / Local-only
-[ Enable sharing ]
-
-Shared
-[ Host ] [ Join active host ] [ Manage members ] [ Disable sharing ]
+Kevin hosts
+-> session ends
+-> updated state commits
+-> World becomes Ready
+-> Alex later presses Host
+-> Alex restores the latest state
+-> Alex temporarily hosts
 ```
 
-Disabling sharing must not delete the World or its revision history.
+There is no live process or memory migration.
 
-## Host acquisition
+No request/accept governance workflow is required for the product kernel. The shared coordinator only needs to ensure the previous session is complete before another begins.
 
-When no canonical session is active, the player starting canonical play acquires the exclusive writer role through `IWorldSessionCoordinator`.
+## Switching game
 
-The current interface still uses host-oriented naming, but the lease is also used for local canonical play so two local processes cannot advance the same World concurrently.
-
-A future distributed coordinator may model local and hosted session modes explicitly while preserving the same one-writer invariant.
-
-## Host handoff
-
-Host handoff is a controlled restart.
+Switching game means selecting another World that belongs to another game:
 
 ```text
-1. New player requests host.
-2. Session coordinator records HandoffRequested and the requested host.
-3. Current host accepts.
-4. Current game is allowed/asked to save.
-5. Current host session closes.
-6. Adapter waits until the relevant session truly ended.
-7. Latest state is captured.
-8. New canonical state revision is committed.
-9. New host restores latest canonical state.
-10. Required environment is prepared.
-11. New host launches.
-12. Other players join the new host.
+finish Palworld World
+-> commit Palworld state
+-> select Factorio World
+-> Factorio adapter runs the same lifecycle
 ```
 
-No live process migration is required.
+Steward never converts one game's World into another game's World.
 
-## Session states
+## Shared handoff across devices
 
-Current generic states:
-
-- `Available`
-- `Preparing`
-- `Hosting`
-- `HandoffRequested`
-- `Committing`
-- `Synchronizing`
-- `RecoveryPending`
-
-These states describe universal product behavior. A game adapter must not invent a separate canonical lifecycle.
-
-The current coordinator naming/state model is still host-centric and will likely gain an explicit local-playing state when the distributed coordinator is implemented. This is a naming/model refinement, not a change to the one-canonical-writer rule.
-
-## Session end
-
-Session-end detection is adapter-owned.
-
-A simple game may map one process id directly to one session. Another launcher may spawn or hand off to another process. A dedicated-server game may need to observe a different process entirely.
-
-For that reason, the Core calls `WaitForSessionEndAsync` rather than directly waiting on a PID.
-
-## Temporary connectivity loss
-
-A temporary network or Discord disconnect must not automatically end the canonical session or release host ownership.
-
-The game/session lifecycle is authoritative for canonical state advancement.
-
-A future distributed coordinator should use lease expiry/recovery semantics rather than treating one transient network failure as proof that the game session ended.
-
-## Crash recovery
-
-A crash must not blindly overwrite the last known-good canonical state.
-
-Current behavior:
+The essential commercial flow is:
 
 ```text
-last known-good canonical revision remains intact
+PC A starts latest state N
+-> plays
+-> commits state N+1
+
+PC B later starts
+-> receives state N+1
+-> plays
+-> commits state N+2
+```
+
+A shared storage backend carries durable state. A shared session coordinator prevents both PCs from starting writable sessions from state N at the same time.
+
+## Recovery
+
+After launch, a prepared workspace may contain newer recoverable gameplay state than the last committed revision.
+
+On uncertain failure:
+
+```text
+last valid revision remains current
 +
-prepared workspace is registered before game launch
+workspace/recovery evidence is preserved
 +
-post-launch commit failure preserves workspace
-+
-RecoveryPending is recorded when possible
+World enters Recovery needed when appropriate
 ```
 
-An `Active` workspace record left after a hard application or OS crash is treated conservatively as a possible interrupted-session recovery candidate.
+Recovery may retry capture/store or deliberately continue from the last known-good state. Steward must never silently promote an incomplete candidate.
 
-## Captured package ownership
+## Sharing boundary
 
-Adapters may create temporary portable packages when capturing game state.
+`LocalOnly` and `Shared` are operational states:
 
-Core deletes a captured package only when the adapter explicitly sets `DeletePackageAfterStore = true`. Core must never infer from a path that the file is disposable.
+- `LocalOnly`: no shared cross-device handoff through Steward;
+- `Shared`: eligible for shared storage, session coordination, and temporary hosting.
 
-This prevents cleanup logic from accidentally deleting user-owned saves, caches, or launcher-managed files.
+`Shared` does not mean public discovery, social ownership, or DRM. Groups organize themselves through Steam, the game, Discord, or their own communication.
 
-## Sandbox Copy
+## Explicitly unsupported lifecycle concepts
 
-A Sandbox is a disposable clone of the current canonical state.
+The active product lifecycle does not include:
 
-Properties:
+- Git-style branches;
+- Fork workflows;
+- generic save merging;
+- merge conflict resolution;
+- automatic reconciliation of divergent saves;
+- live host migration;
+- permanent game-server execution;
+- ownership-transfer workflows;
+- party or governance workflows.
 
-- starts from current environment and state
-- may be used destructively
-- never writes back to canonical history
-- can be deleted freely
+When users possess different external copies, they may choose which save to import or continue. Steward does not merge them.
 
-Use cases:
+## Completion contract
 
-- testing a mod
-- testing a build
-- trying destructive actions
+A lifecycle implementation is complete only when all of these are true:
 
-## Fresh Test World
-
-A Fresh Test World uses the same environment but creates a brand-new game world/save.
-
-```text
-same environment
-+
-new empty state
-```
-
-This is useful when testing mods or configurations without loading a large mature save.
-
-## Fork
-
-A Fork creates a permanent independent branch.
-
-It starts from an existing World revision but receives its own future canonical history.
-
-```text
-Original: E7 + S143 -> S144 -> S145
-                     \
-Fork:                 -> S143-F1 -> S143-F2
-```
-
-A Fork is not automatically merged back.
-
-## Restore
-
-Restore makes an older state revision become the current canonical head through an explicit controlled operation.
-
-History should remain available rather than deleting later revisions silently.
-
-`IWorldStorage` exposes state revision metadata separately from opening payload bytes so future history and restore workflows can inspect lineage without interpreting game-specific payloads.
-
-## Revision policy
-
-Normal target policy:
-
-- optional pre-session safety snapshot
-- use game's own autosave behavior during play
-- one canonical commit at clean session end
-- optional non-canonical recovery checkpoints for very long sessions
-
-The product should not create a new canonical revision every few minutes unless a particular adapter or recovery design requires it.
+1. The correct latest state was selected.
+2. Exactly one writable session was reserved.
+3. The correct environment was prepared.
+4. The adapter restored and launched the World.
+5. The adapter observed the actual session lifecycle.
+6. Capture occurred only at a safe point.
+7. The new state was durably stored and verified.
+8. The World head advanced only after success.
+9. Failure preserved the previous valid state and recoverable evidence.
+10. The World became safely available to the next player.

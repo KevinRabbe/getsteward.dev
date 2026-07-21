@@ -13,18 +13,34 @@ public sealed class WorldLifecycleService
     private readonly IWorldStorage _storage;
     private readonly IWorldSessionCoordinator _sessionCoordinator;
     private readonly IWorkspaceRecoveryStore _workspaceRecoveryStore;
+    private readonly ManagedWritableSessionGate _managedSessionGate;
 
     public WorldLifecycleService(
         IWorldStorage storage,
         IWorldSessionCoordinator sessionCoordinator,
         IWorkspaceRecoveryStore workspaceRecoveryStore)
+        : this(
+            storage,
+            sessionCoordinator,
+            workspaceRecoveryStore,
+            new ManagedWritableSessionGate())
+    {
+    }
+
+    public WorldLifecycleService(
+        IWorldStorage storage,
+        IWorldSessionCoordinator sessionCoordinator,
+        IWorkspaceRecoveryStore workspaceRecoveryStore,
+        ManagedWritableSessionGate managedSessionGate)
     {
         ArgumentNullException.ThrowIfNull(storage);
         ArgumentNullException.ThrowIfNull(sessionCoordinator);
         ArgumentNullException.ThrowIfNull(workspaceRecoveryStore);
+        ArgumentNullException.ThrowIfNull(managedSessionGate);
         _storage = storage;
         _sessionCoordinator = sessionCoordinator;
         _workspaceRecoveryStore = workspaceRecoveryStore;
+        _managedSessionGate = managedSessionGate;
     }
 
     public async Task<World> ImportAsync(
@@ -250,6 +266,10 @@ public sealed class WorldLifecycleService
         ArgumentNullException.ThrowIfNull(installation);
         ArgumentNullException.ThrowIfNull(user);
         ArgumentNullException.ThrowIfNull(launchSession);
+
+        // The desktop supervises at most one writable managed lifecycle at a time, even when
+        // two different Worlds would otherwise have independent per-World coordinator leases.
+        using var managedSessionLease = _managedSessionGate.Acquire(worldId);
 
         // Local play and temporary hosting share the same canonical-writer transaction.
         // Persistent Steward sharing is a separate concern and is never a prerequisite for Host.

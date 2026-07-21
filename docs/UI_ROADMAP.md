@@ -31,10 +31,10 @@ Status: **approved**.
 The first release does not use one contextual `Play` action that guesses the user's intent.
 
 ```text
-Ready local-only World
+Ready, only on this PC
 -> Start World
 
-Ready shared World
+Ready, shared
 -> Start World
 -> Host World
 
@@ -43,19 +43,15 @@ World active on another device
 -> otherwise Wait until available
 ```
 
-Definitions:
-
-- **Start World** starts the latest valid state as local/non-hosted play.
-- **Host World** starts the latest valid state as a temporary multiplayer host or dedicated server.
-- **Join** connects to the active host through Steam, the game, or adapter-supported behavior.
-
 Rules:
 
-- Start and Host remain separate because Steward cannot always infer the user's intended mode.
-- Join replaces writable actions while another device owns the hosted session.
+- **Start World** means local/non-hosted play.
+- **Host World** means temporary multiplayer hosting or dedicated-server operation.
+- **Join** connects to the active host through Steam, the game, or adapter-supported behavior.
+- Join replaces writable start actions while another device owns the hosted session.
 - Start and Host are unavailable whenever they would create a competing writer.
-- Actions are driven by generic state and adapter capabilities, never game-name UI branches.
-- A contextual Play action may be reconsidered only after real usage proves that automatic choice is dependable.
+- Actions are capability-driven, never game-name UI branches.
+- A contextual Play action may be reconsidered only after real usage proves the automatic choice dependable.
 
 ### UI-D002: Responsive master-detail World workspace
 
@@ -84,18 +80,17 @@ Rules:
 
 - Switching between Worlds stays fast.
 - The visible hierarchy remains `Games -> Worlds`.
-- The details area may have an internal route or identifier for navigation restoration, but that is not a separate user-facing product section.
+- Responsive presentation does not change product semantics.
 - Advanced identifiers and diagnostics remain collapsed.
-- Responsive behavior changes presentation, not product semantics.
 
-The details surface shows only what is operationally useful:
+The details surface contains only operationally useful information:
 
 - World name;
 - concise status;
 - Start World and Host World when valid;
 - Join when another device hosts;
 - current host/device only when useful;
-- environment or recovery warning;
+- environment or recovery warnings;
 - small secondary metadata such as last updated time where useful.
 
 ### UI-D003: Import locally before sharing
@@ -114,12 +109,11 @@ select detected World
 
 Rules:
 
-- Detection and import are read-only toward the original source except for creating Steward-owned copies.
-- A successful local import remains valid even when shared setup later fails.
+- A successful local import remains valid even when sharing later fails.
 - The user may test the imported World before sharing it.
-- **Host World** is unavailable until shared setup succeeds.
-- Sharing requires a separate explicit **Share World** action and clear confirmation of who receives access.
-- The primary UI uses **Only on this PC** rather than forcing users to understand `LocalOnly` as technical terminology.
+- Host World is unavailable until shared setup succeeds.
+- Sharing is a separate explicit **Share World** action.
+- The primary UI uses **Only on this PC** instead of exposing the technical `LocalOnly` term.
 - The original save is never described as moved, deleted, or replaced.
 
 Post-import presentation:
@@ -130,14 +124,74 @@ Primary action: Start World
 Secondary action: Share World
 ```
 
+### UI-D004: Shared Worlds require verification before writable play
+
+Status: **approved**.
+
+A cached shared World remains visible when Steward cannot reach the shared backend, but cached data is not treated as authoritative enough to begin a new writable session.
+
+Before a session:
+
+```text
+shared World cached locally
++
+backend/current head/reservation cannot be verified
+-> Connection required
+-> Start World unavailable
+-> Host World unavailable
+-> Join unavailable
+-> Retry connection
+```
+
+The UI may still show:
+
+- World and game name;
+- last successfully synchronized time;
+- cached environment information;
+- last known state information;
+- an explicit warning that cached information may be outdated.
+
+It must not label the World **Ready**.
+
+Connectivity loss during an already active session follows a different rule:
+
+```text
+session already reserved and running
+-> connection lost
+-> gameplay continues
+-> Steward preserves active-session evidence
+-> session ends safely
+-> capture updated state locally
+-> Waiting to sync
+-> reconnect
+-> upload, verify, commit
+-> Ready
+```
+
+Rules:
+
+- A temporary backend outage does not automatically terminate a running game or server.
+- Captured changes remain preserved locally while synchronization is unresolved.
+- The user-facing state is **Waiting to sync** rather than Ready.
+- Another writable session must not begin until the handoff is resolved.
+- Steward must not silently overwrite a newer remote state when connectivity returns.
+- Closing Steward while it is responsible for unsynchronized state is blocked or strongly guarded.
+- This behavior deliberately avoids offline branches and later merge requirements.
+
+Suggested user wording:
+
+> **Waiting to sync**
+>
+> Your changes are preserved on this PC. Steward will finish the handoff when the connection returns.
+
 ## UI boundaries
 
 The first-release UI owns:
 
 - supported game and World discovery presentation;
-- import selection;
+- import and sharing entry points;
 - lifecycle status;
-- Start World, Host World, Join, Stop and Save, Share World, and recovery actions where supported;
+- Start World, Host World, Join, Stop and Save, Share World, retry, and recovery actions where supported;
 - progress and failure communication;
 - tray/background visibility;
 - compact settings and diagnostics.
@@ -159,10 +213,10 @@ The UI does not own:
 1. **World first:** the World is the primary selectable product object.
 2. **Game-first navigation:** a game workspace contains only that game's Worlds.
 3. **Explicit intent:** Start, Host, Join, and Share are separate where supported.
-4. **Private by default:** import creates a World only on the current PC until sharing is explicit.
+4. **Private by default:** import stays on the current PC until sharing is explicit.
 5. **Background first:** the window may disappear while Steward keeps working.
 6. **No infrastructure exposure:** primary screens hide revisions, object keys, paths, and server folders.
-7. **No false certainty:** uncertainty appears as Recovery needed, never Ready.
+7. **No false certainty:** uncertain state is never presented as Ready.
 8. **No theatrical waiting:** progress corresponds to real lifecycle work.
 9. **Capability driven:** actions come from generic state and adapter capabilities.
 10. **Commercial clarity:** wording explains what happened, what is safe, and what happens next.
@@ -184,9 +238,7 @@ Shows installed supported games as large cards with:
 
 - game artwork and name;
 - managed World count;
-- attention indicator when one World is active, blocked, or requires recovery.
-
-Unsupported or uninstalled games are not presented as immediately playable.
+- attention indicator when a World is active, blocked, waiting to sync, or requires recovery.
 
 ### Game Workspace
 
@@ -198,11 +250,7 @@ Contains:
 - Worlds belonging to that game;
 - responsive selected-World details.
 
-The first release does not use a cramped horizontal game-filter strip inside one global World list.
-
 ### Import Workspace
-
-Import is a full workspace:
 
 ```text
 choose installed supported game
@@ -214,7 +262,7 @@ choose installed supported game
 -> optionally Share World later
 ```
 
-Duplicate native World detection is adapter-owned.
+Duplicate native World detection remains adapter-owned.
 
 ### Active Session Surface
 
@@ -223,8 +271,9 @@ While playing, a compact tray/status surface may show:
 - game and World;
 - local or hosted mode;
 - lifecycle state;
+- connectivity/sync warning when relevant;
 - Open Steward;
-- Stop and Save where a controlled hosted stop is supported.
+- Stop and Save where controlled hosted stop is supported.
 
 The tray is not a second complete application.
 
@@ -235,7 +284,7 @@ Shows:
 - affected game and World;
 - whether the last committed state remains safe;
 - failed lifecycle stage;
-- whether a local recovery candidate exists;
+- whether a local recovery or unsynchronized candidate exists;
 - only actions proven safe by runtime and backend contracts.
 
 No recovery surface offers generic merging.
@@ -259,24 +308,22 @@ Import
 -> choose detected World
 -> capture source safely
 -> verify managed local state
--> World appears Ready and Only on this PC
+-> Ready / Only on this PC
 ```
-
-The original source is not moved or deleted. A failed import creates no fake usable World.
 
 ### UJ-03: Share imported World
 
 ```text
 Only on this PC
 -> Share World
--> authenticate/verify shared service
+-> verify shared service
 -> choose allowed Steam identities according to backend policy
 -> upload and verify current state
 -> shared setup commits
--> World becomes Shared and Ready
+-> Ready / Shared
 ```
 
-A failed share operation leaves the local imported World intact and usable locally.
+A failed share operation leaves the local World intact and usable locally.
 
 ### UJ-04: Start World locally
 
@@ -290,12 +337,10 @@ Ready
 -> Ready
 ```
 
-Closing the game does not mean Ready until capture, durable storage, verification, and commit complete.
-
 ### UJ-05: Host World temporarily
 
 ```text
-Ready shared World
+Ready / Shared
 -> Host World
 -> Preparing
 -> Hosting
@@ -303,8 +348,6 @@ Ready shared World
 -> Saving
 -> Ready
 ```
-
-A client exit does not end a dedicated-server session while the server remains active.
 
 ### UJ-06: Active on another device
 
@@ -315,8 +358,6 @@ or
 -> Wait until available
 ```
 
-No competing writable action is offered.
-
 ### UJ-07: Switch host
 
 ```text
@@ -325,8 +366,6 @@ current host finishes and commits
 -> another device selects same World
 -> Host World
 ```
-
-No live migration language or behavior.
 
 ### UJ-08: Switch game
 
@@ -337,9 +376,30 @@ finish current World
 -> Start World or Host World
 ```
 
-The interaction is shared; the Worlds are not converted between games.
+### UJ-09: Shared World unavailable before start
 
-### UJ-09: Recovery needed
+```text
+open shared World
+-> backend verification fails
+-> Connection required
+-> no writable action
+-> Retry
+```
+
+### UJ-10: Connection lost during active session
+
+```text
+Running/Hosting
+-> connection lost
+-> continue session
+-> capture safely at end
+-> Waiting to sync
+-> reconnect
+-> commit
+-> Ready
+```
+
+### UJ-11: Recovery needed
 
 ```text
 open affected World
@@ -354,16 +414,17 @@ No silent promotion, stale overwrite, or generic merge.
 | State | Meaning | Primary action(s) | Secondary action |
 |---|---|---|---|
 | Ready, only on this PC | Safe local managed state, not shared | Start World | Share World |
-| Sharing | Upload/access setup is incomplete | None | Cancel only when rollback is safe |
-| Ready, shared | Safe current shared state | Start World; Host World | Manage access where needed |
+| Sharing | Upload/access setup incomplete | None | Cancel only when rollback is safe |
+| Ready, shared | Current shared state and reservation service verified | Start World; Host World | Manage access where needed |
+| Connection required | Shared current head/reservation cannot be verified before start | Retry connection | Cached information only |
 | Preparing | State/environment is being prepared | None | Cancel only before launch when safe |
 | Running locally here | This device owns local writable session | Open | None |
 | Hosting here | This device/server owns hosted session | Open | Stop and Save when supported |
 | Active elsewhere | Another device owns hosted session | Join when supported | Wait/refresh |
 | Saving | Capture/store/commit incomplete | None | None |
+| Waiting to sync | Updated state is preserved locally but remote handoff is incomplete | Retry automatically/manual retry when useful | Diagnostics |
 | Blocked | Required environment/capability unavailable | Resolve issue | Diagnostics |
 | Recovery needed | Previous handoff did not finish safely | Recover | Last-safe action only when proven safe |
-| Offline shared World | Current head/reservation cannot be verified | No writable play | Cached read-only information |
 
 ## Progress contract
 
@@ -379,6 +440,7 @@ Only real phases are shown:
 - Stopping server
 - Capturing changes
 - Uploading changes
+- Waiting for connection
 - Verifying state
 - Finishing handoff
 
@@ -388,7 +450,7 @@ Every failure message answers:
 
 1. What failed?
 2. Is the last valid state safe?
-3. Is a newer recovery candidate preserved?
+3. Is a newer recovery/unsynchronized candidate preserved?
 4. What action is safe now?
 5. Where are optional technical details?
 
@@ -439,7 +501,7 @@ Deliverables:
 - remote head refresh;
 - active-elsewhere state;
 - Join capability handling;
-- offline behavior;
+- Connection required and Waiting to sync behavior;
 - minimal access/invitation surface after backend policy is approved.
 
 ### UI-5: Recovery and blocked states
@@ -463,11 +525,10 @@ Deliverables:
 ## Decisions still required before UI-0 completes
 
 - Exact flat sharing/invitation UI after backend access policy is chosen.
-- Exact behavior when a shared World is offline but cached locally.
 - Join behavior priority: Steam automatic, adapter connection action, or manual fallback.
 - Recovery actions safe enough for first release.
 - Tray always present or only during active/background work.
-- Final terminology for Stop and Save, Saving, Blocked, and Recovery needed.
+- Final terminology for Stop and Save, Saving, Blocked, Recovery needed, Connection required, and Waiting to sync.
 
 ## UI planning completion gate
 

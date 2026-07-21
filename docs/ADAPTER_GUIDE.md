@@ -2,218 +2,244 @@
 
 ## Purpose
 
-A game adapter isolates all knowledge that is specific to one game.
+A game adapter isolates everything specific to one game while letting Core run the same complete World handoff lifecycle.
 
-The Core should be able to drive the same lifecycle for Factorio, Minecraft, 7 Days to Die, Project Zomboid, or a future game without learning each game's save layout, launcher, mod ecosystem, or networking flags.
+> Core knows what must happen. The adapter knows how this game makes it happen.
 
-## Rule
+Current validation adapters are Factorio and Palworld. Future adapters must preserve the same boundary without forcing their edge cases into Core.
 
-> Core knows what must happen. Adapter knows how this game makes it happen.
+## Product contract
 
-Adapters may internally use any relevant ecosystem or tool. That is intentionally invisible to the Core.
+Every useful adapter contributes to this lifecycle:
 
-Examples:
+```text
+find World
+-> inspect required environment
+-> prepare device
+-> restore latest state
+-> launch local play or temporary host
+-> observe the real session
+-> determine safe capture point
+-> capture and validate updated state
+```
 
-- Factorio adapter may inspect Steam libraries and Factorio user-data directories.
-- A Minecraft adapter may use Prism Launcher, CurseForge, Modrinth, or manual instances.
-- A 7 Days to Die adapter may manage isolated mod folders or multiple installations.
+An adapter is not complete merely because it can launch the game.
 
-## Current contract
+## Identity and capabilities
 
-`IGameAdapter` exposes these responsibilities.
+An adapter exposes:
 
-### Identity and capabilities
+- stable adapter id;
+- display name;
+- supported capabilities.
 
-- `Id`
-- `DisplayName`
-- `Capabilities`
+Capabilities may include:
 
-Capabilities describe what an adapter can currently automate, such as local launch, automatic host launch, automatic client join, mods, exact game versions, exact mod versions, or environment isolation.
+- local launch;
+- temporary host launch;
+- native client join;
+- exact game-version handling;
+- mod/environment inspection;
+- isolated environment preparation;
+- automatic capture;
+- graceful host shutdown.
 
-Capabilities are descriptive. The Core should use them to decide which workflows are available without branching on a game name.
+Core uses capabilities. It does not branch on the game name.
 
-### Discover installations
+## Installation discovery
 
-`DiscoverInstallationsAsync`
+The adapter finds supported installations using game-relevant sources such as:
 
-Find supported installations of this game.
+- Steam libraries;
+- launcher metadata;
+- registry entries;
+- conventional paths;
+- portable installations;
+- user-selected paths.
 
-The adapter may inspect:
+Core does not know how discovery works.
 
-- Steam libraries
-- launcher metadata
-- registry entries
-- conventional paths
-- portable installations
-- user-selected paths
+## World discovery
 
-The Core does not know how discovery works.
+The adapter identifies existing saves or server Worlds that can be imported.
 
-### Discover existing worlds
+It decides:
 
-`DiscoverWorldsAsync`
+- which files or directories form one World;
+- which autosaves, backups, or temporary states should be hidden;
+- how duplicate native sources are collapsed;
+- which display name is shown;
+- which source should be preferred when the same World appears in multiple locations.
 
-Find existing saves/worlds that can be imported.
+Discovery is read-only. It must not upload, publish, host, or mutate a discovered World.
 
-The adapter decides:
+## Environment inspection
 
-- which files/directories count as worlds
-- which autosaves or temporary states should be hidden
-- how names are presented
+The adapter produces an `EnvironmentManifest` containing the game-specific requirements needed to reproduce the World.
 
-Discovery is read-only product discovery. An adapter must not upload, publish, host, or otherwise share a discovered save merely because it found it.
+Examples include:
 
-### Inspect environment
+- game version;
+- enabled mods;
+- exact mod versions;
+- relevant server or gameplay configuration;
+- launcher or runtime requirements.
 
-`InspectEnvironmentAsync`
+Core stores the manifest but does not interpret the game's semantics.
 
-Produce an `EnvironmentManifest` describing the relevant playable environment.
+## Import capture
 
-The adapter decides which details matter.
+The adapter converts a detected World into a portable `StatePackage` suitable for initial durable storage.
 
-Examples:
+The package may represent:
 
-- game version
-- enabled mods
-- exact mod versions
-- mod source
-- config values
+- one ZIP;
+- a directory archive;
+- a database;
+- several related files;
+- launcher-managed state.
 
-The Core stores the manifest but does not interpret game-specific semantics.
+Import must leave the source untouched.
 
-### Capture an existing detected world
+## Environment preparation
 
-`CaptureDetectedWorldAsync`
-
-Convert a discovered save/world into an adapter-owned state package suitable for importing as the first canonical `StateRevision`.
-
-This operation belongs to the adapter because a game's world may be:
-
-- one ZIP file
-- one database
-- a directory tree
-- multiple related files
-- a launcher-managed instance
-
-The Core must never assume one universal format.
-
-Importing a detected world does not make it shared. Core creates the resulting World as `LocalOnly`.
-
-### Prepare environment
-
-`PrepareEnvironmentAsync`
-
-Create or select an isolated playable workspace matching the requested environment.
+The adapter creates or selects a playable environment matching the requested manifest.
 
 Possible strategies include:
 
-- separate mod directories
-- profiles
-- symlinks or junctions
-- transactional file swapping
-- separate installations as a last resort
-- launcher-managed instances
+- isolated mod directories;
+- launcher profiles;
+- workspace-local configuration;
+- symlinks or junctions;
+- transactional file swapping;
+- game-native dedicated-server installation;
+- separate installations only where necessary.
 
-The Core does not care which strategy is used.
+The strategy remains an adapter detail.
 
-### Restore state
+## Restore
 
-`RestoreStateAsync`
+The adapter restores the opaque state package into its prepared workspace.
 
-Restore a canonical state package into the prepared workspace.
+It must validate trust boundaries and must not assume that a path is safe to overwrite merely because it resembles a save location.
 
-### Capture state
+## Launch local play
 
-`CaptureStateAsync`
+Local launch starts the World without deliberately exposing Steward's hosted multiplayer path.
 
-Capture the workspace after play into a new state package.
+Where the game has a meaningful distinction, local play and hosting remain separate adapter operations.
 
-This is used to create the next canonical `StateRevision`.
+## Launch temporary host
 
-### Launch local
+Hosted launch starts the game or dedicated server so other players can join through Steam or the game.
 
-`LaunchLocalAsync`
+The adapter owns:
 
-Start the prepared World as a local/non-shared gameplay session.
+- executable and arguments;
+- server configuration;
+- readiness checks;
+- connection information where needed;
+- graceful shutdown behavior;
+- identification of the process that actually owns the writable World.
 
-This is deliberately separate from hosting. An adapter must not implement local Continue by silently exposing a multiplayer host unless the game itself provides no meaningful distinction and that limitation is explicitly surfaced to the product.
+A client's exit is not automatically the end of a dedicated-server session.
 
-For Factorio, local Continue uses `--load-game`, while hosted play uses the separate host path.
+## Join active host
 
-### Launch host
+An adapter may expose native joining through Steam, direct connection information, or game-specific mechanisms.
 
-`LaunchHostAsync`
+Joining does not create another writable Steward session. The active host remains the only writer.
 
-Start the game in the adapter-specific multiplayer host mode.
+## Session observation
 
-Core only invokes the hosted canonical path when the World is explicitly `Shared`.
+The adapter determines when the actual World session has ended.
 
-### Launch client
+It must handle relevant realities such as:
 
-`LaunchClientAsync`
+- launcher/bootstrap process exit before the game exits;
+- process replacement or handoff;
+- separate client and server processes;
+- dedicated servers outliving clients;
+- graceful save/shutdown commands;
+- files continuing to change briefly after process signals;
+- game-specific completion markers.
 
-Start or connect the game as a client.
+Core must not replace this contract with a generic `Process.WaitForExit` assumption.
 
-Join workflows are only eligible for explicitly shared Worlds.
+## Capture and validation
 
-### Wait for session end
+After the safe capture point, the adapter creates a new portable state package and validates the game-specific minimum required for restore.
 
-`WaitForSessionEndAsync`
+It must report whether the returned package is disposable after durable storage.
 
-Wait until the relevant game session has actually ended.
+Core then owns durable storage, verification, current-head advancement, and recovery semantics.
 
-This belongs to the adapter rather than Core because launchers may spawn another process, games may have dedicated-server processes, and different games have different lifecycle semantics.
+## Workspace finalization
 
-### Finalize prepared workspace
+The adapter cleans or preserves its prepared workspace according to the disposition requested by Core.
 
-`FinalizePreparedWorldAsync`
+Rules:
 
-Clean or preserve adapter-owned prepared workspace state after a session.
+- pre-launch failure may clean controlled temporary work;
+- successful commit may clean controlled work;
+- uncertain post-launch failure preserves recoverable state;
+- recursive deletion requires explicit ownership validation;
+- user-owned source saves must never be deleted.
 
-The adapter must respect the requested disposition and must validate ownership before destructive recursive deletion.
+## Adapter isolation
 
-## Adapter isolation rule
+Game-specific helpers, SDKs, parsers, commands, and dependencies stay inside the adapter assembly.
 
-Game-specific helpers should live beside the adapter, not in Core.
+Adding Palworld-specific dedicated-server behavior must not add Palworld fields to Core. Adding a Factorio-specific RCON or mod behavior must not become a universal requirement.
 
-Current Factorio helpers:
+## What an adapter must not decide
 
-- installation discovery
-- environment inspection
-- save/world operations
+An adapter must not redefine:
 
-Future adapters should follow the same principle without being forced into the same internal file structure.
+- the one-active-writer rule;
+- whether the current World head may advance;
+- durable revision publication order;
+- recovery policy;
+- shared-storage access policy;
+- generic product lifecycle states;
+- generic save merging;
+- branch or Fork semantics;
+- ownership or social governance.
 
-## What an adapter must not do
-
-An adapter should not redefine universal product semantics.
-
-It should not decide:
-
-- whether a World is local-only or shared
-- who owns the canonical session lease
-- whether a new canonical revision is accepted
-- World membership semantics
-- Fork versus Sandbox product semantics
-- durable global history policy
-
-Those belong to Core.
+Those either belong to Core or are outside Steward's product scope.
 
 ## Adding a new game
 
-A new adapter should be implemented in this order:
+Implement in this order:
 
-1. Installation discovery.
-2. Existing-world discovery.
-3. Import/capture of one existing world.
-4. Environment inspection.
-5. Isolated preparation.
-6. State restore.
-7. Local launch.
-8. Session-end observation.
-9. State capture.
-10. Hosted launch.
-11. Client join.
-12. Exact environment reproduction where supported.
+1. installation discovery;
+2. existing-World discovery;
+3. safe import capture;
+4. environment inspection;
+5. environment preparation;
+6. state restore;
+7. local launch;
+8. real session observation;
+9. safe state capture and validation;
+10. temporary host launch;
+11. graceful hosted-session shutdown;
+12. optional native join;
+13. exact environment reproduction where justified.
 
-The first goal is one complete vertical slice, not a partially implemented list of many games.
+The first target is one complete vertical handoff, not many partially supported workflows.
+
+## Acceptance test
+
+A new adapter is product-relevant only when it can prove:
+
+```text
+import known World
+-> restore it
+-> launch it
+-> make a visible gameplay change
+-> observe safe session end
+-> capture and commit the change
+-> restore the committed result in the next session
+```
+
+Hosted support additionally proves that the server state, not merely a client process, controls the capture boundary.

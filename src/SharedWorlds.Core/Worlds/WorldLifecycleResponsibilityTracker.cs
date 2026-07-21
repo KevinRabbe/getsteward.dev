@@ -47,12 +47,6 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
         {
             switch (change.Phase)
             {
-                case WorldLifecyclePhase.AcquiringReservation:
-                    // A reservation request is a transient attempt, not proof that this process
-                    // already owns writable authority. The lifecycle emits ResolvingWorld only
-                    // after acquisition succeeds; that is where guarded responsibility begins.
-                    break;
-
                 case WorldLifecyclePhase.Completed:
                     _kind = WorldLifecycleResponsibilityKind.None;
                     _worldId = null;
@@ -72,6 +66,9 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
                     break;
 
                 default:
+                    // AcquiringReservation is deliberately guarded too. The coordinator contract
+                    // guarantees that an acquisition exception is surfaced only after it has proven
+                    // no writable authority was acquired; the lifecycle then emits Completed.
                     _kind = WorldLifecycleResponsibilityKind.ActiveLifecycle;
                     _worldId = change.WorldId;
                     _phase = change.Phase;

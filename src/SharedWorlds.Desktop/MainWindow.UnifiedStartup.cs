@@ -9,7 +9,7 @@ public partial class MainWindow
         await InitializeRuntimeResponsibilityAsync();
         InitializeUnifiedHostingPreference();
         await LoadDeviceSettingsAsync();
-        InitializeUnifiedGameUi();
+        await InitializeUnifiedGameUiAsync();
         InitializeUnifiedImportBrowser();
         InitializeResponsibilityPresentation();
         InitializeResponsiveWorkspace();

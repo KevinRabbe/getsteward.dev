@@ -204,6 +204,74 @@ Copy address
 
 The actual connection data and instruction are adapter-owned.
 
+### UI-D006: Recovery exposes only proven-safe actions
+
+Status: **approved**.
+
+The first release does not present a generic recovery toolbox. Steward examines the preserved evidence, current head, reservation/session generation, adapter capability, and candidate validity, then exposes only actions whose preconditions are proven safe.
+
+Supported first-release recovery actions are:
+
+#### Retry recovery
+
+Preferred when Steward has a valid preserved candidate and the interrupted handoff can still be completed safely.
+
+```text
+Recovery needed
+-> Retry recovery
+-> validate candidate
+-> verify current head/session generation
+-> resume store/upload/verify/commit
+-> Ready
+```
+
+Retry is unavailable when the candidate is stale, invalid, or cannot safely advance the current head.
+
+#### Continue from last safe state
+
+This abandons the incomplete candidate and returns the World to the last successfully committed state only after explicit confirmation.
+
+Rules:
+
+- the candidate is never silently discarded;
+- the UI clearly states that newer local changes may be abandoned;
+- shared reservation/recovery state must be resolved before another writer begins;
+- this action never combines the candidate with the committed state.
+
+#### Export recovery copy
+
+This is an emergency preservation path when Steward cannot safely complete the canonical handoff.
+
+```text
+preserved candidate
+-> adapter creates a safe export/package
+-> user selects destination
+-> canonical shared World remains unchanged
+```
+
+Export recovery copy does not create a Steward Fork, branch, second canonical World, or merge workflow.
+
+Recovery never offers:
+
+- Merge;
+- Force overwrite remote;
+- Use newest file automatically;
+- Make branch/Fork;
+- silent candidate promotion;
+- silent candidate deletion.
+
+Typical recovery presentation:
+
+> **Recovery needed**
+>
+> Your last safe World is still protected. Steward also found newer changes from the interrupted session.
+
+Then show only applicable actions, normally ordered:
+
+1. **Retry recovery** — preferred when safe;
+2. **Export recovery copy** — preservation fallback when useful;
+3. **Continue from last safe state** — explicit abandon action, visually separated.
+
 ## UI boundaries
 
 The first-release UI owns:
@@ -241,6 +309,7 @@ The UI does not own:
 9. **Capability driven:** actions come from generic state and adapter capabilities.
 10. **Commercial clarity:** wording explains what happened, what is safe, and what happens next.
 11. **Low interaction cost:** Steward asks only for decisions the product genuinely requires.
+12. **Recovery is evidence-driven:** destructive or authority-changing actions appear only when their safety can be proven.
 
 ## Navigation model
 
@@ -305,9 +374,9 @@ Shows:
 - whether the last committed state remains safe;
 - failed lifecycle stage;
 - whether a local recovery or unsynchronized candidate exists;
-- only actions proven safe by runtime and backend contracts.
+- only proven-safe recovery actions.
 
-No recovery surface offers generic merging.
+No recovery surface offers generic merging or forced canonical overwrite.
 
 ## Core user journeys
 
@@ -433,11 +502,16 @@ Someone is playing
 
 ```text
 open affected World
--> show last safe state and candidate status
--> perform one proven-safe recovery action
+-> verify recovery evidence/current authority
+-> expose only applicable safe actions
+-> Retry recovery
+or
+-> Export recovery copy
+or
+-> explicitly Continue from last safe state
 ```
 
-No silent promotion, stale overwrite, or generic merge.
+No silent promotion, stale overwrite, candidate deletion, or generic merge.
 
 ## User-visible state and action contract
 
@@ -455,7 +529,7 @@ No silent promotion, stale overwrite, or generic merge.
 | Saving | Capture/store/commit incomplete | None | None |
 | Waiting to sync | Updated state is preserved locally but remote handoff is incomplete | Automatic retry; manual Retry when useful | Diagnostics |
 | Blocked | Required environment/capability unavailable | Resolve issue | Diagnostics |
-| Recovery needed | Previous handoff did not finish safely | Recover | Last-safe action only when proven safe |
+| Recovery needed | Previous handoff did not finish safely | Best proven-safe recovery action | Other proven-safe recovery/export actions |
 
 ## Progress contract
 
@@ -538,11 +612,14 @@ Deliverables:
 
 ### UI-5: Recovery and blocked states
 
-- recovery candidate presentation;
-- proven-safe retry/last-safe actions;
+- recovery evidence presentation;
+- Retry recovery only when safe;
+- explicit Continue from last safe state when safe;
+- Export recovery copy as non-canonical preservation fallback;
 - environment mismatch and repair capability;
 - diagnostics reference/export;
-- no destructive default action.
+- no destructive default action;
+- no merge or forced overwrite path.
 
 ### UI-6: Commercial polish
 
@@ -557,7 +634,6 @@ Deliverables:
 ## Decisions still required before UI-0 completes
 
 - Exact flat sharing/invitation UI after backend access policy is chosen.
-- Recovery actions safe enough for first release.
 - Tray always present or only during active/background work.
 - Final terminology for Stop and Save, Saving, Blocked, Recovery needed, Connection required, and Waiting to sync.
 

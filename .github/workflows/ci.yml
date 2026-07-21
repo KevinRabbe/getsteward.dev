@@ -36,8 +36,22 @@ jobs:
       - name: Restore
         run: dotnet restore SharedWorlds.sln
 
-      - name: Verify formatting
-        run: dotnet format SharedWorlds.sln --verify-no-changes --no-restore
+      - name: Capture formatting diff
+        shell: bash
+        run: |
+          dotnet format SharedWorlds.sln --no-restore
+          git diff --name-only
+          git diff --binary > format.diff
+          test ! -s format.diff
+
+      - name: Upload formatting diff
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: format-diff
+          path: format.diff
+          if-no-files-found: ignore
+          retention-days: 1
 
   build-test:
     name: Build and test (${{ matrix.os }})

@@ -185,12 +185,21 @@ jobs:
         run: dotnet restore tests/SharedWorlds.Backend.ObjectStorage.S3.Tests/SharedWorlds.Backend.ObjectStorage.S3.Tests.csproj
 
       - name: Test S3-compatible direct transfer
-        run: >-
-          dotnet test tests/SharedWorlds.Backend.ObjectStorage.S3.Tests/SharedWorlds.Backend.ObjectStorage.S3.Tests.csproj
-          --configuration Release
-          --no-restore
-          --nologo
-          --verbosity minimal
+        shell: pwsh
+        run: |
+          dotnet test tests/SharedWorlds.Backend.ObjectStorage.S3.Tests/SharedWorlds.Backend.ObjectStorage.S3.Tests.csproj --configuration Release --no-restore --nologo --verbosity normal *> s3-test.log
+          $testExitCode = $LASTEXITCODE
+          Get-Content s3-test.log
+          exit $testExitCode
+
+      - name: Upload S3 integration test log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: s3-integration-test-log
+          path: s3-test.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Stop disposable S3-compatible test service
         if: always()

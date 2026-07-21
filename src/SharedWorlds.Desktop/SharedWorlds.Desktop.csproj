@@ -9,7 +9,9 @@
     <RootNamespace>SharedWorlds.Desktop</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <Using Remove="System.Drawing" />
     <Using Remove="System.Windows.Forms" />
+    <Using Include="SharedWorlds.Core.Worlds" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../SharedWorlds.Core/SharedWorlds.Core.csproj" />

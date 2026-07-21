@@ -203,7 +203,7 @@ public sealed partial class InMemoryBackendContractSimulation
                     : UploadTransferPartStatus.PartConflict;
             }
 
-            if (bytes.LongLength > transfer.ExpectedByteSize - transfer.AcceptedByteSize)
+            if (bytes.Length > transfer.ExpectedByteSize - transfer.AcceptedByteSize)
             {
                 return UploadTransferPartStatus.InvalidPart;
             }

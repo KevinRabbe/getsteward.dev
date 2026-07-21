@@ -34,21 +34,15 @@ public partial class MainWindow
         _unifiedGameUiInitialized = true;
 
         RefreshButton.Click += UnifiedRefreshButton_Click;
-        OpenImportButton.Click += UnifiedOpenImportButton_Click;
-        ScanImportsButton.Click += UnifiedScanImportsButton_Click;
-        ImportSelectedButton.Click += UnifiedImportSelectedButton_Click;
-        ImportCandidateComboBox.SelectionChanged += UnifiedImportCandidateComboBox_SelectionChanged;
         ContinueButton.Click += UnifiedContinueButton_Click;
         HostButton.Click += UnifiedHostButton_Click;
         ShareButton.Click += UnifiedShareButton_Click;
 
         WorldList.SelectionChanged += UnifiedWorldList_SelectionChanged;
         WorldList.IsEnabledChanged += (_, _) => UpdateUnifiedActionState();
-        ImportCandidateComboBox.IsEnabledChanged += (_, _) => UpdateUnifiedImportActionState();
         AllowHostingCheckBox.Click += (_, _) => UpdateUnifiedActionState();
 
         WorldList.ItemTemplate = CreateWorldItemTemplate();
-        ImportCandidateComboBox.ItemTemplate = CreateImportCandidateTemplate();
         WorldList.GroupStyle.Clear();
         WorldList.GroupStyle.Add(CreateGameGroupStyle());
 
@@ -60,52 +54,6 @@ public partial class MainWindow
 
     private async void UnifiedRefreshButton_Click(object sender, RoutedEventArgs e)
         => await RefreshUnifiedWorldsAsync(_selectedWorld?.Id);
-
-    private async void UnifiedOpenImportButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (ImportPanel.Visibility == Visibility.Visible)
-        {
-            ImportPanel.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        ImportPanel.Visibility = Visibility.Visible;
-        await RefreshUnifiedImportCandidatesAsync();
-    }
-
-    private async void UnifiedScanImportsButton_Click(object sender, RoutedEventArgs e)
-        => await RefreshUnifiedImportCandidatesAsync();
-
-    private void UnifiedImportCandidateComboBox_SelectionChanged(
-        object sender,
-        SelectionChangedEventArgs e)
-        => UpdateUnifiedImportActionState();
-
-    private async void UnifiedImportSelectedButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (ImportCandidateComboBox.SelectedItem is not UnifiedImportCandidate candidate)
-        {
-            return;
-        }
-
-        await RunUnifiedOperationAsync(
-            $"Importing {candidate.World.DisplayName}...",
-            async () =>
-            {
-                var worldName = await CreateUniqueWorldNameAsync(candidate.World.DisplayName);
-                var imported = await _lifecycle.ImportAsync(
-                    candidate.Adapter,
-                    candidate.Installation,
-                    candidate.World,
-                    worldName,
-                    GetLocalUser());
-
-                await TryEnableCreatorDeviceHostingAsync();
-                ImportPanel.Visibility = Visibility.Collapsed;
-                StatusText.Text = $"Imported '{imported.Name}' as a private {candidate.GameName} World.";
-                await RefreshUnifiedWorldsAsync(imported.Id, preserveStatus: true);
-            });
-    }
 
     private void UnifiedWorldList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -218,85 +166,6 @@ public partial class MainWindow
         StatusText.Text = world.SharingMode == WorldSharingMode.LocalOnly
             ? "Share World requires the shared backend/access flow, which is not connected in this build yet. The World remains only on this PC."
             : "Manage access requires the shared backend/access flow, which is not connected in this build yet.";
-    }
-
-    private async Task RefreshUnifiedImportCandidatesAsync()
-    {
-        SetBusy(true);
-        _gamePresentationCache.Clear();
-        StatusText.Text = "Looking for installed games and local Worlds...";
-        ImportDiscoveryText.Text = "Scanning registered game adapters...";
-
-        try
-        {
-            var candidates = new List<UnifiedImportCandidate>();
-            var installedGameCount = 0;
-
-            foreach (var adapter in _registeredGameAdapters.Values.OrderBy(value => value.DisplayName))
-            {
-                var installations = await adapter.DiscoverInstallationsAsync();
-                if (installations.Count > 0)
-                {
-                    installedGameCount++;
-                }
-
-                foreach (var installation in installations)
-                {
-                    var presentation = GetGamePresentation(adapter, installation);
-                    var detectedWorlds = await adapter.DiscoverWorldsAsync(installation);
-                    foreach (var detectedWorld in detectedWorlds)
-                    {
-                        candidates.Add(new UnifiedImportCandidate(
-                            adapter,
-                            installation,
-                            detectedWorld,
-                            detectedWorld.DisplayName,
-                            $"{presentation.GameName}  •  {installation.Source}",
-                            presentation.GameName,
-                            presentation.IconPath));
-                    }
-                }
-            }
-
-            var ordered = candidates
-                .OrderBy(candidate => candidate.GameName, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(candidate => candidate.Name, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-
-            ImportCandidateComboBox.ItemsSource = ordered;
-            ImportCandidateComboBox.SelectedIndex = ordered.Length > 0 ? 0 : -1;
-
-            if (installedGameCount == 0)
-            {
-                ImportDiscoveryText.Text = "No supported installed games were detected on this device.";
-                StatusText.Text = "No supported game installation found.";
-            }
-            else if (ordered.Length == 0)
-            {
-                ImportDiscoveryText.Text =
-                    $"{installedGameCount} supported game installation(s) found, but no importable Worlds were detected.";
-                StatusText.Text = "No importable Worlds found.";
-            }
-            else
-            {
-                ImportDiscoveryText.Text = ordered.Length == 1
-                    ? "1 importable World found."
-                    : $"{ordered.Length} importable Worlds found across {installedGameCount} installed games.";
-                StatusText.Text = ImportDiscoveryText.Text;
-            }
-        }
-        catch (Exception exception)
-        {
-            ImportCandidateComboBox.ItemsSource = null;
-            ImportDiscoveryText.Text = "Could not scan installed games and Worlds.";
-            StatusText.Text = "World discovery failed.";
-            ShowError("Could not discover local Worlds", exception);
-        }
-        finally
-        {
-            SetBusy(false);
-            UpdateUnifiedImportActionState();
-        }
     }
 
     private async Task RefreshUnifiedWorldsAsync(
@@ -505,8 +374,7 @@ public partial class MainWindow
     }
 
     private void UpdateUnifiedImportActionState()
-        => ImportSelectedButton.IsEnabled =
-            !_isBusy && ImportCandidateComboBox.SelectedItem is UnifiedImportCandidate;
+        => UpdateImportBrowserActionState();
 
     private static DataTemplate CreateImportCandidateTemplate()
     {
@@ -520,21 +388,20 @@ public partial class MainWindow
         icon.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 0, 8, 0));
         icon.SetValue(Image.StretchProperty, Stretch.Uniform);
         icon.SetValue(DockPanel.DockProperty, Dock.Left);
-        icon.SetBinding(Image.SourceProperty, new Binding(nameof(UnifiedImportCandidate.GameIconPath)));
+        icon.SetBinding(Image.SourceProperty, new Binding(nameof(ImportBrowserCandidate.GameIconPath)));
         root.AppendChild(icon);
 
         var text = new FrameworkElementFactory(typeof(StackPanel));
         var name = new FrameworkElementFactory(typeof(TextBlock));
         name.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
-        name.SetBinding(TextBlock.TextProperty, new Binding(nameof(UnifiedImportCandidate.Name)));
+        name.SetBinding(TextBlock.TextProperty, new Binding(nameof(ImportBrowserCandidate.Name)));
         text.AppendChild(name);
 
         var subtitle = new FrameworkElementFactory(typeof(TextBlock));
         subtitle.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 2, 0, 0));
         subtitle.SetValue(TextBlock.FontSizeProperty, 11d);
         subtitle.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
-        subtitle.SetValue(UIElement.OpacityProperty, 0.72d);
-        subtitle.SetBinding(TextBlock.TextProperty, new Binding(nameof(UnifiedImportCandidate.Subtitle)));
+        subtitle.SetBinding(TextBlock.TextProperty, new Binding(nameof(ImportBrowserCandidate.Subtitle)));
         text.AppendChild(subtitle);
         root.AppendChild(text);
 
@@ -555,21 +422,17 @@ public partial class MainWindow
         icon.SetBinding(Image.SourceProperty, new Binding(nameof(UnifiedWorldListItem.GameIconPath)));
         root.AppendChild(icon);
 
-        var text = new FrameworkElementFactory(typeof(StackPanel));
-        var name = new FrameworkElementFactory(typeof(TextBlock));
-        name.SetValue(TextBlock.FontSizeProperty, 15d);
-        name.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
-        name.SetBinding(TextBlock.TextProperty, new Binding(nameof(UnifiedWorldListItem.Name)));
-        text.AppendChild(name);
-
-        var subtitle = new FrameworkElementFactory(typeof(TextBlock));
-        subtitle.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 5, 0, 0));
-        subtitle.SetValue(TextBlock.FontSizeProperty, 12d);
-        subtitle.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
-        subtitle.SetValue(UIElement.OpacityProperty, 0.72d);
-        subtitle.SetBinding(TextBlock.TextProperty, new Binding(nameof(UnifiedWorldListItem.Subtitle)));
-        text.AppendChild(subtitle);
-        root.AppendChild(text);
+        var text = new StackPanelFactory();
+        text.Append(new TextBlockFactory(
+            nameof(UnifiedWorldListItem.Name),
+            fontSize: 15,
+            semiBold: true));
+        text.Append(new TextBlockFactory(
+            nameof(UnifiedWorldListItem.Subtitle),
+            fontSize: 12,
+            topMargin: 5,
+            wrap: true));
+        root.AppendChild(text.Element);
 
         return new DataTemplate { VisualTree = root };
     }
@@ -611,6 +474,46 @@ public partial class MainWindow
         };
     }
 
+    private sealed class StackPanelFactory
+    {
+        public FrameworkElementFactory Element { get; } = new(typeof(StackPanel));
+
+        public void Append(TextBlockFactory text)
+            => Element.AppendChild(text.Element);
+    }
+
+    private sealed class TextBlockFactory
+    {
+        public TextBlockFactory(
+            string bindingPath,
+            double fontSize,
+            bool semiBold = false,
+            double topMargin = 0,
+            bool wrap = false)
+        {
+            Element = new FrameworkElementFactory(typeof(TextBlock));
+            Element.SetValue(TextBlock.FontSizeProperty, fontSize);
+            if (semiBold)
+            {
+                Element.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
+            }
+
+            if (topMargin > 0)
+            {
+                Element.SetValue(FrameworkElement.MarginProperty, new Thickness(0, topMargin, 0, 0));
+            }
+
+            if (wrap)
+            {
+                Element.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
+            }
+
+            Element.SetBinding(TextBlock.TextProperty, new Binding(bindingPath));
+        }
+
+        public FrameworkElementFactory Element { get; }
+    }
+
     private sealed record GamePresentation(string GameName, string? IconPath);
 
     private sealed record UnifiedWorldListItem(
@@ -618,15 +521,6 @@ public partial class MainWindow
         string Name,
         string Subtitle,
         string GameVersion,
-        string GameName,
-        string? GameIconPath);
-
-    private sealed record UnifiedImportCandidate(
-        IGameAdapter Adapter,
-        GameInstallation Installation,
-        DetectedWorld World,
-        string Name,
-        string Subtitle,
         string GameName,
         string? GameIconPath);
 }

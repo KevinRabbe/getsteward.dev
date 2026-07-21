@@ -21,7 +21,7 @@ Status: **planning locked — BE-0 in progress**.
 
 No backend implementation, database schema, API endpoint, service scaffold, provider integration, or infrastructure deployment begins until the backend planning gate and the master planning gate are complete.
 
-Allowed work during the lock:
+Allowed during the lock:
 
 - requirements and contract documentation;
 - provider and cost research;
@@ -50,7 +50,7 @@ small Steward API / coordination service
         `-- immutable object/blob storage
 ```
 
-The relational database is the authority for:
+The relational database is authoritative for:
 
 - World metadata;
 - flat shared access records;
@@ -60,16 +60,16 @@ The relational database is the authority for:
 - compare-and-swap commit state;
 - durable recovery/coordination metadata.
 
-Object storage contains opaque immutable World/environment packages. Object storage does not decide which revision is current.
+Object storage contains opaque immutable World/environment packages. Object storage never decides which revision is current.
 
 Rules:
 
 - Steam remains the identity and game/platform layer rather than Steward inventing another account, friend, party, Workshop, launch, or game-server ecosystem.
 - The Steward backend does not run Factorio, Palworld, or another game server.
-- World package bytes should normally transfer directly between the desktop and object storage through short-lived authorized upload/download mechanisms rather than being proxied through the API service.
+- Package bytes normally transfer directly between desktop and object storage through short-lived authorized upload/download mechanisms rather than being proxied through the API.
 - The transactional database owns one-writer reservation and current-head advancement; no separate reservation service is required for the first release.
-- The first release does not require Redis, Kafka, a message broker, distributed cache, microservice fleet, Kubernetes, or permanent game-server compute.
-- Database and object-storage providers remain implementation/provider decisions; the product model must remain provider-independent.
+- Redis, Kafka, message brokers, distributed caches, a microservice fleet, Kubernetes, and permanent game-server compute are not first-release requirements.
+- Database and object-storage providers remain implementation/provider decisions; the product model stays provider-independent.
 
 Core principle:
 
@@ -96,32 +96,128 @@ Steward starts
 Rules:
 
 - A client-supplied SteamID is never trusted as authentication by itself.
-- Steam authentication tickets are used to prove identity and bootstrap/re-authenticate the Steward session; they are not sent for every normal API operation.
-- Steam publisher/Web API secrets remain server-side and are never embedded in the desktop client.
-- The initial session design uses a short-lived access credential, planned at **15 minutes**, plus a renewable installation-bound refresh session, planned at **30 days**.
-- Refresh-session lifetime values are operational defaults and may be tuned later without changing the authentication model.
-- The refresh credential is stored using Windows-protected credential storage rather than plaintext application configuration.
-- A random Steward installation/device id distinguishes installations for session revocation, reservation diagnostics, and recovery. It is not itself authentication and must not become invasive hardware fingerprinting.
+- Steam authentication tickets prove identity and bootstrap/re-authenticate the Steward session; they are not sent for every normal API operation.
+- Steam publisher/Web API secrets remain server-side and never ship in the desktop client.
+- Initial session planning uses a short-lived access credential of about **15 minutes** and a renewable installation-bound refresh session of about **30 days**.
+- Those lifetimes are operational defaults and may later be tuned without changing the authentication model.
+- The refresh credential is stored using Windows-protected credential storage rather than plaintext configuration.
+- A random Steward installation/device id distinguishes installations for session revocation, reservation diagnostics, and recovery. It is not authentication and must not become invasive hardware fingerprinting.
 - A Steam account identity change requires reauthentication. A session authenticated as Steam user A never silently continues as Steam user B.
-- Existing active/recovery evidence is preserved across identity-change handling; it is not reassigned to the newly signed-in Steam account.
+- Existing active/recovery evidence is preserved across identity changes and is not reassigned to the newly signed-in Steam account.
 - Authentication failure prevents new writable shared-World sessions but does not unnecessarily disable unrelated safe local-only behavior.
-- Steward stores the stable SteamID64 and may cache presentation metadata such as persona name/avatar, but it stores no Steam password, email, payment data, or equivalent Steam credentials.
+- Steward stores SteamID64 and may cache presentation metadata such as persona name/avatar, but stores no Steam password, email, payment data, or equivalent Steam credentials.
 - **Sign out of Steward** revokes the current installation refresh session. Per-device/session revocation remains possible without creating a larger account-management product.
-- Browser/OpenID authentication may later serve a web/account surface, but the first-release Windows desktop uses native Steam-ticket authentication.
+- Browser/OpenID authentication may later serve a web/account surface; the first-release Windows desktop uses native Steam-ticket authentication.
 
 Core principle:
 
 > **Steam proves who you are. Steward decides what that verified identity may do.**
 
+### BE-D003: Flat members plus one Access Manager
+
+Status: **approved**.
+
+A first-release shared World has a flat set of authorized Steam members. Every member has the same World usage rights. Exactly one member additionally holds the administrative responsibility of **Access Manager**.
+
+A normal member may:
+
+- see and download the shared World;
+- Start World;
+- Host World;
+- Join;
+- acquire the one writable reservation when available;
+- complete and commit a valid session;
+- leave the shared World when no unresolved responsibility is being abandoned.
+
+The Access Manager may additionally:
+
+- invite/add another Steam identity through the approved invitation flow;
+- revoke another member's future access;
+- transfer Access Manager responsibility to another existing member;
+- stop sharing/delete the shared Steward World when the later deletion policy permits it.
+
+Access Manager status gives **no**:
+
+- gameplay authority;
+- priority reservation;
+- special hosting right;
+- right to terminate another healthy session merely because they manage access;
+- right to overwrite or choose the canonical revision;
+- merge, branch, Fork, or conflict-resolution privilege;
+- control over another player's local files.
+
+#### Sharing and invitation
+
+Initial sharing follows the local-first UI rule:
+
+```text
+Only on this PC
+-> Share World
+-> choose Steam identities
+-> upload and verify current World
+-> sharer becomes Access Manager
+-> invitations are created
+-> invited user accepts
+-> accepted identity becomes an active member
+```
+
+Pending invitations do not grant package download, reservation, or commit access before acceptance.
+
+The first release does not need a role editor or permission matrix.
+
+#### Revocation
+
+Ordinary revocation removes authorization for future operations, but must not destroy an already-authorized active writable transaction.
+
+```text
+member holds active writable session
+-> Access Manager revokes member
+-> revocation becomes pending
+-> current session may finish/recover safely
+-> session resolves
+-> revocation becomes effective
+```
+
+Exceptional emergency/security revocation may be designed separately only if a concrete threat requires it.
+
+#### Leaving and transfer
+
+A member cannot leave while they own an unresolved active World responsibility.
+
+The Access Manager cannot leave while still being the only Access Manager. They must first either:
+
+- atomically transfer Access Manager responsibility to another existing member; or
+- stop sharing/delete the shared World according to the later deletion policy.
+
+Transfer is an atomic administrative change so there is never an intentional period with two Access Managers or none.
+
+Data-model principle:
+
+```text
+AuthorizedMember
++
+AccessManagerIdentityId
+```
+
+not:
+
+```text
+Owner / Admin / Moderator / Host / Member role hierarchy
+```
+
+Core principle:
+
+> **Membership controls who may use the World. Access Manager controls only who is a member.**
+
 ## Backend product boundary
 
-The backend must answer only these questions:
+The backend must answer only:
 
-1. Which Steam identity is making the request?
+1. Which verified Steam identity is making the request?
 2. Which shared Worlds may that identity access?
 3. What is the latest valid environment/state head for a World?
-4. Where is the immutable state package?
-5. Is a writable session currently reserved?
+4. Where is the immutable package?
+5. Is a writable session reserved?
 6. May this caller acquire or complete that reservation?
 7. Did a candidate state store and verify successfully?
 8. May the current head advance from the caller's expected starting revision?
@@ -139,8 +235,6 @@ The backend does not need to understand:
 
 ## Approved backend architecture
 
-The approved first-release logical shape is:
-
 ```text
 Steward desktop clients
         |
@@ -150,40 +244,48 @@ small Steward API / coordination service
         `-- immutable object/blob storage
 ```
 
-The API authenticates and authorizes requests, issues transfer authorization, and performs coordination transactions. The database stores the small authoritative records. Object storage stores the large immutable packages.
+The API authenticates and authorizes requests, issues transfer authorization, and performs coordination transactions. The database stores small authoritative records. Object storage stores large immutable packages.
 
-The provider choice remains open until the provider/cost planning decision. No provider is allowed to redefine the Core product model.
+Provider choice remains open until provider/cost planning. No provider may redefine the Core product model.
 
-## Minimal backend data model
+## Minimal logical data model
 
-The exact schema remains an implementation decision, but these logical records are required.
+The exact schema remains an implementation decision. The required logical records are:
 
 ### ExternalIdentity
 
 - provider, primarily Steam;
-- stable external id;
-- optional display name/cache;
-- authentication metadata outside Core domain objects.
+- stable external id / SteamID64;
+- optional cached display metadata;
+- authentication/session metadata outside Core domain objects.
 
 ### SharedWorldRecord
 
 - World id;
-- game adapter id;
+- adapter/game id;
 - display name;
 - current environment revision id;
 - current state revision id;
-- flat authorized identity set or equivalent minimal access record;
+- AccessManagerIdentityId;
 - creation/update metadata;
-- lifecycle/recovery status only where durable coordination requires it.
+- durable lifecycle/recovery status only where coordination requires it.
 
-This record does not encode gameplay ownership or permanent host ownership.
+### WorldMember / AccessRecord
+
+- World id;
+- authorized Steam identity;
+- membership state: pending/active/revocation-pending where required;
+- invitation/acceptance metadata where required;
+- created/revoked timestamps.
+
+Membership is flat. The access record does not encode gameplay roles.
 
 ### EnvironmentRevisionRecord
 
 - immutable revision id;
 - World id;
 - adapter id;
-- manifest metadata/package reference as required;
+- package/manifest reference as required;
 - content/integrity metadata;
 - creation metadata.
 
@@ -193,7 +295,7 @@ This record does not encode gameplay ownership or permanent host ownership.
 - World id;
 - adapter id;
 - expected previous/current head used for commit;
-- package object key/reference;
+- package object reference;
 - content hash;
 - byte size;
 - creation metadata;
@@ -207,7 +309,7 @@ A previous revision reference supports expected-head validation and diagnostics.
 - unique session id/generation;
 - starting state revision;
 - holder identity;
-- device id or installation id;
+- device/installation id;
 - local or hosted mode where useful;
 - acquired/heartbeat timestamps;
 - reservation state;
@@ -220,7 +322,7 @@ Only when resumable upload/download requires durable tracking:
 - transfer id;
 - target immutable revision/package;
 - expected byte size and hash;
-- completed chunks or provider upload id;
+- completed chunks/provider upload id;
 - expiration;
 - finalization state.
 
@@ -232,36 +334,34 @@ The approved first-release authentication contract is BE-D002.
 
 Required behavior:
 
-- obtain a Steam Web API authentication ticket in the Windows desktop;
-- verify that ticket server-side with Steam;
-- derive the authenticated SteamID64 only from successful verification;
-- bootstrap a short-lived Steward access credential and renewable installation-bound refresh session;
-- protect the refresh credential with Windows credential protection;
-- reauthenticate when Steam identity changes;
+- obtain Steam Web API authentication ticket in the Windows desktop;
+- verify it server-side with Steam;
+- derive authenticated SteamID64 only from successful verification;
+- bootstrap short-lived Steward access credentials and a renewable installation-bound refresh session;
+- protect refresh credentials using Windows credential protection;
+- reauthenticate on Steam identity change;
 - support sign-out and installation/session revocation;
 - retain only minimal identity data.
 
-The backend never authenticates a request from a client-supplied SteamID alone and never exposes Steam publisher/Web API secrets to the client.
-
 ### World access
 
-The first release needs the smallest safe shared-access model.
+The approved first-release access contract is BE-D003.
 
 Required operations:
 
-- list Worlds accessible to the caller;
+- list Worlds where the caller is an active member;
 - retrieve one accessible World;
 - create/register a shared World;
-- add access through the chosen invitation mechanism;
-- revoke access where required for commercial safety;
-- leave a World;
-- prevent unauthorized state download or commit.
+- create an invitation as Access Manager;
+- accept/reject an invitation as the invited Steam identity;
+- revoke a member's future access as Access Manager;
+- atomically transfer Access Manager responsibility;
+- leave a World when doing so abandons no unresolved responsibility;
+- prevent unauthorized package download, reservation, transfer, and commit.
 
-Planning must resolve who may invite or revoke without creating a complex ownership hierarchy.
+Ordinary member revocation is deferred until an already-authorized active writable transaction resolves safely.
 
 ### Immutable revision upload
-
-Required flow:
 
 ```text
 request candidate upload
@@ -286,15 +386,13 @@ Required properties:
 
 ### Current-head compare-and-swap
 
-Required commit operation:
-
 ```text
 commit candidate revision
 where current head == expected starting revision
-and reservation == caller's active session
+and reservation == caller's active session generation
 ```
 
-Results must distinguish:
+Results must distinguish at least:
 
 - Committed;
 - Unchanged;
@@ -309,7 +407,7 @@ The previous valid head remains authoritative on every failure.
 
 Acquire requires:
 
-- authorized World access;
+- active authorized membership;
 - expected current state revision;
 - no safely active writer;
 - unique session generation/token;
@@ -317,8 +415,8 @@ Acquire requires:
 
 While active:
 
-- the holder heartbeats at a planned bounded interval;
-- only that session may commit from its starting revision;
+- holder heartbeats at a planned bounded interval;
+- only that session generation may commit from its starting revision;
 - other clients see active/uncertain state and cannot acquire a competing writer.
 
 Complete requires:
@@ -332,8 +430,6 @@ Complete requires:
 
 A missed heartbeat must not immediately prove the game/server session ended.
 
-Planned state model:
-
 ```text
 Available
 -> Active
@@ -342,84 +438,82 @@ Available
 -> Available
 ```
 
-Initial safety rule:
+Safety rules:
 
 - expiry moves a session to Uncertain, not directly Available;
 - no second writer starts while uncertainty is unresolved;
-- the original device may reconnect and resume/finish when its session generation remains valid;
-- after an explicit grace/recovery decision, another authorized user may start from the last committed state;
+- the original device may reconnect and resume/finish while its session generation remains valid;
+- after an explicit grace/recovery decision, an authorized member may start from the last committed state;
 - reclaim invalidates the old session generation;
-- a late old device cannot commit because reservation generation and/or expected head no longer match.
+- a late old device cannot commit after generation invalidation or head change.
 
-The exact grace duration and reclaim authority must be decided before code.
+Heartbeat interval, uncertainty grace period, and reclaim authority remain BE-0 decisions.
 
 ## Offline behavior
 
-Current safe default for first release:
+Current safe first-release default:
 
 - local-only Worlds may continue without backend access using local coordination;
 - shared Worlds may be browsed from cache while offline;
-- a new writable shared session does not start unless the backend can verify current head and acquire the reservation;
-- an active session that loses connectivity may continue running locally, but the reservation becomes uncertain remotely and commit retries remain bounded;
-- the desktop preserves the captured candidate locally until upload/commit succeeds or recovery is resolved.
+- a new writable shared session does not start unless backend identity, current head, and reservation can be verified;
+- an active session that loses connectivity may continue running locally;
+- captured updated state is preserved locally until upload/commit succeeds or recovery resolves;
+- unresolved shared state never becomes falsely Ready.
 
-Planning must confirm this rule before implementation.
+Exact active-session outage/reconnect behavior remains to be completed in BE-0 and aligned with UI-D004.
 
 ## Storage and transfer requirements
 
-The backend must plan for materially different World sizes and file shapes while treating packages as opaque bytes.
+The backend treats World packages as opaque bytes.
 
-Required decisions:
+BE-0 must still decide:
 
 - maximum first-release package size;
 - multipart/chunk size;
-- compression responsibility: adapter package versus transport;
+- compression responsibility;
 - upload/download resume strategy;
-- local cache layout and limits;
+- local cache layout and bounds;
 - deduplication now versus later;
-- retention of previous revisions;
-- orphan cleanup policy;
-- provider egress and storage cost limits;
+- previous-revision retention;
+- orphan cleanup;
+- provider egress/storage cost limits;
 - integrity hash algorithm and metadata location;
 - object encryption at rest and TLS in transit;
-- malware/archive handling boundary without interpreting arbitrary save contents.
+- malware/archive boundary without interpreting game-save contents.
 
 Correctness precedes delta transfer or peer-to-peer acceleration.
 
 ## Security requirements
 
-The backend handles private World state and identity.
+The first commercial backend requires:
 
-Planning must include:
-
-- Steam authentication verification;
-- authorization on every World, revision, transfer, and reservation operation;
-- unguessable identifiers not used as authorization;
+- verified Steam authentication;
+- authorization on every World, revision, transfer, reservation, invitation, and access-management operation;
+- no use of unguessable IDs as authorization by themselves;
 - least-privilege object-storage access;
-- signed URL lifetime or equivalent transfer authorization;
-- rate limits and abuse bounds;
-- bounded payload size and metadata validation;
+- short-lived signed transfer authorization or equivalent;
+- rate and payload bounds;
 - replay protection for reservation/commit tokens;
 - secret management;
-- audit events for access, reservation, commit, and revocation;
+- audit events for access, invitation, revocation, reservation, commit, and administrative transfer;
 - private-by-default sharing;
 - data deletion/export obligations;
-- backup and disaster-recovery policy;
+- backup/disaster-recovery policy;
 - incident response and key rotation.
 
 ## Reliability and operations requirements
 
 The first commercial backend needs:
 
-- health and dependency checks;
+- health/dependency checks;
 - structured logs without save contents or secrets;
-- metrics for transfer failures, reservation uncertainty, commit conflicts, and storage integrity;
-- trace/correlation ids across client handoff phases;
-- database backup and restore test;
-- object durability assumptions documented;
+- metrics for transfer failure, reservation uncertainty, commit conflict, and storage integrity;
+- correlation ids across client handoff phases;
+- database backup/restore testing;
+- documented object durability assumptions;
 - idempotency for safe retryable operations;
 - bounded retries and timeouts;
-- deployment rollback plan;
+- deployment rollback;
 - schema migration policy;
 - development/staging/production separation;
 - cost monitoring and hard limits where possible.
@@ -432,19 +526,20 @@ It does not need corporation-scale microservices.
 
 Deliverables:
 
-- chosen backend versus Steam-only architecture;
+- chosen backend architecture;
 - authentication flow;
 - minimal access/invitation policy;
 - logical data model;
+- API style/transport;
 - upload/download protocol;
 - expected-head commit contract;
 - reservation state machine;
-- offline and crash behavior;
+- offline/crash behavior;
 - security/threat model;
 - provider/cost assumptions;
-- first-release package and retention limits;
+- first-release package/retention limits;
 - API error/result contract;
-- cross-workstream contract with UI and runtime.
+- cross-workstream contract with UI/runtime.
 
 No backend code starts before BE-0 and the master planning gate are complete.
 
@@ -452,7 +547,7 @@ No backend code starts before BE-0 and the master planning gate are complete.
 
 After planning unlock:
 
-- implement the remote contracts against an in-memory/local deterministic test backend;
+- implement remote contracts against an in-memory/local deterministic test backend;
 - simulate two independent clients/processes;
 - prove expected-head and reservation invariants;
 - test idempotent retries and stale session generations;
@@ -462,7 +557,9 @@ After planning unlock:
 
 - verified Steam identity;
 - accessible-World listing;
-- minimal sharing/invitation/access policy;
+- flat membership + Access Manager policy;
+- invitation acceptance/rejection;
+- access revocation/transfer;
 - environment/state metadata retrieval;
 - authorization tests.
 
@@ -499,7 +596,7 @@ After planning unlock:
 - backup/restore test;
 - rate and size limits;
 - observability;
-- deployment and rollback;
+- deployment/rollback;
 - cost limits;
 - privacy/delete/export flows;
 - load tests based on measured Factorio and Palworld package sizes.
@@ -511,14 +608,13 @@ Only after correctness:
 - deduplication;
 - direct peer-to-peer acceleration;
 - background prefetch;
-- transfer compression tuning;
+- transfer-compression tuning;
 - retention compaction.
 
 ## Decisions still required before BE-0 completes
 
 - API style and transport.
 - Metadata database and object-storage provider.
-- Flat access policy: who can invite, revoke, or transfer administrative control without creating gameplay ownership.
 - Reservation heartbeat interval, uncertainty grace period, and reclaim authority.
 - First-release package size and retention limits.
 - Whether environment packages share the same transfer model as state packages.
@@ -526,17 +622,17 @@ Only after correctness:
 - Candidate retention after failed or stale commit.
 - Required encryption, regional storage, privacy, and deletion guarantees.
 - Initial commercial pricing/cost assumptions that constrain storage and transfer.
-- Whether a single backend deployment is acceptable for the first release or regional separation is required.
+- Whether one backend deployment is acceptable for the first release or regional separation is required.
 
 ## Backend planning completion gate
 
 Backend planning is complete only when:
 
-- every decision above is resolved or explicitly deferred without blocking the first implementation slice;
-- the API and state-machine contracts are precise enough to test without provider guessing;
-- UI-visible states and actions are supported;
+- every remaining decision is resolved or explicitly deferred without blocking the first implementation slice;
+- API and state-machine contracts are precise enough to test without provider guessing;
+- UI-visible states/actions are supported;
 - runtime recovery semantics match reservation and commit behavior;
 - threat model and provider/cost constraints are documented;
 - the first two-device backend acceptance test is specified;
-- no backend feature depends on branches, merging, social roles, or permanent game-server execution;
+- no backend feature depends on branches, merging, social role hierarchies, or permanent game-server execution;
 - the master roadmap lifts the planning lock.

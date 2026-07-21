@@ -134,7 +134,7 @@ The Access Manager may additionally:
 - invite/add another Steam identity through the approved invitation flow;
 - revoke another member's future access;
 - transfer Access Manager responsibility to another existing member;
-- stop sharing/delete the shared Steward World when the later deletion policy permits it.
+- stop sharing/delete the shared World according to the later deletion policy.
 
 Access Manager status gives **no**:
 
@@ -164,6 +164,8 @@ Only on this PC
 Pending invitations do not grant package download, reservation, or commit access before acceptance.
 
 The first release does not need a role editor or permission matrix.
+
+A Steward **World-access invitation** grants persistent membership only after acceptance. This is distinct from a Steam/game **multiplayer-session invitation**, which remains owned by Steam/the game and is used to join somebody who is currently hosting.
 
 #### Revocation
 
@@ -209,6 +211,45 @@ Core principle:
 
 > **Membership controls who may use the World. Access Manager controls only who is a member.**
 
+### BE-D004: Versioned HTTPS/JSON control API with direct object transfer
+
+Status: **approved**.
+
+The first-release Steward backend uses a versioned HTTPS request/response API with JSON for small control-plane operations such as authentication, World metadata, access management, reservation, recovery, transfer authorization, and commit.
+
+Conceptual transport shape:
+
+```text
+Steward desktop
+    |
+    | HTTPS + JSON
+    v
+Steward API
+    |
+    |-- transactional relational database
+    `-- issues short-lived transfer authorization
+
+Steward desktop <==== opaque package bytes ====> object storage
+```
+
+Rules:
+
+- API routes begin under a versioned surface such as `/api/v1/`.
+- Resource-oriented HTTP is used where natural; transactional operations may use explicit command-style endpoints rather than forcing artificial CRUD semantics.
+- JSON carries metadata and coordination values such as World ids, revision ids, expected heads, hashes, byte sizes, session ids, generations, and result states.
+- Large World/environment package bytes are never base64-embedded in JSON and normally do not pass through the Steward API service.
+- Authorized clients upload/download package bytes directly to/from object storage through short-lived provider-independent transfer authorization.
+- The API remains the authority gate: it authenticates the caller, checks World access/session authority, and issues transfer authorization; object storage only moves opaque bytes.
+- Important retryable mutations use explicit idempotency semantics so a lost response and safe retry cannot perform the logical operation twice.
+- Machine-readable result states are returned for domain outcomes; UI wording is not inferred by parsing free-form backend error text.
+- Persistent WebSockets, gRPC, custom binary protocols, and provider-specific transport types are not first-release dependencies.
+- Polling/refresh is sufficient for first-release background status unless measured behavior later demonstrates a concrete need for server push.
+- HTTP/2 may be used by normal infrastructure negotiation but is not a product-level semantic dependency.
+
+Core principle:
+
+> **The API controls authority. Object storage moves bytes.**
+
 ## Backend product boundary
 
 The backend must answer only:
@@ -238,6 +279,7 @@ The backend does not need to understand:
 ```text
 Steward desktop clients
         |
+        | HTTPS + JSON control plane
         v
 small Steward API / coordination service
         |-- transactional relational database
@@ -352,14 +394,28 @@ Required operations:
 - list Worlds where the caller is an active member;
 - retrieve one accessible World;
 - create/register a shared World;
-- create an invitation as Access Manager;
-- accept/reject an invitation as the invited Steam identity;
+- create a World-access invitation as Access Manager;
+- accept/reject a World-access invitation as the invited Steam identity;
 - revoke a member's future access as Access Manager;
 - atomically transfer Access Manager responsibility;
 - leave a World when doing so abandons no unresolved responsibility;
 - prevent unauthorized package download, reservation, transfer, and commit.
 
 Ordinary member revocation is deferred until an already-authorized active writable transaction resolves safely.
+
+### API style and transport
+
+The approved first-release transport contract is BE-D004.
+
+Required behavior:
+
+- versioned HTTPS request/response control API;
+- JSON for small metadata/coordination payloads;
+- explicit transactional command endpoints where clearer than artificial CRUD;
+- direct authorized object-storage transfer for opaque package bytes;
+- idempotency semantics for retryable logical mutations;
+- machine-readable domain results;
+- no first-release dependency on WebSockets, gRPC, custom binary protocols, or provider-specific transport types.
 
 ### Immutable revision upload
 
@@ -565,10 +621,12 @@ After planning unlock:
 
 ### BE-3: Immutable object transfer
 
+- HTTPS/JSON transfer authorization control plane;
 - resumable upload;
 - immutable publication;
 - size/hash verification;
 - authorized resumable download;
+- direct client/object-storage byte transfer;
 - local cache integration contract;
 - orphan candidate handling.
 
@@ -576,6 +634,7 @@ After planning unlock:
 
 - acquire/heartbeat/uncertain/reclaim/complete;
 - expected-head compare-and-swap;
+- idempotent retry behavior;
 - session generation invalidation;
 - no competing writer under race tests;
 - safe late-client rejection.
@@ -613,7 +672,6 @@ Only after correctness:
 
 ## Decisions still required before BE-0 completes
 
-- API style and transport.
 - Metadata database and object-storage provider.
 - Reservation heartbeat interval, uncertainty grace period, and reclaim authority.
 - First-release package size and retention limits.

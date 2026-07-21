@@ -33,11 +33,12 @@ public sealed class InMemoryBackendContractSimulationTests
             "S1",
             bytes.LongLength,
             hash);
+        var resumedTransfer = Assert.IsType<SimulatedTransferSnapshot>(resumed.Transfer);
 
         Assert.Equal(StartTransferStatus.Started, started.Status);
         Assert.Equal(UploadTransferPartStatus.Accepted, firstPart);
         Assert.Equal(StartTransferStatus.Resumed, resumed.Status);
-        Assert.Equal(new[] { 0 }, resumed.Transfer?.CompletedPartNumbers);
+        Assert.Equal(new[] { 0 }, resumedTransfer.CompletedPartNumbers);
         Assert.Null(fixture.Simulation.Authority.DownloadRevision("world-1", "steam-a", "S1"));
 
         Assert.Equal(
@@ -45,10 +46,13 @@ public sealed class InMemoryBackendContractSimulationTests
             fixture.Simulation.UploadTransferPart("transfer-s1", "steam-a", 1, bytes.AsSpan(3)));
 
         var finalized = fixture.Simulation.FinalizeTransfer("transfer-s1", "steam-a");
+        var publication = Assert.IsType<PublishCandidateResult>(finalized.Publication);
+        var downloaded = Assert.IsType<byte[]>(
+            fixture.Simulation.Authority.DownloadRevision("world-1", "steam-a", "S1"));
 
         Assert.Equal(FinalizeTransferStatus.Finalized, finalized.Status);
-        Assert.Equal(PublishCandidateStatus.Published, finalized.Publication?.Status);
-        Assert.Equal(bytes, fixture.Simulation.Authority.DownloadRevision("world-1", "steam-a", "S1"));
+        Assert.Equal(PublishCandidateStatus.Published, publication.Status);
+        Assert.Equal(bytes, downloaded);
     }
 
     [Fact]
@@ -144,11 +148,13 @@ public sealed class InMemoryBackendContractSimulationTests
             "world-1",
             "different-device",
             "S0");
+        var firstResult = Assert.IsType<AcquireReservationResult>(first.Result);
+        var replayResult = Assert.IsType<AcquireReservationResult>(replay.Result);
 
         Assert.Equal(IdempotencyExecutionStatus.Executed, first.Status);
-        Assert.Equal(AcquireReservationStatus.Acquired, first.Result?.Status);
+        Assert.Equal(AcquireReservationStatus.Acquired, firstResult.Status);
         Assert.Equal(IdempotencyExecutionStatus.Replayed, replay.Status);
-        Assert.Equal(first.Result, replay.Result);
+        Assert.Equal(firstResult, replayResult);
         Assert.Equal(IdempotencyExecutionStatus.KeyReuseConflict, conflict.Status);
         Assert.Null(conflict.Result);
     }
@@ -174,11 +180,13 @@ public sealed class InMemoryBackendContractSimulationTests
             reservation.Generation,
             "S0",
             "S1");
+        var firstResult = Assert.IsType<CommitCandidateResult>(first.Result);
+        var replayResult = Assert.IsType<CommitCandidateResult>(replay.Result);
 
         Assert.Equal(IdempotencyExecutionStatus.Executed, first.Status);
-        Assert.Equal(CommitCandidateStatus.Committed, first.Result?.Status);
+        Assert.Equal(CommitCandidateStatus.Committed, firstResult.Status);
         Assert.Equal(IdempotencyExecutionStatus.Replayed, replay.Status);
-        Assert.Equal(first.Result, replay.Result);
+        Assert.Equal(firstResult, replayResult);
         Assert.Equal("S1", fixture.Simulation.Authority.GetWorld("world-1", "steam-a")?.CurrentStateRevisionId);
     }
 
@@ -196,11 +204,13 @@ public sealed class InMemoryBackendContractSimulationTests
             "steam-a",
             "finalize-1",
             "transfer-s1");
+        var firstResult = Assert.IsType<FinalizeTransferResult>(first.Result);
+        var replayResult = Assert.IsType<FinalizeTransferResult>(replay.Result);
 
         Assert.Equal(IdempotencyExecutionStatus.Executed, first.Status);
-        Assert.Equal(FinalizeTransferStatus.Finalized, first.Result?.Status);
+        Assert.Equal(FinalizeTransferStatus.Finalized, firstResult.Status);
         Assert.Equal(IdempotencyExecutionStatus.Replayed, replay.Status);
-        Assert.Equal(first.Result, replay.Result);
+        Assert.Equal(firstResult, replayResult);
     }
 
     [Fact]
@@ -214,11 +224,11 @@ public sealed class InMemoryBackendContractSimulationTests
             "steam-a",
             reservation.Generation,
             "missing-candidate");
+        var stillActive = Assert.IsType<SimulatedReservationSnapshot>(
+            fixture.Simulation.Authority.GetReservation("world-1", "steam-a"));
 
         Assert.Equal(ContinueFromLastSafeStateStatus.InvalidCandidate, result);
-        Assert.Equal(
-            reservation.Generation,
-            fixture.Simulation.Authority.GetReservation("world-1", "steam-a")?.Generation);
+        Assert.Equal(reservation.Generation, stillActive.Generation);
     }
 
     [Fact]
@@ -258,9 +268,9 @@ public sealed class InMemoryBackendContractSimulationTests
                 "S1").Status);
         Assert.True(fixture.Simulation.Authority.ReleaseReservation("world-1", "steam-a", a.Generation));
 
-        Assert.Equal(
-            Bytes("state-from-a"),
+        var stateFromA = Assert.IsType<byte[]>(
             fixture.Simulation.Authority.DownloadRevision("world-1", "steam-b", "S1"));
+        Assert.Equal(Bytes("state-from-a"), stateFromA);
 
         var b = fixture.Acquire("steam-b", "pc-b", "S1");
         var competing = fixture.Simulation.Authority.AcquireReservation(
@@ -281,10 +291,10 @@ public sealed class InMemoryBackendContractSimulationTests
                 "S2").Status);
         Assert.True(fixture.Simulation.Authority.ReleaseReservation("world-1", "steam-b", b.Generation));
 
-        Assert.Equal("S2", fixture.Simulation.Authority.GetWorld("world-1", "steam-a")?.CurrentStateRevisionId);
-        Assert.Equal(
-            Bytes("state-from-b"),
+        var stateFromB = Assert.IsType<byte[]>(
             fixture.Simulation.Authority.DownloadRevision("world-1", "steam-a", "S2"));
+        Assert.Equal("S2", fixture.Simulation.Authority.GetWorld("world-1", "steam-a")?.CurrentStateRevisionId);
+        Assert.Equal(Bytes("state-from-b"), stateFromB);
     }
 
     private static byte[] Bytes(string value) => Encoding.UTF8.GetBytes(value);

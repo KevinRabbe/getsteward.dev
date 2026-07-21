@@ -12,11 +12,48 @@ The UI must express the product promise:
 
 ## Planning status
 
-Status: **planning locked**.
+Status: **planning locked — UI-0 in progress**.
 
 No production UI implementation or refactor begins until the UI planning gate is complete and the master roadmap explicitly lifts the lock.
 
 During the lock, allowed work is limited to documentation, screen-flow diagrams, state/action definitions, content wording, and read-only inspection of the existing WPF application.
+
+## Approved UI-0 decisions
+
+### UI-D001: Explicit Start, Host, and Join actions
+
+Status: **approved**.
+
+The first release does not use one contextual `Play` action that guesses the user's intent.
+
+Action model:
+
+```text
+Ready local-only World
+-> Start World
+
+Ready shared World
+-> Start World
+-> Host World
+
+World active on another device
+-> Join, when supported
+-> otherwise Wait until available
+```
+
+Definitions:
+
+- **Start World** starts the latest valid state as local/non-hosted play.
+- **Host World** starts the latest valid state as a temporary multiplayer host or dedicated server.
+- **Join** connects to the currently active host through Steam, the game, or adapter-supported connection behavior.
+
+Rules:
+
+- Start World and Host World are separate explicit choices because the runtime cannot always infer whether the user wants private/local play or multiplayer hosting.
+- Join replaces writable start actions while another device owns the active hosted session.
+- Start World and Host World are hidden or disabled whenever either would create a competing writable session.
+- Unsupported actions are omitted or explained through adapter capability state; the UI never branches on a game name.
+- A future contextual `Play` action may be reconsidered only after real usage proves a reliable automatic choice across supported adapters.
 
 ## UI boundaries
 
@@ -46,7 +83,7 @@ The UI does not own:
 
 1. **World first:** the World is the primary selectable product object.
 2. **Game first navigation:** users enter a game workspace and see only that game's Worlds.
-3. **One dominant action:** the current World state determines the primary action.
+3. **Explicit intent:** Ready Worlds expose Start World and Host World as separate actions where supported; the UI does not guess the user's desired mode.
 4. **Background first:** the application becomes quiet after launch but remains operational.
 5. **No infrastructure exposure:** primary screens do not show revision hashes, object keys, save paths, server folders, or adapter internals.
 6. **No false certainty:** uncertain state appears as Recovery needed, never Ready.
@@ -83,7 +120,7 @@ Selecting a game opens its workspace:
 - search and sort;
 - Import World action;
 - Worlds belonging only to that game;
-- selected World details and primary action.
+- selected World details and available actions.
 
 The first release does not use a cramped horizontal game-filter strip inside the Worlds list.
 
@@ -96,8 +133,8 @@ The primary area shows:
 - World name;
 - concise status;
 - current host/device identity only when operationally useful;
-- one dominant action;
-- a small secondary action only when necessary;
+- Start World and Host World when both are valid;
+- Join instead of writable start actions when another device hosts;
 - environment or recovery warning when blocked.
 
 Advanced identifiers and diagnostics remain collapsed.
@@ -227,7 +264,7 @@ or
 
 Acceptance:
 
-- Start/Host does not appear when it would create a competing writer;
+- Start World and Host World do not appear when either would create a competing writer;
 - Join uses Steam/game/adapter capabilities;
 - UI does not invent a social party workflow.
 
@@ -252,7 +289,7 @@ Acceptance:
 finish current World
 -> select another game
 -> select one of that game's Worlds
--> Start or Host
+-> Start World or Host World
 ```
 
 Acceptance:
@@ -279,10 +316,10 @@ Acceptance:
 
 ## User-visible state and action contract
 
-| State | Meaning | Primary action | Secondary action |
+| State | Meaning | Primary action(s) | Secondary action |
 |---|---|---|---|
 | Ready, local-only | Safe local state, not shared | Start World | Enable sharing only when shared backend is available |
-| Ready, shared | Safe current shared state | Start World or Host World according to chosen mode | None by default |
+| Ready, shared | Safe current shared state | Start World; Host World | None by default |
 | Preparing | Environment/state is being prepared | None | Cancel only before launch when safe |
 | Running locally here | This device owns the writable local session | Open game/Steward | None |
 | Hosting here | This device/server owns the writable hosted session | Open | Stop and Save when supported |
@@ -292,7 +329,7 @@ Acceptance:
 | Recovery needed | Last session did not complete safely | Recover | Continue from last safe state only when explicitly safe |
 | Offline shared World | Shared reservation/current head cannot be verified | None for writable play | Use cached read-only information |
 
-The exact Start versus Host presentation must be resolved during planning. The initial implementation may keep them explicit until enough adapters prove a safe automatic choice.
+The first-release action model is explicit. Steward does not collapse Start World and Host World into a contextual Play action.
 
 ## Progress contract
 
@@ -359,7 +396,8 @@ No production UI code starts before UI-0 and the master planning gate are comple
 ### UI-3: Lifecycle binding
 
 - UI driven by generic lifecycle state;
-- Start World and Host World actions;
+- explicit Start World and Host World actions;
+- Join replacing writable start actions when another device hosts;
 - meaningful progress;
 - disabling conflicting actions;
 - background/tray state;
@@ -395,15 +433,14 @@ No production UI code starts before UI-0 and the master planning gate are comple
 
 ## Decisions still required before UI-0 completes
 
-- Keep Start World and Host World as two explicit buttons, or use one contextual Play action plus an alternate mode.
-- Use a dedicated World route or a details pane inside the game workspace.
+- Exact layout of World details inside the selected game's workspace: persistent details pane, route-like focused view, or responsive combination.
 - Exact flat sharing/invitation UI after backend access policy is chosen.
 - Whether local-only Worlds remain a first-release user concept or import immediately offers shared setup.
 - Exact behavior when a shared World is offline but cached locally.
 - Whether Join opens through Steam automatically, adapter connection data, or a manual instruction fallback per capability.
 - Which recovery actions are safe enough for first release.
 - Whether tray presence is always enabled or only during active work.
-- Final terminology: Start World, Play World, Host World, Stop and Save, Saving, Recovery needed.
+- Final terminology for Stop and Save, Saving, and Recovery needed; Start World, Host World, and Join are approved.
 
 ## UI planning completion gate
 

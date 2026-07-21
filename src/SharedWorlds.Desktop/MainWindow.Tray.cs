@@ -74,6 +74,7 @@ public partial class MainWindow
         UpdateTrayStatus();
         UpdateUnifiedActionState();
         UpdateResponsibilityPresentation();
+        RebuildManagedGameTiles();
     }
 
     private void UpdateTrayStatus()

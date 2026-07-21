@@ -96,17 +96,25 @@ public sealed class SharedPackageTransferCleanupService
             await ReconcileExpiredActiveAsync(transfer, now, counters, cancellationToken);
         }
 
-        var abandonedCutoff = now - _options.VerifiedCandidateRetention;
-        var retainedAbandoned = await _transferStore.ListByStateExpiringBeforeAsync(
+        // Reconcile every expired Abandoned transfer on every pass. The retention window controls
+        // only whether a verified unreferenced object is cleanup-eligible; it must never delay repair
+        // when publication or conflict evidence becomes visible after an expiry race.
+        var expiredAbandoned = await _transferStore.ListByStateExpiringBeforeAsync(
             SharedPackageTransferState.Abandoned,
-            abandonedCutoff,
+            now,
             _options.BatchSize,
             cancellationToken);
+        var cleanupEligibilityCutoff = now - _options.VerifiedCandidateRetention;
 
-        foreach (var transfer in retainedAbandoned)
+        foreach (var transfer in expiredAbandoned)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await ReconcileRetainedAbandonedAsync(transfer, now, counters, cancellationToken);
+            await ReconcileAbandonedAsync(
+                transfer,
+                now,
+                cleanupEligibilityCutoff,
+                counters,
+                cancellationToken);
         }
 
         return counters.ToResult();
@@ -190,7 +198,6 @@ public sealed class SharedPackageTransferCleanupService
                 await _objectStore.AbortMultipartUploadAsync(
                     transfer.ProviderUploadId,
                     cancellationToken);
-                counters.RetainedVerifiedCandidates++;
             }
 
             return;
@@ -231,7 +238,6 @@ public sealed class SharedPackageTransferCleanupService
 
         if (MatchesExpectedObject(objectAfterAbort, transfer))
         {
-            counters.RetainedVerifiedCandidates++;
             return;
         }
 
@@ -247,9 +253,10 @@ public sealed class SharedPackageTransferCleanupService
         }
     }
 
-    private async Task ReconcileRetainedAbandonedAsync(
+    private async Task ReconcileAbandonedAsync(
         SharedPackageTransferRecord transfer,
         DateTimeOffset now,
+        DateTimeOffset cleanupEligibilityCutoff,
         CleanupCounters counters,
         CancellationToken cancellationToken)
     {
@@ -322,10 +329,16 @@ public sealed class SharedPackageTransferCleanupService
             return;
         }
 
-        // BE-D009: this verified remote candidate has outlived its ordinary grace period, so it is
-        // cleanup-eligible. Physical deletion is intentionally not performed here because transfer
-        // state alone cannot prove that no authoritative revision/recovery reference exists.
-        counters.VerifiedCandidatesCleanupEligible++;
+        if (transfer.ExpiresAt <= cleanupEligibilityCutoff)
+        {
+            // BE-D009: this verified remote candidate has outlived its ordinary grace period, so it is
+            // cleanup-eligible. Physical deletion is intentionally not performed here because transfer
+            // state alone cannot prove that no authoritative revision/recovery reference exists.
+            counters.VerifiedCandidatesCleanupEligible++;
+            return;
+        }
+
+        counters.RetainedVerifiedCandidates++;
     }
 
     private async Task<RevisionReferenceInspection> InspectRevisionReferenceAsync(

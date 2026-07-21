@@ -14,6 +14,7 @@ public sealed class WorldLifecycleService
     private readonly IWorldSessionCoordinator _sessionCoordinator;
     private readonly IWorkspaceRecoveryStore _workspaceRecoveryStore;
     private readonly ManagedWritableSessionGate _managedSessionGate;
+    private readonly IWorldLifecycleObserver _observer;
 
     public WorldLifecycleService(
         IWorldStorage storage,
@@ -23,7 +24,8 @@ public sealed class WorldLifecycleService
             storage,
             sessionCoordinator,
             workspaceRecoveryStore,
-            new ManagedWritableSessionGate())
+            new ManagedWritableSessionGate(),
+            NullWorldLifecycleObserver.Instance)
     {
     }
 
@@ -32,15 +34,32 @@ public sealed class WorldLifecycleService
         IWorldSessionCoordinator sessionCoordinator,
         IWorkspaceRecoveryStore workspaceRecoveryStore,
         ManagedWritableSessionGate managedSessionGate)
+        : this(
+            storage,
+            sessionCoordinator,
+            workspaceRecoveryStore,
+            managedSessionGate,
+            NullWorldLifecycleObserver.Instance)
+    {
+    }
+
+    public WorldLifecycleService(
+        IWorldStorage storage,
+        IWorldSessionCoordinator sessionCoordinator,
+        IWorkspaceRecoveryStore workspaceRecoveryStore,
+        ManagedWritableSessionGate managedSessionGate,
+        IWorldLifecycleObserver observer)
     {
         ArgumentNullException.ThrowIfNull(storage);
         ArgumentNullException.ThrowIfNull(sessionCoordinator);
         ArgumentNullException.ThrowIfNull(workspaceRecoveryStore);
         ArgumentNullException.ThrowIfNull(managedSessionGate);
+        ArgumentNullException.ThrowIfNull(observer);
         _storage = storage;
         _sessionCoordinator = sessionCoordinator;
         _workspaceRecoveryStore = workspaceRecoveryStore;
         _managedSessionGate = managedSessionGate;
+        _observer = observer;
     }
 
     public async Task<World> ImportAsync(
@@ -135,15 +154,59 @@ public sealed class WorldLifecycleService
         return updated;
     }
 
-    public async Task<PreparedWorldContext> PrepareAsync(
+    public Task<PreparedWorldContext> PrepareAsync(
         WorldId worldId,
         IGameAdapter adapter,
         GameInstallation installation,
         CancellationToken cancellationToken = default)
+        => PrepareCoreAsync(
+            worldId,
+            adapter,
+            installation,
+            mode: null,
+            cancellationToken);
+
+    public Task<World> ContinueLocalAsync(
+        WorldId worldId,
+        IGameAdapter adapter,
+        GameInstallation installation,
+        UserIdentity user,
+        CancellationToken cancellationToken = default)
+        => ContinueSessionAsync(
+            worldId,
+            adapter,
+            installation,
+            user,
+            ManagedWorldSessionMode.Local,
+            launchSession: adapter.LaunchLocalAsync,
+            cancellationToken: cancellationToken);
+
+    public Task<World> ContinueAsHostAsync(
+        WorldId worldId,
+        IGameAdapter adapter,
+        GameInstallation installation,
+        UserIdentity user,
+        CancellationToken cancellationToken = default)
+        => ContinueSessionAsync(
+            worldId,
+            adapter,
+            installation,
+            user,
+            ManagedWorldSessionMode.Hosted,
+            launchSession: adapter.LaunchHostAsync,
+            cancellationToken: cancellationToken);
+
+    private async Task<PreparedWorldContext> PrepareCoreAsync(
+        WorldId worldId,
+        IGameAdapter adapter,
+        GameInstallation installation,
+        ManagedWorldSessionMode? mode,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(adapter);
         ArgumentNullException.ThrowIfNull(installation);
 
+        Notify(worldId, mode, WorldLifecyclePhase.ResolvingWorld);
         var world = await _storage.LoadWorldAsync(worldId, cancellationToken)
             ?? throw new WorldNotFoundException(worldId);
 
@@ -180,6 +243,7 @@ public sealed class WorldLifecycleService
 
         EnsureAdapterMatches(adapter.Id, stateRevision.AdapterId, "state revision");
 
+        Notify(worldId, mode, WorldLifecyclePhase.PreparingEnvironment);
         var prepared = (await adapter.PrepareEnvironmentAsync(
             installation,
             environmentRevision.Manifest,
@@ -188,6 +252,7 @@ public sealed class WorldLifecycleService
             DisplayName = world.Name
         };
 
+        Notify(worldId, mode, WorldLifecyclePhase.DownloadingState);
         var materializedPackagePath = Path.Combine(
             Path.GetTempPath(),
             "SharedWorlds",
@@ -213,6 +278,7 @@ public sealed class WorldLifecycleService
 
         try
         {
+            Notify(worldId, mode, WorldLifecyclePhase.RestoringState);
             await adapter.RestoreStateAsync(
                 prepared,
                 new StatePackage(stateRevision.StatePackageId, materializedPackagePath),
@@ -226,39 +292,12 @@ public sealed class WorldLifecycleService
         return new PreparedWorldContext(world, prepared);
     }
 
-    public Task<World> ContinueLocalAsync(
-        WorldId worldId,
-        IGameAdapter adapter,
-        GameInstallation installation,
-        UserIdentity user,
-        CancellationToken cancellationToken = default)
-        => ContinueSessionAsync(
-            worldId,
-            adapter,
-            installation,
-            user,
-            launchSession: adapter.LaunchLocalAsync,
-            cancellationToken: cancellationToken);
-
-    public Task<World> ContinueAsHostAsync(
-        WorldId worldId,
-        IGameAdapter adapter,
-        GameInstallation installation,
-        UserIdentity user,
-        CancellationToken cancellationToken = default)
-        => ContinueSessionAsync(
-            worldId,
-            adapter,
-            installation,
-            user,
-            launchSession: adapter.LaunchHostAsync,
-            cancellationToken: cancellationToken);
-
     private async Task<World> ContinueSessionAsync(
         WorldId worldId,
         IGameAdapter adapter,
         GameInstallation installation,
         UserIdentity user,
+        ManagedWorldSessionMode mode,
         Func<PreparedWorld, CancellationToken, Task<GameSessionHandle>> launchSession,
         CancellationToken cancellationToken)
     {
@@ -271,6 +310,8 @@ public sealed class WorldLifecycleService
         // two different Worlds would otherwise have independent per-World coordinator leases.
         using var managedSessionLease = _managedSessionGate.Acquire(worldId);
 
+        Notify(worldId, mode, WorldLifecyclePhase.AcquiringReservation);
+
         // Local play and temporary hosting share the same canonical-writer transaction.
         // Persistent Steward sharing is a separate concern and is never a prerequisite for Host.
         await _sessionCoordinator.AcquireHostAsync(worldId, user, cancellationToken);
@@ -281,10 +322,11 @@ public sealed class WorldLifecycleService
 
         try
         {
-            context = await PrepareAsync(
+            context = await PrepareCoreAsync(
                 worldId,
                 adapter,
                 installation,
+                mode,
                 cancellationToken);
 
             var baseStateRevisionId = context.World.CurrentStateRevisionId
@@ -304,17 +346,22 @@ public sealed class WorldLifecycleService
                 UpdatedAt: now,
                 Status: WorkspaceRecoveryStatus.Active);
 
+            Notify(worldId, mode, WorldLifecyclePhase.RegisteringRecovery);
             // Register before launch. A hard process/OS crash after this point leaves an
             // Active record that can be surfaced as an interrupted-session candidate.
             await _workspaceRecoveryStore.SaveAsync(workspaceRecord, cancellationToken);
 
+            Notify(worldId, mode, WorldLifecyclePhase.StartingSession);
             var session = await launchSession(context.PreparedWorld, cancellationToken);
             sessionStarted = true;
+            Notify(worldId, mode, WorldLifecyclePhase.Running);
             await adapter.WaitForSessionEndAsync(session, cancellationToken);
 
+            Notify(worldId, mode, WorldLifecyclePhase.WaitingForSafeCapture);
             CapturedState? captured = null;
             try
             {
+                Notify(worldId, mode, WorldLifecyclePhase.Capturing);
                 captured = await adapter.CaptureStateAsync(context.PreparedWorld, cancellationToken);
                 var nextRevisionId = RevisionId.New();
 
@@ -327,6 +374,7 @@ public sealed class WorldLifecycleService
                     AdapterId: adapter.Id,
                     StatePackageId: captured.Package.Id);
 
+                Notify(worldId, mode, WorldLifecyclePhase.StoringCandidate);
                 await using (var package = File.OpenRead(captured.Package.Path))
                 {
                     await _storage.StoreRevisionAsync(revision, package, cancellationToken);
@@ -337,14 +385,17 @@ public sealed class WorldLifecycleService
                     CurrentStateRevisionId = nextRevisionId
                 };
 
+                Notify(worldId, mode, WorldLifecyclePhase.Committing);
                 // Advance the canonical head only after the new immutable revision is durable.
                 await _storage.SaveWorldAsync(updatedWorld, cancellationToken);
 
+                Notify(worldId, mode, WorldLifecyclePhase.Finalizing);
                 await CompleteSuccessfulWorkspaceAsync(
                     adapter,
                     context.PreparedWorld,
                     workspaceRecord);
 
+                Notify(worldId, mode, WorldLifecyclePhase.Completed);
                 return updatedWorld;
             }
             finally
@@ -355,6 +406,11 @@ public sealed class WorldLifecycleService
         catch (Exception exception)
         {
             operationException = exception;
+
+            if (sessionStarted)
+            {
+                Notify(worldId, mode, WorldLifecyclePhase.RecoveryNeeded, exception.Message);
+            }
 
             if (context is not null && workspaceRecord is not null)
             {
@@ -408,6 +464,7 @@ public sealed class WorldLifecycleService
         }
         catch (Exception exception)
         {
+            Notify(record.WorldId, mode: null, WorldLifecyclePhase.CleanupPending, exception.Message);
             await TrySaveWorkspaceStatusAsync(
                 record,
                 WorkspaceRecoveryStatus.CleanupPending,
@@ -450,6 +507,7 @@ public sealed class WorldLifecycleService
             return;
         }
 
+        Notify(record.WorldId, mode: null, WorldLifecyclePhase.CleanupPending, failure.Message);
         await TrySaveWorkspaceStatusAsync(
             record,
             WorkspaceRecoveryStatus.CleanupPending,
@@ -511,6 +569,18 @@ public sealed class WorldLifecycleService
             // Startup reconciliation can remove records whose workspaces no longer exist.
         }
     }
+
+    private void Notify(
+        WorldId worldId,
+        ManagedWorldSessionMode? mode,
+        WorldLifecyclePhase phase,
+        string? detail = null)
+        => _observer.OnPhaseChanged(new WorldLifecyclePhaseChange(
+            worldId,
+            mode,
+            phase,
+            DateTimeOffset.UtcNow,
+            detail));
 
     private static void EnsureAdapterMatches(
         string expectedAdapterId,

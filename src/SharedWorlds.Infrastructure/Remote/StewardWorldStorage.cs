@@ -58,9 +58,9 @@ public sealed class StewardCommitOutcomeUnknownException : IOException
 /// SaveWorldAsync maps the Core "write canonical head last" boundary onto the exact BE-4 reservation
 /// generation registered by <see cref="StewardWorldSessionCoordinator"/>.
 ///
-/// Before any candidate bytes are published, the candidate revision ID is written into the local
-/// workspace recovery journal. This is the write-ahead record that lets Waiting to sync distinguish
-/// an interrupted upload, a lost commit response, and an already-successful canonical commit.
+/// When a workspace recovery store is supplied, the candidate revision ID is journaled before any
+/// candidate bytes are published. That write-ahead record lets Waiting to sync distinguish an
+/// interrupted upload, a lost commit response, and an already-successful canonical commit.
 /// </summary>
 public sealed class StewardWorldStorage : IWorldStorage
 {
@@ -70,8 +70,28 @@ public sealed class StewardWorldStorage : IWorldStorage
     private readonly StewardAuthorityClient _authority;
     private readonly IStewardAccessTokenProvider _accessTokens;
     private readonly StewardWritableReservationRegistry _reservations;
-    private readonly IWorkspaceRecoveryStore _recovery;
+    private readonly IWorkspaceRecoveryStore? _recovery;
     private readonly StewardWorldStorageOptions _options;
+
+    public StewardWorldStorage(
+        StewardWorldMetadataClient metadata,
+        StewardVerifiedPackageSource packages,
+        StewardPackageUploadClient uploads,
+        StewardAuthorityClient authority,
+        IStewardAccessTokenProvider accessTokens,
+        StewardWritableReservationRegistry reservations,
+        StewardWorldStorageOptions? options = null)
+        : this(
+            metadata,
+            packages,
+            uploads,
+            authority,
+            accessTokens,
+            reservations,
+            recovery: null,
+            options)
+    {
+    }
 
     public StewardWorldStorage(
         StewardWorldMetadataClient metadata,
@@ -82,6 +102,28 @@ public sealed class StewardWorldStorage : IWorldStorage
         StewardWritableReservationRegistry reservations,
         IWorkspaceRecoveryStore recovery,
         StewardWorldStorageOptions? options = null)
+        : this(
+            metadata,
+            packages,
+            uploads,
+            authority,
+            accessTokens,
+            reservations,
+            (IWorkspaceRecoveryStore?)recovery,
+            options)
+    {
+        ArgumentNullException.ThrowIfNull(recovery);
+    }
+
+    private StewardWorldStorage(
+        StewardWorldMetadataClient metadata,
+        StewardVerifiedPackageSource packages,
+        StewardPackageUploadClient uploads,
+        StewardAuthorityClient authority,
+        IStewardAccessTokenProvider accessTokens,
+        StewardWritableReservationRegistry reservations,
+        IWorkspaceRecoveryStore? recovery,
+        StewardWorldStorageOptions? options)
     {
         ArgumentNullException.ThrowIfNull(metadata);
         ArgumentNullException.ThrowIfNull(packages);
@@ -89,7 +131,6 @@ public sealed class StewardWorldStorage : IWorldStorage
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(accessTokens);
         ArgumentNullException.ThrowIfNull(reservations);
-        ArgumentNullException.ThrowIfNull(recovery);
 
         _metadata = metadata;
         _packages = packages;
@@ -377,6 +418,11 @@ public sealed class StewardWorldStorage : IWorldStorage
         StewardWritableReservationLease lease,
         CancellationToken cancellationToken)
     {
+        if (_recovery is null)
+        {
+            return;
+        }
+
         var records = await _recovery.ListAsync(cancellationToken);
         var record = records
             .Where(candidate =>

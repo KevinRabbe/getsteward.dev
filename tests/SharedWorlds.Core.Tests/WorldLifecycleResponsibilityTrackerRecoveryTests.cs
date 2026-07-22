@@ -63,7 +63,7 @@ public sealed class WorldLifecycleResponsibilityTrackerRecoveryTests
     }
 
     [Fact]
-    public void ActiveRecordFoundAfterRestartIsRecoveryNeeded()
+    public void ActiveRecordFoundAfterRestartRequiresExplicitInterruptedSessionDecision()
     {
         var tracker = new WorldLifecycleResponsibilityTracker();
         var worldId = WorldId.New();
@@ -73,10 +73,11 @@ public sealed class WorldLifecycleResponsibilityTrackerRecoveryTests
         ]);
 
         var snapshot = tracker.Current;
-        Assert.Equal(WorldLifecycleResponsibilityKind.RecoveryNeeded, snapshot.Kind);
+        Assert.Equal(WorldLifecycleResponsibilityKind.InterruptedSession, snapshot.Kind);
         Assert.Equal(worldId, snapshot.WorldId);
         Assert.Equal(WorldLifecyclePhase.RecoveryNeeded, snapshot.Phase);
         Assert.False(snapshot.CanQuitWithoutGuard);
+        Assert.False(snapshot.CanSelfUpdate);
     }
 
     private static WorkspaceRecoveryRecord RecoveryRecord(

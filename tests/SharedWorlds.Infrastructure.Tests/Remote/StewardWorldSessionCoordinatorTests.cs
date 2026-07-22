@@ -16,9 +16,9 @@ public sealed class StewardWorldSessionCoordinatorTests
         var stateId = RevisionId.New();
         var sessionId = Guid.NewGuid();
         var heartbeatObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var metadata = Client(request => JsonResponse(
+        var metadata = new StewardWorldMetadataClient(Client(request => JsonResponse(
             HttpStatusCode.OK,
-            WorldFoundJson(worldId, stateId)));
+            WorldFoundJson(worldId, stateId))));
         var authorityHandler = new RecordingHandler(request =>
         {
             if (request.RequestUri!.AbsolutePath.EndsWith("/reservation/acquire", StringComparison.Ordinal))
@@ -76,8 +76,10 @@ public sealed class StewardWorldSessionCoordinatorTests
         var worldId = WorldId.New();
         var stateId = RevisionId.New();
         var sessionId = Guid.NewGuid();
-        var metadata = Client(_ => JsonResponse(HttpStatusCode.OK, WorldFoundJson(worldId, stateId)));
-        var authority = Client(request => request.RequestUri!.AbsolutePath.EndsWith("/reservation/acquire", StringComparison.Ordinal)
+        var metadata = new StewardWorldMetadataClient(Client(_ => JsonResponse(
+            HttpStatusCode.OK,
+            WorldFoundJson(worldId, stateId))));
+        using var authority = Client(request => request.RequestUri!.AbsolutePath.EndsWith("/reservation/acquire", StringComparison.Ordinal)
             ? JsonResponse(
                 HttpStatusCode.OK,
                 ReservationJson("ReservationAcquired", worldId, stateId, sessionId, "device-a", 4, "Active"))
@@ -120,8 +122,10 @@ public sealed class StewardWorldSessionCoordinatorTests
     {
         var worldId = WorldId.New();
         var stateId = RevisionId.New();
-        var metadata = Client(_ => JsonResponse(HttpStatusCode.OK, WorldFoundJson(worldId, stateId)));
-        var authority = Client(_ => JsonResponse(
+        var metadata = new StewardWorldMetadataClient(Client(_ => JsonResponse(
+            HttpStatusCode.OK,
+            WorldFoundJson(worldId, stateId))));
+        using var authority = Client(_ => JsonResponse(
             HttpStatusCode.OK,
             ReservationJson(
                 "ReservationAlreadyHeldByCaller",
@@ -131,7 +135,7 @@ public sealed class StewardWorldSessionCoordinatorTests
                 "device-b",
                 5,
                 "Active")));
-        var abandon = Client(_ => throw new InvalidOperationException("Abandon must not run."));
+        using var abandon = Client(_ => throw new InvalidOperationException("Abandon must not run."));
         using var registry = new StewardWritableReservationRegistry();
         var coordinator = Coordinator(
             metadata,
@@ -155,10 +159,12 @@ public sealed class StewardWorldSessionCoordinatorTests
     {
         var worldId = WorldId.New();
         var stateId = RevisionId.New();
-        var metadata = Client(_ => JsonResponse(HttpStatusCode.OK, WorldFoundJson(worldId, stateId)));
+        var metadata = new StewardWorldMetadataClient(Client(_ => JsonResponse(
+            HttpStatusCode.OK,
+            WorldFoundJson(worldId, stateId))));
         var authorityHandler = new RecordingHandler(_ => throw new HttpRequestException("network down"));
         using var authorityHttp = Http(authorityHandler);
-        var abandon = Client(_ => throw new InvalidOperationException("Abandon must not run."));
+        using var abandon = Client(_ => throw new InvalidOperationException("Abandon must not run."));
         using var registry = new StewardWritableReservationRegistry();
         var coordinator = Coordinator(
             metadata,
@@ -203,9 +209,9 @@ public sealed class StewardWorldSessionCoordinatorTests
                 acquireTransportAttempts,
                 headRefreshAttempts: 2));
 
-    private static StewardWorldMetadataClient Client(
+    private static HttpClient Client(
         Func<HttpRequestMessage, HttpResponseMessage> responseFactory)
-        => new(Http(new RecordingHandler(responseFactory)));
+        => Http(new RecordingHandler(responseFactory));
 
     private static HttpClient Http(HttpMessageHandler handler)
         => new(handler)

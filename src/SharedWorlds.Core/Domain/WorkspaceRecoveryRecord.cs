@@ -17,4 +17,5 @@ public sealed record WorkspaceRecoveryRecord(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     WorkspaceRecoveryStatus Status,
-    string? Reason = null);
+    string? Reason = null,
+    RevisionId? CandidateStateRevisionId = null);

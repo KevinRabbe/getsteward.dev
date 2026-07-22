@@ -18,7 +18,7 @@ if ([string]::IsNullOrWhiteSpace($ApiBaseUrl)) {
     Fail 'STEWARD_API_BASE_URL is not configured.'
 }
 
-$apiUri = $null
+[Uri]$apiUri = $null
 if (-not [Uri]::TryCreate($ApiBaseUrl, [UriKind]::Absolute, [ref]$apiUri)) {
     Fail 'STEWARD_API_BASE_URL is not an absolute URI.'
 }
@@ -27,7 +27,7 @@ if ($apiUri.Scheme -ne 'https') {
     Fail 'Live E4 acceptance requires an HTTPS Steward API endpoint.'
 }
 
-$parsedAppId = 0u
+[UInt32]$parsedAppId = 0
 if (-not [UInt32]::TryParse($SteamAppId, [ref]$parsedAppId) -or $parsedAppId -eq 0) {
     Fail 'STEWARD_STEAM_APP_ID must be a positive Steam AppID.'
 }

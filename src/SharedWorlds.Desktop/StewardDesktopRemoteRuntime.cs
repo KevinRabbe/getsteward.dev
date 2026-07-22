@@ -10,8 +10,8 @@ namespace SharedWorlds.Desktop;
 /// <summary>
 /// Owns the authenticated shared-World runtime used by the Windows desktop after Steam identity has
 /// already been verified. Steam ticket acquisition is intentionally outside this composition root;
-/// once authenticated, all shared World metadata, transfer, authority, commit, and recovery traffic
-/// flows through the production remote Infrastructure implementations.
+/// once authenticated, all shared World metadata, transfer, authority, commit, recovery, and flat
+/// access-management traffic flows through the production remote Infrastructure implementations.
 /// </summary>
 internal sealed class StewardDesktopRemoteRuntime : IDisposable
 {
@@ -30,6 +30,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         WorldLifecycleService lifecycle,
         StewardPendingSyncRecoveryService pendingSyncRecovery,
         StewardInitialWorldPublisher initialWorldPublisher,
+        StewardWorldAccessClient access,
         UserIdentity user)
     {
         _apiClient = apiClient;
@@ -40,6 +41,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         Lifecycle = lifecycle;
         PendingSyncRecovery = pendingSyncRecovery;
         InitialWorldPublisher = initialWorldPublisher;
+        Access = access;
         User = user;
     }
 
@@ -47,6 +49,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
     public WorldLifecycleService Lifecycle { get; }
     public StewardPendingSyncRecoveryService PendingSyncRecovery { get; }
     public StewardInitialWorldPublisher InitialWorldPublisher { get; }
+    public StewardWorldAccessClient Access { get; }
     public UserIdentity User { get; }
 
     public static StewardDesktopRemoteRuntime Create(
@@ -89,6 +92,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
 
             var metadata = new StewardWorldMetadataClient(apiClient);
             var worldCreation = new StewardWorldCreationClient(apiClient);
+            var access = new StewardWorldAccessClient(apiClient, accessSession);
             var authority = new StewardAuthorityClient(apiClient);
             var abandon = new StewardReservationAbandonClient(apiClient);
             var packageDownloads = new StewardPackageDownloadClient(apiClient);
@@ -145,6 +149,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 lifecycle,
                 pendingSyncRecovery,
                 initialWorldPublisher,
+                access,
                 authenticatedUser);
         }
         catch

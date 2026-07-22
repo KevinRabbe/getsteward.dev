@@ -6,7 +6,7 @@ This directory is the canonical home for active product, architecture, engineeri
 
 ## Current project mode
 
-> **Implementation is unlocked. BE-1 through BE-5 are complete and green at the development-contract level. The active work is E4 Windows Desktop/background-runtime composition of the already-proven remote stack, followed by exact-version Verify/Repair integration before remote Join/Host is treated as product-ready.**
+> **Implementation is unlocked. BE-1 through BE-5 are complete and green at the development-contract level. E4 has now composed the proven authenticated remote stack into the Windows Desktop, including Steam Web API ticket authentication, stable installation identity, canonical shared-World routing, and exact-environment Verify/Repair gating. The remaining E4 boundary is live Windows + real Steam AppID + deployed-backend acceptance and Desktop recovery/action-required completion.**
 
 Start with the [Master Roadmap](ROADMAP.md), then work through the three implementation workstreams:
 
@@ -21,7 +21,8 @@ Current backend/runtime completion evidence:
 - [BE-2 Status](BE2_STATUS.md) — authenticated World/access/revision metadata with durable PostgreSQL persistence;
 - [BE-3 S3 Checkpoint](BE3_S3_CHECKPOINT.md) — immutable transfer, S3-compatible protocol proof, cleanup/retention, and desktop verified caching/materialization;
 - [BE-4 Status](BE4_STATUS.md) — durable one-writer reservation/generation authority, canonical commit, reclaim, late-writer rejection, and transactional idempotency;
-- [BE-5 Status](BE5_STATUS.md) — real PostgreSQL-backed PC A -> PC B -> PC A handoff, adverse authority/reclaim proof, and deterministic Waiting-to-sync recovery after a lost successful commit response.
+- [BE-5 Status](BE5_STATUS.md) — real PostgreSQL-backed PC A -> PC B -> PC A handoff, adverse authority/reclaim proof, and deterministic Waiting-to-sync recovery after a lost successful commit response;
+- [E4 Windows Desktop Status](E4_DESKTOP_STATUS.md) — production Desktop remote composition, stable installation identity, Steam Web API ticket bootstrap, merged local/shared World routing, exact-environment gate, and remaining live-deployment acceptance boundary.
 
 ## Documentation authority
 

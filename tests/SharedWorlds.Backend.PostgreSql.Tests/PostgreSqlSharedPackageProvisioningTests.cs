@@ -53,7 +53,7 @@ public sealed class PostgreSqlSharedPackageProvisioningTests : IAsyncLifetime
     public async Task OneInFlightTransferPerImmutableObjectKeyAndActivationIsCompareAndSet()
     {
         var first = ProvisioningTransfer("pending:first");
-        var competing = ProvisioningTransfer("pending:second") with
+        var competing = first with
         {
             Id = SharedPackageTransferId.New(),
             ProviderUploadId = "pending:second"
@@ -113,10 +113,12 @@ public sealed class PostgreSqlSharedPackageProvisioningTests : IAsyncLifetime
             SharedPackageTransferState.Abandoned,
             Now));
 
-        var replacement = ProvisioningTransfer("pending:replacement") with
+        var replacement = first with
         {
             Id = SharedPackageTransferId.New(),
-            ProviderUploadId = "pending:replacement"
+            ProviderUploadId = "pending:replacement",
+            State = SharedPackageTransferState.Provisioning,
+            FinalizedAt = null
         };
 
         Assert.True(await _transfers.TryCreateAsync(replacement));

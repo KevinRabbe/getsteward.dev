@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Input;
 
 namespace SharedWorlds.Desktop;
 
@@ -17,7 +18,7 @@ public partial class MainWindow
         Padding = new Thickness(10, 5, 10, 5),
         VerticalContentAlignment = VerticalAlignment.Center,
         VerticalAlignment = VerticalAlignment.Top,
-        ToolTip = "Search managed Worlds by World name or game."
+        ToolTip = "Search managed Worlds by World name or game. Ctrl+F focuses this search."
     };
     private DependencyPropertyDescriptor? _worldItemsSourceDescriptor;
     private bool _worldSearchUiInitialized;
@@ -32,6 +33,9 @@ public partial class MainWindow
 
         _worldSearchUiInitialized = true;
         AutomationProperties.SetName(_worldSearchBox, WorldSearchPlaceholder);
+        AutomationProperties.SetHelpText(
+            _worldSearchBox,
+            "Type a World or game name. Press Escape to clear the current search.");
         _worldSearchBox.SetResourceReference(Control.BackgroundProperty, "PanelAltBrush");
         _worldSearchBox.SetResourceReference(Control.ForegroundProperty, "TextBrush");
         _worldSearchBox.SetResourceReference(Control.BorderBrushProperty, "BorderBrush");
@@ -53,6 +57,7 @@ public partial class MainWindow
         _worldSearchBox.TextChanged += (_, _) => ApplyWorldSearchFilter();
         _worldSearchBox.GotKeyboardFocus += (_, _) => ClearWorldSearchPlaceholder();
         _worldSearchBox.LostKeyboardFocus += (_, _) => RestoreWorldSearchPlaceholder();
+        PreviewKeyDown += WorldSearchPreviewKeyDown;
         _worldItemsSourceDescriptor = DependencyPropertyDescriptor.FromProperty(
             ItemsControl.ItemsSourceProperty,
             typeof(ListBox));
@@ -62,6 +67,26 @@ public partial class MainWindow
 
         RestoreWorldSearchPlaceholder();
         ApplyWorldSearchFilter();
+    }
+
+    private void WorldSearchPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.F && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        {
+            _worldSearchBox.Focus();
+            ClearWorldSearchPlaceholder();
+            _worldSearchBox.SelectAll();
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Escape &&
+            _worldSearchBox.IsKeyboardFocusWithin &&
+            GetWorldSearchQuery().Length > 0)
+        {
+            _worldSearchBox.Clear();
+            e.Handled = true;
+        }
     }
 
     private void ClearWorldSearchPlaceholder()

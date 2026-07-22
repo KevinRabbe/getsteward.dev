@@ -279,7 +279,7 @@ public sealed class StewardPackageUploadClientTests
         bool providerUploadCompleted = false)
     {
         var parts = completedPartNumber is { } number && completedPartBytes is { } partBytes
-            ? $$"[{ "partNumber": {{number}}, "byteSize": {{partBytes}} }]"
+            ? $"[{{ \"partNumber\": {number}, \"byteSize\": {partBytes} }}]"
             : "[]";
         return $$"""
         {
@@ -354,12 +354,18 @@ public sealed class StewardPackageUploadClientTests
             var bodyBytes = request.Content is null
                 ? null
                 : await request.Content.ReadAsByteArrayAsync(cancellationToken);
-            var headers = request.Headers
-                .Concat(request.Content?.Headers ?? [])
-                .ToDictionary(
-                    header => header.Key,
-                    header => string.Join(",", header.Value),
-                    StringComparer.OrdinalIgnoreCase);
+            var headers = request.Headers.ToDictionary(
+                header => header.Key,
+                header => string.Join(",", header.Value),
+                StringComparer.OrdinalIgnoreCase);
+            if (request.Content is not null)
+            {
+                foreach (var header in request.Content.Headers)
+                {
+                    headers[header.Key] = string.Join(",", header.Value);
+                }
+            }
+
             Requests.Add(new RequestSnapshot(
                 request.Method,
                 request.RequestUri?.AbsoluteUri,

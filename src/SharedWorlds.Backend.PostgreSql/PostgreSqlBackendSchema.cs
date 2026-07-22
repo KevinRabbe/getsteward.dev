@@ -21,6 +21,79 @@ public static class PostgreSqlBackendSchema
         ALTER TABLE steward_shared_worlds
             ADD COLUMN IF NOT EXISTS reservation_generation bigint NOT NULL DEFAULT 0;
 
+        CREATE TABLE IF NOT EXISTS steward_world_canonical_heads (
+            world_id uuid NOT NULL REFERENCES steward_shared_worlds(world_id) ON DELETE CASCADE,
+            sequence bigint NOT NULL CHECK (sequence >= 0),
+            state_revision_id uuid NOT NULL,
+            environment_revision_id uuid NULL,
+            committed_at timestamptz NOT NULL,
+            PRIMARY KEY (world_id, sequence)
+        );
+
+        CREATE INDEX IF NOT EXISTS ix_steward_world_canonical_heads_recent
+            ON steward_world_canonical_heads(world_id, sequence DESC);
+
+        CREATE OR REPLACE FUNCTION steward_record_canonical_head()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $$
+        DECLARE
+            next_sequence bigint;
+        BEGIN
+            IF TG_OP = 'UPDATE' AND
+               NEW.current_state_revision_id IS NOT DISTINCT FROM OLD.current_state_revision_id AND
+               NEW.current_environment_revision_id IS NOT DISTINCT FROM OLD.current_environment_revision_id THEN
+                RETURN NEW;
+            END IF;
+
+            SELECT COALESCE(MAX(sequence), -1) + 1
+            INTO next_sequence
+            FROM steward_world_canonical_heads
+            WHERE world_id = NEW.world_id;
+
+            INSERT INTO steward_world_canonical_heads (
+                world_id,
+                sequence,
+                state_revision_id,
+                environment_revision_id,
+                committed_at)
+            VALUES (
+                NEW.world_id,
+                next_sequence,
+                NEW.current_state_revision_id,
+                NEW.current_environment_revision_id,
+                CASE WHEN TG_OP = 'INSERT' THEN NEW.created_at ELSE NEW.updated_at END);
+
+            RETURN NEW;
+        END;
+        $$;
+
+        DROP TRIGGER IF EXISTS trg_steward_record_canonical_head ON steward_shared_worlds;
+        CREATE TRIGGER trg_steward_record_canonical_head
+            AFTER INSERT OR UPDATE OF current_state_revision_id, current_environment_revision_id
+            ON steward_shared_worlds
+            FOR EACH ROW
+            EXECUTE FUNCTION steward_record_canonical_head();
+
+        INSERT INTO steward_world_canonical_heads (
+            world_id,
+            sequence,
+            state_revision_id,
+            environment_revision_id,
+            committed_at)
+        SELECT
+            w.world_id,
+            0,
+            w.current_state_revision_id,
+            w.current_environment_revision_id,
+            w.updated_at
+        FROM steward_shared_worlds w
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM steward_world_canonical_heads h
+            WHERE h.world_id = w.world_id)
+        ON CONFLICT (world_id, sequence) DO NOTHING;
+
         CREATE TABLE IF NOT EXISTS steward_world_members (
             world_id uuid NOT NULL REFERENCES steward_shared_worlds(world_id) ON DELETE CASCADE,
             provider text NOT NULL,

@@ -376,6 +376,13 @@ public sealed class WorldLifecycleService
                 captured = await adapter.CaptureStateAsync(context.PreparedWorld, cancellationToken);
                 var nextRevisionId = RevisionId.New();
 
+                workspaceRecord = workspaceRecord with
+                {
+                    CandidateStateRevisionId = nextRevisionId,
+                    UpdatedAt = DateTimeOffset.UtcNow
+                };
+                await _workspaceRecoveryStore.SaveAsync(workspaceRecord, cancellationToken);
+
                 var revision = new StateRevision(
                     Id: nextRevisionId,
                     WorldId: context.World.Id,

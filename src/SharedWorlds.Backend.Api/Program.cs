@@ -56,6 +56,12 @@ builder.Services.AddSingleton<ISharedWorldMetadataStore>(services =>
 builder.Services.AddSingleton<ISharedRevisionMetadataStore>(services =>
     services.GetRequiredService<PostgreSqlSharedWorldStore>());
 
+builder.Services.AddSingleton<PostgreSqlSharedWorldAuthorityStore>();
+builder.Services.AddSingleton<ISharedWorldAuthorityStore>(services =>
+    services.GetRequiredService<PostgreSqlSharedWorldAuthorityStore>());
+builder.Services.AddSingleton<ISharedWorldResponsibilityInspector>(services =>
+    services.GetRequiredService<PostgreSqlSharedWorldAuthorityStore>());
+
 builder.Services.AddSingleton<PostgreSqlStewardSessionStore>();
 builder.Services.AddSingleton<IStewardSessionStore>(services =>
     services.GetRequiredService<PostgreSqlStewardSessionStore>());
@@ -79,7 +85,6 @@ builder.Services.AddSingleton(services => new SteamWebApiTicketVerifier(
         steamAppId,
         steamPublisherApiKey,
         steamIdentity)));
-
 builder.Services.AddSingleton(services => new StewardSessionService(
     services.GetRequiredService<IStewardSessionStore>(),
     () => DateTimeOffset.UtcNow));
@@ -87,6 +92,9 @@ builder.Services.AddSingleton(services => new SharedWorldMetadataService(
     services.GetRequiredService<ISharedWorldMetadataStore>(),
     () => DateTimeOffset.UtcNow));
 builder.Services.AddSingleton<SharedRevisionMetadataService>();
+builder.Services.AddSingleton(services => new SharedWorldAuthorityService(
+    services.GetRequiredService<ISharedWorldAuthorityStore>(),
+    () => DateTimeOffset.UtcNow));
 builder.Services.AddSingleton(services => new SharedPackageTransferService(
     services.GetRequiredService<ISharedWorldMetadataStore>(),
     services.GetRequiredService<SharedRevisionMetadataService>(),
@@ -113,6 +121,7 @@ await PostgreSqlBackendSchema.InitializeAsync(app.Services.GetRequiredService<Np
 
 app.UseStewardApiProblemHandling();
 app.MapStewardApiV1();
+app.MapStewardAuthorityApiV1();
 
 await app.RunAsync();
 

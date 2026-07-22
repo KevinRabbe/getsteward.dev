@@ -232,6 +232,27 @@ public sealed class WorldLifecycleService
             environmentRevision.Manifest.AdapterId,
             "environment revision");
 
+        if (world.SharingMode == WorldSharingMode.Shared)
+        {
+            var verification = await adapter.VerifyEnvironmentAsync(
+                installation,
+                environmentRevision.Manifest,
+                cancellationToken);
+            if (!verification.IsReady)
+            {
+                var detail = verification.Issues.Count == 0
+                    ? "The adapter could not verify the exact World environment."
+                    : string.Join(
+                        " ",
+                        verification.Issues
+                            .Take(3)
+                            .Select(static issue => issue.Message));
+                throw new EnvironmentReproductionException(
+                    adapter.Id,
+                    $"shared World '{world.Name}' is not verified ready. {detail} Run Verify/Repair before writable play.");
+            }
+        }
+
         var stateRevision = await _storage.LoadStateRevisionAsync(
             worldId,
             stateRevisionId,

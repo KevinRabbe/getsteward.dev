@@ -129,9 +129,9 @@ public sealed class PostgreSqlEnvironmentManifestTests : IAsyncLifetime
                 outsider,
                 _worldId,
                 _environmentId,
-                Manifest([])));
+                Manifest(new Dictionary<string, string>())));
 
-        var mismatched = Manifest([]) with { AdapterId = "palworld" };
+        var mismatched = Manifest(new Dictionary<string, string>()) with { AdapterId = "palworld" };
         Assert.Equal(
             PublishEnvironmentManifestStatus.AdapterMismatch,
             await _revisions.PublishEnvironmentManifestAsync(

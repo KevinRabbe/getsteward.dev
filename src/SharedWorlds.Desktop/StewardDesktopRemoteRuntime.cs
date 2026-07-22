@@ -19,6 +19,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
     private readonly HttpClient _transferClient;
     private readonly StewardWritableReservationRegistry _reservations;
     private readonly StewardAccessSession _accessSession;
+    private readonly StewardWorldMetadataClient _metadata;
     private bool _disposed;
 
     private StewardDesktopRemoteRuntime(
@@ -26,6 +27,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         HttpClient transferClient,
         StewardWritableReservationRegistry reservations,
         StewardAccessSession accessSession,
+        StewardWorldMetadataClient metadata,
         StewardWorldStorage storage,
         WorldLifecycleService lifecycle,
         StewardPendingSyncRecoveryService pendingSyncRecovery,
@@ -37,6 +39,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         _transferClient = transferClient;
         _reservations = reservations;
         _accessSession = accessSession;
+        _metadata = metadata;
         Storage = storage;
         Lifecycle = lifecycle;
         PendingSyncRecovery = pendingSyncRecovery;
@@ -51,6 +54,14 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
     public StewardInitialWorldPublisher InitialWorldPublisher { get; }
     public StewardWorldAccessClient Access { get; }
     public UserIdentity User { get; }
+
+    public async Task<StewardRemoteWorldMetadata?> GetWorldMetadataAsync(
+        WorldId worldId,
+        CancellationToken cancellationToken = default)
+    {
+        var accessToken = await _accessSession.GetAccessTokenAsync(cancellationToken);
+        return await _metadata.GetWorldAsync(worldId, accessToken, cancellationToken);
+    }
 
     public static StewardDesktopRemoteRuntime Create(
         Uri apiBaseAddress,
@@ -145,6 +156,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 transferClient,
                 reservations,
                 accessSession,
+                metadata,
                 storage,
                 lifecycle,
                 pendingSyncRecovery,

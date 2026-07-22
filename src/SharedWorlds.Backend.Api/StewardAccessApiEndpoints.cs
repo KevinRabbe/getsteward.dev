@@ -76,7 +76,7 @@ public static class StewardAccessApiEndpoints
     {
         if (!TryIdentity(request, out var target))
         {
-            return StewardApiResults.BadRequest("InvalidTargetIdentity");
+            return StewardApiResults.Validation("InvalidTargetIdentity");
         }
 
         var auth = await AuthenticateAsync(context, sessions, cancellationToken);
@@ -99,14 +99,13 @@ public static class StewardAccessApiEndpoints
                 statusCode: StatusCodes.Status201Created),
             CreateWorldAccessInvitationStatus.NotFoundOrUnauthorized =>
                 StewardApiResults.NotFound("WorldNotFoundOrUnauthorized"),
-            CreateWorldAccessInvitationStatus.NotAccessManager =>
-                StewardApiResults.Forbidden("NotAccessManager"),
+            CreateWorldAccessInvitationStatus.NotAccessManager => Forbidden("NotAccessManager"),
             CreateWorldAccessInvitationStatus.CannotInviteSelf =>
-                StewardApiResults.Conflict("CannotInviteSelf"),
+                StewardApiResults.DomainConflict("CannotInviteSelf"),
             CreateWorldAccessInvitationStatus.TargetAlreadyMember =>
-                StewardApiResults.Conflict("TargetAlreadyMember"),
+                StewardApiResults.DomainConflict("TargetAlreadyMember"),
             CreateWorldAccessInvitationStatus.AlreadyInvited =>
-                StewardApiResults.Conflict("AlreadyInvited"),
+                StewardApiResults.DomainConflict("AlreadyInvited"),
             _ => throw new InvalidOperationException("Unexpected invitation result.")
         };
     }
@@ -165,7 +164,7 @@ public static class StewardAccessApiEndpoints
             RespondToWorldAccessInvitationStatus.InvitationNotFound =>
                 StewardApiResults.NotFound("InvitationNotFound"),
             RespondToWorldAccessInvitationStatus.AlreadyResolved =>
-                StewardApiResults.Conflict("InvitationAlreadyResolved"),
+                StewardApiResults.DomainConflict("InvitationAlreadyResolved"),
             _ => throw new InvalidOperationException("Unexpected invitation-response result.")
         };
     }
@@ -180,7 +179,7 @@ public static class StewardAccessApiEndpoints
     {
         if (!TryIdentity(request, out var target))
         {
-            return StewardApiResults.BadRequest("InvalidTargetIdentity");
+            return StewardApiResults.Validation("InvalidTargetIdentity");
         }
 
         var auth = await AuthenticateAsync(context, sessions, cancellationToken);
@@ -203,14 +202,13 @@ public static class StewardAccessApiEndpoints
                     new { reason = "Writable responsibility must resolve before access is removed." })),
             RemoveWorldMemberStatus.NotFoundOrUnauthorized =>
                 StewardApiResults.NotFound("WorldNotFoundOrUnauthorized"),
-            RemoveWorldMemberStatus.NotAccessManager =>
-                StewardApiResults.Forbidden("NotAccessManager"),
+            RemoveWorldMemberStatus.NotAccessManager => Forbidden("NotAccessManager"),
             RemoveWorldMemberStatus.TargetNotActiveMember =>
-                StewardApiResults.Conflict("TargetNotActiveMember"),
+                StewardApiResults.DomainConflict("TargetNotActiveMember"),
             RemoveWorldMemberStatus.CannotRemoveAccessManager =>
-                StewardApiResults.Conflict("CannotRemoveAccessManager"),
+                StewardApiResults.DomainConflict("CannotRemoveAccessManager"),
             RemoveWorldMemberStatus.ManagerChanged =>
-                StewardApiResults.Conflict("AccessManagerChanged"),
+                StewardApiResults.DomainConflict("AccessManagerChanged"),
             _ => throw new InvalidOperationException("Unexpected member-revocation result.")
         };
     }
@@ -238,9 +236,9 @@ public static class StewardAccessApiEndpoints
             LeaveSharedWorldStatus.NotFoundOrUnauthorized =>
                 StewardApiResults.NotFound("WorldNotFoundOrUnauthorized"),
             LeaveSharedWorldStatus.MustTransferAccessManager =>
-                StewardApiResults.Conflict("MustTransferAccessManager"),
+                StewardApiResults.DomainConflict("MustTransferAccessManager"),
             LeaveSharedWorldStatus.ResponsibilityUnresolved =>
-                StewardApiResults.Conflict("WritableResponsibilityUnresolved"),
+                StewardApiResults.DomainConflict("WritableResponsibilityUnresolved"),
             _ => throw new InvalidOperationException("Unexpected leave-World result.")
         };
     }
@@ -255,7 +253,7 @@ public static class StewardAccessApiEndpoints
     {
         if (!TryIdentity(request, out var target))
         {
-            return StewardApiResults.BadRequest("InvalidTargetIdentity");
+            return StewardApiResults.Validation("InvalidTargetIdentity");
         }
 
         var auth = await AuthenticateAsync(context, sessions, cancellationToken);
@@ -275,14 +273,13 @@ public static class StewardAccessApiEndpoints
                 Results.Ok(new StewardApiResponse("AccessManagerTransferred")),
             TransferAccessManagerStatus.NotFoundOrUnauthorized =>
                 StewardApiResults.NotFound("WorldNotFoundOrUnauthorized"),
-            TransferAccessManagerStatus.NotAccessManager =>
-                StewardApiResults.Forbidden("NotAccessManager"),
+            TransferAccessManagerStatus.NotAccessManager => Forbidden("NotAccessManager"),
             TransferAccessManagerStatus.AlreadyManager =>
-                StewardApiResults.Conflict("AlreadyAccessManager"),
+                StewardApiResults.DomainConflict("AlreadyAccessManager"),
             TransferAccessManagerStatus.TargetNotActiveMember =>
-                StewardApiResults.Conflict("TargetNotActiveMember"),
+                StewardApiResults.DomainConflict("TargetNotActiveMember"),
             TransferAccessManagerStatus.ManagerChanged =>
-                StewardApiResults.Conflict("AccessManagerChanged"),
+                StewardApiResults.DomainConflict("AccessManagerChanged"),
             _ => throw new InvalidOperationException("Unexpected Access Manager transfer result.")
         };
     }
@@ -302,6 +299,11 @@ public static class StewardAccessApiEndpoints
         identity = new ExternalIdentityRef(request.Provider.Trim(), request.ExternalId.Trim());
         return true;
     }
+
+    private static IResult Forbidden(string code)
+        => Results.Json(
+            new StewardApiResponse(code),
+            statusCode: StatusCodes.Status403Forbidden);
 
     private static async Task<AuthenticationResolution> AuthenticateAsync(
         HttpContext context,

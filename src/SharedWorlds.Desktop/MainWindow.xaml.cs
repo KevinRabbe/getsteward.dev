@@ -16,9 +16,7 @@ public partial class MainWindow : Window
     private readonly DeviceSettingsStore _deviceSettingsStore;
 
     private World? _selectedWorld;
-    private DeviceSettings _deviceSettings = new(
-        AllowHosting: false,
-        HostingPreferenceExplicit: false);
+    private DeviceSettings _deviceSettings = DeviceSettingsStore.CreateInitial(hasManagedWorlds: false);
     private bool _isBusy;
 
     public MainWindow()
@@ -54,9 +52,7 @@ public partial class MainWindow : Window
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or JsonException)
         {
-            _deviceSettings = new DeviceSettings(
-                AllowHosting: false,
-                HostingPreferenceExplicit: false);
+            _deviceSettings = DeviceSettingsStore.CreateInitial(hasManagedWorlds: false);
             ShowError(
                 "Could not load device settings",
                 new InvalidOperationException(

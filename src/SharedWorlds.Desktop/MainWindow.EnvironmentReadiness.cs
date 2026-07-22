@@ -7,6 +7,8 @@ namespace SharedWorlds.Desktop;
 public partial class MainWindow
 {
     private EnvironmentVerificationReport? _environmentVerification;
+    private WorldId? _environmentVerificationWorldId;
+    private RevisionId? _environmentVerificationRevisionId;
 
     private async void VerifyEnvironmentButton_Click(object sender, System.Windows.RoutedEventArgs e)
     {
@@ -29,13 +31,14 @@ public partial class MainWindow
             {
                 var installation = await GetGameInstallationAsync(adapter);
                 var service = new WorldEnvironmentService(GetStorageForWorld(world));
-                _environmentVerification = await service.VerifyAsync(
+                var verification = await service.VerifyAsync(
                     world.Id,
                     adapter,
                     installation);
+                RememberEnvironmentVerification(world, verification);
 
                 UpdateEnvironmentReadinessUi();
-                StatusText.Text = !_environmentVerification.IsReady
+                StatusText.Text = !verification.IsReady
                     ? $"The exact environment for '{world.Name}' is not ready on this device."
                     : $"This device is ready to play '{world.Name}' with its exact environment.";
             });
@@ -46,8 +49,9 @@ public partial class MainWindow
     private async void RepairEnvironmentButton_Click(object sender, System.Windows.RoutedEventArgs e)
     {
         var world = _selectedWorld;
+        var currentVerification = GetEnvironmentVerificationFor(world);
         if (world is null ||
-            _environmentVerification?.CanRepairAutomatically != true ||
+            currentVerification?.CanRepairAutomatically != true ||
             !TryGetAdapter(world.GameAdapterId, out var adapter))
         {
             return;
@@ -71,7 +75,7 @@ public partial class MainWindow
                     adapter,
                     installation);
 
-                _environmentVerification = result.Verification;
+                RememberEnvironmentVerification(world, result.Verification);
                 UpdateEnvironmentReadinessUi();
                 StatusText.Text = result.Message;
             });
@@ -82,15 +86,40 @@ public partial class MainWindow
     private bool IsSelectedWorldEnvironmentReadyForPlay()
     {
         var world = _selectedWorld;
+        var verification = GetEnvironmentVerificationFor(world);
         return world is not null &&
                HasAuthoritativeRuntimeForWorld(world) &&
                (world.SharingMode == WorldSharingMode.LocalOnly ||
-                _environmentVerification?.IsReady == true);
+                verification?.IsReady == true);
+    }
+
+    private EnvironmentVerificationReport? GetEnvironmentVerificationFor(World? world)
+    {
+        if (world is null ||
+            _environmentVerification is null ||
+            _environmentVerificationWorldId != world.Id ||
+            _environmentVerificationRevisionId != world.CurrentEnvironmentRevisionId)
+        {
+            return null;
+        }
+
+        return _environmentVerification;
+    }
+
+    private void RememberEnvironmentVerification(
+        World world,
+        EnvironmentVerificationReport verification)
+    {
+        _environmentVerification = verification;
+        _environmentVerificationWorldId = world.Id;
+        _environmentVerificationRevisionId = world.CurrentEnvironmentRevisionId;
     }
 
     private void ResetEnvironmentReadinessUi()
     {
         _environmentVerification = null;
+        _environmentVerificationWorldId = null;
+        _environmentVerificationRevisionId = null;
         UpdateEnvironmentReadinessUi();
     }
 
@@ -121,7 +150,8 @@ public partial class MainWindow
         VerifyEnvironmentButton.IsEnabled = !_isBusy;
         VerifyEnvironmentButton.ToolTip = "Verify this device against the World's canonical environment.";
 
-        if (_environmentVerification is null)
+        var verification = GetEnvironmentVerificationFor(world);
+        if (verification is null)
         {
             EnvironmentReadinessText.Text =
                 "Not checked yet. Verify tests the same exact environment reproduction path used before play without launching the game or changing the World.";
@@ -131,7 +161,7 @@ public partial class MainWindow
             return;
         }
 
-        if (_environmentVerification.IsReady)
+        if (verification.IsReady)
         {
             EnvironmentReadinessText.Text =
                 "Ready. This device can reproduce the World's exact game version, mods and recorded environment requirements.";
@@ -143,12 +173,12 @@ public partial class MainWindow
 
         var issueText = string.Join(
             Environment.NewLine,
-            _environmentVerification.Issues.Select(issue => $"• {issue.Message}"));
+            verification.Issues.Select(issue => $"• {issue.Message}"));
         EnvironmentReadinessText.Text = issueText;
-        RepairEnvironmentButton.IsEnabled = !_isBusy && _environmentVerification.CanRepairAutomatically;
-        RepairEnvironmentButton.ToolTip = _environmentVerification.CanRepairAutomatically
+        RepairEnvironmentButton.IsEnabled = !_isBusy && verification.CanRepairAutomatically;
+        RepairEnvironmentButton.ToolTip = verification.CanRepairAutomatically
             ? "Apply only adapter-defined safe local repairs, then verify again."
-            : "SharedWorlds does not have a safe automatic repair for this problem yet.";
+            : "Steward does not have a safe automatic repair for this problem yet.";
         UpdateUnifiedActionState();
     }
 }

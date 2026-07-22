@@ -25,6 +25,7 @@ public sealed class StewardPendingSyncRecoveryServiceTests
             worldId,
             baseState,
             candidate,
+            environmentId,
             user));
         var storage = new FakeStorage(
             World(worldId, candidate, environmentId),
@@ -66,6 +67,7 @@ public sealed class StewardPendingSyncRecoveryServiceTests
             worldId,
             baseState,
             candidate,
+            environmentId,
             user));
         var storage = new FakeStorage(
             World(worldId, baseState, environmentId),
@@ -118,6 +120,7 @@ public sealed class StewardPendingSyncRecoveryServiceTests
             worldId,
             baseState,
             candidate,
+            environmentId,
             user));
         var storage = new FakeStorage(
             World(worldId, baseState, environmentId),
@@ -147,7 +150,7 @@ public sealed class StewardPendingSyncRecoveryServiceTests
     }
 
     [Fact]
-    public async Task DivergedCanonicalHeadIsNeverOverwritten()
+    public async Task DivergedCanonicalStateHeadIsNeverOverwritten()
     {
         using var root = new TemporaryDirectory();
         var worldId = WorldId.New();
@@ -162,6 +165,7 @@ public sealed class StewardPendingSyncRecoveryServiceTests
             worldId,
             baseState,
             candidate,
+            environmentId,
             user));
         var storage = new FakeStorage(
             World(worldId, newer, environmentId),
@@ -189,6 +193,148 @@ public sealed class StewardPendingSyncRecoveryServiceTests
         Assert.Empty(coordinatorHarness.AuthorityRequests);
     }
 
+    [Fact]
+    public async Task DivergedCanonicalEnvironmentIsNeverCombinedWithRecoveryWorkspace()
+    {
+        using var root = new TemporaryDirectory();
+        var worldId = WorldId.New();
+        var baseState = RevisionId.New();
+        var candidate = RevisionId.New();
+        var recordedEnvironment = RevisionId.New();
+        var newerEnvironment = RevisionId.New();
+        var user = User();
+        var recovery = new RecoveryStore();
+        recovery.Records.Add(RecoveryRecord(
+            root.Path,
+            worldId,
+            baseState,
+            candidate,
+            recordedEnvironment,
+            user));
+        var storage = new FakeStorage(
+            World(worldId, baseState, newerEnvironment),
+            Environment(worldId, recordedEnvironment));
+        var coordinatorHarness = new CoordinatorHarness(
+            worldId,
+            baseState,
+            newerEnvironment,
+            recovery,
+            failOnAcquire: true);
+        using var registry = coordinatorHarness.Registry;
+        var adapter = new RecoveryAdapter(root.Path);
+        var service = Service(storage, coordinatorHarness, recovery);
+
+        var exception = await Assert.ThrowsAsync<StewardPendingSyncRecoveryException>(() =>
+            service.RetryAsync(
+                worldId,
+                adapter,
+                adapter.Installation,
+                user));
+
+        Assert.Equal("EnvironmentHeadDiverged", exception.Code);
+        Assert.Equal(0, adapter.CaptureCount);
+        Assert.Null(storage.SavedWorld);
+        Assert.Single(recovery.Records);
+        Assert.True(Directory.Exists(recovery.Records[0].WorkingDirectory));
+        Assert.Empty(coordinatorHarness.AuthorityRequests);
+    }
+
+    [Fact]
+    public async Task LegacyRecoveryWithWorkspaceButNoExactEnvironmentFailsClosed()
+    {
+        using var root = new TemporaryDirectory();
+        var worldId = WorldId.New();
+        var baseState = RevisionId.New();
+        var candidate = RevisionId.New();
+        var environmentId = RevisionId.New();
+        var user = User();
+        var recovery = new RecoveryStore();
+        recovery.Records.Add(RecoveryRecord(
+            root.Path,
+            worldId,
+            baseState,
+            candidate,
+            environmentId: null,
+            user));
+        var storage = new FakeStorage(
+            World(worldId, baseState, environmentId),
+            Environment(worldId, environmentId));
+        var coordinatorHarness = new CoordinatorHarness(
+            worldId,
+            baseState,
+            environmentId,
+            recovery,
+            failOnAcquire: true);
+        using var registry = coordinatorHarness.Registry;
+        var adapter = new RecoveryAdapter(root.Path);
+        var service = Service(storage, coordinatorHarness, recovery);
+
+        var exception = await Assert.ThrowsAsync<StewardPendingSyncRecoveryException>(() =>
+            service.RetryAsync(
+                worldId,
+                adapter,
+                adapter.Installation,
+                user));
+
+        Assert.Equal("EnvironmentUnknown", exception.Code);
+        Assert.Equal(0, adapter.CaptureCount);
+        Assert.Single(recovery.Records);
+        Assert.True(Directory.Exists(recovery.Records[0].WorkingDirectory));
+        Assert.Empty(coordinatorHarness.AuthorityRequests);
+    }
+
+    [Fact]
+    public async Task PublishedCandidateWithWrongParentIsRejected()
+    {
+        using var root = new TemporaryDirectory();
+        var worldId = WorldId.New();
+        var baseState = RevisionId.New();
+        var candidate = RevisionId.New();
+        var environmentId = RevisionId.New();
+        var user = User();
+        var recovery = new RecoveryStore();
+        recovery.Records.Add(RecoveryRecord(
+            root.Path,
+            worldId,
+            baseState,
+            candidate,
+            environmentId,
+            user));
+        var storage = new FakeStorage(
+            World(worldId, baseState, environmentId),
+            Environment(worldId, environmentId))
+        {
+            ExistingCandidate = new StateRevision(
+                candidate,
+                worldId,
+                RevisionId.New(),
+                DateTimeOffset.UtcNow,
+                user,
+                "factorio",
+                "candidate")
+        };
+        var coordinatorHarness = new CoordinatorHarness(
+            worldId,
+            baseState,
+            environmentId,
+            recovery);
+        using var registry = coordinatorHarness.Registry;
+        var adapter = new RecoveryAdapter(root.Path);
+        var service = Service(storage, coordinatorHarness, recovery);
+
+        var exception = await Assert.ThrowsAsync<StewardPendingSyncRecoveryException>(() =>
+            service.RetryAsync(
+                worldId,
+                adapter,
+                adapter.Installation,
+                user));
+
+        Assert.Equal("CandidateParentMismatch", exception.Code);
+        Assert.Equal(0, adapter.CaptureCount);
+        Assert.Null(storage.SavedWorld);
+        Assert.Single(recovery.Records);
+    }
+
     private static StewardPendingSyncRecoveryService Service(
         IWorldStorage storage,
         CoordinatorHarness coordinator,
@@ -207,6 +353,7 @@ public sealed class StewardPendingSyncRecoveryServiceTests
         WorldId worldId,
         RevisionId baseState,
         RevisionId candidate,
+        RevisionId? environmentId,
         UserIdentity user)
     {
         var workspace = Path.Combine(root, "workspace");
@@ -222,7 +369,8 @@ public sealed class StewardPendingSyncRecoveryServiceTests
             DateTimeOffset.UtcNow,
             WorkspaceRecoveryStatus.RecoveryPending,
             "waiting to sync",
-            candidate);
+            candidate,
+            environmentId);
     }
 
     private static World World(
@@ -320,8 +468,7 @@ public sealed class StewardPendingSyncRecoveryServiceTests
                           },
                           "retryable": false
                         }
-                        """
-                    );
+                        """);
                 }
 
                 if (request.RequestUri.AbsolutePath.EndsWith("/reservation/heartbeat", StringComparison.Ordinal))

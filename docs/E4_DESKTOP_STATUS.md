@@ -1,8 +1,8 @@
 # E4 Windows Desktop Remote Composition Status
 
-Status: **DESKTOP REMOTE COMPOSITION + DETERMINISTIC SYNC/CLEANUP/INTERRUPTED RECOVERY COMPLETE AND CI GREEN; LIVE STEAM/BACKEND ACCEPTANCE STILL REQUIRED.**
+Status: **DESKTOP REMOTE COMPOSITION + DETERMINISTIC SYNC/CLEANUP/INTERRUPTED RECOVERY + SHARE/ACCESS FLOW COMPLETE AND CI GREEN; LIVE STEAM/BACKEND ACCEPTANCE STILL REQUIRED.**
 
-This checkpoint records the point where the production Windows Desktop stopped being structurally local-only. The existing `Only on this PC` path remains local, while authenticated shared Worlds use the same remote storage, authority, transfer, commit, and recovery components already proven by BE-5.
+This checkpoint records the point where the production Windows Desktop stopped being structurally local-only. The existing `Only on this PC` path remains local, while authenticated shared Worlds use the same remote storage, authority, transfer, commit, recovery, and flat access components already proven by the backend work.
 
 ## What is now composed in Desktop
 
@@ -10,6 +10,8 @@ The authenticated shared-World runtime owns and connects:
 
 - `StewardSessionClient` + rotating `StewardAccessSession`;
 - `StewardWorldMetadataClient`;
+- `StewardWorldAccessClient`;
+- `StewardInitialWorldPublisher`;
 - `StewardAuthorityClient`;
 - `StewardReservationAbandonClient`;
 - `StewardPackageDownloadClient` + `VerifiedPackageCache` + `StewardVerifiedPackageSource`;
@@ -84,6 +86,36 @@ Remote sharing is enabled only when all three explicit deployment values are sup
 - `STEWARD_STEAM_WEB_API_IDENTITY`.
 
 With none configured, Steward stays local-only. Partial/invalid configuration fails closed for shared functionality without disabling local Worlds.
+
+## Share World and flat access management
+
+A local canonical World can now enter the real shared backend path from Desktop.
+
+Before any remote side effect, Desktop persists the local World as `Shared`. That is a write-ahead authority marker: once publication may have started, the local copy can never silently become a writable fallback.
+
+```text
+local canonical World
+-> persist Shared intent locally
+-> create same World ID remotely
+-> publish exact EnvironmentRevision
+-> upload exact StateRevision
+-> read both back and verify
+-> backend World becomes canonical authority
+```
+
+If creation/publication becomes ambiguous, Desktop keeps the local shadow locked and exposes **Finish sharing**. Retry reuses the same World/environment/state IDs rather than creating a second history.
+
+For a complete backend World, **Manage access** now opens the real flat BE-2 access flow:
+
+- invite a Steam ID64;
+- list active and revocation-pending members;
+- remove access, deferring removal when writable responsibility is unresolved;
+- transfer the single Access Manager responsibility;
+- leave the World after Access Manager responsibility has been transferred.
+
+Authenticated users also have an **Invites** surface. Accepting an invitation creates normal flat membership and the newly accessible backend World appears in the same game-first World library. Declining resolves the invitation without creating membership.
+
+Access administration never grants gameplay/reservation priority.
 
 ## Deterministic pending recovery
 
@@ -201,7 +233,7 @@ Before a shared runtime is available:
 - Steward authentication rejection -> remote auth stops;
 - API/session/network/malformed remote metadata failure while loading shared Worlds -> local library remains usable.
 
-After authenticated runtime composition, remote one-writer and recovery rules remain authoritative. No Desktop shortcut bypasses generation, expected-head commit, recovery journals, or exact-environment verification.
+After authenticated runtime composition, remote one-writer and recovery rules remain authoritative. No Desktop shortcut bypasses generation, expected-head commit, recovery journals, exact-environment verification, or the write-ahead sharing marker.
 
 ## CI evidence
 
@@ -210,15 +242,17 @@ Earlier green checkpoints:
 - full Desktop remote composition + Steam ticket/auth wiring: commit `b0dc42b6218da217047177c806fba17227fda36d`, run `29927422485`;
 - follow-up robustness: commit `6affc5536a3b17c331aca13cf91f5af7a2c4ff74`, run `29927735994`;
 - Desktop pending-sync recovery + responsibility reconciliation: commit `560a66e7a5d6e6fc2170f9f643b42cd9d1132e41`, run `29929981444`;
-- exact-environment cleanup recovery: commit `a796734c746829a39caa30a26e93d162b70e6c21`, run `29931448332`.
+- exact-environment cleanup recovery: commit `a796734c746829a39caa30a26e93d162b70e6c21`, run `29931448332`;
+- interrupted-session decisions + deterministic local/remote recovery: commit `4ec21efec9a6542938fa4f32b2a5c3ecb2c2b424`, run `29941402902`.
 
-The interrupted-session decision path, deterministic local recovery, and exact-environment remote recovery were green at commit `4ec21efec9a6542938fa4f32b2a5c3ecb2c2b424`, GitHub Actions run `29941402902`:
+The real Desktop Share/Manage access/Invites surfaces plus backend flat-access HTTP boundary were green at commit `ba3c41b2b9a17c5d44bf80b8d3ff4a478321977d`, GitHub Actions run `29947478892`:
 
 - Quality: green;
 - Ubuntu build/tests: green;
 - Windows build/tests: green;
 - PostgreSQL integration: green;
-- S3-compatible integration: green.
+- S3-compatible integration: green;
+- backend production container: green.
 
 ## What E4 still needs before product acceptance
 
@@ -229,7 +263,9 @@ real Windows Steward build launched under Steward's Steam AppID
 -> real Steam Web API ticket
 -> deployed Steward API configured for the same AppID/identity
 -> server-verified Steam session
--> shared World listed from backend
+-> PC A shares a local Factorio World
+-> PC A invites PC B
+-> PC B accepts and lists the same backend World
 -> canonical Factorio environment verified Ready
 -> remote Continue/Host
 -> exact reservation + verified download
@@ -239,5 +275,7 @@ real Windows Steward build launched under Steward's Steam AppID
 -> expected-head canonical commit
 -> second Steward installation observes the new canonical revision
 ```
+
+`tools/e4-live-acceptance.ps1` validates the non-secret Desktop deployment values and both public backend health probes before launching a configured Desktop build. It deliberately does not fake the Steam ticket, object transfer, or two-installation handoff that E4 exists to prove.
 
 Palworld shared play remains fail-closed until its adapter has a real exact-environment verifier. That is adapter acceptance work, not a reason to weaken the shared-World gate.

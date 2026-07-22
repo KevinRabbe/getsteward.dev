@@ -16,6 +16,13 @@ public partial class MainWindow
             return;
         }
 
+        if (world.SharingMode == WorldSharingMode.Shared && !HasAuthoritativeRuntimeForWorld(world))
+        {
+            StatusText.Text =
+                "Reconnect authenticated Steward authority before verifying a shared World's canonical environment.";
+            return;
+        }
+
         await RunOperationAsync(
             $"Verifying the exact environment for {world.Name}...",
             async () =>
@@ -30,9 +37,7 @@ public partial class MainWindow
                 UpdateEnvironmentReadinessUi();
                 StatusText.Text = !_environmentVerification.IsReady
                     ? $"The exact environment for '{world.Name}' is not ready on this device."
-                    : HasAuthoritativeRuntimeForWorld(world)
-                        ? $"This device is ready to play '{world.Name}' with its exact environment."
-                        : $"The exact environment for '{world.Name}' is ready, but authenticated shared-World authority is not connected.";
+                    : $"This device is ready to play '{world.Name}' with its exact environment.";
             });
 
         UpdateEnvironmentReadinessUi();
@@ -45,6 +50,13 @@ public partial class MainWindow
             _environmentVerification?.CanRepairAutomatically != true ||
             !TryGetAdapter(world.GameAdapterId, out var adapter))
         {
+            return;
+        }
+
+        if (world.SharingMode == WorldSharingMode.Shared && !HasAuthoritativeRuntimeForWorld(world))
+        {
+            StatusText.Text =
+                "Reconnect authenticated Steward authority before repairing against a shared World's canonical environment.";
             return;
         }
 
@@ -84,7 +96,8 @@ public partial class MainWindow
 
     private void UpdateEnvironmentReadinessUi()
     {
-        if (_selectedWorld is null)
+        var world = _selectedWorld;
+        if (world is null)
         {
             EnvironmentReadinessText.Text = string.Empty;
             VerifyEnvironmentButton.IsEnabled = false;
@@ -93,7 +106,20 @@ public partial class MainWindow
             return;
         }
 
+        if (world.SharingMode == WorldSharingMode.Shared && !HasAuthoritativeRuntimeForWorld(world))
+        {
+            EnvironmentReadinessText.Text =
+                "Authenticated Steward authority is not connected. Verification and repair are blocked so this device cannot act on stale local shared-World metadata.";
+            VerifyEnvironmentButton.IsEnabled = false;
+            VerifyEnvironmentButton.ToolTip = "Reconnect Steward to load the canonical shared environment first.";
+            RepairEnvironmentButton.IsEnabled = false;
+            RepairEnvironmentButton.ToolTip = "Reconnect Steward before repair.";
+            UpdateUnifiedActionState();
+            return;
+        }
+
         VerifyEnvironmentButton.IsEnabled = !_isBusy;
+        VerifyEnvironmentButton.ToolTip = "Verify this device against the World's canonical environment.";
 
         if (_environmentVerification is null)
         {
@@ -107,9 +133,8 @@ public partial class MainWindow
 
         if (_environmentVerification.IsReady)
         {
-            EnvironmentReadinessText.Text = HasAuthoritativeRuntimeForWorld(_selectedWorld)
-                ? "Ready. This device can reproduce the World's exact game version, mods and recorded environment requirements."
-                : "Environment ready, but this shared World has no authenticated Steward authority connection. Steward will not fall back to local writable play.";
+            EnvironmentReadinessText.Text =
+                "Ready. This device can reproduce the World's exact game version, mods and recorded environment requirements.";
             RepairEnvironmentButton.IsEnabled = false;
             RepairEnvironmentButton.ToolTip = "No repair is needed.";
             UpdateUnifiedActionState();

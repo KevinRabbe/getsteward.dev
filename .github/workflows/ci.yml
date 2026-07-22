@@ -68,6 +68,20 @@ jobs:
     name: Backend container
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: steward
+          POSTGRES_PASSWORD: steward
+          POSTGRES_DB: steward_container_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U steward -d steward_container_smoke"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -84,6 +98,46 @@ jobs:
         run: |
           user="$(docker image inspect steward-backend-ci:${{ github.sha }} --format '{{.Config.User}}')"
           test "$user" = "app"
+
+      - name: Smoke test container startup and health
+        shell: bash
+        run: |
+          set -euo pipefail
+          container=steward-backend-smoke
+          trap 'docker rm --force "$container" >/dev/null 2>&1 || true' EXIT
+
+          docker run --detach --rm \
+            --name "$container" \
+            --network host \
+            --env PORT=18080 \
+            --env 'ConnectionStrings__Steward=Host=127.0.0.1;Port=5432;Username=steward;Password=steward;Database=steward_container_smoke' \
+            --env Steam__AppId=480 \
+            --env Steam__PublisherApiKey=ci-test-only \
+            --env Steam__Identity=steward-ci \
+            --env ObjectStorage__ServiceUrl=http://127.0.0.1:9000 \
+            --env ObjectStorage__AuthenticationRegion=us-east-1 \
+            --env ObjectStorage__BucketName=steward-ci \
+            --env ObjectStorage__AccessKeyId=ci-test-only \
+            --env ObjectStorage__SecretAccessKey=ci-test-only \
+            --env ObjectStorage__ForcePathStyle=true \
+            steward-backend-ci:${{ github.sha }}
+
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18080/health/live >/dev/null && \
+               curl --fail --silent http://127.0.0.1:18080/health/ready >/dev/null; then
+              exit 0
+            fi
+
+            if ! docker inspect "$container" --format '{{.State.Running}}' | grep -qx true; then
+              docker logs "$container"
+              exit 1
+            fi
+
+            sleep 1
+          done
+
+          docker logs "$container"
+          exit 1
 
   build-test:
     name: Build and test (${{ matrix.os }})

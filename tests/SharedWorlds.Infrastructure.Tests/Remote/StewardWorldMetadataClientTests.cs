@@ -73,6 +73,99 @@ public sealed class StewardWorldMetadataClientTests
     }
 
     [Fact]
+    public async Task ArbitraryStateRevisionMapsIntegrityMetadata()
+    {
+        var worldId = WorldId.New();
+        var stateId = RevisionId.New();
+        var environmentId = RevisionId.New();
+        var handler = new RecordingHandler(_ => JsonResponse(
+            HttpStatusCode.OK,
+            $$"""
+            {
+              "code": "StateRevisionFound",
+              "data": {
+                "revisionId": "{{stateId.Value:D}}",
+                "byteSize": 2048,
+                "sha256": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+                "requiredEnvironmentRevisionId": "{{environmentId.Value:D}}",
+                "publishedAt": "2026-07-22T10:00:00Z"
+              },
+              "retryable": false
+            }
+            """));
+        using var http = CreateHttpClient(handler);
+        var client = new StewardWorldMetadataClient(http);
+
+        var revision = await client.GetStateRevisionAsync(worldId, stateId, "access-token");
+
+        Assert.NotNull(revision);
+        Assert.Equal(stateId, revision.RevisionId);
+        Assert.Equal(2048, revision.ByteSize);
+        Assert.Equal(environmentId, revision.RequiredEnvironmentRevisionId);
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal(
+            $"https://steward.test/api/v1/worlds/{worldId.Value:D}/revisions/{stateId.Value:D}/state",
+            request.Uri);
+    }
+
+    [Fact]
+    public async Task ArbitraryEnvironmentRevisionMapsArtifactMetadata()
+    {
+        var worldId = WorldId.New();
+        var environmentId = RevisionId.New();
+        var handler = new RecordingHandler(_ => JsonResponse(
+            HttpStatusCode.OK,
+            $$"""
+            {
+              "code": "EnvironmentRevisionFound",
+              "data": {
+                "revisionId": "{{environmentId.Value:D}}",
+                "artifactReference": "packages/environment.package",
+                "byteSize": 1024,
+                "sha256": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+                "publishedAt": "2026-07-22T08:00:00Z"
+              },
+              "retryable": false
+            }
+            """));
+        using var http = CreateHttpClient(handler);
+        var client = new StewardWorldMetadataClient(http);
+
+        var revision = await client.GetEnvironmentRevisionAsync(
+            worldId,
+            environmentId,
+            "access-token");
+
+        Assert.NotNull(revision);
+        Assert.Equal(environmentId, revision.RevisionId);
+        Assert.Equal("packages/environment.package", revision.ArtifactReference);
+        Assert.Equal(1024, revision.ByteSize);
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal(
+            $"https://steward.test/api/v1/worlds/{worldId.Value:D}/revisions/{environmentId.Value:D}/environment",
+            request.Uri);
+    }
+
+    [Fact]
+    public async Task MissingImmutableRevisionReturnsNull()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(
+            HttpStatusCode.NotFound,
+            """
+            { "code": "RevisionNotFoundOrUnauthorized", "retryable": false }
+            """));
+        using var http = CreateHttpClient(handler);
+        var client = new StewardWorldMetadataClient(http);
+
+        var state = await client.GetStateRevisionAsync(
+            WorldId.New(),
+            RevisionId.New(),
+            "access-token");
+
+        Assert.Null(state);
+    }
+
+    [Fact]
     public async Task ListWorldsMapsAccessibleWorlds()
     {
         var firstWorld = WorldId.New();

@@ -216,6 +216,22 @@ public static class PostgreSqlBackendSchema
         CREATE INDEX IF NOT EXISTS ix_steward_world_reservations_holder
             ON steward_world_reservations(holder_provider, holder_external_id);
 
+        CREATE TABLE IF NOT EXISTS steward_authority_idempotency (
+            caller_provider text NOT NULL,
+            caller_external_id text NOT NULL,
+            operation text NOT NULL,
+            idempotency_key text NOT NULL,
+            world_id uuid NOT NULL,
+            request_sha256 text NOT NULL CHECK (length(request_sha256) = 64),
+            result_json jsonb NOT NULL,
+            created_at timestamptz NOT NULL,
+            expires_at timestamptz NOT NULL,
+            PRIMARY KEY (caller_provider, caller_external_id, operation, idempotency_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS ix_steward_authority_idempotency_expiry
+            ON steward_authority_idempotency(expires_at);
+
         CREATE TABLE IF NOT EXISTS steward_auth_sessions (
             session_id uuid PRIMARY KEY,
             identity_provider text NOT NULL,

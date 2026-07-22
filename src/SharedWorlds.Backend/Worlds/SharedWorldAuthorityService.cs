@@ -39,6 +39,27 @@ public sealed class SharedWorldAuthorityService
             cancellationToken);
     }
 
+    public Task<IdempotentMutationResult<AcquireSharedWorldReservationResult>> AcquireIdempotentAsync(
+        VerifiedExternalIdentity caller,
+        WorldId worldId,
+        string installationId,
+        SharedWorldHead expectedHead,
+        StewardIdempotencyKey idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        ArgumentNullException.ThrowIfNull(idempotencyKey);
+        return _store.AcquireIdempotentAsync(
+            caller.Subject,
+            worldId,
+            installationId,
+            expectedHead,
+            idempotencyKey,
+            _serverNow(),
+            _options,
+            cancellationToken);
+    }
+
     public Task<SharedWorldReservation?> GetReservationAsync(
         VerifiedExternalIdentity caller,
         WorldId worldId,
@@ -91,6 +112,27 @@ public sealed class SharedWorldAuthorityService
             cancellationToken);
     }
 
+    public Task<IdempotentMutationResult<ReclaimSharedWorldReservationResult>> ReclaimIdempotentAsync(
+        VerifiedExternalIdentity caller,
+        WorldId worldId,
+        Guid expectedSessionId,
+        long expectedGeneration,
+        StewardIdempotencyKey idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        ArgumentNullException.ThrowIfNull(idempotencyKey);
+        return _store.ReclaimIdempotentAsync(
+            caller.Subject,
+            worldId,
+            expectedSessionId,
+            expectedGeneration,
+            idempotencyKey,
+            _serverNow(),
+            _options,
+            cancellationToken);
+    }
+
     public Task<CommitSharedWorldResult> CommitAsync(
         VerifiedExternalIdentity caller,
         CommitSharedWorldCommand command,
@@ -101,6 +143,24 @@ public sealed class SharedWorldAuthorityService
         return _store.CommitAsync(
             caller.Subject,
             command,
+            _serverNow(),
+            _options,
+            cancellationToken);
+    }
+
+    public Task<IdempotentMutationResult<CommitSharedWorldResult>> CommitIdempotentAsync(
+        VerifiedExternalIdentity caller,
+        CommitSharedWorldCommand command,
+        StewardIdempotencyKey idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(idempotencyKey);
+        return _store.CommitIdempotentAsync(
+            caller.Subject,
+            command,
+            idempotencyKey,
             _serverNow(),
             _options,
             cancellationToken);

@@ -12,6 +12,7 @@ public partial class MainWindow
     private Button? _pendingSyncRetryButton;
     private Button? _recoverInterruptedButton;
     private Button? _discardInterruptedButton;
+    private Button? _exportRecoveryCopyButton;
     private Button? _cleanupRetryButton;
     private bool _responsibilityPresentationInitialized;
     private bool _applyingResponsibilityActionGuard;
@@ -64,6 +65,17 @@ public partial class MainWindow
         };
         _discardInterruptedButton.Click += DiscardInterruptedSessionButton_Click;
 
+        _exportRecoveryCopyButton = new Button
+        {
+            Content = "Export recovery copy",
+            Visibility = Visibility.Collapsed,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 8, 0, 0),
+            ToolTip =
+                "Create a local ZIP copy of the preserved Steward workspace without changing the recovery journal or canonical World."
+        };
+        _exportRecoveryCopyButton.Click += ExportRecoveryCopyButton_Click;
+
         _cleanupRetryButton = new Button
         {
             Content = "Retry cleanup",
@@ -80,6 +92,7 @@ public partial class MainWindow
         content.Children.Add(_pendingSyncRetryButton);
         content.Children.Add(_recoverInterruptedButton);
         content.Children.Add(_discardInterruptedButton);
+        content.Children.Add(_exportRecoveryCopyButton);
         content.Children.Add(_cleanupRetryButton);
 
         _worldResponsibilityBanner = new Border
@@ -117,6 +130,7 @@ public partial class MainWindow
             _pendingSyncRetryButton is null ||
             _recoverInterruptedButton is null ||
             _discardInterruptedButton is null ||
+            _exportRecoveryCopyButton is null ||
             _cleanupRetryButton is null)
         {
             return;
@@ -131,6 +145,7 @@ public partial class MainWindow
             _pendingSyncRetryButton.Visibility = Visibility.Collapsed;
             _recoverInterruptedButton.Visibility = Visibility.Collapsed;
             _discardInterruptedButton.Visibility = Visibility.Collapsed;
+            _exportRecoveryCopyButton.Visibility = Visibility.Collapsed;
             _cleanupRetryButton.Visibility = Visibility.Collapsed;
             EnforceResponsibilityActionGuard();
             return;
@@ -169,6 +184,18 @@ public partial class MainWindow
             _recoverInterruptedButton.ToolTip = reconnect;
             _discardInterruptedButton.ToolTip = reconnect;
         }
+
+        var exportableRecovery = selectedOwnsResponsibility &&
+                                 snapshot.Kind is (
+                                     WorldLifecycleResponsibilityKind.InterruptedSession or
+                                     WorldLifecycleResponsibilityKind.RecoveryNeeded or
+                                     WorldLifecycleResponsibilityKind.CleanupPending);
+        _exportRecoveryCopyButton.Visibility = exportableRecovery
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        _exportRecoveryCopyButton.IsEnabled = !_isBusy;
+        _exportRecoveryCopyButton.ToolTip =
+            "Create a local ZIP copy of the preserved workspace. Export does not require backend authority and never changes the recovery journal or canonical World.";
 
         _cleanupRetryButton.Visibility =
             selectedOwnsResponsibility &&

@@ -38,7 +38,11 @@ public sealed record SharedPackageTransferCleanupResult(
     int RetainedVerifiedCandidates,
     int VerifiedCandidatesCleanupEligible,
     int IntegrityFailuresPreserved,
-    int PublicationConflictsPreserved);
+    int PublicationConflictsPreserved)
+{
+    public int ExpiredProvisioningTransfers { get; init; }
+    public int AbandonedTransferRecordsDeleted { get; init; }
+}
 
 /// <summary>
 /// BE-3 reconciliation/cleanup for transfer-session artifacts only.
@@ -52,6 +56,8 @@ public sealed record SharedPackageTransferCleanupResult(
 /// </summary>
 public sealed class SharedPackageTransferCleanupService
 {
+    private const string ProvisioningProviderHandlePrefix = "pending:";
+
     private readonly ISharedPackageTransferStore _transferStore;
     private readonly ISharedRevisionMetadataStore _revisionStore;
     private readonly IPrivateImmutableObjectStore _objectStore;
@@ -83,6 +89,51 @@ public sealed class SharedPackageTransferCleanupService
         var counters = new CleanupCounters();
         var now = _utcNow();
 
+        // A previous pass may already have claimed an expired Provisioning row as Abandoned but then
+        // lost provider connectivity before it could recover/abort the provider upload. Retry those
+        // placeholders first so a newly claimed row is attempted only once per cleanup pass.
+        var pendingAbandonedProvisioning = await _transferStore.ListByStateExpiringBeforeAsync(
+            SharedPackageTransferState.Abandoned,
+            now,
+            _options.BatchSize,
+            cancellationToken);
+        foreach (var transfer in pendingAbandonedProvisioning)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!HasProvisioningPlaceholder(transfer))
+            {
+                continue;
+            }
+
+            await ReconcileAbandonedProvisioningAsync(transfer, counters, cancellationToken);
+        }
+
+        var expiredProvisioning = await _transferStore.ListByStateExpiringBeforeAsync(
+            SharedPackageTransferState.Provisioning,
+            now,
+            _options.BatchSize,
+            cancellationToken);
+        foreach (var transfer in expiredProvisioning)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!await _transferStore.TrySetStateAsync(
+                    transfer.Id,
+                    transfer.Owner,
+                    SharedPackageTransferState.Provisioning,
+                    SharedPackageTransferState.Abandoned,
+                    now,
+                    cancellationToken))
+            {
+                continue;
+            }
+
+            counters.ExpiredProvisioningTransfers++;
+            await ReconcileAbandonedProvisioningAsync(
+                transfer with { State = SharedPackageTransferState.Abandoned },
+                counters,
+                cancellationToken);
+        }
+
         var expiredActive = await _transferStore.ListByStateExpiringBeforeAsync(
             SharedPackageTransferState.Active,
             now,
@@ -109,6 +160,13 @@ public sealed class SharedPackageTransferCleanupService
         foreach (var transfer in expiredAbandoned)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (HasProvisioningPlaceholder(transfer))
+            {
+                // Already attempted at the beginning of this pass. Preserve the row when provider
+                // recovery failed and retry it on the next pass rather than spinning immediately.
+                continue;
+            }
+
             await ReconcileAbandonedAsync(
                 transfer,
                 now,
@@ -118,6 +176,48 @@ public sealed class SharedPackageTransferCleanupService
         }
 
         return counters.ToResult();
+    }
+
+    private async Task ReconcileAbandonedProvisioningAsync(
+        SharedPackageTransferRecord transfer,
+        CleanupCounters counters,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            // The provider upload may have been created immediately before the backend crashed. The
+            // production S3 facade recovers an existing multipart upload for this exact immutable key;
+            // if none remains it creates an empty upload that is immediately aborted below.
+            var recovered = await _objectStore.BeginMultipartUploadAsync(
+                transfer.ObjectKey,
+                transfer.ExpectedByteSize,
+                transfer.ExpectedSha256,
+                cancellationToken);
+            await _objectStore.AbortMultipartUploadAsync(
+                recovered.ProviderUploadId,
+                cancellationToken);
+            counters.PartialUploadsAborted++;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            // Cleanup must fail closed. Keeping the claimed Abandoned row with its pending handle is
+            // the durable retry evidence; deleting it here could orphan an unknown provider upload.
+            return;
+        }
+
+        if (await _transferStore.TryDeleteAsync(
+                transfer.Id,
+                transfer.Owner,
+                SharedPackageTransferState.Abandoned,
+                cancellationToken))
+        {
+            counters.TransferRecordsDeleted++;
+            counters.AbandonedTransferRecordsDeleted++;
+        }
     }
 
     private async Task ReconcileExpiredActiveAsync(
@@ -394,6 +494,11 @@ public sealed class SharedPackageTransferCleanupService
            stored.ByteSize == transfer.ExpectedByteSize &&
            string.Equals(stored.Sha256, transfer.ExpectedSha256, StringComparison.OrdinalIgnoreCase);
 
+    private static bool HasProvisioningPlaceholder(SharedPackageTransferRecord transfer)
+        => transfer.ProviderUploadId.StartsWith(
+            ProvisioningProviderHandlePrefix,
+            StringComparison.Ordinal);
+
     private enum RevisionReferenceStatus
     {
         None,
@@ -413,10 +518,12 @@ public sealed class SharedPackageTransferCleanupService
 
     private sealed class CleanupCounters
     {
+        public int ExpiredProvisioningTransfers { get; set; }
         public int ExpiredActiveTransfers { get; set; }
         public int RepairedFinalizedTransfers { get; set; }
         public int PartialUploadsAborted { get; set; }
         public int TransferRecordsDeleted { get; set; }
+        public int AbandonedTransferRecordsDeleted { get; set; }
         public int RetainedVerifiedCandidates { get; set; }
         public int VerifiedCandidatesCleanupEligible { get; set; }
         public int IntegrityFailuresPreserved { get; set; }
@@ -431,6 +538,10 @@ public sealed class SharedPackageTransferCleanupService
                 RetainedVerifiedCandidates,
                 VerifiedCandidatesCleanupEligible,
                 IntegrityFailuresPreserved,
-                PublicationConflictsPreserved);
+                PublicationConflictsPreserved)
+            {
+                ExpiredProvisioningTransfers = ExpiredProvisioningTransfers,
+                AbandonedTransferRecordsDeleted = AbandonedTransferRecordsDeleted
+            };
     }
 }

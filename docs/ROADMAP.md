@@ -14,7 +14,7 @@ They deliver one product model. No workstream may invent a competing definition 
 
 ## Current mode: implementation unlocked
 
-Status: **P0 COMPLETE. E1 COMPLETE AND GREEN. BACKEND BE-2 THROUGH BE-5 DEVELOPMENT ACCEPTANCE COMPLETE AND GREEN. E4 WINDOWS DESKTOP/BACKGROUND-RUNTIME PRODUCT COMPOSITION ACTIVE.**
+Status: **P0 COMPLETE. E1 COMPLETE AND GREEN. BACKEND BE-2 THROUGH BE-5 DEVELOPMENT ACCEPTANCE COMPLETE AND GREEN. E4 WINDOWS DESKTOP PRODUCT COMPOSITION COMPLETE AT THE CODE/CI BOUNDARY; LIVE DEPLOYMENT ACCEPTANCE ACTIVE.**
 
 The planning contracts remain the first-release implementation baseline. Changes remain possible, but any deliberate product-boundary or contract change must be documented before implementation changes follow it.
 
@@ -24,7 +24,7 @@ Implementation is allowed only when it maps to:
 - one numbered milestone;
 - one acceptance criterion.
 
-The active implementation phase remains **E4: Background runtime integration**, because the development two-device proof is complete but the production Windows Desktop composition root still uses the local storage/session stack. The next product target is to compose the proven authenticated remote stack into Desktop, then enforce the World exact-version + Verify/Repair path before remote Join/Host is treated as product-ready.
+The active phase remains **E4: Background runtime integration**, but its remaining work is now acceptance rather than structural Desktop composition. The Windows Desktop already composes the authenticated remote stack, preserves the local-only path, enforces exact-environment Verify/Repair, and exposes deterministic pending/cleanup/interrupted recovery. E4 closes only after that code survives the real Steam + deployed-backend + two-installation Factorio handoff.
 
 ## Product boundaries
 
@@ -37,7 +37,7 @@ The active implementation phase remains **E4: Background runtime integration**, 
 - Share World / Manage access;
 - lifecycle/progress presentation;
 - tray/background visibility;
-- Connection required / Waiting to sync / Action required / Recovery needed presentation.
+- Connection required / Waiting to sync / Action required / Recovery needed / Interrupted session presentation.
 
 UI never invents backend authority or game-specific lifecycle behavior.
 
@@ -77,7 +77,7 @@ Rules:
 - Adapter capabilities determine Start/Host/Join/Stop and Save availability without game-name branches in Core/UI.
 - No workstream may add a concept rejected by `NON_NEGOTIABLE_RULES.md` or `PRODUCT_BOUNDARY.md`.
 
-# Planning phase P0
+# Planning phase P0 — COMPLETE
 
 ## P0.1: Roadmap structure
 
@@ -114,7 +114,7 @@ Canonical sources:
 - `BACKEND_ROADMAP.md`;
 - `BE0_SIGNOFF_CHECKLIST.md`.
 
-BE-D001 through BE-D015 define the first-release backend contract. Named production provider selection is explicitly deferred until the immutable-transfer milestone has enough measured evidence to choose one without redefining the product model.
+BE-D001 through BE-D015 define the first-release backend contract.
 
 ## P0.4: AR-0 contract
 
@@ -137,7 +137,7 @@ Important reconciled rules:
 
 - `Only on this PC` may Host when temporary-host capability exists;
 - persistent sharing is not a prerequisite for temporary hosting;
-- final UI terms are Running, Hosting, Host is starting, Someone is playing, Saving World, Action required, etc.;
+- final UI terms include Running, Hosting, Host is starting, Someone is playing, Saving World, Action required, Recovery needed, and Interrupted session;
 - Waiting to sync preserves an unresolved candidate;
 - Join never creates a second writer;
 - access administration never grants gameplay/reservation priority.
@@ -146,27 +146,17 @@ Important reconciled rules:
 
 Status: **complete as a specification; execution occurs during implementation/release validation**.
 
-Canonical source:
-
-- `CROSS_WORKSTREAM_CONTRACT.md`.
+Canonical source: `CROSS_WORKSTREAM_CONTRACT.md`.
 
 ## P0.7: Explicit planning sign-off
 
 Status: **complete — product owner explicitly approved continuing into implementation.**
 
-The master planning lock is lifted.
-
 # Drift-control rules after unlock
 
 ## Every code change maps to the roadmap
 
-Every production change must map to:
-
-- one workstream;
-- one numbered milestone;
-- one acceptance criterion.
-
-A change without that mapping does not begin.
+Every production change must map to one workstream, one numbered milestone, and one acceptance criterion.
 
 ## Finish before expanding
 
@@ -178,7 +168,7 @@ Ideas that do not unblock the active milestone are recorded/deferred. They do no
 
 ## Boundary changes update documentation first
 
-A deliberate product-boundary change updates, in order where applicable:
+A deliberate product-boundary change updates, where applicable:
 
 1. `NON_NEGOTIABLE_RULES.md`;
 2. `PRODUCT_BOUNDARY.md`;
@@ -188,39 +178,37 @@ A deliberate product-boundary change updates, in order where applicable:
 
 ## Evidence over assumption
 
-Claims about Factorio, Palworld, Steam, package behavior, process ownership, safe capture, or recovery remain conditional until documentation/controlled tests prove them.
+Claims about Factorio, Palworld, Steam, package behavior, process ownership, safe capture, or recovery remain conditional until controlled evidence proves them.
 
 # Validated implementation foundation
 
-Existing implementation now provides:
+The local lifecycle proves:
 
 ```text
 discover
 -> import
--> inspect environment
--> prepare workspace
+-> inspect exact environment
+-> prepare isolated workspace
 -> restore state
 -> launch local or hosted session
--> adapter observes session
+-> adapter observes real session
 -> capture updated state
 -> store immutable revision
 -> advance canonical head last
--> preserve recovery evidence on failure
+-> preserve durable recovery evidence on failure
 ```
 
 E1 additionally proved the shared authority contract in a provider-free deterministic simulation: one-writer generations, uncertainty/reclaim, resumable verified candidate transfer, idempotent mutation replay/result lookup, expected-head commit, retention, recovery preservation, and PC A -> PC B -> PC A handoff behavior.
 
-The E1 implementation was validated by GitHub Actions CI run `600` on head `fc22978ed46e5158e3cabdd06cd991f0d6c47c93`: formatter verification, Ubuntu Release build/tests, and Windows Release build/tests all passed.
+BE-2 replaced simulated identity/access/metadata with server-verified Steam identity, Steward sessions, shared World metadata, flat membership/Access Manager administration, invitations/revocation/leave flows, and durable PostgreSQL persistence.
 
-BE-2 replaced the simulated identity/access/metadata side with real backend contracts and durable PostgreSQL persistence: server-verified Steam identity, Steward access/refresh sessions, shared World metadata, flat membership + Access Manager administration, invitations/revocation/leave flows, and immutable state/environment metadata.
+BE-3 replaced simulated transfer with private immutable object storage, resumable multipart upload, direct authorized transfer, exact size/SHA-256 verification, publication, cleanup/retention, verified desktop cache/materialization, and a real S3-compatible protocol proof.
 
-BE-2 persistence was validated by GitHub Actions run `29866444653`: formatter verification, Ubuntu Release build/tests, Windows Release build/tests, and live PostgreSQL integration tests all passed. Canonical detail is recorded in `BE2_STATUS.md`.
+BE-4 replaced simulated distributed authority with PostgreSQL-backed reservation/generation coordination and canonical commit: acquire, heartbeat, Uncertain/reconnect, deliberate reclaim, generation invalidation, expected-head commit, late-writer rejection, and durable mutation idempotency.
 
-BE-3 replaced the simulated package path with provider-neutral durable transfer: private immutable object storage, resumable multipart upload, direct authorized client/object-store transfer, exact size/SHA-256 verification, publication, cleanup/retention, and verified desktop download/cache/materialization. The S3-compatible protocol proof and full matrix are recorded in `BE3_S3_CHECKPOINT.md`.
+BE-5 composes those boundaries through Core and proves authenticated remote metadata, immutable environment manifests, verified transfer, exact-generation commit, two-device continuation, adverse reclaim behavior, and deterministic lost-success recovery.
 
-BE-4 replaced the simulated distributed authority with PostgreSQL-backed reservation/generation coordination and canonical commit: one-writer acquisition, heartbeat/Uncertain/reconnect, deliberate reclaim, generation invalidation, expected-head commit, late-writer rejection, and durable acquire/reclaim/commit idempotency. Canonical detail is recorded in `BE4_STATUS.md`; GitHub Actions run `29906786662` passed Quality, Ubuntu, Windows, PostgreSQL, and S3-compatible integration.
-
-BE-5 composes those real boundaries through the existing Core lifecycle. It proves authenticated remote World/environment metadata, structured immutable environment manifests, verified cache/download, resumable candidate upload, exact-generation commit, two-device continuation, adverse authority/reclaim behavior, and deterministic Waiting-to-sync recovery after a lost successful commit response. Canonical detail is recorded in `BE5_STATUS.md`; CI run `29916875172` on `3fca52a9014b6799428a2882de73762ba97a3da4` passed Quality, Ubuntu, Windows, PostgreSQL, and S3-compatible integration.
+Canonical backend evidence is recorded in `BE2_STATUS.md`, `BE3_S3_CHECKPOINT.md`, `BE4_STATUS.md`, and `BE5_STATUS.md`.
 
 # Execution plan
 
@@ -232,57 +220,17 @@ Completed slices:
 - **AR-1** generic runtime/conformance extraction and tests;
 - **UI-1** shell/navigation replacement using the frozen state/action contract.
 
-Canonical evidence:
-
-- `E1_STATUS.md`;
-- CI run `600` on `fc22978ed46e5158e3cabdd06cd991f0d6c47c93`.
-
-No provider-specific or game-specific shortcut may bypass the E1 contracts as later phases replace simulated boundaries with real services.
+Canonical evidence: `E1_STATUS.md`.
 
 ## E2: Shared state foundation — BACKEND COMPLETE AND GREEN
 
-E2 replaced BE-1's simulated identity/metadata/transfer boundaries while preserving the same authority and failure semantics.
+### BE-2 — Authentication and World metadata service
 
-### BE-2 — Authentication and World metadata service: COMPLETE AND GREEN
+Complete and green.
 
-Implemented and validated:
+### BE-3 — Immutable object transfer
 
-- server-verified Steam identity boundary;
-- Steward access/refresh authentication sessions;
-- persistent shared World metadata;
-- flat membership + one Access Manager;
-- World-access invitations, acceptance/decline, revocation, pending revocation, leave, and manager transfer;
-- immutable state/environment metadata;
-- provider-neutral PostgreSQL-compatible persistence;
-- live PostgreSQL integration coverage.
-
-Canonical evidence:
-
-- `BE2_STATUS.md`;
-- CI run `29866444653`.
-
-### BE-3 — Immutable object transfer: COMPLETE AND GREEN
-
-Implemented and validated:
-
-- HTTPS/JSON transfer authorization control plane;
-- private immutable object-storage boundary;
-- bounded/resumable multipart upload;
-- exact size/hash verification before publication;
-- immutable state/environment package publication;
-- resumable authorized download;
-- direct desktop/object-storage byte transfer;
-- orphan/partial cleanup;
-- BE-D009/BE-D010 retention integration;
-- client verification/cache/materialization contract;
-- generic S3-compatible provider adapter and real protocol acceptance test.
-
-Canonical evidence:
-
-- `BE3_S3_CHECKPOINT.md`;
-- full BE-3 acceptance CI run `29875411791` on `58a73702dbe96219e7b781b5c869cae35972e01e`.
-
-Object storage never decides what revision is current.
+Complete and green. Object storage never decides what revision is current.
 
 ## E3: Distributed one-writer coordination — BACKEND COMPLETE AND GREEN
 
@@ -299,40 +247,75 @@ BE-4 provides and proves:
 - parallel race protection;
 - stale/late writer rejection.
 
-Canonical evidence:
+## E4: Background runtime integration — CODE/CI COMPLETE, LIVE ACCEPTANCE ACTIVE
 
-- `BE4_STATUS.md`;
-- CI run `29906786662`.
+Implemented and CI-proven:
 
-## E4: Background runtime integration — ACTIVE PRODUCT WIRING
-
-The development remote runtime path is implemented and proven:
-
+- real Steam Web API ticket acquisition path in Desktop;
+- stable installation-bound identity;
 - authenticated Steward session/refresh client;
-- shared World/current-head and arbitrary immutable revision metadata;
-- structured immutable environment manifests;
+- merged local/shared World catalog with authoritative routing by World ID;
 - verified remote package download/cache/materialization;
-- distributed `IWorldSessionCoordinator` using real BE-4 authority;
-- heartbeat/Uncertain/reconnect/reclaim-compatible lease behavior;
-- resumable direct multipart candidate upload;
-- remote `IWorldStorage` canonical commit bridge;
-- exact pre-launch reservation abandonment;
-- candidate/workspace write-ahead recovery journal;
-- deterministic Waiting-to-sync completion;
-- fail-closed recovery when canonical head diverges.
+- distributed coordinator using BE-4 authority;
+- resumable multipart candidate upload;
+- exact-generation expected-head commit;
+- pre-launch reservation abandonment;
+- exact immutable environment manifests;
+- Verify/Repair hard gate before shared writable play;
+- local-only path preserved independently of backend availability;
+- durable workspace journal including base state, exact environment, and candidate identity;
+- deterministic remote pending recovery;
+- deterministic local pending recovery;
+- exact-environment cleanup-only recovery;
+- distinct crash-found `InterruptedSession` responsibility;
+- explicit **Recover changes** and confirmed **Discard interrupted session** paths;
+- tray/Quit/update/writable-action guards tied to durable responsibility;
+- fail-closed state-head, environment-head, candidate-parent, and adapter checks.
 
-What remains active is production Desktop/background composition:
+Current code-level recovery rule:
 
-- replace the shared-World path in `SharedWorlds.Desktop` with the proven authenticated remote stack;
-- preserve the existing local-only path for `Only on this PC` Worlds;
-- persist/use the Steward installation identity and session credentials safely;
-- expose Connection required / Waiting to sync / Action required / Recovery needed from the real runtime states;
-- keep tray/background lifetime while writable or recovery responsibility is unresolved;
-- enforce the World's exact environment version before remote writable play;
-- run Verify/Repair when the local environment does not match the structured manifest;
-- only then enable remote Continue/Host/Join against the shared World.
+```text
+candidate already canonical
+    -> no recapture/recommit
+    -> cleanup + clear journal
 
-The Desktop currently still constructs `LocalWorldStorage + LocalWorldSessionCoordinator + LocalWorkspaceRecoveryStore`, so E4 is not marked product-complete yet.
+base state + exact journaled environment still canonical
+    -> acquire exact authority
+    -> re-check state + environment
+    -> reuse stable candidate ID
+    -> store/reuse candidate
+    -> commit
+
+state or environment diverged
+    -> do not overwrite or combine histories
+    -> preserve evidence
+```
+
+Factorio hosted play already uses the real dedicated-server/RCON lifecycle at the adapter layer. E4 still requires the complete product path to be exercised on the real Windows Steam/deployed-backend boundary.
+
+Canonical status: `E4_DESKTOP_STATUS.md`.
+
+Latest code checkpoint covering interrupted-session decisions, local recovery, and exact-environment remote recovery: commit `4ec21efec9a6542938fa4f32b2a5c3ecb2c2b424`, CI run `29941402902`, full five-gate matrix green.
+
+### E4 live acceptance sequence
+
+```text
+real Windows Steward build under Steward Steam AppID
+-> real Steam Web API ticket
+-> deployed Steward API verifies same AppID/identity
+-> shared Factorio World appears
+-> exact environment reaches Ready
+-> remote Continue/Host
+-> exact reservation + verified canonical download
+-> dedicated Factorio server reaches authenticated RCON readiness
+-> host gameplay
+-> RCON server-save + observed save refresh
+-> capture + multipart upload
+-> expected-head commit
+-> second Steward installation observes and continues new canonical revision
+```
+
+E4 is not product-complete until this real boundary is proven.
 
 ## E5: Development two-device proof / BE-5 — COMPLETE AND GREEN
 
@@ -347,18 +330,13 @@ Also proven:
 
 - competing writer rejection;
 - interrupted multipart transfer resume;
-- outage during an active generation -> `Uncertain`;
-- Waiting-to-sync completion after lost successful commit response;
+- active-generation outage -> `Uncertain`;
+- lost-success Waiting-to-sync completion;
 - deliberate reclaim after grace;
-- generation increase and late old-generation heartbeat/commit rejection;
-- last-safe fail-closed recovery when canonical head diverges.
+- generation increase and late old-generation rejection;
+- fail-closed recovery on canonical divergence.
 
-Canonical evidence:
-
-- `BE5_STATUS.md`;
-- full recovery/handoff CI run `29916875172` on `3fca52a9014b6799428a2882de73762ba97a3da4`;
-- composed PC A -> PC B -> PC A proof in run `29914756373`;
-- composed adverse authority proof in run `29915074063`.
+Canonical evidence: `BE5_STATUS.md`.
 
 ## E6: Commercial UI completion
 
@@ -368,14 +346,16 @@ Canonical evidence:
 - Share/Manage access;
 - lifecycle progress;
 - tray/background;
-- recovery/action-required flows;
+- recovery/action-required/interrupted-session flows;
 - accessibility/commercial polish.
 
-E6 may proceed alongside the remaining E4 production composition only when UI work consumes the frozen runtime/backend states instead of inventing substitute behavior.
+E6 may proceed alongside E4 live acceptance only when UI work consumes real runtime/backend states instead of inventing substitute behavior.
 
 ## E7: Second-adapter handoff proof
 
 Repeat the production-composed two-device flow with the other initial adapter. Keep game-specific issues inside its adapter.
+
+Palworld shared play remains fail-closed until its real exact-environment verifier is implemented and proven.
 
 ## E8: Release hardening
 
@@ -433,4 +413,4 @@ Not required:
 
 # Immediate next step
 
-Continue **E4 production Desktop composition**. Wire the existing Windows Desktop shared-World path to the proven Steward session/metadata/authority/storage/recovery stack while preserving the local-only path. Then enforce the canonical World's exact environment manifest through Verify/Repair before remote Continue/Host/Join is enabled. Do not redesign backend authority, transfer, or adapter boundaries during this step.
+Execute **E4 live deployment acceptance** rather than building another abstraction layer. Use the real Windows Steward build, real Steam AppID/Web API ticket, deployed backend, and two Steward installations to prove the Factorio shared-World handoff end to end. Any failure found there becomes the next concrete engineering task. Do not redesign backend authority, transfer, or adapter boundaries unless that evidence requires it.

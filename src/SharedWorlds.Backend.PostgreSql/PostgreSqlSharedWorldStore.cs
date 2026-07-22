@@ -1,7 +1,9 @@
+using System.Text.Json;
 using Npgsql;
 using SharedWorlds.Backend.Identity;
 using SharedWorlds.Backend.Worlds;
 using SharedWorlds.Core.Domain;
+using SharedWorlds.Core.Environment;
 
 namespace SharedWorlds.Backend.PostgreSql;
 
@@ -67,6 +69,21 @@ public sealed partial class PostgreSqlSharedWorldStore :
     {
         var byteSizeOrdinal = reader.GetOrdinal("byte_size");
         var shaOrdinal = reader.GetOrdinal("sha256");
+        var manifestOrdinal = reader.GetOrdinal("manifest_json");
+        EnvironmentManifest? manifest = null;
+        if (!reader.IsDBNull(manifestOrdinal))
+        {
+            try
+            {
+                manifest = JsonSerializer.Deserialize<EnvironmentManifest>(reader.GetString(manifestOrdinal))
+                    ?? throw new InvalidDataException("Environment manifest JSON deserialized to null.");
+            }
+            catch (JsonException exception)
+            {
+                throw new InvalidDataException("Stored environment manifest JSON is invalid.", exception);
+            }
+        }
+
         return new SharedEnvironmentRevisionMetadata(
             new WorldId(reader.GetGuid(reader.GetOrdinal("world_id"))),
             new RevisionId(reader.GetGuid(reader.GetOrdinal("revision_id"))),
@@ -77,6 +94,7 @@ public sealed partial class PostgreSqlSharedWorldStore :
             new ExternalIdentityRef(
                 reader.GetString(reader.GetOrdinal("published_by_provider")),
                 reader.GetString(reader.GetOrdinal("published_by_external_id"))),
-            reader.GetFieldValue<DateTimeOffset>(reader.GetOrdinal("published_at")));
+            reader.GetFieldValue<DateTimeOffset>(reader.GetOrdinal("published_at")),
+            manifest);
     }
 }

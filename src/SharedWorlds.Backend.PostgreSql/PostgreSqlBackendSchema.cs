@@ -133,6 +133,7 @@ public static class PostgreSqlBackendSchema
             artifact_reference text NOT NULL,
             byte_size bigint NULL CHECK (byte_size IS NULL OR byte_size > 0),
             sha256 text NULL,
+            manifest_json jsonb NULL,
             published_by_provider text NOT NULL,
             published_by_external_id text NOT NULL,
             published_at timestamptz NOT NULL,
@@ -140,6 +141,9 @@ public static class PostgreSqlBackendSchema
             CHECK ((byte_size IS NULL AND sha256 IS NULL) OR
                    (byte_size IS NOT NULL AND sha256 IS NOT NULL AND length(sha256) = 64))
         );
+
+        ALTER TABLE steward_environment_revisions
+            ADD COLUMN IF NOT EXISTS manifest_json jsonb NULL;
 
         CREATE TABLE IF NOT EXISTS steward_state_revisions (
             world_id uuid NOT NULL REFERENCES steward_shared_worlds(world_id) ON DELETE CASCADE,

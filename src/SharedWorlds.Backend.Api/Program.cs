@@ -146,6 +146,7 @@ await PostgreSqlBackendSchema.InitializeAsync(app.Services.GetRequiredService<Np
 
 app.UseStewardApiProblemHandling();
 app.MapStewardApiV1();
+app.MapStewardRevisionMetadataApiV1();
 app.MapStewardAuthorityApiV1();
 app.MapStewardReservationAbandonApiV1();
 

@@ -21,7 +21,7 @@ public partial class MainWindow
             async () =>
             {
                 var installation = await GetGameInstallationAsync(adapter);
-                var service = new WorldEnvironmentService(_storage);
+                var service = new WorldEnvironmentService(GetStorageForWorld(world));
                 _environmentVerification = await service.VerifyAsync(
                     world.Id,
                     adapter,
@@ -51,7 +51,7 @@ public partial class MainWindow
             async () =>
             {
                 var installation = await GetGameInstallationAsync(adapter);
-                var service = new WorldEnvironmentService(_storage);
+                var service = new WorldEnvironmentService(GetStorageForWorld(world));
                 var result = await service.RepairAsync(
                     world.Id,
                     adapter,

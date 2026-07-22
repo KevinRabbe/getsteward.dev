@@ -229,26 +229,16 @@ public sealed class SharedPackageTransferService
             return new(MapExistingObjectPublication(publication), null);
         }
 
-        var upload = await _objectStore.BeginMultipartUploadAsync(
-            objectKey,
-            command.ExpectedByteSize,
-            NormalizeSha256(command.ExpectedSha256),
-            cancellationToken);
-        if (!string.Equals(upload.ObjectKey, objectKey, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException("Object store returned an upload for the wrong object key.");
-        }
-
         var transferId = _newTransferId();
         if (transferId.Value == Guid.Empty)
         {
-            await _objectStore.AbortMultipartUploadAsync(upload.ProviderUploadId, cancellationToken);
             throw new InvalidOperationException("Transfer ID generator returned an empty ID.");
         }
 
         var now = _utcNow();
         var partCount = checked((int)((command.ExpectedByteSize + _options.PartSizeBytes - 1L) / _options.PartSizeBytes));
-        var transfer = new SharedPackageTransferRecord(
+        var placeholderProviderUploadId = CreateProvisioningPlaceholder(transferId);
+        var provisioning = new SharedPackageTransferRecord(
             transferId,
             command.WorldId,
             command.RevisionId,
@@ -256,7 +246,7 @@ public sealed class SharedPackageTransferService
             world.AdapterId,
             caller.Subject,
             objectKey,
-            upload.ProviderUploadId,
+            placeholderProviderUploadId,
             command.ExpectedByteSize,
             NormalizeSha256(command.ExpectedSha256),
             command.RequiredEnvironmentRevisionId,
@@ -264,15 +254,84 @@ public sealed class SharedPackageTransferService
             partCount,
             now,
             now + _options.TransferLifetime,
-            SharedPackageTransferState.Active);
+            SharedPackageTransferState.Provisioning);
 
-        if (!await _transferStore.TryCreateAsync(transfer, cancellationToken))
+        if (!await _transferStore.TryCreateAsync(provisioning, cancellationToken))
         {
-            await _objectStore.AbortMultipartUploadAsync(upload.ProviderUploadId, cancellationToken);
-            throw new InvalidOperationException("Generated transfer ID already exists.");
+            var existingTransfer = await _transferStore.LoadInFlightByObjectKeyAsync(
+                objectKey,
+                cancellationToken);
+            if (existingTransfer is null)
+            {
+                throw new InvalidOperationException(
+                    "Transfer intent could not be created and no conflicting in-flight transfer exists.");
+            }
+
+            if (!MatchesProvisioningIntent(existingTransfer, provisioning))
+            {
+                return new(BeginPackageUploadStatus.Conflict, null);
+            }
+
+            if (existingTransfer.State == SharedPackageTransferState.Active)
+            {
+                return new(BeginPackageUploadStatus.Started, existingTransfer);
+            }
+
+            if (existingTransfer.State != SharedPackageTransferState.Provisioning)
+            {
+                throw new InvalidOperationException("In-flight transfer lookup returned an invalid transfer state.");
+            }
+
+            provisioning = existingTransfer;
+            placeholderProviderUploadId = existingTransfer.ProviderUploadId;
         }
 
-        return new(BeginPackageUploadStatus.Started, transfer);
+        var upload = await _objectStore.BeginMultipartUploadAsync(
+            provisioning.ObjectKey,
+            provisioning.ExpectedByteSize,
+            provisioning.ExpectedSha256,
+            cancellationToken);
+        if (!string.Equals(upload.ObjectKey, provisioning.ObjectKey, StringComparison.Ordinal))
+        {
+            await _objectStore.AbortMultipartUploadAsync(upload.ProviderUploadId, cancellationToken);
+            throw new InvalidOperationException("Object store returned an upload for the wrong object key.");
+        }
+
+        if (await _transferStore.TryActivateProvisioningAsync(
+                provisioning.Id,
+                provisioning.Owner,
+                placeholderProviderUploadId,
+                upload.ProviderUploadId,
+                cancellationToken))
+        {
+            return new(
+                BeginPackageUploadStatus.Started,
+                provisioning with
+                {
+                    ProviderUploadId = upload.ProviderUploadId,
+                    State = SharedPackageTransferState.Active
+                });
+        }
+
+        var current = await _transferStore.LoadAsync(provisioning.Id, cancellationToken);
+        if (current is not null &&
+            current.State == SharedPackageTransferState.Active &&
+            MatchesProvisioningIntent(current, provisioning))
+        {
+            if (!string.Equals(
+                    current.ProviderUploadId,
+                    upload.ProviderUploadId,
+                    StringComparison.Ordinal))
+            {
+                await _objectStore.AbortMultipartUploadAsync(upload.ProviderUploadId, cancellationToken);
+            }
+
+            return new(BeginPackageUploadStatus.Started, current);
+        }
+
+        await _objectStore.AbortMultipartUploadAsync(upload.ProviderUploadId, cancellationToken);
+        throw new InvalidOperationException(
+            "Transfer provisioning changed unexpectedly while the provider upload was being attached.");
     }
 
     public async Task<SharedPackageTransferProgress?> GetProgressAsync(
@@ -643,6 +702,24 @@ public sealed class SharedPackageTransferService
         var kind = command.Kind == SharedPackageKind.State ? "state" : "environment";
         return $"packages/{command.WorldId}/{kind}/{command.RevisionId}/{NormalizeSha256(command.ExpectedSha256).ToLowerInvariant()}.package";
     }
+
+    private static string CreateProvisioningPlaceholder(SharedPackageTransferId transferId)
+        => $"pending:{transferId.Value:N}";
+
+    private static bool MatchesProvisioningIntent(
+        SharedPackageTransferRecord current,
+        SharedPackageTransferRecord expected)
+        => current.WorldId == expected.WorldId &&
+           current.RevisionId == expected.RevisionId &&
+           current.Kind == expected.Kind &&
+           string.Equals(current.AdapterId, expected.AdapterId, StringComparison.Ordinal) &&
+           current.Owner == expected.Owner &&
+           string.Equals(current.ObjectKey, expected.ObjectKey, StringComparison.Ordinal) &&
+           current.ExpectedByteSize == expected.ExpectedByteSize &&
+           string.Equals(current.ExpectedSha256, expected.ExpectedSha256, StringComparison.OrdinalIgnoreCase) &&
+           current.RequiredEnvironmentRevisionId == expected.RequiredEnvironmentRevisionId &&
+           current.PartSizeBytes == expected.PartSizeBytes &&
+           current.PartCount == expected.PartCount;
 
     private static bool MatchesExpectedObject(
         ImmutableStoredObject stored,

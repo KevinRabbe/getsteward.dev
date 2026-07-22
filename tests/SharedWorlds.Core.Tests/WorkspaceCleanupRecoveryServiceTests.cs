@@ -13,7 +13,7 @@ public sealed class WorkspaceCleanupRecoveryServiceTests : IDisposable
         Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public async Task ExistingWorkspaceIsDiscardedBeforeCleanupRecordIsRemoved()
+    public async Task ExistingWorkspaceIsDiscardedUsingJournaledExactEnvironment()
     {
         Directory.CreateDirectory(_root);
         var fixture = CreateFixture(WorkspaceRecoveryStatus.CleanupPending, workspaceExists: true);
@@ -28,12 +28,13 @@ public sealed class WorkspaceCleanupRecoveryServiceTests : IDisposable
         Assert.Equal(PreparedWorldDisposition.Discard, fixture.Adapter.LastDisposition);
         Assert.False(Directory.Exists(fixture.Record.WorkingDirectory));
         Assert.Empty(fixture.Recovery.Records);
-        Assert.Equal(1, fixture.Storage.WorldLoadCount);
+        Assert.Equal(0, fixture.Storage.WorldLoadCount);
         Assert.Equal(1, fixture.Storage.EnvironmentLoadCount);
+        Assert.Equal(fixture.Record.EnvironmentRevisionId, fixture.Storage.LastEnvironmentRevisionId);
     }
 
     [Fact]
-    public async Task AlreadyMissingWorkspaceRemovesOnlyTheDurableCleanupRecord()
+    public async Task AlreadyMissingWorkspaceRemovesOnlyTheDurableCleanupRecordWithoutInstallation()
     {
         Directory.CreateDirectory(_root);
         var fixture = CreateFixture(WorkspaceRecoveryStatus.CleanupPending, workspaceExists: false);
@@ -43,7 +44,7 @@ public sealed class WorkspaceCleanupRecoveryServiceTests : IDisposable
         await service.RetryAsync(
             fixture.World.Id,
             fixture.Adapter,
-            fixture.Adapter.Installation);
+            installation: null);
 
         Assert.Equal(0, fixture.Adapter.FinalizeCount);
         Assert.Equal(0, fixture.Storage.WorldLoadCount);
@@ -84,6 +85,27 @@ public sealed class WorkspaceCleanupRecoveryServiceTests : IDisposable
             fixture.Adapter.Installation));
 
         Assert.Equal(1, fixture.Adapter.FinalizeCount);
+        Assert.Single(fixture.Recovery.Records);
+        Assert.True(Directory.Exists(fixture.Record.WorkingDirectory));
+    }
+
+    [Fact]
+    public async Task LegacyCleanupRecordWithoutExactEnvironmentPreservesExistingWorkspace()
+    {
+        Directory.CreateDirectory(_root);
+        var fixture = CreateFixture(WorkspaceRecoveryStatus.CleanupPending, workspaceExists: true);
+        fixture.Recovery.Records[0] = fixture.Record with { EnvironmentRevisionId = null };
+        var service = new WorkspaceCleanupRecoveryService(fixture.Storage, fixture.Recovery);
+
+        var exception = await Assert.ThrowsAsync<WorkspaceCleanupRecoveryException>(() =>
+            service.RetryAsync(
+                fixture.World.Id,
+                fixture.Adapter,
+                fixture.Adapter.Installation));
+
+        Assert.Equal("EnvironmentUnknown", exception.Code);
+        Assert.Equal(0, fixture.Adapter.FinalizeCount);
+        Assert.Equal(0, fixture.Storage.EnvironmentLoadCount);
         Assert.Single(fixture.Recovery.Records);
         Assert.True(Directory.Exists(fixture.Record.WorkingDirectory));
     }
@@ -142,7 +164,8 @@ public sealed class WorkspaceCleanupRecoveryServiceTests : IDisposable
             status,
             CandidateStateRevisionId: status == WorkspaceRecoveryStatus.RecoveryPending
                 ? RevisionId.New()
-                : stateId);
+                : stateId,
+            EnvironmentRevisionId: environmentId);
         var storage = new CleanupStorage(world, environment);
         var recovery = new CleanupRecoveryStore(record);
         var adapter = new CleanupAdapter(_root);
@@ -170,6 +193,7 @@ public sealed class WorkspaceCleanupRecoveryServiceTests : IDisposable
         public bool ThrowIfWorldLoaded { get; set; }
         public int WorldLoadCount { get; private set; }
         public int EnvironmentLoadCount { get; private set; }
+        public RevisionId? LastEnvironmentRevisionId { get; private set; }
 
         public Task<World?> LoadWorldAsync(
             WorldId worldId,
@@ -190,6 +214,7 @@ public sealed class WorkspaceCleanupRecoveryServiceTests : IDisposable
             CancellationToken cancellationToken = default)
         {
             EnvironmentLoadCount++;
+            LastEnvironmentRevisionId = revisionId;
             return Task.FromResult<EnvironmentRevision?>(
                 _environment.WorldId == worldId && _environment.Id == revisionId
                     ? _environment

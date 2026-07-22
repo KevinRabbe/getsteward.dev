@@ -22,7 +22,8 @@ Current backend/runtime completion evidence:
 - [BE-3 S3 Checkpoint](BE3_S3_CHECKPOINT.md) — immutable transfer, S3-compatible protocol proof, cleanup/retention, and desktop verified caching/materialization;
 - [BE-4 Status](BE4_STATUS.md) — durable one-writer reservation/generation authority, canonical commit, reclaim, late-writer rejection, and transactional idempotency;
 - [BE-5 Status](BE5_STATUS.md) — real PostgreSQL-backed PC A -> PC B -> PC A handoff, adverse authority/reclaim proof, and deterministic Waiting-to-sync recovery after a lost successful commit response;
-- [E4 Windows Desktop Status](E4_DESKTOP_STATUS.md) — production Desktop remote composition, stable installation identity, Steam Web API ticket bootstrap, merged local/shared World routing, exact-environment gate, deterministic pending/cleanup/interrupted recovery, and the remaining live-deployment acceptance boundary.
+- [E4 Windows Desktop Status](E4_DESKTOP_STATUS.md) — production Desktop remote composition, stable installation identity, Steam Web API ticket bootstrap, merged local/shared World routing, exact-environment gate, deterministic pending/cleanup/interrupted recovery, and the remaining live-deployment acceptance boundary;
+- [E4 Live Acceptance Deployment](E4_LIVE_ACCEPTANCE_DEPLOYMENT.md) — provider-neutral container/PostgreSQL/S3 deployment contract and the first disposable EU acceptance candidate.
 
 ## Documentation authority
 
@@ -63,7 +64,7 @@ Steward moves the latest valid World state into a playable session and returns t
 - [UI-0 Sign-off Checklist](UI0_SIGNOFF_CHECKLIST.md) — approved flat sharing flow, tray behavior, terminology, and UI planning checks.
 - [Backend Roadmap](BACKEND_ROADMAP.md) — authentication, minimal access, immutable transfer, current-head commit, distributed reservation, offline behavior, security, operations, and backend milestones.
 - [BE-1 Local Contract Simulation](BE1_LOCAL_SIMULATION.md) — provider-free deterministic reservation, transfer, head-commit, retry, and recovery proof.
-- [Backend Provider Evaluation](BE_PROVIDER_EVALUATION.md) — EU residency, security, transfer, restore, workload, and cost criteria for selecting production infrastructure.
+- [Backend Provider Evaluation](BE_PROVIDER_EVALUATION.md) — EU residency, security, transfer, restore, workload, cost criteria, and evidence required before final provider selection.
 - [Backend API Contract](BE_API_CONTRACT.md) — versioned HTTPS/JSON control operations, resource shapes, error semantics, idempotency, and direct package transfer.
 - [Backend Schema and Data Lifecycle](BE_SCHEMA_AND_LIFECYCLE.md) — logical records, invariants, transaction boundaries, migrations, retention, cleanup, and restore behavior.
 - [Backend Operations and Recovery](BE_OPERATIONS_RUNBOOK.md) — health, metrics, diagnostics, deployment, incident handling, backup, restore, and disaster-recovery rules.

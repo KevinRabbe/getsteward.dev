@@ -53,6 +53,35 @@ public sealed record SharedWorldAuthorityOptions
         TimeSpan.FromMinutes(15));
 }
 
+public sealed record StewardIdempotencyKey
+{
+    public StewardIdempotencyKey(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        if (value.Length > 128 || value.Any(character => character is < '!' or > '~'))
+        {
+            throw new ArgumentException(
+                "Idempotency key must contain at most 128 visible ASCII characters.",
+                nameof(value));
+        }
+
+        Value = value;
+    }
+
+    public string Value { get; }
+}
+
+public enum IdempotentMutationStatus
+{
+    Executed,
+    Replayed,
+    KeyConflict
+}
+
+public sealed record IdempotentMutationResult<T>(
+    IdempotentMutationStatus Status,
+    T? Result);
+
 public enum AcquireSharedWorldReservationStatus
 {
     Acquired,
@@ -118,6 +147,10 @@ public sealed record CommitSharedWorldResult(
 /// Active membership authorizes acquisition/reclaim. Once a generation is validly acquired, that
 /// generation is the completion authority for heartbeat/commit, including while membership is
 /// RevocationPending. Authentication credential expiry does not itself release this authority.
+///
+/// Idempotent mutation variants must persist the exact completed domain result in the same authority
+/// transaction as the mutation. Reusing the same key with different logical input returns
+/// KeyConflict; retrying the same key/input returns the original result rather than re-executing it.
 /// </summary>
 public interface ISharedWorldAuthorityStore
 {
@@ -129,6 +162,17 @@ public interface ISharedWorldAuthorityStore
         DateTimeOffset serverNow,
         SharedWorldAuthorityOptions options,
         CancellationToken cancellationToken = default);
+
+    Task<IdempotentMutationResult<AcquireSharedWorldReservationResult>> AcquireIdempotentAsync(
+        ExternalIdentityRef caller,
+        WorldId worldId,
+        string installationId,
+        SharedWorldHead expectedHead,
+        StewardIdempotencyKey idempotencyKey,
+        DateTimeOffset serverNow,
+        SharedWorldAuthorityOptions options,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This authority store does not support durable idempotency.");
 
     Task<SharedWorldReservation?> GetReservationAsync(
         ExternalIdentityRef caller,
@@ -156,12 +200,32 @@ public interface ISharedWorldAuthorityStore
         SharedWorldAuthorityOptions options,
         CancellationToken cancellationToken = default);
 
+    Task<IdempotentMutationResult<ReclaimSharedWorldReservationResult>> ReclaimIdempotentAsync(
+        ExternalIdentityRef caller,
+        WorldId worldId,
+        Guid expectedSessionId,
+        long expectedGeneration,
+        StewardIdempotencyKey idempotencyKey,
+        DateTimeOffset serverNow,
+        SharedWorldAuthorityOptions options,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This authority store does not support durable idempotency.");
+
     Task<CommitSharedWorldResult> CommitAsync(
         ExternalIdentityRef caller,
         CommitSharedWorldCommand command,
         DateTimeOffset serverNow,
         SharedWorldAuthorityOptions options,
         CancellationToken cancellationToken = default);
+
+    Task<IdempotentMutationResult<CommitSharedWorldResult>> CommitIdempotentAsync(
+        ExternalIdentityRef caller,
+        CommitSharedWorldCommand command,
+        StewardIdempotencyKey idempotencyKey,
+        DateTimeOffset serverNow,
+        SharedWorldAuthorityOptions options,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This authority store does not support durable idempotency.");
 
     Task<bool> HasUnresolvedWritableResponsibilityAsync(
         WorldId worldId,

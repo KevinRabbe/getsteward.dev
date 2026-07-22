@@ -60,36 +60,11 @@ public sealed class PostgreSqlSharedPackageTransferStore : ISharedPackageTransfe
                 @expires_at,
                 @state,
                 @finalized_at)
-            ON CONFLICT (transfer_id) DO NOTHING;
+            ON CONFLICT DO NOTHING;
             """;
 
         await using var command = _dataSource.CreateCommand(sql);
-        command.Parameters.AddWithValue("transfer_id", transfer.Id.Value);
-        command.Parameters.AddWithValue("world_id", transfer.WorldId.Value);
-        command.Parameters.AddWithValue("revision_id", transfer.RevisionId.Value);
-        command.Parameters.AddWithValue("kind", (short)transfer.Kind);
-        command.Parameters.AddWithValue("adapter_id", transfer.AdapterId);
-        command.Parameters.AddWithValue("owner_provider", transfer.Owner.Provider);
-        command.Parameters.AddWithValue("owner_external_id", transfer.Owner.ExternalId);
-        command.Parameters.AddWithValue("object_key", transfer.ObjectKey);
-        command.Parameters.AddWithValue("provider_upload_id", transfer.ProviderUploadId);
-        command.Parameters.AddWithValue("expected_byte_size", transfer.ExpectedByteSize);
-        command.Parameters.AddWithValue("expected_sha256", transfer.ExpectedSha256.ToUpperInvariant());
-        command.Parameters.Add(new NpgsqlParameter("required_environment_revision_id", NpgsqlDbType.Uuid)
-        {
-            Value = transfer.RequiredEnvironmentRevisionId is { } environmentRevision
-                ? environmentRevision.Value
-                : DBNull.Value
-        });
-        command.Parameters.AddWithValue("part_size_bytes", transfer.PartSizeBytes);
-        command.Parameters.AddWithValue("part_count", transfer.PartCount);
-        command.Parameters.AddWithValue("created_at", transfer.CreatedAt);
-        command.Parameters.AddWithValue("expires_at", transfer.ExpiresAt);
-        command.Parameters.AddWithValue("state", (short)transfer.State);
-        command.Parameters.Add(new NpgsqlParameter("finalized_at", NpgsqlDbType.TimestampTz)
-        {
-            Value = transfer.FinalizedAt is { } finalizedAt ? finalizedAt : DBNull.Value
-        });
+        AddTransferParameters(command, transfer);
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
@@ -125,6 +100,77 @@ public sealed class PostgreSqlSharedPackageTransferStore : ISharedPackageTransfe
         command.Parameters.AddWithValue("transfer_id", transferId.Value);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken) ? ReadTransfer(reader) : null;
+    }
+
+    public async Task<SharedPackageTransferRecord?> LoadInFlightByObjectKeyAsync(
+        string objectKey,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(objectKey);
+        const string sql = """
+            SELECT
+                transfer_id,
+                world_id,
+                revision_id,
+                kind,
+                adapter_id,
+                owner_provider,
+                owner_external_id,
+                object_key,
+                provider_upload_id,
+                expected_byte_size,
+                expected_sha256,
+                required_environment_revision_id,
+                part_size_bytes,
+                part_count,
+                created_at,
+                expires_at,
+                state,
+                finalized_at
+            FROM steward_package_transfers
+            WHERE object_key = @object_key
+              AND state IN (@active_state, @provisioning_state);
+            """;
+
+        await using var command = _dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("object_key", objectKey);
+        command.Parameters.AddWithValue("active_state", (short)SharedPackageTransferState.Active);
+        command.Parameters.AddWithValue("provisioning_state", (short)SharedPackageTransferState.Provisioning);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken) ? ReadTransfer(reader) : null;
+    }
+
+    public async Task<bool> TryActivateProvisioningAsync(
+        SharedPackageTransferId transferId,
+        ExternalIdentityRef expectedOwner,
+        string expectedPlaceholderProviderUploadId,
+        string providerUploadId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(expectedOwner);
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedPlaceholderProviderUploadId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerUploadId);
+
+        const string sql = """
+            UPDATE steward_package_transfers
+            SET provider_upload_id = @provider_upload_id,
+                state = @active_state
+            WHERE transfer_id = @transfer_id
+              AND owner_provider = @owner_provider
+              AND owner_external_id = @owner_external_id
+              AND provider_upload_id = @expected_provider_upload_id
+              AND state = @provisioning_state;
+            """;
+
+        await using var command = _dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("provider_upload_id", providerUploadId);
+        command.Parameters.AddWithValue("active_state", (short)SharedPackageTransferState.Active);
+        command.Parameters.AddWithValue("transfer_id", transferId.Value);
+        command.Parameters.AddWithValue("owner_provider", expectedOwner.Provider);
+        command.Parameters.AddWithValue("owner_external_id", expectedOwner.ExternalId);
+        command.Parameters.AddWithValue("expected_provider_upload_id", expectedPlaceholderProviderUploadId);
+        command.Parameters.AddWithValue("provisioning_state", (short)SharedPackageTransferState.Provisioning);
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
     public async Task<bool> TrySetStateAsync(
@@ -234,6 +280,36 @@ public sealed class PostgreSqlSharedPackageTransferStore : ISharedPackageTransfe
         command.Parameters.AddWithValue("owner_external_id", expectedOwner.ExternalId);
         command.Parameters.AddWithValue("expected_state", (short)expectedState);
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
+    private static void AddTransferParameters(NpgsqlCommand command, SharedPackageTransferRecord transfer)
+    {
+        command.Parameters.AddWithValue("transfer_id", transfer.Id.Value);
+        command.Parameters.AddWithValue("world_id", transfer.WorldId.Value);
+        command.Parameters.AddWithValue("revision_id", transfer.RevisionId.Value);
+        command.Parameters.AddWithValue("kind", (short)transfer.Kind);
+        command.Parameters.AddWithValue("adapter_id", transfer.AdapterId);
+        command.Parameters.AddWithValue("owner_provider", transfer.Owner.Provider);
+        command.Parameters.AddWithValue("owner_external_id", transfer.Owner.ExternalId);
+        command.Parameters.AddWithValue("object_key", transfer.ObjectKey);
+        command.Parameters.AddWithValue("provider_upload_id", transfer.ProviderUploadId);
+        command.Parameters.AddWithValue("expected_byte_size", transfer.ExpectedByteSize);
+        command.Parameters.AddWithValue("expected_sha256", transfer.ExpectedSha256.ToUpperInvariant());
+        command.Parameters.Add(new NpgsqlParameter("required_environment_revision_id", NpgsqlDbType.Uuid)
+        {
+            Value = transfer.RequiredEnvironmentRevisionId is { } environmentRevision
+                ? environmentRevision.Value
+                : DBNull.Value
+        });
+        command.Parameters.AddWithValue("part_size_bytes", transfer.PartSizeBytes);
+        command.Parameters.AddWithValue("part_count", transfer.PartCount);
+        command.Parameters.AddWithValue("created_at", transfer.CreatedAt);
+        command.Parameters.AddWithValue("expires_at", transfer.ExpiresAt);
+        command.Parameters.AddWithValue("state", (short)transfer.State);
+        command.Parameters.Add(new NpgsqlParameter("finalized_at", NpgsqlDbType.TimestampTz)
+        {
+            Value = transfer.FinalizedAt is { } finalizedAt ? finalizedAt : DBNull.Value
+        });
     }
 
     private static SharedPackageTransferRecord ReadTransfer(NpgsqlDataReader reader)

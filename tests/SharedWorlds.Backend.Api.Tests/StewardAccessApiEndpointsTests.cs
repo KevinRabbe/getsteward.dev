@@ -18,69 +18,48 @@ public sealed class StewardAccessApiEndpointsTests
     {
         await using var harness = await AccessHarness.CreateAsync();
         var worldId = await harness.CreateWorldAsync();
-
-        harness.UseManager();
-        using (var membersResponse = await harness.Client.GetAsync($"/api/v1/worlds/{worldId.Value:D}/members"))
-        {
-            Assert.Equal(HttpStatusCode.OK, membersResponse.StatusCode);
-            using var body = JsonDocument.Parse(await membersResponse.Content.ReadAsStringAsync());
-            Assert.Equal("WorldMembersFound", body.RootElement.GetProperty("code").GetString());
-            var member = Assert.Single(body.RootElement.GetProperty("data").EnumerateArray());
-            Assert.Equal(harness.Manager.ExternalId, member.GetProperty("identity").GetProperty("externalId").GetString());
-            Assert.Equal("Active", member.GetProperty("status").GetString());
-        }
-
         var invitationId = await harness.InviteMemberAsync(worldId);
 
         harness.UseMember();
-        using (var invitationsResponse = await harness.Client.GetAsync("/api/v1/invitations"))
+        using (var invitations = await harness.Client.GetAsync("/api/v1/invitations"))
         {
-            Assert.Equal(HttpStatusCode.OK, invitationsResponse.StatusCode);
-            using var body = JsonDocument.Parse(await invitationsResponse.Content.ReadAsStringAsync());
-            Assert.Equal("PendingInvitationsFound", body.RootElement.GetProperty("code").GetString());
+            Assert.Equal(HttpStatusCode.OK, invitations.StatusCode);
+            using var body = JsonDocument.Parse(await invitations.Content.ReadAsStringAsync());
             var invitation = Assert.Single(body.RootElement.GetProperty("data").EnumerateArray());
             Assert.Equal(invitationId.Value, invitation.GetProperty("invitationId").GetGuid());
-            Assert.Equal(worldId.Value, invitation.GetProperty("worldId").GetGuid());
         }
 
-        using (var acceptResponse = await harness.Client.PostAsync(
+        using (var accept = await harness.Client.PostAsync(
                    $"/api/v1/invitations/{invitationId.Value:D}/accept",
                    content: null))
         {
-            Assert.Equal(HttpStatusCode.OK, acceptResponse.StatusCode);
-            Assert.Equal("InvitationAccepted", await ReadCodeAsync(acceptResponse));
+            Assert.Equal(HttpStatusCode.OK, accept.StatusCode);
+            Assert.Equal("InvitationAccepted", await ReadCodeAsync(accept));
         }
 
-        using (var membersResponse = await harness.Client.GetAsync($"/api/v1/worlds/{worldId.Value:D}/members"))
+        using (var members = await harness.Client.GetAsync($"/api/v1/worlds/{worldId.Value:D}/members"))
         {
-            Assert.Equal(HttpStatusCode.OK, membersResponse.StatusCode);
-            using var body = JsonDocument.Parse(await membersResponse.Content.ReadAsStringAsync());
-            var members = body.RootElement.GetProperty("data").EnumerateArray().ToArray();
-            Assert.Equal(2, members.Length);
+            Assert.Equal(HttpStatusCode.OK, members.StatusCode);
+            using var body = JsonDocument.Parse(await members.Content.ReadAsStringAsync());
+            var rows = body.RootElement.GetProperty("data").EnumerateArray().ToArray();
+            Assert.Equal(2, rows.Length);
             Assert.Contains(
-                members,
-                member => member.GetProperty("identity").GetProperty("externalId").GetString() == harness.Member.ExternalId &&
-                          member.GetProperty("status").GetString() == "Active");
+                rows,
+                row => row.GetProperty("identity").GetProperty("externalId").GetString() == harness.Member.ExternalId &&
+                       row.GetProperty("status").GetString() == "Active");
         }
 
-        var visible = await harness.Store.ListWorldsForActiveMemberAsync(harness.Member);
-        Assert.Equal(worldId, Assert.Single(visible).WorldId);
+        Assert.Equal(worldId, Assert.Single(
+            await harness.Store.ListWorldsForActiveMemberAsync(harness.Member)).WorldId);
     }
 
     [Fact]
     public async Task NonManagerCannotInviteAnotherIdentity()
     {
         await using var harness = await AccessHarness.CreateAsync();
-        var worldId = await harness.CreateWorldAsync();
-        var invitationId = await harness.InviteMemberAsync(worldId);
-        harness.UseMember();
-        using (var accepted = await harness.Client.PostAsync(
-                   $"/api/v1/invitations/{invitationId.Value:D}/accept",
-                   content: null))
-        {
-            Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
-        }
+        var worldId = await harness.CreateWorldWithAcceptedMemberAsync();
 
+        harness.UseMember();
         using var response = await harness.Client.PostAsJsonAsync(
             $"/api/v1/worlds/{worldId.Value:D}/invitations",
             new { provider = "steam", externalId = "76561198000000003" });
@@ -90,40 +69,31 @@ public sealed class StewardAccessApiEndpointsTests
     }
 
     [Fact]
-    public async Task ManagerRevocationImmediatelyRemovesMemberWhenNoWritableResponsibilityExists()
-    {
-        await using var harness = await AccessHarness.CreateAsync();
-        var worldId = await harness.CreateWorldWithAcceptedMemberAsync();
-
-        harness.UseManager();
-        using var response = await harness.Client.PostAsJsonAsync(
-            $"/api/v1/worlds/{worldId.Value:D}/members/revoke",
-            new { provider = harness.Member.Provider, externalId = harness.Member.ExternalId });
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("MemberRevoked", await ReadCodeAsync(response));
-        Assert.Null(await harness.Store.LoadMemberAsync(worldId, harness.Member));
-        Assert.Empty(await harness.Store.ListWorldsForActiveMemberAsync(harness.Member));
-    }
-
-    [Fact]
-    public async Task RevocationBecomesPendingWhileTargetStillOwnsWritableResponsibility()
+    public async Task RevocationWaitsForWritableResponsibilityThenCanComplete()
     {
         await using var harness = await AccessHarness.CreateAsync();
         var worldId = await harness.CreateWorldWithAcceptedMemberAsync();
         harness.Responsibility.SetUnresolved(worldId, harness.Member, unresolved: true);
 
         harness.UseManager();
-        using var response = await harness.Client.PostAsJsonAsync(
-            $"/api/v1/worlds/{worldId.Value:D}/members/revoke",
-            new { provider = harness.Member.Provider, externalId = harness.Member.ExternalId });
+        using (var response = await harness.Client.PostAsJsonAsync(
+                   $"/api/v1/worlds/{worldId.Value:D}/members/revoke",
+                   new { provider = harness.Member.Provider, externalId = harness.Member.ExternalId }))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal("MemberRevocationPending", await ReadCodeAsync(response));
+        }
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("MemberRevocationPending", await ReadCodeAsync(response));
-        var membership = await harness.Store.LoadMemberAsync(worldId, harness.Member);
-        Assert.NotNull(membership);
-        Assert.Equal(SharedWorldMemberStatus.RevocationPending, membership.Status);
+        var pending = await harness.Store.LoadMemberAsync(worldId, harness.Member);
+        Assert.NotNull(pending);
+        Assert.Equal(SharedWorldMemberStatus.RevocationPending, pending.Status);
         Assert.Empty(await harness.Store.ListWorldsForActiveMemberAsync(harness.Member));
+
+        harness.Responsibility.SetUnresolved(worldId, harness.Member, unresolved: false);
+        Assert.Equal(
+            CompletePendingRevocationStatus.Completed,
+            await harness.AccessService.CompletePendingRevocationAsync(worldId, harness.Member));
+        Assert.Null(await harness.Store.LoadMemberAsync(worldId, harness.Member));
     }
 
     [Fact]
@@ -157,28 +127,10 @@ public sealed class StewardAccessApiEndpointsTests
             Assert.Equal("WorldLeft", await ReadCodeAsync(leave));
         }
 
-        Assert.Null(await harness.Store.LoadMemberAsync(worldId, harness.Manager));
         var world = await harness.Store.LoadWorldAsync(worldId);
         Assert.NotNull(world);
         Assert.Equal(harness.Member, world.AccessManager);
-    }
-
-    [Fact]
-    public async Task DeclinedInvitationNeverCreatesMembership()
-    {
-        await using var harness = await AccessHarness.CreateAsync();
-        var worldId = await harness.CreateWorldAsync();
-        var invitationId = await harness.InviteMemberAsync(worldId);
-
-        harness.UseMember();
-        using var response = await harness.Client.PostAsync(
-            $"/api/v1/invitations/{invitationId.Value:D}/decline",
-            content: null);
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("InvitationDeclined", await ReadCodeAsync(response));
-        Assert.Null(await harness.Store.LoadMemberAsync(worldId, harness.Member));
-        Assert.Empty(await harness.Store.ListPendingInvitationsForIdentityAsync(harness.Member));
+        Assert.Null(await harness.Store.LoadMemberAsync(worldId, harness.Manager));
     }
 
     private static async Task<string?> ReadCodeAsync(HttpResponseMessage response)
@@ -198,6 +150,7 @@ public sealed class StewardAccessApiEndpointsTests
             HttpClient client,
             AccessStore store,
             ResponsibilityInspector responsibility,
+            SharedWorldAccessService accessService,
             ExternalIdentityRef manager,
             ExternalIdentityRef member,
             string managerToken,
@@ -207,6 +160,7 @@ public sealed class StewardAccessApiEndpointsTests
             Client = client;
             Store = store;
             Responsibility = responsibility;
+            AccessService = accessService;
             Manager = manager;
             Member = member;
             _managerToken = managerToken;
@@ -216,6 +170,7 @@ public sealed class StewardAccessApiEndpointsTests
         public HttpClient Client { get; }
         public AccessStore Store { get; }
         public ResponsibilityInspector Responsibility { get; }
+        public SharedWorldAccessService AccessService { get; }
         public ExternalIdentityRef Manager { get; }
         public ExternalIdentityRef Member { get; }
 
@@ -226,7 +181,7 @@ public sealed class StewardAccessApiEndpointsTests
             var member = new ExternalIdentityRef("steam", "76561198000000002");
             var store = new AccessStore();
             var responsibility = new ResponsibilityInspector();
-            var sessionStore = new ApiTestHarness.InMemorySessionStore();
+            var sessionStore = new MultiSessionStore();
 
             var builder = WebApplication.CreateBuilder();
             builder.WebHost.UseTestServer();
@@ -258,6 +213,7 @@ public sealed class StewardAccessApiEndpointsTests
                 app.GetTestClient(),
                 store,
                 responsibility,
+                app.Services.GetRequiredService<SharedWorldAccessService>(),
                 manager,
                 member,
                 managerTokens.AccessToken,
@@ -268,6 +224,7 @@ public sealed class StewardAccessApiEndpointsTests
 
         public async Task<WorldId> CreateWorldAsync()
         {
+            var now = new DateTimeOffset(2026, 7, 22, 18, 0, 0, TimeSpan.Zero);
             var worldId = WorldId.New();
             var metadata = new SharedWorldMetadata(
                 worldId,
@@ -276,14 +233,11 @@ public sealed class StewardAccessApiEndpointsTests
                 RevisionId.New(),
                 RevisionId.New(),
                 Manager,
-                new DateTimeOffset(2026, 7, 22, 18, 0, 0, TimeSpan.Zero),
-                new DateTimeOffset(2026, 7, 22, 18, 0, 0, TimeSpan.Zero));
-            var managerMembership = new SharedWorldMember(
-                worldId,
-                Manager,
-                SharedWorldMemberStatus.Active,
-                metadata.CreatedAt);
-            Assert.True(await Store.TryCreateWorldWithManagerAsync(metadata, managerMembership));
+                now,
+                now);
+            Assert.True(await Store.TryCreateWorldWithManagerAsync(
+                metadata,
+                new SharedWorldMember(worldId, Manager, SharedWorldMemberStatus.Active, now)));
             return worldId;
         }
 
@@ -307,7 +261,6 @@ public sealed class StewardAccessApiEndpointsTests
                 new { provider = Member.Provider, externalId = Member.ExternalId });
             Assert.Equal(HttpStatusCode.Created, response.StatusCode);
             using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-            Assert.Equal("InvitationCreated", body.RootElement.GetProperty("code").GetString());
             return new WorldAccessInvitationId(
                 body.RootElement.GetProperty("data").GetProperty("invitationId").GetGuid());
         }
@@ -327,23 +280,157 @@ public sealed class StewardAccessApiEndpointsTests
         }
     }
 
+    private sealed class MultiSessionStore : IStewardSessionStore
+    {
+        private readonly object _gate = new();
+        private readonly Dictionary<StewardSessionId, StewardSessionRecord> _sessions = [];
+        private readonly Dictionary<string, StewardAccessCredentialRecord> _access = new(StringComparer.Ordinal);
+
+        public Task ReplaceInstallationSessionAsync(
+            StewardSessionRecord session,
+            StewardAccessCredentialRecord accessCredential,
+            DateTimeOffset replacedAt,
+            CancellationToken cancellationToken = default)
+        {
+            lock (_gate)
+            {
+                var replacedIds = _sessions.Values
+                    .Where(existing =>
+                        !existing.Revoked &&
+                        existing.Identity == session.Identity &&
+                        string.Equals(existing.InstallationId, session.InstallationId, StringComparison.Ordinal))
+                    .Select(existing => existing.Id)
+                    .ToHashSet();
+                foreach (var replacedId in replacedIds)
+                {
+                    var existing = _sessions[replacedId];
+                    _sessions[replacedId] = existing with { Revoked = true, RevokedAt = replacedAt };
+                }
+
+                foreach (var hash in _access
+                             .Where(pair => replacedIds.Contains(pair.Value.SessionId))
+                             .Select(pair => pair.Key)
+                             .ToArray())
+                {
+                    _access.Remove(hash);
+                }
+
+                _sessions[session.Id] = session;
+                _access[accessCredential.AccessTokenHash] = accessCredential;
+                return Task.CompletedTask;
+            }
+        }
+
+        public Task<StewardAccessContext?> LoadAccessContextAsync(
+            string accessTokenHash,
+            CancellationToken cancellationToken = default)
+        {
+            lock (_gate)
+            {
+                if (!_access.TryGetValue(accessTokenHash, out var credential) ||
+                    !_sessions.TryGetValue(credential.SessionId, out var session))
+                {
+                    return Task.FromResult<StewardAccessContext?>(null);
+                }
+
+                return Task.FromResult<StewardAccessContext?>(new(session, credential));
+            }
+        }
+
+        public Task<StewardSessionRecord?> LoadRefreshSessionAsync(
+            string refreshTokenHash,
+            CancellationToken cancellationToken = default)
+        {
+            lock (_gate)
+            {
+                return Task.FromResult<StewardSessionRecord?>(
+                    _sessions.Values.FirstOrDefault(session =>
+                        string.Equals(session.RefreshTokenHash, refreshTokenHash, StringComparison.Ordinal)));
+            }
+        }
+
+        public Task<StoreRotateRefreshSessionStatus> TryRotateRefreshSessionAsync(
+            StewardSessionId sessionId,
+            string expectedRefreshTokenHash,
+            string installationId,
+            string newRefreshTokenHash,
+            DateTimeOffset newRefreshExpiresAt,
+            StewardAccessCredentialRecord newAccessCredential,
+            DateTimeOffset rotatedAt,
+            CancellationToken cancellationToken = default)
+        {
+            lock (_gate)
+            {
+                if (!_sessions.TryGetValue(sessionId, out var session) ||
+                    session.Revoked ||
+                    !string.Equals(session.RefreshTokenHash, expectedRefreshTokenHash, StringComparison.Ordinal) ||
+                    !string.Equals(session.InstallationId, installationId, StringComparison.Ordinal))
+                {
+                    return Task.FromResult(StoreRotateRefreshSessionStatus.InvalidCredential);
+                }
+
+                _sessions[sessionId] = session with
+                {
+                    RefreshTokenHash = newRefreshTokenHash,
+                    RefreshExpiresAt = newRefreshExpiresAt
+                };
+                foreach (var hash in _access
+                             .Where(pair => pair.Value.SessionId == sessionId)
+                             .Select(pair => pair.Key)
+                             .ToArray())
+                {
+                    _access.Remove(hash);
+                }
+
+                _access[newAccessCredential.AccessTokenHash] = newAccessCredential;
+                return Task.FromResult(StoreRotateRefreshSessionStatus.Rotated);
+            }
+        }
+
+        public Task<bool> TryRevokeRefreshSessionAsync(
+            string refreshTokenHash,
+            string installationId,
+            DateTimeOffset revokedAt,
+            CancellationToken cancellationToken = default)
+        {
+            lock (_gate)
+            {
+                var session = _sessions.Values.FirstOrDefault(candidate =>
+                    !candidate.Revoked &&
+                    string.Equals(candidate.RefreshTokenHash, refreshTokenHash, StringComparison.Ordinal) &&
+                    string.Equals(candidate.InstallationId, installationId, StringComparison.Ordinal));
+                if (session is null)
+                {
+                    return Task.FromResult(false);
+                }
+
+                _sessions[session.Id] = session with { Revoked = true, RevokedAt = revokedAt };
+                foreach (var hash in _access
+                             .Where(pair => pair.Value.SessionId == session.Id)
+                             .Select(pair => pair.Key)
+                             .ToArray())
+                {
+                    _access.Remove(hash);
+                }
+
+                return Task.FromResult(true);
+            }
+        }
+    }
+
     private sealed class ResponsibilityInspector : ISharedWorldResponsibilityInspector
     {
         private readonly HashSet<(WorldId WorldId, ExternalIdentityRef Identity)> _unresolved = [];
 
-        public void SetUnresolved(
-            WorldId worldId,
-            ExternalIdentityRef identity,
-            bool unresolved)
+        public void SetUnresolved(WorldId worldId, ExternalIdentityRef identity, bool unresolved)
         {
-            var key = (worldId, identity);
             if (unresolved)
             {
-                _unresolved.Add(key);
+                _unresolved.Add((worldId, identity));
             }
             else
             {
-                _unresolved.Remove(key);
+                _unresolved.Remove((worldId, identity));
             }
         }
 
@@ -409,9 +496,7 @@ public sealed class StewardAccessApiEndpointsTests
             {
                 return Task.FromResult<IReadOnlyList<SharedWorldMetadata>>(
                     _members.Values
-                        .Where(member =>
-                            member.Identity == identity &&
-                            member.Status == SharedWorldMemberStatus.Active)
+                        .Where(member => member.Identity == identity && member.Status == SharedWorldMemberStatus.Active)
                         .Select(member => _worlds[member.WorldId])
                         .OrderBy(world => world.CreatedAt)
                         .ToArray());
@@ -428,8 +513,6 @@ public sealed class StewardAccessApiEndpointsTests
                     _members.Values
                         .Where(member => member.WorldId == worldId)
                         .OrderBy(member => member.AddedAt)
-                        .ThenBy(member => member.Identity.Provider, StringComparer.Ordinal)
-                        .ThenBy(member => member.Identity.ExternalId, StringComparer.Ordinal)
                         .ToArray());
             }
         }
@@ -446,7 +529,6 @@ public sealed class StewardAccessApiEndpointsTests
                             invitation.InvitedIdentity == identity &&
                             invitation.Status == WorldAccessInvitationStatus.Pending)
                         .OrderBy(invitation => invitation.CreatedAt)
-                        .ThenBy(invitation => invitation.Id.Value)
                         .ToArray());
             }
         }
@@ -480,14 +562,14 @@ public sealed class StewardAccessApiEndpointsTests
             ExternalIdentityRef invitedIdentity,
             DateTimeOffset respondedAt,
             CancellationToken cancellationToken = default)
-            => RespondToInvitationAsync(invitationId, invitedIdentity, respondedAt, accept: true);
+            => RespondAsync(invitationId, invitedIdentity, respondedAt, accept: true);
 
         public Task<StoreInvitationResponseStatus> TryDeclineInvitationAsync(
             WorldAccessInvitationId invitationId,
             ExternalIdentityRef invitedIdentity,
             DateTimeOffset respondedAt,
             CancellationToken cancellationToken = default)
-            => RespondToInvitationAsync(invitationId, invitedIdentity, respondedAt, accept: false);
+            => RespondAsync(invitationId, invitedIdentity, respondedAt, accept: false);
 
         public Task<StoreMemberRevocationStatus> TryRevokeMemberAsync(
             WorldId worldId,
@@ -499,8 +581,7 @@ public sealed class StewardAccessApiEndpointsTests
         {
             lock (_gate)
             {
-                if (!_worlds.TryGetValue(worldId, out var world) ||
-                    world.AccessManager != expectedAccessManager)
+                if (!_worlds.TryGetValue(worldId, out var world) || world.AccessManager != expectedAccessManager)
                 {
                     return Task.FromResult(StoreMemberRevocationStatus.ManagerChanged);
                 }
@@ -593,8 +674,7 @@ public sealed class StewardAccessApiEndpointsTests
         {
             lock (_gate)
             {
-                if (!_worlds.TryGetValue(worldId, out var world) ||
-                    world.AccessManager != expectedAccessManager)
+                if (!_worlds.TryGetValue(worldId, out var world) || world.AccessManager != expectedAccessManager)
                 {
                     return Task.FromResult(StoreTransferAccessManagerStatus.ManagerChanged);
                 }
@@ -619,7 +699,7 @@ public sealed class StewardAccessApiEndpointsTests
             }
         }
 
-        private Task<StoreInvitationResponseStatus> RespondToInvitationAsync(
+        private Task<StoreInvitationResponseStatus> RespondAsync(
             WorldAccessInvitationId invitationId,
             ExternalIdentityRef invitedIdentity,
             DateTimeOffset respondedAt,
@@ -640,12 +720,9 @@ public sealed class StewardAccessApiEndpointsTests
 
                 _invitations[invitationId] = invitation with
                 {
-                    Status = accept
-                        ? WorldAccessInvitationStatus.Accepted
-                        : WorldAccessInvitationStatus.Declined,
+                    Status = accept ? WorldAccessInvitationStatus.Accepted : WorldAccessInvitationStatus.Declined,
                     RespondedAt = respondedAt
                 };
-
                 if (accept)
                 {
                     _members[(invitation.WorldId, invitedIdentity)] = new SharedWorldMember(

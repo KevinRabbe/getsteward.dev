@@ -143,8 +143,8 @@ public sealed class S3CompatibleImmutableObjectStoreTests
                     Prefix = objectKey
                 });
             Assert.Single(
-                (inProgress.MultipartUploads ?? [])
-                    .Where(upload => string.Equals(upload.Key, objectKey, StringComparison.Ordinal)));
+                inProgress.MultipartUploads ?? [],
+                upload => string.Equals(upload.Key, objectKey, StringComparison.Ordinal));
 
             await restartedStore.AbortMultipartUploadAsync(recovered.ProviderUploadId);
         }

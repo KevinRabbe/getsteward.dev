@@ -88,6 +88,7 @@ public sealed class SharedPackageTransferCleanupService
     {
         var counters = new CleanupCounters();
         var now = _utcNow();
+        var provisioningClaimsLost = new HashSet<SharedPackageTransferId>();
 
         // A previous pass may already have claimed an expired Provisioning row as Abandoned but then
         // lost provider connectivity before it could recover/abort the provider upload. Retry those
@@ -124,6 +125,10 @@ public sealed class SharedPackageTransferCleanupService
                     now,
                     cancellationToken))
             {
+                // Another path owns whatever state won this compare-and-set. Do not rediscover that
+                // transfer as Active later in this same pass and make provider decisions based on a
+                // stale Provisioning snapshot. The next cleanup pass may evaluate the winner normally.
+                provisioningClaimsLost.Add(transfer.Id);
                 continue;
             }
 
@@ -143,6 +148,11 @@ public sealed class SharedPackageTransferCleanupService
         foreach (var transfer in expiredActive)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (provisioningClaimsLost.Contains(transfer.Id))
+            {
+                continue;
+            }
+
             counters.ExpiredActiveTransfers++;
             await ReconcileExpiredActiveAsync(transfer, now, counters, cancellationToken);
         }

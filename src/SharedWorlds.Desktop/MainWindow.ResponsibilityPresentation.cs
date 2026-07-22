@@ -10,6 +10,7 @@ public partial class MainWindow
     private Border? _worldResponsibilityBanner;
     private TextBlock? _worldResponsibilityText;
     private Button? _pendingSyncRetryButton;
+    private Button? _cleanupRetryButton;
     private bool _responsibilityPresentationInitialized;
     private bool _applyingResponsibilityActionGuard;
 
@@ -39,9 +40,21 @@ public partial class MainWindow
         };
         _pendingSyncRetryButton.Click += RetryPendingSyncButton_Click;
 
+        _cleanupRetryButton = new Button
+        {
+            Content = "Retry cleanup",
+            Visibility = Visibility.Collapsed,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 8, 0, 0),
+            ToolTip =
+                "Retry adapter-owned workspace cleanup only. This does not capture, upload, commit, or change the canonical World head."
+        };
+        _cleanupRetryButton.Click += RetryCleanupButton_Click;
+
         var content = new StackPanel();
         content.Children.Add(_worldResponsibilityText);
         content.Children.Add(_pendingSyncRetryButton);
+        content.Children.Add(_cleanupRetryButton);
 
         _worldResponsibilityBanner = new Border
         {
@@ -75,7 +88,8 @@ public partial class MainWindow
         if (!_responsibilityPresentationInitialized ||
             _worldResponsibilityBanner is null ||
             _worldResponsibilityText is null ||
-            _pendingSyncRetryButton is null)
+            _pendingSyncRetryButton is null ||
+            _cleanupRetryButton is null)
         {
             return;
         }
@@ -87,6 +101,7 @@ public partial class MainWindow
         {
             _worldResponsibilityBanner.Visibility = Visibility.Collapsed;
             _pendingSyncRetryButton.Visibility = Visibility.Collapsed;
+            _cleanupRetryButton.Visibility = Visibility.Collapsed;
             EnforceResponsibilityActionGuard();
             return;
         }
@@ -103,6 +118,14 @@ public partial class MainWindow
                 ? Visibility.Visible
                 : Visibility.Collapsed;
         _pendingSyncRetryButton.IsEnabled = !_isBusy;
+
+        _cleanupRetryButton.Visibility =
+            selectedOwnsResponsibility &&
+            snapshot.Kind == WorldLifecycleResponsibilityKind.CleanupPending &&
+            HasAuthoritativeRuntimeForWorld(selectedWorld)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        _cleanupRetryButton.IsEnabled = !_isBusy;
         _worldResponsibilityBanner.Visibility = Visibility.Visible;
 
         EnforceResponsibilityActionGuard();

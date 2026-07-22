@@ -4,12 +4,14 @@ using SharedWorlds.Core.Environment;
 
 namespace SharedWorlds.GameAdapters.Palworld;
 
-public sealed class PalworldAdapter : IGameAdapter
+public sealed partial class PalworldAdapter : IGameAdapter
 {
     public string Id => "palworld";
     public string DisplayName => "Palworld";
 
-    public GameAdapterCapabilities Capabilities => GameAdapterCapabilities.AutomaticHostLaunch;
+    public GameAdapterCapabilities Capabilities =>
+        GameAdapterCapabilities.AutomaticHostLaunch |
+        GameAdapterCapabilities.ExactGameVersion;
 
     public Task<IReadOnlyList<GameInstallation>> DiscoverInstallationsAsync(
         CancellationToken cancellationToken = default)
@@ -48,7 +50,7 @@ public sealed class PalworldAdapter : IGameAdapter
     {
         ArgumentNullException.ThrowIfNull(installation);
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(PalworldDedicatedServerHosting.InspectEnvironment(world));
+        return Task.FromResult(PalworldDedicatedServerHosting.InspectEnvironment(installation, world));
     }
 
     public async Task<CapturedState> CaptureDetectedWorldAsync(

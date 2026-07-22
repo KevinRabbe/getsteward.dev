@@ -43,7 +43,7 @@ public sealed record StewardRemoteCurrentRevision(
     StewardRemoteEnvironmentRevisionMetadata? Environment);
 
 /// <summary>
-/// Read-only client for shared World and canonical revision metadata. It returns provider-neutral
+/// Read-only client for shared World and immutable revision metadata. It returns provider-neutral
 /// Infrastructure records and leaves lifecycle, cache, and authority policy to higher layers.
 /// </summary>
 public sealed class StewardWorldMetadataClient
@@ -118,6 +118,50 @@ public sealed class StewardWorldMetadataClient
         };
     }
 
+    public async Task<StewardRemoteStateRevisionMetadata?> GetStateRevisionAsync(
+        WorldId worldId,
+        RevisionId revisionId,
+        string accessToken,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateWorldId(worldId);
+        ValidateRevisionId(revisionId);
+        ValidateAccessToken(accessToken);
+        using var request = CreateAuthorizedRequest(
+            HttpMethod.Get,
+            $"api/v1/worlds/{worldId.Value:D}/revisions/{revisionId.Value:D}/state",
+            accessToken);
+        var response = await SendAsync(request, cancellationToken);
+        return response.Code switch
+        {
+            "StateRevisionFound" => DeserializeRequiredData<StateRevisionDto>(response).ToDomain(),
+            "RevisionNotFoundOrUnauthorized" => null,
+            _ => throw CreateUnexpectedResponse(response)
+        };
+    }
+
+    public async Task<StewardRemoteEnvironmentRevisionMetadata?> GetEnvironmentRevisionAsync(
+        WorldId worldId,
+        RevisionId revisionId,
+        string accessToken,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateWorldId(worldId);
+        ValidateRevisionId(revisionId);
+        ValidateAccessToken(accessToken);
+        using var request = CreateAuthorizedRequest(
+            HttpMethod.Get,
+            $"api/v1/worlds/{worldId.Value:D}/revisions/{revisionId.Value:D}/environment",
+            accessToken);
+        var response = await SendAsync(request, cancellationToken);
+        return response.Code switch
+        {
+            "EnvironmentRevisionFound" => DeserializeRequiredData<EnvironmentRevisionDto>(response).ToDomain(),
+            "RevisionNotFoundOrUnauthorized" => null,
+            _ => throw CreateUnexpectedResponse(response)
+        };
+    }
+
     private async Task<ApiResponse> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
@@ -187,6 +231,14 @@ public sealed class StewardWorldMetadataClient
         if (worldId.Value == Guid.Empty)
         {
             throw new ArgumentException("World ID is required.", nameof(worldId));
+        }
+    }
+
+    private static void ValidateRevisionId(RevisionId revisionId)
+    {
+        if (revisionId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("Revision ID is required.", nameof(revisionId));
         }
     }
 

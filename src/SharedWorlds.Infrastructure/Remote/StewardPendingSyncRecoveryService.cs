@@ -19,7 +19,7 @@ public sealed class StewardPendingSyncRecoveryException : InvalidOperationExcept
 /// Completes a preserved remote writable session after candidate upload or canonical commit became
 /// ambiguous. The local recovery record is the write-ahead journal; backend canonical metadata is the
 /// truth. This service never overwrites a canonical head that is neither the recorded base nor the
-/// recorded candidate.
+/// recorded candidate, and never reconstructs a preserved workspace under a different environment.
 /// </summary>
 public sealed class StewardPendingSyncRecoveryService
 {
@@ -87,7 +87,7 @@ public sealed class StewardPendingSyncRecoveryService
 
         if (world.CurrentStateRevisionId == candidateId)
         {
-            await CompleteLocalRecoveryAsync(
+            await CompleteCanonicalCandidateAsync(
                 world,
                 recovery,
                 adapter,
@@ -97,10 +97,8 @@ public sealed class StewardPendingSyncRecoveryService
             return world;
         }
 
-        if (world.CurrentStateRevisionId != recovery.BaseStateRevisionId)
-        {
-            throw HeadDiverged(recovery, world);
-        }
+        EnsureBaseHeadMatches(world, recovery);
+        var recordedEnvironmentId = RequireRecordedEnvironmentId(recovery);
 
         await _coordinator.AcquireHostAsync(worldId, user, cancellationToken);
         try
@@ -110,13 +108,14 @@ public sealed class StewardPendingSyncRecoveryService
                     "ReservationMissing",
                     "Steward acquired writable authority but did not retain the exact reservation generation locally.");
 
-            if (lease.StartingHead.StateRevisionId != recovery.BaseStateRevisionId)
+            if (lease.StartingHead.StateRevisionId != recovery.BaseStateRevisionId ||
+                lease.StartingHead.EnvironmentRevisionId != recordedEnvironmentId)
             {
                 var latest = await LoadWorldAsync(worldId, cancellationToken);
                 await AbandonExactLeaseAsync(lease, cancellationToken);
                 if (latest.CurrentStateRevisionId == candidateId)
                 {
-                    await CompleteLocalRecoveryAsync(
+                    await CompleteCanonicalCandidateAsync(
                         latest,
                         recovery,
                         adapter,
@@ -126,14 +125,17 @@ public sealed class StewardPendingSyncRecoveryService
                     return latest;
                 }
 
-                throw HeadDiverged(recovery, latest);
+                EnsureBaseHeadMatches(latest, recovery);
+                throw new StewardPendingSyncRecoveryException(
+                    "ReservationHeadMismatch",
+                    "The writable reservation was acquired against a different World head than the interrupted workspace. Steward released it instead of combining different state or environment histories.");
             }
 
             world = await LoadWorldAsync(worldId, cancellationToken);
             if (world.CurrentStateRevisionId == candidateId)
             {
                 await AbandonExactLeaseAsync(lease, cancellationToken);
-                await CompleteLocalRecoveryAsync(
+                await CompleteCanonicalCandidateAsync(
                     world,
                     recovery,
                     adapter,
@@ -143,42 +145,41 @@ public sealed class StewardPendingSyncRecoveryService
                 return world;
             }
 
-            if (world.CurrentStateRevisionId != recovery.BaseStateRevisionId)
+            try
+            {
+                EnsureBaseHeadMatches(world, recovery);
+            }
+            catch
             {
                 await AbandonExactLeaseAsync(lease, cancellationToken);
-                throw HeadDiverged(recovery, world);
+                throw;
             }
 
-            var environmentId = world.CurrentEnvironmentRevisionId
-                ?? throw new StewardPendingSyncRecoveryException(
-                    "EnvironmentMissing",
-                    "The pending shared World no longer has a canonical environment revision.");
-            var environment = await _storage.LoadEnvironmentRevisionAsync(
+            var environment = await LoadRecordedEnvironmentAsync(
                 worldId,
-                environmentId,
-                cancellationToken)
-                ?? throw new StewardPendingSyncRecoveryException(
-                    "EnvironmentMissing",
-                    "The pending shared World environment revision is unavailable.");
-
-            if (!Directory.Exists(recovery.WorkingDirectory))
-            {
-                throw new StewardPendingSyncRecoveryException(
-                    "WorkspaceMissing",
-                    "The preserved recovery workspace is missing, so Steward cannot safely reconstruct an unpublished candidate.");
-            }
-
-            var prepared = new PreparedWorld(
-                installation,
-                recovery.WorkingDirectory,
-                environment.Manifest,
-                world.Name);
+                recovery,
+                adapter,
+                cancellationToken);
             var candidate = await _storage.LoadStateRevisionAsync(
                 worldId,
                 candidateId,
                 cancellationToken);
+
+            PreparedWorld? prepared = null;
             if (candidate is null)
             {
+                if (!Directory.Exists(recovery.WorkingDirectory))
+                {
+                    throw new StewardPendingSyncRecoveryException(
+                        "WorkspaceMissing",
+                        "The preserved recovery workspace is missing, so Steward cannot reconstruct an unpublished candidate safely.");
+                }
+
+                prepared = new PreparedWorld(
+                    installation,
+                    recovery.WorkingDirectory,
+                    environment.Manifest,
+                    world.Name);
                 await RepublishCandidateAsync(
                     world,
                     recovery,
@@ -188,16 +189,24 @@ public sealed class StewardPendingSyncRecoveryService
                     user,
                     cancellationToken);
             }
-            else if (!string.Equals(candidate.AdapterId, adapter.Id, StringComparison.Ordinal))
+            else
             {
-                throw new StewardPendingSyncRecoveryException(
-                    "CandidateAdapterMismatch",
-                    "The journaled candidate revision belongs to a different game adapter.");
+                EnsureCandidateMatches(candidate, recovery, adapter);
             }
 
             var updated = world with { CurrentStateRevisionId = candidateId };
             await _storage.SaveWorldAsync(updated, cancellationToken);
-            await FinalizeRecoveredWorkspaceAsync(
+
+            if (prepared is null && Directory.Exists(recovery.WorkingDirectory))
+            {
+                prepared = new PreparedWorld(
+                    installation,
+                    recovery.WorkingDirectory,
+                    environment.Manifest,
+                    world.Name);
+            }
+
+            await CompleteCommittedRecoveryAsync(
                 updated,
                 recovery,
                 prepared,
@@ -205,14 +214,11 @@ public sealed class StewardPendingSyncRecoveryService
                 cancellationToken);
             return updated;
         }
-        catch
-        {
-            // ReleaseHostAsync deliberately keeps an exact remote reservation while this record is
-            // RecoveryPending. Successful commit already resolves the registry lease inside storage.
-            throw;
-        }
         finally
         {
+            // ReleaseHostAsync deliberately keeps an exact remote reservation while this record is
+            // still RecoveryPending. Successful commit resolves the registry lease inside storage;
+            // explicit divergence paths abandon their exact lease before reaching this point.
             await _coordinator.ReleaseHostAsync(worldId, user, CancellationToken.None);
         }
     }
@@ -250,7 +256,7 @@ public sealed class StewardPendingSyncRecoveryService
         }
     }
 
-    private async Task CompleteLocalRecoveryAsync(
+    private async Task CompleteCanonicalCandidateAsync(
         World world,
         WorkspaceRecoveryRecord recovery,
         IGameAdapter adapter,
@@ -258,23 +264,22 @@ public sealed class StewardPendingSyncRecoveryService
         UserIdentity user,
         CancellationToken cancellationToken)
     {
-        var environmentId = world.CurrentEnvironmentRevisionId
-            ?? throw new StewardPendingSyncRecoveryException(
-                "EnvironmentMissing",
-                "The canonical candidate is committed but its environment revision is missing.");
-        var environment = await _storage.LoadEnvironmentRevisionAsync(
-            world.Id,
-            environmentId,
-            cancellationToken)
-            ?? throw new StewardPendingSyncRecoveryException(
-                "EnvironmentMissing",
-                "The canonical candidate is committed but its environment metadata is unavailable.");
-        var prepared = new PreparedWorld(
-            installation,
-            recovery.WorkingDirectory,
-            environment.Manifest,
-            world.Name);
-        await FinalizeRecoveredWorkspaceAsync(
+        PreparedWorld? prepared = null;
+        if (Directory.Exists(recovery.WorkingDirectory))
+        {
+            var environment = await LoadRecordedEnvironmentAsync(
+                world.Id,
+                recovery,
+                adapter,
+                cancellationToken);
+            prepared = new PreparedWorld(
+                installation,
+                recovery.WorkingDirectory,
+                environment.Manifest,
+                world.Name);
+        }
+
+        await CompleteCommittedRecoveryAsync(
             world,
             recovery,
             prepared,
@@ -287,36 +292,133 @@ public sealed class StewardPendingSyncRecoveryService
         await _coordinator.ReleaseHostAsync(world.Id, user, CancellationToken.None);
     }
 
-    private async Task FinalizeRecoveredWorkspaceAsync(
+    private async Task CompleteCommittedRecoveryAsync(
         World world,
         WorkspaceRecoveryRecord recovery,
-        PreparedWorld prepared,
+        PreparedWorld? prepared,
         IGameAdapter adapter,
         CancellationToken cancellationToken)
     {
+        if (prepared is not null)
+        {
+            try
+            {
+                await adapter.FinalizePreparedWorldAsync(
+                    prepared,
+                    PreparedWorldDisposition.Discard,
+                    cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                await SaveCleanupPendingAsync(
+                    recovery,
+                    $"Canonical candidate '{world.CurrentStateRevisionId}' is committed, but workspace cleanup failed: {exception.Message}");
+                throw new StewardPendingSyncRecoveryException(
+                    "CleanupPending",
+                    "The candidate is canonical, but the preserved workspace still requires cleanup.");
+            }
+        }
+
         try
         {
-            await adapter.FinalizePreparedWorldAsync(
-                prepared,
-                PreparedWorldDisposition.Discard,
-                cancellationToken);
+            await _recovery.RemoveAsync(recovery.Id, CancellationToken.None);
         }
         catch (Exception exception)
+        {
+            await SaveCleanupPendingAsync(
+                recovery,
+                $"Canonical candidate '{world.CurrentStateRevisionId}' and workspace cleanup are complete, but recovery-journal removal failed: {exception.Message}");
+            throw new StewardPendingSyncRecoveryException(
+                "CleanupPending",
+                "The candidate is canonical, but Steward could not clear its cleanup journal.");
+        }
+    }
+
+    private async Task SaveCleanupPendingAsync(
+        WorkspaceRecoveryRecord recovery,
+        string reason)
+    {
+        try
         {
             await _recovery.SaveAsync(
                 recovery with
                 {
                     Status = WorkspaceRecoveryStatus.CleanupPending,
                     UpdatedAt = DateTimeOffset.UtcNow,
-                    Reason = $"Canonical candidate '{world.CurrentStateRevisionId}' is committed, but workspace cleanup failed: {exception.Message}"
+                    Reason = reason
                 },
                 CancellationToken.None);
+        }
+        catch
+        {
+            // Preserve the previous durable recovery record if the status update itself fails.
+        }
+    }
+
+    private async Task<EnvironmentRevision> LoadRecordedEnvironmentAsync(
+        WorldId worldId,
+        WorkspaceRecoveryRecord recovery,
+        IGameAdapter adapter,
+        CancellationToken cancellationToken)
+    {
+        var environmentId = RequireRecordedEnvironmentId(recovery);
+        var environment = await _storage.LoadEnvironmentRevisionAsync(
+            worldId,
+            environmentId,
+            cancellationToken)
+            ?? throw new StewardPendingSyncRecoveryException(
+                "EnvironmentMissing",
+                "The exact environment revision recorded for this recovery workspace is unavailable.");
+        if (!string.Equals(environment.Manifest.AdapterId, adapter.Id, StringComparison.Ordinal))
+        {
             throw new StewardPendingSyncRecoveryException(
-                "CleanupPending",
-                "The candidate is canonical, but the preserved workspace still requires cleanup.");
+                "EnvironmentAdapterMismatch",
+                "The journaled recovery environment belongs to a different game adapter.");
         }
 
-        await _recovery.RemoveAsync(recovery.Id, CancellationToken.None);
+        return environment;
+    }
+
+    private static RevisionId RequireRecordedEnvironmentId(WorkspaceRecoveryRecord recovery)
+        => recovery.EnvironmentRevisionId
+           ?? throw new StewardPendingSyncRecoveryException(
+               "EnvironmentUnknown",
+               "This recovery record predates exact environment journaling. Steward will preserve the workspace rather than guess which environment created it.");
+
+    private static void EnsureBaseHeadMatches(World world, WorkspaceRecoveryRecord recovery)
+    {
+        if (world.CurrentStateRevisionId != recovery.BaseStateRevisionId)
+        {
+            throw HeadDiverged(recovery, world);
+        }
+
+        var environmentId = RequireRecordedEnvironmentId(recovery);
+        if (world.CurrentEnvironmentRevisionId != environmentId)
+        {
+            throw new StewardPendingSyncRecoveryException(
+                "EnvironmentHeadDiverged",
+                $"The interrupted workspace belongs to environment '{environmentId}', but the current canonical environment is '{world.CurrentEnvironmentRevisionId}'. Steward will not combine them automatically.");
+        }
+    }
+
+    private static void EnsureCandidateMatches(
+        StateRevision candidate,
+        WorkspaceRecoveryRecord recovery,
+        IGameAdapter adapter)
+    {
+        if (!string.Equals(candidate.AdapterId, adapter.Id, StringComparison.Ordinal))
+        {
+            throw new StewardPendingSyncRecoveryException(
+                "CandidateAdapterMismatch",
+                "The journaled candidate revision belongs to a different game adapter.");
+        }
+
+        if (candidate.ParentRevisionId != recovery.BaseStateRevisionId)
+        {
+            throw new StewardPendingSyncRecoveryException(
+                "CandidateParentMismatch",
+                "The journaled candidate revision does not descend from the recorded starting revision.");
+        }
     }
 
     private async Task AbandonExactLeaseAsync(

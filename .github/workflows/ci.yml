@@ -154,12 +154,21 @@ jobs:
         run: dotnet restore tests/SharedWorlds.Backend.PostgreSql.Tests/SharedWorlds.Backend.PostgreSql.Tests.csproj
 
       - name: Test PostgreSQL persistence
-        run: >-
-          dotnet test tests/SharedWorlds.Backend.PostgreSql.Tests/SharedWorlds.Backend.PostgreSql.Tests.csproj
-          --configuration Release
-          --no-restore
-          --nologo
-          --verbosity minimal
+        shell: pwsh
+        run: |
+          dotnet test tests/SharedWorlds.Backend.PostgreSql.Tests/SharedWorlds.Backend.PostgreSql.Tests.csproj --configuration Release --no-restore --nologo --verbosity minimal *> postgres-test.log
+          $testExitCode = $LASTEXITCODE
+          Get-Content postgres-test.log
+          exit $testExitCode
+
+      - name: Upload PostgreSQL integration test log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: postgres-integration-test-log
+          path: postgres-test.log
+          if-no-files-found: ignore
+          retention-days: 7
 
   s3-integration:
     name: S3-compatible integration

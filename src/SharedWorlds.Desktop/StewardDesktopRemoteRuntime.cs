@@ -29,6 +29,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         StewardWorldStorage storage,
         WorldLifecycleService lifecycle,
         StewardPendingSyncRecoveryService pendingSyncRecovery,
+        StewardInitialWorldPublisher initialWorldPublisher,
         UserIdentity user)
     {
         _apiClient = apiClient;
@@ -38,12 +39,14 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         Storage = storage;
         Lifecycle = lifecycle;
         PendingSyncRecovery = pendingSyncRecovery;
+        InitialWorldPublisher = initialWorldPublisher;
         User = user;
     }
 
     public StewardWorldStorage Storage { get; }
     public WorldLifecycleService Lifecycle { get; }
     public StewardPendingSyncRecoveryService PendingSyncRecovery { get; }
+    public StewardInitialWorldPublisher InitialWorldPublisher { get; }
     public UserIdentity User { get; }
 
     public static StewardDesktopRemoteRuntime Create(
@@ -85,6 +88,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 initialTokens);
 
             var metadata = new StewardWorldMetadataClient(apiClient);
+            var worldCreation = new StewardWorldCreationClient(apiClient);
             var authority = new StewardAuthorityClient(apiClient);
             var abandon = new StewardReservationAbandonClient(apiClient);
             var packageDownloads = new StewardPackageDownloadClient(apiClient);
@@ -93,6 +97,11 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 transferClient);
             var packages = new StewardVerifiedPackageSource(packageDownloads, verifiedCache);
             var uploads = new StewardPackageUploadClient(apiClient, transferClient);
+            var initialWorldPublisher = new StewardInitialWorldPublisher(
+                worldCreation,
+                metadata,
+                uploads,
+                accessSession);
 
             reservations = new StewardWritableReservationRegistry();
             var managedSessionGate = new ManagedWritableSessionGate();
@@ -135,6 +144,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 storage,
                 lifecycle,
                 pendingSyncRecovery,
+                initialWorldPublisher,
                 authenticatedUser);
         }
         catch

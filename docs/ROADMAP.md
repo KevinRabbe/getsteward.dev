@@ -14,7 +14,7 @@ They deliver one product model. No workstream may invent a competing definition 
 
 ## Current mode: implementation unlocked
 
-Status: **P0 COMPLETE. E1 COMPLETE AND GREEN. BACKEND BE-2 THROUGH BE-4 COMPLETE AND GREEN. E4 BACKGROUND RUNTIME INTEGRATION ACTIVE TOWARD THE BE-5 / E5 TWO-DEVICE PROOF.**
+Status: **P0 COMPLETE. E1 COMPLETE AND GREEN. BACKEND BE-2 THROUGH BE-5 DEVELOPMENT ACCEPTANCE COMPLETE AND GREEN. E4 WINDOWS DESKTOP/BACKGROUND-RUNTIME PRODUCT COMPOSITION ACTIVE.**
 
 The planning contracts remain the first-release implementation baseline. Changes remain possible, but any deliberate product-boundary or contract change must be documented before implementation changes follow it.
 
@@ -24,7 +24,7 @@ Implementation is allowed only when it maps to:
 - one numbered milestone;
 - one acceptance criterion.
 
-The active implementation phase is **E4: Background runtime integration**, with the real **BE-5 / E5 two-device handoff proof** as the next decisive acceptance target.
+The active implementation phase remains **E4: Background runtime integration**, because the development two-device proof is complete but the production Windows Desktop composition root still uses the local storage/session stack. The next product target is to compose the proven authenticated remote stack into Desktop, then enforce the World exact-version + Verify/Repair path before remote Join/Host is treated as product-ready.
 
 ## Product boundaries
 
@@ -220,6 +220,8 @@ BE-3 replaced the simulated package path with provider-neutral durable transfer:
 
 BE-4 replaced the simulated distributed authority with PostgreSQL-backed reservation/generation coordination and canonical commit: one-writer acquisition, heartbeat/Uncertain/reconnect, deliberate reclaim, generation invalidation, expected-head commit, late-writer rejection, and durable acquire/reclaim/commit idempotency. Canonical detail is recorded in `BE4_STATUS.md`; GitHub Actions run `29906786662` passed Quality, Ubuntu, Windows, PostgreSQL, and S3-compatible integration.
 
+BE-5 composes those real boundaries through the existing Core lifecycle. It proves authenticated remote World/environment metadata, structured immutable environment manifests, verified cache/download, resumable candidate upload, exact-generation commit, two-device continuation, adverse authority/reclaim behavior, and deterministic Waiting-to-sync recovery after a lost successful commit response. Canonical detail is recorded in `BE5_STATUS.md`; CI run `29916875172` on `3fca52a9014b6799428a2882de73762ba97a3da4` passed Quality, Ubuntu, Windows, PostgreSQL, and S3-compatible integration.
+
 # Execution plan
 
 ## E1: Contract and conformance foundation — COMPLETE AND GREEN
@@ -284,7 +286,7 @@ Object storage never decides what revision is current.
 
 ## E3: Distributed one-writer coordination — BACKEND COMPLETE AND GREEN
 
-BE-4 now provides and proves:
+BE-4 provides and proves:
 
 - acquire;
 - heartbeat;
@@ -302,21 +304,37 @@ Canonical evidence:
 - `BE4_STATUS.md`;
 - CI run `29906786662`.
 
-UI/runtime consumption of those states is part of the active integration phase rather than a second authority implementation.
+## E4: Background runtime integration — ACTIVE PRODUCT WIRING
 
-## E4: Background runtime integration — ACTIVE
+The development remote runtime path is implemented and proven:
 
-- wire desktop/background runtime to authenticated shared-World metadata;
-- use verified remote package download/cache/materialization before shared play;
-- acquire and maintain the real backend reservation around writable sessions;
-- upload/verify candidate state and commit canonical head after safe capture;
-- preserve candidate/workspace evidence across network or process interruption;
-- surface Connection required / Waiting to sync / Action required / Recovery needed without inventing authority locally;
-- preserve safe close/update behavior while responsibility is unresolved.
+- authenticated Steward session/refresh client;
+- shared World/current-head and arbitrary immutable revision metadata;
+- structured immutable environment manifests;
+- verified remote package download/cache/materialization;
+- distributed `IWorldSessionCoordinator` using real BE-4 authority;
+- heartbeat/Uncertain/reconnect/reclaim-compatible lease behavior;
+- resumable direct multipart candidate upload;
+- remote `IWorldStorage` canonical commit bridge;
+- exact pre-launch reservation abandonment;
+- candidate/workspace write-ahead recovery journal;
+- deterministic Waiting-to-sync completion;
+- fail-closed recovery when canonical head diverges.
 
-The runtime must consume the BE-2/BE-3/BE-4 contracts; it must not reproduce them with a second local authority model.
+What remains active is production Desktop/background composition:
 
-## E5: Development two-device proof / BE-5 acceptance target
+- replace the shared-World path in `SharedWorlds.Desktop` with the proven authenticated remote stack;
+- preserve the existing local-only path for `Only on this PC` Worlds;
+- persist/use the Steward installation identity and session credentials safely;
+- expose Connection required / Waiting to sync / Action required / Recovery needed from the real runtime states;
+- keep tray/background lifetime while writable or recovery responsibility is unresolved;
+- enforce the World's exact environment version before remote writable play;
+- run Verify/Repair when the local environment does not match the structured manifest;
+- only then enable remote Continue/Host/Join against the shared World.
+
+The Desktop currently still constructs `LocalWorldStorage + LocalWorldSessionCoordinator + LocalWorkspaceRecoveryStore`, so E4 is not marked product-complete yet.
+
+## E5: Development two-device proof / BE-5 — COMPLETE AND GREEN
 
 ```text
 PC A commits N+1
@@ -325,17 +343,22 @@ PC A commits N+1
 -> PC A downloads, verifies, restores N+2
 ```
 
-Also prove:
+Also proven:
 
 - competing writer rejection;
-- interrupted transfer resume;
-- outage during an active generation;
-- Waiting to sync completion;
-- deliberate reclaim;
-- late old-generation rejection;
-- last-safe recovery.
+- interrupted multipart transfer resume;
+- outage during an active generation -> `Uncertain`;
+- Waiting-to-sync completion after lost successful commit response;
+- deliberate reclaim after grace;
+- generation increase and late old-generation heartbeat/commit rejection;
+- last-safe fail-closed recovery when canonical head diverges.
 
-No broad UI polishing or new adapter work takes priority over this proof.
+Canonical evidence:
+
+- `BE5_STATUS.md`;
+- full recovery/handoff CI run `29916875172` on `3fca52a9014b6799428a2882de73762ba97a3da4`;
+- composed PC A -> PC B -> PC A proof in run `29914756373`;
+- composed adverse authority proof in run `29915074063`.
 
 ## E6: Commercial UI completion
 
@@ -348,9 +371,11 @@ No broad UI polishing or new adapter work takes priority over this proof.
 - recovery/action-required flows;
 - accessibility/commercial polish.
 
+E6 may proceed alongside the remaining E4 production composition only when UI work consumes the frozen runtime/backend states instead of inventing substitute behavior.
+
 ## E7: Second-adapter handoff proof
 
-Repeat the two-device flow with the other initial adapter. Keep game-specific issues inside its adapter.
+Repeat the production-composed two-device flow with the other initial adapter. Keep game-specific issues inside its adapter.
 
 ## E8: Release hardening
 
@@ -408,4 +433,4 @@ Not required:
 
 # Immediate next step
 
-Begin **E4 background runtime integration** by composing the already-proven BE-2 authentication/metadata, BE-3 verified package transfer/cache, and BE-4 one-writer authority around the existing desktop lifecycle. The first target is not another abstraction: it is the smallest real path that can execute the BE-5 / E5 PC A -> PC B -> PC A handoff without bypassing any authority or integrity boundary.
+Continue **E4 production Desktop composition**. Wire the existing Windows Desktop shared-World path to the proven Steward session/metadata/authority/storage/recovery stack while preserving the local-only path. Then enforce the canonical World's exact environment manifest through Verify/Repair before remote Continue/Host/Join is enabled. Do not redesign backend authority, transfer, or adapter boundaries during this step.

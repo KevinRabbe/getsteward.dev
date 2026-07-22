@@ -11,6 +11,7 @@ namespace SharedWorlds.Desktop;
 public partial class MainWindow
 {
     private readonly HashSet<WorldId> _remoteWorldIds = [];
+    private readonly HashSet<WorldId> _remoteIncompleteWorldIds = [];
     private StewardDesktopRemoteRuntime? _remoteRuntime;
     private Exception? _lastRemoteWorldLoadError;
 
@@ -58,7 +59,9 @@ public partial class MainWindow
         CancellationToken cancellationToken = default)
     {
         var localWorlds = await _storage.ListWorldsAsync(cancellationToken);
+        var localById = localWorlds.ToDictionary(world => world.Id);
         _remoteWorldIds.Clear();
+        _remoteIncompleteWorldIds.Clear();
         _lastRemoteWorldLoadError = null;
 
         var remote = _remoteRuntime;
@@ -75,22 +78,81 @@ public partial class MainWindow
         catch (Exception exception) when (IsRemoteAvailabilityFailure(exception))
         {
             // A shared-service outage or invalid remote response must not make private local Worlds
-            // unusable. Keep the local library available and surface shared Worlds as unavailable.
+            // unusable. A local shadow already marked Shared remains non-writable through the normal
+            // authoritative-runtime guard; it never becomes LocalOnly merely because the backend is down.
             _lastRemoteWorldLoadError = exception;
             return localWorlds;
         }
 
-        foreach (var world in remoteWorlds)
+        foreach (var remoteWorld in remoteWorlds)
         {
-            _remoteWorldIds.Add(world.Id);
+            if (!localById.ContainsKey(remoteWorld.Id))
+            {
+                // Normal shared/invited Worlds have no local shadow. Backend membership is sufficient
+                // to list them; exact metadata and environment gates still fail closed before play.
+                _remoteWorldIds.Add(remoteWorld.Id);
+                continue;
+            }
+
+            try
+            {
+                if (await IsRemoteInitialSnapshotCompleteAsync(remoteWorld, cancellationToken))
+                {
+                    _remoteWorldIds.Add(remoteWorld.Id);
+                }
+                else
+                {
+                    // The backend World identity may have been created immediately before a crash or
+                    // transfer failure. Keep the local shadow visible only as a locked sharing journal
+                    // so Share World can resume the same immutable publication IDs.
+                    _remoteIncompleteWorldIds.Add(remoteWorld.Id);
+                }
+            }
+            catch (Exception exception) when (IsRemoteAvailabilityFailure(exception))
+            {
+                _lastRemoteWorldLoadError ??= exception;
+                _remoteIncompleteWorldIds.Add(remoteWorld.Id);
+            }
         }
 
-        // If the same World ID exists in the old local store and in Steward, the backend copy is the
-        // canonical shared World. Do not display two competing heads; leave the local bytes untouched.
+        // A complete backend copy with the same World ID is authoritative. An incomplete backend copy
+        // deliberately does NOT hide the local shadow, because that shadow is the immutable source for
+        // resuming initial publication. The shadow is already marked Shared before remote side effects,
+        // so it cannot accidentally acquire local writable authority while publication is incomplete.
         return localWorlds
             .Where(world => !_remoteWorldIds.Contains(world.Id))
-            .Concat(remoteWorlds)
+            .Concat(remoteWorlds.Where(world => _remoteWorldIds.Contains(world.Id)))
             .ToArray();
+    }
+
+    private async Task<bool> IsRemoteInitialSnapshotCompleteAsync(
+        World remoteWorld,
+        CancellationToken cancellationToken)
+    {
+        var remote = _remoteRuntime
+            ?? throw new InvalidOperationException(
+                "Authenticated Steward runtime disappeared while checking shared publication state.");
+        var stateId = remoteWorld.CurrentStateRevisionId;
+        var environmentId = remoteWorld.CurrentEnvironmentRevisionId;
+        if (stateId is null || environmentId is null)
+        {
+            return false;
+        }
+
+        var state = await remote.Storage.LoadStateRevisionAsync(
+            remoteWorld.Id,
+            stateId.Value,
+            cancellationToken);
+        if (state is null)
+        {
+            return false;
+        }
+
+        var environment = await remote.Storage.LoadEnvironmentRevisionAsync(
+            remoteWorld.Id,
+            environmentId.Value,
+            cancellationToken);
+        return environment is not null;
     }
 
     private bool HasAuthoritativeRuntimeForWorld(World world)
@@ -175,6 +237,7 @@ public partial class MainWindow
     private void DisposeRemoteRuntime()
     {
         _remoteWorldIds.Clear();
+        _remoteIncompleteWorldIds.Clear();
         _remoteRuntime?.Dispose();
         _remoteRuntime = null;
     }

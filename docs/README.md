@@ -6,7 +6,7 @@ This directory is the canonical home for active product, architecture, engineeri
 
 ## Current project mode
 
-> **Implementation is unlocked. BE-1 through BE-5 are complete and green at the development-contract level. E4 has composed the authenticated remote stack into the Windows Desktop, including Steam Web API ticket authentication, stable installation identity, canonical shared-World routing, exact-environment Verify/Repair gating, deterministic local/remote pending recovery, cleanup-only recovery, and explicit recover-or-discard handling for crash-found interrupted sessions. The remaining E4 boundary is primarily live Windows + real Steam AppID + deployed-backend two-installation acceptance.**
+> **Implementation is unlocked. BE-1 through BE-5 are complete and green at the development-contract level. E4 has composed the remote stack into the Windows Desktop, including the real Steam Web API ticket code path, stable installation identity, canonical shared-World routing, exact-environment Verify/Repair gating, deterministic local/remote pending recovery, cleanup-only recovery, Share/Invites/Manage access, and explicit recover-or-discard handling for crash-found interrupted sessions. Production Steam credentials and the final real-Steam two-installation acceptance are intentionally deferred until Steward is otherwise release-candidate quality; they are not a development blocker.**
 
 Start with the [Master Roadmap](ROADMAP.md), then work through the three implementation workstreams:
 
@@ -22,8 +22,9 @@ Current backend/runtime completion evidence:
 - [BE-3 S3 Checkpoint](BE3_S3_CHECKPOINT.md) — immutable transfer, S3-compatible protocol proof, cleanup/retention, and desktop verified caching/materialization;
 - [BE-4 Status](BE4_STATUS.md) — durable one-writer reservation/generation authority, canonical commit, reclaim, late-writer rejection, and transactional idempotency;
 - [BE-5 Status](BE5_STATUS.md) — real PostgreSQL-backed PC A -> PC B -> PC A handoff, adverse authority/reclaim proof, and deterministic Waiting-to-sync recovery after a lost successful commit response;
-- [E4 Windows Desktop Status](E4_DESKTOP_STATUS.md) — production Desktop remote composition, stable installation identity, Steam Web API ticket bootstrap, merged local/shared World routing, exact-environment gate, deterministic pending/cleanup/interrupted recovery, and the remaining live-deployment acceptance boundary;
-- [E4 Live Acceptance Deployment](E4_LIVE_ACCEPTANCE_DEPLOYMENT.md) — provider-neutral container/PostgreSQL/S3 deployment contract and the first disposable EU acceptance candidate.
+- [E4 Windows Desktop Status](E4_DESKTOP_STATUS.md) — production Desktop remote composition, stable installation identity, Steam Web API ticket bootstrap code, merged local/shared World routing, exact-environment gate, deterministic pending/cleanup/interrupted recovery, and Share/access surfaces;
+- [E4 Live Acceptance Deployment](E4_LIVE_ACCEPTANCE_DEPLOYMENT.md) — provider-neutral container/PostgreSQL/S3 deployment contract and the disposable live-acceptance shape;
+- [Steam Release Gate](STEAM_RELEASE_GATE.md) — explicit decision to introduce the real Steward AppID/publisher credentials only after the rest of the product is good enough to publish, followed by genuine final Steam acceptance with no production auth bypass.
 
 ## Documentation authority
 
@@ -73,6 +74,7 @@ Steward moves the latest valid World state into a playable session and returns t
 - [Adapter and Background Runtime Roadmap](ADAPTER_RUNTIME_ROADMAP.md) — lifecycle state machine, process model, adapter capabilities, safe capture, background lifetime, Factorio/Palworld completion contracts, and runtime milestones.
 - [AR-0 Sign-off Checklist](AR0_SIGNOFF_CHECKLIST.md) — approved runtime process, lifecycle, cancellation, capability, recovery, and adapter acceptance decisions.
 - [Cross-Workstream Contract](CROSS_WORKSTREAM_CONTRACT.md) — shared UI/backend/runtime states, actions, authorities, recovery rules, and first-release acceptance plan.
+- [Steam Release Gate](STEAM_RELEASE_GATE.md) — final production Steam identity/distribution acceptance deliberately held until release-candidate quality.
 
 Roadmap items do not override product rules. A planned feature still has to support shared World continuity directly.
 

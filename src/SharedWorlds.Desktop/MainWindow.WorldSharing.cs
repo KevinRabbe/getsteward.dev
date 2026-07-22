@@ -107,15 +107,6 @@ public partial class MainWindow
                     localShadow = await _storage.LoadWorldAsync(world.Id)
                         ?? throw new InvalidOperationException(
                             "The selected World has no local canonical snapshot to publish.");
-                    if (localShadow.SharingMode == WorldSharingMode.LocalOnly)
-                    {
-                        // Write-ahead authority intent: once any remote side effect can happen this
-                        // local copy must never silently become a writable fallback. A crash after
-                        // this write therefore resumes as Finish sharing instead of forking history.
-                        localShadow = localShadow with { SharingMode = WorldSharingMode.Shared };
-                        await _storage.SaveWorldAsync(localShadow);
-                        _selectedWorld = localShadow;
-                    }
 
                     var environmentId = localShadow.CurrentEnvironmentRevisionId
                         ?? throw new InvalidOperationException(
@@ -133,6 +124,39 @@ public partial class MainWindow
                         stateId)
                         ?? throw new InvalidOperationException(
                             "The local canonical state revision is missing.");
+
+                    if (localShadow.SharingMode == WorldSharingMode.LocalOnly)
+                    {
+                        if (!TryGetAdapter(localShadow.GameAdapterId, out var adapter))
+                        {
+                            throw new InvalidOperationException(
+                                $"No installed Steward adapter can verify '{localShadow.GameAdapterId}' before sharing.");
+                        }
+
+                        // Initial sharing must prove that the canonical environment is reproducible before
+                        // any remote side effect or local authority lock is written. This keeps a failed
+                        // preflight genuinely local while still using the same adapter verification contract
+                        // that later gates shared writable play.
+                        var installation = await GetGameInstallationAsync(adapter);
+                        var verification = await new WorldEnvironmentService(_storage).VerifyAsync(
+                            localShadow.Id,
+                            adapter,
+                            installation);
+                        RememberEnvironmentVerification(localShadow, verification);
+                        UpdateEnvironmentReadinessUi();
+                        if (!verification.IsReady)
+                        {
+                            throw new InvalidOperationException(
+                                $"Steward will not share '{localShadow.Name}' until this device can reproduce its exact canonical environment. Run Verify Environment and resolve the reported issue first.");
+                        }
+
+                        // Write-ahead authority intent: once any remote side effect can happen this
+                        // local copy must never silently become a writable fallback. A crash after
+                        // this write therefore resumes as Finish sharing instead of forking history.
+                        localShadow = localShadow with { SharingMode = WorldSharingMode.Shared };
+                        await _storage.SaveWorldAsync(localShadow);
+                        _selectedWorld = localShadow;
+                    }
 
                     await using var package = await _storage.OpenRevisionAsync(
                         localShadow.Id,
@@ -152,7 +176,8 @@ public partial class MainWindow
                 {
                     // Never roll the write-ahead Shared marker back automatically. If backend World
                     // creation or immutable publication became ambiguous, local writable fallback is
-                    // more dangerous than requiring an explicit retry of the same IDs.
+                    // more dangerous than requiring an explicit retry of the same IDs. Failures before
+                    // that marker (including exact-environment preflight) remain ordinary LocalOnly failures.
                     if (localShadow?.SharingMode == WorldSharingMode.Shared ||
                         world.SharingMode == WorldSharingMode.Shared)
                     {
@@ -243,7 +268,7 @@ public partial class MainWindow
         else
         {
             ShareButton.ToolTip =
-                "Publish this World's current immutable state and exact environment to Steward, then make remote authority canonical.";
+                "Verify the exact canonical environment, then publish this World's immutable state to Steward and make remote authority canonical.";
         }
     }
 }

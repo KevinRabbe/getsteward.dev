@@ -170,6 +170,13 @@ jobs:
           Get-Content build.log
           exit $buildExitCode
 
+      - name: Validate Windows acceptance package
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          ./tools/e4-build-desktop.ps1 -FrameworkDependent -OutputDirectory "$env:RUNNER_TEMP/steward-e4-package"
+          Get-Content "$env:RUNNER_TEMP/steward-e4-package/acceptance-build.json"
+
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v6

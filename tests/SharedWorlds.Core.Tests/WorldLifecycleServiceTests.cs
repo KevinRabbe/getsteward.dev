@@ -356,6 +356,12 @@ public sealed class WorldLifecycleServiceTests : IDisposable
             CancellationToken cancellationToken = default)
             => Task.FromResult(Manifest);
 
+        public Task<EnvironmentVerificationReport> VerifyEnvironmentAsync(
+            GameInstallation installation,
+            EnvironmentManifest requiredEnvironment,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(EnvironmentVerificationReport.Ready());
+
         public Task<CapturedState> CaptureDetectedWorldAsync(
             GameInstallation installation,
             DetectedWorld world,

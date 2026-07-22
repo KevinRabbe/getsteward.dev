@@ -1,4 +1,6 @@
-using System.Text.Json.Serialization;
+using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.TestHost;
 using SharedWorlds.Backend.Api;
 using SharedWorlds.Backend.Identity;
@@ -15,94 +17,84 @@ internal sealed class ApiTestHarness : IAsyncDisposable
     private ApiTestHarness(
         WebApplication app,
         HttpClient client,
-        VerifiedExternalIdentity identity,
-        StewardSessionTokens tokens,
-        WorldId worldId,
-        RevisionId initialStateRevisionId,
-        DateTimeOffset now)
+        InMemoryWorldStore worldStore,
+        InMemoryTransferStore transferStore,
+        InMemoryObjectStore objectStore,
+        InMemorySessionStore sessionStore,
+        MutableSteamHandler steamHandler,
+        TestClock clock)
     {
         _app = app;
         Client = client;
-        Identity = identity;
-        Tokens = tokens;
-        WorldId = worldId;
-        InitialStateRevisionId = initialStateRevisionId;
-        Now = now;
+        WorldStore = worldStore;
+        TransferStore = transferStore;
+        ObjectStore = objectStore;
+        SessionStore = sessionStore;
+        SteamHandler = steamHandler;
+        Clock = clock;
     }
 
     public HttpClient Client { get; }
-    public VerifiedExternalIdentity Identity { get; }
-    public StewardSessionTokens Tokens { get; }
-    public WorldId WorldId { get; }
-    public RevisionId InitialStateRevisionId { get; }
-    public DateTimeOffset Now { get; }
+    public InMemoryWorldStore WorldStore { get; }
+    public InMemoryTransferStore TransferStore { get; }
+    public InMemoryObjectStore ObjectStore { get; }
+    public InMemorySessionStore SessionStore { get; }
+    public MutableSteamHandler SteamHandler { get; }
+    public TestClock Clock { get; }
 
     public static async Task<ApiTestHarness> CreateAsync()
     {
-        var now = new DateTimeOffset(2026, 7, 22, 12, 0, 0, TimeSpan.Zero);
-        var identity = new VerifiedExternalIdentity(
-            new ExternalIdentityRef("steam", "76561198000000001"));
-
-        var sessionStore = new InMemorySessionStore();
-        var sessionService = new StewardSessionService(sessionStore, () => now);
-        var tokens = await sessionService.CreateSessionAsync(identity, "test-installation");
-
-        var catalog = new InMemoryWorldCatalog();
-        var worldService = new SharedWorldMetadataService(catalog, () => now);
-        var revisionService = new SharedRevisionMetadataService(catalog, catalog);
+        var clock = new TestClock();
+        var worldStore = new InMemoryWorldStore();
         var transferStore = new InMemoryTransferStore();
         var objectStore = new InMemoryObjectStore();
-        var transferService = new SharedPackageTransferService(
-            catalog,
-            revisionService,
+        var sessionStore = new InMemorySessionStore();
+        var steamHandler = new MutableSteamHandler();
+
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Services.AddSingleton(new StewardSessionService(
+            sessionStore,
+            () => clock.Now,
+            tokenGenerator: new DeterministicTokenGenerator()));
+        builder.Services.AddSingleton(new SharedWorldMetadataService(
+            worldStore,
+            () => clock.Now));
+        builder.Services.AddSingleton(new SharedRevisionMetadataService(worldStore, worldStore));
+        builder.Services.AddSingleton<ISharedWorldMetadataStore>(worldStore);
+        builder.Services.AddSingleton<ISharedPackageTransferStore>(transferStore);
+        builder.Services.AddSingleton<IPrivateImmutableObjectStore>(objectStore);
+        builder.Services.AddSingleton(services => new SharedPackageTransferService(
+            worldStore,
+            services.GetRequiredService<SharedRevisionMetadataService>(),
             transferStore,
             objectStore,
-            () => now);
-
-        var worldId = new WorldId(Guid.NewGuid());
-        var initialStateRevisionId = new RevisionId(Guid.NewGuid());
-        var created = await worldService.CreateSharedWorldAsync(
-            identity,
-            new CreateSharedWorldCommand(
-                worldId,
-                "factorio",
-                "HTTP Contract World",
-                initialStateRevisionId,
-                null));
-        if (created.Status != CreateSharedWorldStatus.Created)
-        {
-            throw new InvalidOperationException("Test World could not be created.");
-        }
-
-        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
-        {
-            EnvironmentName = "Testing"
-        });
-        builder.WebHost.UseTestServer();
-        builder.Services.ConfigureHttpJsonOptions(options =>
-        {
-            options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
-        });
-        builder.Services.AddSingleton(sessionService);
-        builder.Services.AddSingleton(worldService);
-        builder.Services.AddSingleton(revisionService);
-        builder.Services.AddSingleton(transferService);
-        builder.Services.AddSingleton<SteamWebApiTicketVerifier>(_ =>
-            throw new InvalidOperationException("Steam verification must not be invoked by this API contract harness."));
+            () => clock.Now,
+            new SharedPackageTransferOptions(
+                maximumPackageBytes: 1024 * 1024,
+                partSizeBytes: 4,
+                transferLifetime: TimeSpan.FromHours(24),
+                authorizationLifetime: TimeSpan.FromMinutes(15))));
+        builder.Services.AddSingleton(new SteamWebApiTicketVerifier(
+            new HttpClient(steamHandler),
+            new SteamWebApiTicketVerifierOptions(
+                appId: 480,
+                publisherApiKey: "server-secret",
+                identity: "steward")));
 
         var app = builder.Build();
         app.UseStewardApiProblemHandling();
         app.MapStewardApiV1();
         await app.StartAsync();
-
         return new ApiTestHarness(
             app,
             app.GetTestClient(),
-            identity,
-            tokens,
-            worldId,
-            initialStateRevisionId,
-            now);
+            worldStore,
+            transferStore,
+            objectStore,
+            sessionStore,
+            steamHandler,
+            clock);
     }
 
     public ValueTask DisposeAsync()
@@ -111,11 +103,47 @@ internal sealed class ApiTestHarness : IAsyncDisposable
         return _app.DisposeAsync();
     }
 
-    private sealed class InMemorySessionStore : IStewardSessionStore
+    public sealed class TestClock
+    {
+        public DateTimeOffset Now { get; set; } =
+            new(2026, 7, 22, 9, 0, 0, TimeSpan.Zero);
+    }
+
+    public sealed class MutableSteamHandler : HttpMessageHandler
+    {
+        public ulong SteamId64 { get; set; } = 76561198000000001UL;
+        public string Result { get; set; } = "OK";
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var json = Result == "OK"
+                ? $$"""
+                    { "response": { "params": { "result": "OK", "steamid": "{{SteamId64}}" } } }
+                    """
+                : $$"""
+                    { "response": { "params": { "result": "{{Result}}" } } }
+                    """;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            });
+        }
+    }
+
+    public sealed class DeterministicTokenGenerator : IStewardSessionTokenGenerator
+    {
+        private int _next;
+
+        public string CreateAccessToken() => $"access-{++_next}";
+        public string CreateRefreshToken() => $"refresh-{++_next}";
+    }
+
+    public sealed class InMemorySessionStore : IStewardSessionStore
     {
         private readonly object _gate = new();
-        private readonly Dictionary<StewardSessionId, StewardSessionRecord> _sessions = [];
-        private readonly Dictionary<string, StewardSessionId> _refresh = new(StringComparer.Ordinal);
+        private StewardSessionRecord? _session;
         private readonly Dictionary<string, StewardAccessCredentialRecord> _access = new(StringComparer.Ordinal);
 
         public Task ReplaceInstallationSessionAsync(
@@ -126,26 +154,11 @@ internal sealed class ApiTestHarness : IAsyncDisposable
         {
             lock (_gate)
             {
-                foreach (var existing in _sessions.Values
-                             .Where(value => !value.Revoked &&
-                                             string.Equals(
-                                                 value.InstallationId,
-                                                 session.InstallationId,
-                                                 StringComparison.Ordinal))
-                             .ToArray())
-                {
-                    var revoked = existing with { Revoked = true, RevokedAt = replacedAt };
-                    _sessions[existing.Id] = revoked;
-                    _refresh.Remove(existing.RefreshTokenHash);
-                    RemoveAccessForSession(existing.Id);
-                }
-
-                _sessions[session.Id] = session;
-                _refresh[session.RefreshTokenHash] = session.Id;
+                _session = session;
+                _access.Clear();
                 _access[accessCredential.AccessTokenHash] = accessCredential;
+                return Task.CompletedTask;
             }
-
-            return Task.CompletedTask;
         }
 
         public Task<StewardAccessContext?> LoadAccessContextAsync(
@@ -154,13 +167,12 @@ internal sealed class ApiTestHarness : IAsyncDisposable
         {
             lock (_gate)
             {
-                if (!_access.TryGetValue(accessTokenHash, out var credential) ||
-                    !_sessions.TryGetValue(credential.SessionId, out var session))
+                if (_session is null || !_access.TryGetValue(accessTokenHash, out var access))
                 {
                     return Task.FromResult<StewardAccessContext?>(null);
                 }
 
-                return Task.FromResult<StewardAccessContext?>(new(session, credential));
+                return Task.FromResult<StewardAccessContext?>(new(_session, access));
             }
         }
 
@@ -171,9 +183,9 @@ internal sealed class ApiTestHarness : IAsyncDisposable
             lock (_gate)
             {
                 return Task.FromResult(
-                    _refresh.TryGetValue(refreshTokenHash, out var sessionId) &&
-                    _sessions.TryGetValue(sessionId, out var session)
-                        ? session
+                    _session is not null &&
+                    string.Equals(_session.RefreshTokenHash, refreshTokenHash, StringComparison.Ordinal)
+                        ? _session
                         : null);
             }
         }
@@ -190,23 +202,21 @@ internal sealed class ApiTestHarness : IAsyncDisposable
         {
             lock (_gate)
             {
-                if (!_sessions.TryGetValue(sessionId, out var session) ||
-                    session.Revoked ||
-                    !string.Equals(session.RefreshTokenHash, expectedRefreshTokenHash, StringComparison.Ordinal) ||
-                    !string.Equals(session.InstallationId, installationId, StringComparison.Ordinal))
+                if (_session is null ||
+                    _session.Id != sessionId ||
+                    _session.Revoked ||
+                    !string.Equals(_session.RefreshTokenHash, expectedRefreshTokenHash, StringComparison.Ordinal) ||
+                    !string.Equals(_session.InstallationId, installationId, StringComparison.Ordinal))
                 {
                     return Task.FromResult(StoreRotateRefreshSessionStatus.InvalidCredential);
                 }
 
-                _refresh.Remove(expectedRefreshTokenHash);
-                RemoveAccessForSession(sessionId);
-                var rotated = session with
+                _session = _session with
                 {
                     RefreshTokenHash = newRefreshTokenHash,
                     RefreshExpiresAt = newRefreshExpiresAt
                 };
-                _sessions[sessionId] = rotated;
-                _refresh[newRefreshTokenHash] = sessionId;
+                _access.Clear();
                 _access[newAccessCredential.AccessTokenHash] = newAccessCredential;
                 return Task.FromResult(StoreRotateRefreshSessionStatus.Rotated);
             }
@@ -220,42 +230,28 @@ internal sealed class ApiTestHarness : IAsyncDisposable
         {
             lock (_gate)
             {
-                if (!_refresh.TryGetValue(refreshTokenHash, out var sessionId) ||
-                    !_sessions.TryGetValue(sessionId, out var session) ||
-                    session.Revoked ||
-                    !string.Equals(session.InstallationId, installationId, StringComparison.Ordinal))
+                if (_session is null ||
+                    _session.Revoked ||
+                    !string.Equals(_session.RefreshTokenHash, refreshTokenHash, StringComparison.Ordinal) ||
+                    !string.Equals(_session.InstallationId, installationId, StringComparison.Ordinal))
                 {
                     return Task.FromResult(false);
                 }
 
-                _sessions[sessionId] = session with { Revoked = true, RevokedAt = revokedAt };
-                _refresh.Remove(refreshTokenHash);
-                RemoveAccessForSession(sessionId);
+                _session = _session with { Revoked = true, RevokedAt = revokedAt };
+                _access.Clear();
                 return Task.FromResult(true);
-            }
-        }
-
-        private void RemoveAccessForSession(StewardSessionId sessionId)
-        {
-            foreach (var key in _access
-                         .Where(pair => pair.Value.SessionId == sessionId)
-                         .Select(pair => pair.Key)
-                         .ToArray())
-            {
-                _access.Remove(key);
             }
         }
     }
 
-    private sealed class InMemoryWorldCatalog :
-        ISharedWorldMetadataStore,
-        ISharedRevisionMetadataStore
+    public sealed class InMemoryWorldStore : ISharedWorldMetadataStore, ISharedRevisionMetadataStore
     {
         private readonly object _gate = new();
         private readonly Dictionary<WorldId, SharedWorldMetadata> _worlds = [];
-        private readonly Dictionary<(WorldId WorldId, ExternalIdentityRef Identity), SharedWorldMember> _members = [];
-        private readonly Dictionary<(WorldId WorldId, RevisionId RevisionId), SharedStateRevisionMetadata> _states = [];
-        private readonly Dictionary<(WorldId WorldId, RevisionId RevisionId), SharedEnvironmentRevisionMetadata> _environments = [];
+        private readonly Dictionary<(WorldId, ExternalIdentityRef), SharedWorldMember> _members = [];
+        private readonly Dictionary<(WorldId, RevisionId), SharedStateRevisionMetadata> _states = [];
+        private readonly Dictionary<(WorldId, RevisionId), SharedEnvironmentRevisionMetadata> _environments = [];
 
         public Task<bool> TryCreateWorldWithManagerAsync(
             SharedWorldMetadata world,
@@ -264,12 +260,11 @@ internal sealed class ApiTestHarness : IAsyncDisposable
         {
             lock (_gate)
             {
-                if (_worlds.ContainsKey(world.WorldId))
+                if (!_worlds.TryAdd(world.WorldId, world))
                 {
                     return Task.FromResult(false);
                 }
 
-                _worlds[world.WorldId] = world;
                 _members[(world.WorldId, accessManager.Identity)] = accessManager;
                 return Task.FromResult(true);
             }
@@ -281,7 +276,8 @@ internal sealed class ApiTestHarness : IAsyncDisposable
         {
             lock (_gate)
             {
-                return Task.FromResult(_worlds.GetValueOrDefault(worldId));
+                _worlds.TryGetValue(worldId, out var world);
+                return Task.FromResult(world);
             }
         }
 
@@ -292,7 +288,8 @@ internal sealed class ApiTestHarness : IAsyncDisposable
         {
             lock (_gate)
             {
-                return Task.FromResult(_members.GetValueOrDefault((worldId, identity)));
+                _members.TryGetValue((worldId, identity), out var member);
+                return Task.FromResult(member);
             }
         }
 
@@ -302,13 +299,11 @@ internal sealed class ApiTestHarness : IAsyncDisposable
         {
             lock (_gate)
             {
-                IReadOnlyList<SharedWorldMetadata> worlds = _members
-                    .Where(pair => pair.Key.Identity == identity &&
-                                   pair.Value.Status == SharedWorldMemberStatus.Active)
-                    .Select(pair => _worlds[pair.Key.WorldId])
-                    .OrderBy(world => world.DisplayName, StringComparer.Ordinal)
-                    .ToArray();
-                return Task.FromResult(worlds);
+                return Task.FromResult<IReadOnlyList<SharedWorldMetadata>>(
+                    _members.Values
+                        .Where(member => member.Identity == identity && member.Status == SharedWorldMemberStatus.Active)
+                        .Select(member => _worlds[member.WorldId])
+                        .ToArray());
             }
         }
 
@@ -357,7 +352,8 @@ internal sealed class ApiTestHarness : IAsyncDisposable
         {
             lock (_gate)
             {
-                return Task.FromResult(_states.GetValueOrDefault((worldId, revisionId)));
+                _states.TryGetValue((worldId, revisionId), out var revision);
+                return Task.FromResult(revision);
             }
         }
 
@@ -368,15 +364,16 @@ internal sealed class ApiTestHarness : IAsyncDisposable
         {
             lock (_gate)
             {
-                return Task.FromResult(_environments.GetValueOrDefault((worldId, revisionId)));
+                _environments.TryGetValue((worldId, revisionId), out var revision);
+                return Task.FromResult(revision);
             }
         }
     }
 
-    private sealed class InMemoryTransferStore : ISharedPackageTransferStore
+    public sealed class InMemoryTransferStore : ISharedPackageTransferStore
     {
         private readonly object _gate = new();
-        private readonly Dictionary<SharedPackageTransferId, SharedPackageTransferRecord> _transfers = [];
+        private readonly Dictionary<SharedPackageTransferId, SharedPackageTransferRecord> _records = [];
 
         public Task<bool> TryCreateAsync(
             SharedPackageTransferRecord transfer,
@@ -384,12 +381,15 @@ internal sealed class ApiTestHarness : IAsyncDisposable
         {
             lock (_gate)
             {
-                if (_transfers.ContainsKey(transfer.Id))
+                if (_records.ContainsKey(transfer.Id) ||
+                    _records.Values.Any(existing =>
+                        string.Equals(existing.ObjectKey, transfer.ObjectKey, StringComparison.Ordinal) &&
+                        existing.State is SharedPackageTransferState.Active or SharedPackageTransferState.Provisioning))
                 {
                     return Task.FromResult(false);
                 }
 
-                _transfers[transfer.Id] = transfer;
+                _records[transfer.Id] = transfer;
                 return Task.FromResult(true);
             }
         }
@@ -400,7 +400,50 @@ internal sealed class ApiTestHarness : IAsyncDisposable
         {
             lock (_gate)
             {
-                return Task.FromResult(_transfers.GetValueOrDefault(transferId));
+                _records.TryGetValue(transferId, out var transfer);
+                return Task.FromResult(transfer);
+            }
+        }
+
+        public Task<SharedPackageTransferRecord?> LoadInFlightByObjectKeyAsync(
+            string objectKey,
+            CancellationToken cancellationToken = default)
+        {
+            lock (_gate)
+            {
+                return Task.FromResult(
+                    _records.Values.SingleOrDefault(existing =>
+                        string.Equals(existing.ObjectKey, objectKey, StringComparison.Ordinal) &&
+                        existing.State is SharedPackageTransferState.Active or SharedPackageTransferState.Provisioning));
+            }
+        }
+
+        public Task<bool> TryActivateProvisioningAsync(
+            SharedPackageTransferId transferId,
+            ExternalIdentityRef expectedOwner,
+            string expectedPlaceholderProviderUploadId,
+            string providerUploadId,
+            CancellationToken cancellationToken = default)
+        {
+            lock (_gate)
+            {
+                if (!_records.TryGetValue(transferId, out var transfer) ||
+                    transfer.Owner != expectedOwner ||
+                    transfer.State != SharedPackageTransferState.Provisioning ||
+                    !string.Equals(
+                        transfer.ProviderUploadId,
+                        expectedPlaceholderProviderUploadId,
+                        StringComparison.Ordinal))
+                {
+                    return Task.FromResult(false);
+                }
+
+                _records[transferId] = transfer with
+                {
+                    ProviderUploadId = providerUploadId,
+                    State = SharedPackageTransferState.Active
+                };
+                return Task.FromResult(true);
             }
         }
 
@@ -414,30 +457,31 @@ internal sealed class ApiTestHarness : IAsyncDisposable
         {
             lock (_gate)
             {
-                if (!_transfers.TryGetValue(transferId, out var current) ||
-                    current.Owner != expectedOwner ||
-                    current.State != expectedState)
+                if (!_records.TryGetValue(transferId, out var transfer) ||
+                    transfer.Owner != expectedOwner ||
+                    transfer.State != expectedState)
                 {
                     return Task.FromResult(false);
                 }
 
-                _transfers[transferId] = current with
+                _records[transferId] = transfer with
                 {
                     State = nextState,
                     FinalizedAt = nextState == SharedPackageTransferState.Finalized
                         ? changedAt
-                        : current.FinalizedAt
+                        : transfer.FinalizedAt
                 };
                 return Task.FromResult(true);
             }
         }
     }
 
-    private sealed class InMemoryObjectStore : IPrivateImmutableObjectStore
+    public sealed class InMemoryObjectStore : IPrivateImmutableObjectStore
     {
         private readonly object _gate = new();
         private readonly Dictionary<string, UploadState> _uploads = new(StringComparer.Ordinal);
         private readonly Dictionary<string, ImmutableStoredObject> _objects = new(StringComparer.Ordinal);
+        private int _nextUpload;
 
         public Task<ImmutableUploadSession> BeginMultipartUploadAsync(
             string objectKey,
@@ -447,9 +491,9 @@ internal sealed class ApiTestHarness : IAsyncDisposable
         {
             lock (_gate)
             {
-                var handle = $"test-upload-{Guid.NewGuid():N}";
-                _uploads[handle] = new UploadState(objectKey, expectedByteSize, expectedSha256);
-                return Task.FromResult(new ImmutableUploadSession(handle, objectKey));
+                var id = $"upload-{++_nextUpload}";
+                _uploads[id] = new UploadState(objectKey, expectedByteSize, expectedSha256);
+                return Task.FromResult(new ImmutableUploadSession(id, objectKey));
             }
         }
 
@@ -468,7 +512,7 @@ internal sealed class ApiTestHarness : IAsyncDisposable
                     providerUploadId,
                     upload.ObjectKey,
                     Array.Empty<ImmutableUploadedPart>(),
-                    IsCompleted: upload.Completed));
+                    upload.Completed));
             }
         }
 
@@ -487,12 +531,9 @@ internal sealed class ApiTestHarness : IAsyncDisposable
                 }
 
                 return Task.FromResult(new DirectObjectTransferAuthorization(
-                    new Uri($"https://storage.test/upload/{partNumber}?signature=opaque"),
+                    new Uri($"https://storage.test/upload/{providerUploadId}/{partNumber}?signature=opaque"),
                     "PUT",
-                    new Dictionary<string, string>
-                    {
-                        ["Content-Length"] = expectedByteSize.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                    },
+                    new Dictionary<string, string>(),
                     expiresAt,
                     expectedByteSize));
             }
@@ -504,17 +545,13 @@ internal sealed class ApiTestHarness : IAsyncDisposable
         {
             lock (_gate)
             {
-                if (!_uploads.TryGetValue(providerUploadId, out var upload))
-                {
-                    throw new InvalidOperationException("Unknown test upload.");
-                }
-
+                var upload = _uploads[providerUploadId];
                 var stored = new ImmutableStoredObject(
                     upload.ObjectKey,
                     upload.ExpectedByteSize,
-                    upload.ExpectedSha256);
-                _uploads[providerUploadId] = upload with { Completed = true };
+                    upload.ExpectedSha256.ToUpperInvariant());
                 _objects[upload.ObjectKey] = stored;
+                _uploads[providerUploadId] = upload with { Completed = true };
                 return Task.FromResult(stored);
             }
         }

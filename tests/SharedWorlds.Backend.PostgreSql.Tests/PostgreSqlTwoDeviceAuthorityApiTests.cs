@@ -121,11 +121,20 @@ public sealed class PostgreSqlTwoDeviceAuthorityApiTests : IAsyncLifetime
         Assert.Equal("Uncertain", uncertainB.Reservation.State);
 
         serverNow = serverNow.AddMinutes(16);
+        var refreshedA = await sessions.RefreshAsync(tokensA.RefreshToken, "device-a");
+        var refreshedB = await sessions.RefreshAsync(tokensB.RefreshToken, "device-b");
+        Assert.Equal(RefreshStewardSessionStatus.Refreshed, refreshedA.Status);
+        Assert.Equal(RefreshStewardSessionStatus.Refreshed, refreshedB.Status);
+        Assert.NotNull(refreshedA.Tokens);
+        Assert.NotNull(refreshedB.Tokens);
+        var accessTokenA = refreshedA.Tokens.AccessToken;
+        var accessTokenB = refreshedB.Tokens.AccessToken;
+
         var reclaimed = await clientB.ReclaimAsync(
             worldId,
             leaseA.SessionId,
             leaseA.Generation,
-            tokensB.AccessToken,
+            accessTokenB,
             "b-reclaim-1");
         Assert.Equal(RemoteReservationReclaimStatus.Reclaimed, reclaimed.Status);
         Assert.Equal(leaseA.Generation, reclaimed.InvalidatedGeneration);
@@ -134,7 +143,7 @@ public sealed class PostgreSqlTwoDeviceAuthorityApiTests : IAsyncLifetime
             worldId,
             "device-b",
             head,
-            tokensB.AccessToken,
+            accessTokenB,
             "b-acquire-after-reclaim-1");
         Assert.Equal(RemoteReservationAcquireStatus.Acquired, acquiredB.Status);
         var leaseB = Assert.IsType<StewardRemoteReservation>(acquiredB.Reservation);
@@ -148,7 +157,7 @@ public sealed class PostgreSqlTwoDeviceAuthorityApiTests : IAsyncLifetime
                 "device-a",
                 leaseA.SessionId,
                 leaseA.Generation,
-                tokensA.AccessToken));
+                accessTokenA));
 
         var lateCommit = await clientA.CommitAsync(
             worldId,
@@ -158,7 +167,7 @@ public sealed class PostgreSqlTwoDeviceAuthorityApiTests : IAsyncLifetime
             head,
             RevisionId.New(),
             environmentId,
-            tokensA.AccessToken,
+            accessTokenA,
             "a-late-commit-1");
         Assert.Equal(RemoteWorldCommitStatus.ReservationMismatch, lateCommit.Status);
 
@@ -169,7 +178,7 @@ public sealed class PostgreSqlTwoDeviceAuthorityApiTests : IAsyncLifetime
                 "device-b",
                 leaseB.SessionId,
                 leaseB.Generation,
-                tokensB.AccessToken));
+                accessTokenB));
         Assert.Null(await authorityBase.GetReservationAsync(
             identityB.Subject,
             worldId,

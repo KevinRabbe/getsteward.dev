@@ -1,5 +1,6 @@
 using System.Windows;
 using SharedWorlds.Core.Domain;
+using SharedWorlds.Infrastructure.Recovery;
 
 namespace SharedWorlds.Desktop;
 
@@ -8,19 +9,20 @@ public partial class MainWindow
     private async void RetryPendingSyncButton_Click(object sender, RoutedEventArgs e)
     {
         var world = _selectedWorld;
-        var remote = _remoteRuntime;
-        if (world is null ||
-            remote is null ||
-            !_remoteWorldIds.Contains(world.Id) ||
-            !TryGetAdapter(world.GameAdapterId, out var adapter))
+        if (world is null || !TryGetAdapter(world.GameAdapterId, out var adapter))
+        {
+            return;
+        }
+
+        if (world.SharingMode == WorldSharingMode.Shared && !HasAuthoritativeRuntimeForWorld(world))
         {
             StatusText.Text =
-                "Pending sync can be retried only after this shared World is authenticated with Steward.";
+                "Reconnect authenticated Steward authority before retrying recovery for this shared World.";
             return;
         }
 
         await RunOperationAsync(
-            $"Reconciling pending sync for {world.Name}...",
+            $"Reconciling recovery for {world.Name}...",
             async () =>
             {
                 try
@@ -36,27 +38,53 @@ public partial class MainWindow
                     if (pending is null)
                     {
                         StatusText.Text =
-                            "This recovery is not a pending-sync retry. Steward left its evidence untouched for the appropriate recovery path.";
+                            "This responsibility is not a pending recovery. Steward left its evidence untouched for the appropriate recovery path.";
                         return;
                     }
 
                     var installation = await GetGameInstallationAsync(adapter);
-                    var updated = await remote.PendingSyncRecovery.RetryAsync(
-                        world.Id,
-                        adapter,
-                        installation,
-                        remote.User);
+                    World updated;
+                    if (_remoteWorldIds.Contains(world.Id))
+                    {
+                        var remote = _remoteRuntime
+                            ?? throw new InvalidOperationException(
+                                "The authenticated Steward runtime disappeared before shared recovery could start.");
+                        updated = await remote.PendingSyncRecovery.RetryAsync(
+                            world.Id,
+                            adapter,
+                            installation,
+                            remote.User);
+                    }
+                    else
+                    {
+                        if (world.SharingMode == WorldSharingMode.Shared)
+                        {
+                            throw new InvalidOperationException(
+                                "A shared World can never use local recovery authority. Reconnect Steward first.");
+                        }
+
+                        var localRecovery = new LocalPendingWorkspaceRecoveryService(
+                            _storage,
+                            _localSessionCoordinator,
+                            _workspaceRecoveryStore,
+                            _localManagedSessionGate);
+                        updated = await localRecovery.RetryAsync(
+                            world.Id,
+                            adapter,
+                            installation,
+                            GetLocalUser());
+                    }
 
                     _selectedWorld = updated;
                     await RefreshUnifiedWorldsAsync(updated.Id, preserveStatus: true);
                     StatusText.Text =
-                        $"Pending sync for '{updated.Name}' is resolved at canonical revision {updated.CurrentStateRevisionId}.";
+                        $"Recovery for '{updated.Name}' is resolved at canonical revision {updated.CurrentStateRevisionId}.";
                 }
                 finally
                 {
-                    // Recovery service changes the durable recovery journal directly rather than
-                    // emitting normal WorldLifecycleService phases. Re-read that journal so tray,
-                    // quit guard, banners and writable-action guards cannot remain stale.
+                    // Recovery services change the durable journal directly rather than emitting the
+                    // normal lifecycle phases. Re-read it so tray, quit guard, banners and writable
+                    // action guards cannot remain stale after success or a status transition.
                     await InitializeRuntimeResponsibilityAsync();
                     RefreshRuntimePresentation();
                 }

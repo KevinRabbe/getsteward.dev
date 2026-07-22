@@ -93,6 +93,13 @@ public partial class MainWindow
             .ToArray();
     }
 
+    private bool HasAuthoritativeRuntimeForWorld(World world)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        return world.SharingMode == WorldSharingMode.LocalOnly ||
+               (_remoteRuntime is not null && _remoteWorldIds.Contains(world.Id));
+    }
+
     private IWorldStorage GetStorageForWorld(World world)
     {
         ArgumentNullException.ThrowIfNull(world);
@@ -116,6 +123,12 @@ public partial class MainWindow
                     "The selected shared World no longer has an authenticated Steward runtime.");
         }
 
+        if (world.SharingMode == WorldSharingMode.Shared)
+        {
+            throw new InvalidOperationException(
+                "A shared World can never fall back to local writable authority. Reconnect the authenticated Steward backend before play.");
+        }
+
         return _lifecycle;
     }
 
@@ -127,6 +140,12 @@ public partial class MainWindow
             return _remoteRuntime?.User
                 ?? throw new InvalidOperationException(
                     "The selected shared World no longer has an authenticated Steward identity.");
+        }
+
+        if (world.SharingMode == WorldSharingMode.Shared)
+        {
+            throw new InvalidOperationException(
+                "A shared World requires an authenticated Steward identity before writable play.");
         }
 
         return GetLocalUser();

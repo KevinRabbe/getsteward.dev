@@ -6,6 +6,7 @@ public enum WorldLifecycleResponsibilityKind
 {
     None,
     ActiveLifecycle,
+    InterruptedSession,
     RecoveryNeeded,
     CleanupPending
 }
@@ -112,9 +113,10 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
 
                 case WorkspaceRecoveryStatus.Active:
                 default:
-                    // An Active record found after process restart is an interrupted-session
-                    // candidate, not evidence that gameplay is still safely supervised.
-                    _kind = WorldLifecycleResponsibilityKind.RecoveryNeeded;
+                    // An Active record found after process restart is not the same as a known
+                    // pending-sync candidate: Steward cannot prove whether gameplay started. Keep it
+                    // separately guarded so the UI can require an explicit recover-or-discard decision.
+                    _kind = WorldLifecycleResponsibilityKind.InterruptedSession;
                     _phase = WorldLifecyclePhase.RecoveryNeeded;
                     break;
             }

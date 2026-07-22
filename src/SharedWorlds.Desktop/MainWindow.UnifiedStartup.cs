@@ -10,6 +10,12 @@ public partial class MainWindow
         InitializeUnifiedHostingPreference();
         await LoadDeviceSettingsAsync();
         await InitializeUnifiedGameUiAsync();
+
+        // Remote sharing is optional. With no production/development remote configuration Steward
+        // stays local-only; with valid configuration it authenticates through Steam and refreshes the
+        // same game-first library with canonical shared Worlds.
+        await InitializeStewardRemoteSessionAsync();
+
         InitializeUnifiedImportBrowser();
         InitializeResponsibilityPresentation();
         InitializeResponsiveWorkspace();

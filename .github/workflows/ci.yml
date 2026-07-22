@@ -64,6 +64,27 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  backend-container:
+    name: Backend container
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build production image
+        run: >-
+          docker build
+          --file src/SharedWorlds.Backend.Api/Dockerfile
+          --tag steward-backend-ci:${{ github.sha }}
+          .
+
+      - name: Verify non-root runtime user
+        shell: bash
+        run: |
+          user="$(docker image inspect steward-backend-ci:${{ github.sha }} --format '{{.Config.User}}')"
+          test "$user" = "app"
+
   build-test:
     name: Build and test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

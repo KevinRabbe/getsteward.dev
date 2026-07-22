@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 using SharedWorlds.Core.Domain;
+using SharedWorlds.Core.Environment;
 
 namespace SharedWorlds.Infrastructure.Remote;
 
@@ -35,15 +37,26 @@ public sealed record StewardRemoteEnvironmentRevisionMetadata(
     string ArtifactReference,
     long? ByteSize,
     string? Sha256,
-    DateTimeOffset PublishedAt);
+    DateTimeOffset PublishedAt,
+    EnvironmentManifest? Manifest = null);
 
 public sealed record StewardRemoteCurrentRevision(
     StewardRemoteWorldMetadata World,
     StewardRemoteStateRevisionMetadata? State,
     StewardRemoteEnvironmentRevisionMetadata? Environment);
 
+public enum RemoteEnvironmentPublishStatus
+{
+    Published,
+    AlreadyPublished,
+    NotFoundOrUnauthorized,
+    InvalidManifest,
+    AdapterMismatch,
+    RevisionConflict
+}
+
 /// <summary>
-/// Read-only client for shared World and immutable revision metadata. It returns provider-neutral
+/// Client for shared World and immutable revision metadata. It returns provider-neutral
 /// Infrastructure records and leaves lifecycle, cache, and authority policy to higher layers.
 /// </summary>
 public sealed class StewardWorldMetadataClient
@@ -158,6 +171,36 @@ public sealed class StewardWorldMetadataClient
         {
             "EnvironmentRevisionFound" => DeserializeRequiredData<EnvironmentRevisionDto>(response).ToDomain(),
             "RevisionNotFoundOrUnauthorized" => null,
+            _ => throw CreateUnexpectedResponse(response)
+        };
+    }
+
+    public async Task<RemoteEnvironmentPublishStatus> PublishEnvironmentRevisionAsync(
+        WorldId worldId,
+        RevisionId revisionId,
+        EnvironmentManifest manifest,
+        string accessToken,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateWorldId(worldId);
+        ValidateRevisionId(revisionId);
+        ArgumentNullException.ThrowIfNull(manifest);
+        ValidateAccessToken(accessToken);
+
+        using var request = CreateAuthorizedRequest(
+            HttpMethod.Post,
+            $"api/v1/worlds/{worldId.Value:D}/revisions/{revisionId.Value:D}/environment",
+            accessToken);
+        request.Content = JsonContent.Create(new PublishEnvironmentRequest(manifest));
+        var response = await SendAsync(request, cancellationToken);
+        return response.Code switch
+        {
+            "EnvironmentRevisionPublished" => RemoteEnvironmentPublishStatus.Published,
+            "EnvironmentRevisionAlreadyPublished" => RemoteEnvironmentPublishStatus.AlreadyPublished,
+            "WorldNotFoundOrUnauthorized" => RemoteEnvironmentPublishStatus.NotFoundOrUnauthorized,
+            "InvalidEnvironmentManifest" => RemoteEnvironmentPublishStatus.InvalidManifest,
+            "AdapterMismatch" => RemoteEnvironmentPublishStatus.AdapterMismatch,
+            "RevisionConflict" => RemoteEnvironmentPublishStatus.RevisionConflict,
             _ => throw CreateUnexpectedResponse(response)
         };
     }
@@ -318,7 +361,8 @@ public sealed class StewardWorldMetadataClient
         string ArtifactReference,
         long? ByteSize,
         string? Sha256,
-        DateTimeOffset PublishedAt)
+        DateTimeOffset PublishedAt,
+        EnvironmentManifest? Manifest = null)
     {
         public StewardRemoteEnvironmentRevisionMetadata ToDomain()
             => new(
@@ -326,7 +370,8 @@ public sealed class StewardWorldMetadataClient
                 ArtifactReference,
                 ByteSize,
                 Sha256,
-                PublishedAt);
+                PublishedAt,
+                Manifest);
     }
 
     private sealed record CurrentRevisionDto(
@@ -340,4 +385,6 @@ public sealed class StewardWorldMetadataClient
                 State?.ToDomain(),
                 Environment?.ToDomain());
     }
+
+    private sealed record PublishEnvironmentRequest(EnvironmentManifest Manifest);
 }

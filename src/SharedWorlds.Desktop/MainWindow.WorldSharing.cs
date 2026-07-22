@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Threading;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Worlds;
 
@@ -22,8 +23,12 @@ public partial class MainWindow
         // owns the real sharing transaction and its fail-closed state.
         ShareButton.Click -= UnifiedShareButton_Click;
         ShareButton.Click += ShareWorldButton_Click;
-        WorldList.SelectionChanged += (_, _) => UpdateWorldSharingActionState();
-        WorldList.IsEnabledChanged += (_, _) => UpdateWorldSharingActionState();
+
+        // UnifiedGames still computes common action state after some list/busy events. Queue this
+        // sharing-specific refinement at the end of the dispatcher turn so Share/Finish/Manage cannot
+        // be overwritten by the older generic Shared/LocalOnly label immediately afterwards.
+        WorldList.SelectionChanged += (_, _) => QueueWorldSharingActionStateUpdate();
+        WorldList.IsEnabledChanged += (_, _) => QueueWorldSharingActionStateUpdate();
 
         UpdateWorldSharingActionState();
     }
@@ -140,6 +145,18 @@ public partial class MainWindow
             });
 
         UpdateWorldSharingActionState();
+    }
+
+    private void QueueWorldSharingActionStateUpdate()
+    {
+        if (!_worldSharingUiInitialized)
+        {
+            return;
+        }
+
+        _ = Dispatcher.BeginInvoke(
+            DispatcherPriority.Background,
+            new Action(UpdateWorldSharingActionState));
     }
 
     private void UpdateWorldSharingActionState()

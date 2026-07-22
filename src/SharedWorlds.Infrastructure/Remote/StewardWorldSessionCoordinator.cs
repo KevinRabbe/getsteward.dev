@@ -132,7 +132,7 @@ public sealed class StewardWorldSessionCoordinator : IWorldSessionCoordinator
         return new WorldSession(
             worldId,
             string.Equals(reservation.State, "Uncertain", StringComparison.OrdinalIgnoreCase)
-                ? SessionState.Uncertain
+                ? SessionState.RecoveryPending
                 : SessionState.Hosting,
             host,
             reservation.BecameUncertainAt ?? reservation.LastHeartbeatAt);

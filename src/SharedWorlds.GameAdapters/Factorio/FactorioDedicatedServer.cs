@@ -38,7 +38,7 @@ internal static class FactorioDedicatedServer
         }
 
         var consoleLogPath = GetConsoleLogPath(world);
-        TryDeleteFile(consoleLogPath);
+        DeleteExistingConsoleLog(consoleLogPath);
 
         var startInfo = CreateStartInfo(world, consoleLogPath);
         using var process = Process.Start(startInfo)
@@ -145,11 +145,12 @@ internal static class FactorioDedicatedServer
 
             if (File.Exists(consoleLogPath))
             {
-                hostingObserved |= await ReadNewLogForReadinessAsync(
+                var read = await ReadNewLogForReadinessAsync(
                     consoleLogPath,
                     consumedLength,
-                    cancellationToken) is { } read
-                    && UpdateConsumedLength(read, ref consumedLength);
+                    cancellationToken);
+                consumedLength = read.ConsumedLength;
+                hostingObserved |= read.Ready;
             }
 
             if (hostingObserved && DateTimeOffset.UtcNow - startedAt >= MinimumReadyLifetime)
@@ -204,21 +205,14 @@ internal static class FactorioDedicatedServer
         }
         catch (IOException)
         {
-            // Factorio may be creating/replacing the log while startup is still in progress.
+            // Factorio may briefly hold the log while startup is still in progress. Retry without
+            // advancing the read position; readiness still has to be observed from this launch.
             return new ReadinessLogRead(consumedLength, Ready: false);
         }
         catch (UnauthorizedAccessException)
         {
             return new ReadinessLogRead(consumedLength, Ready: false);
         }
-    }
-
-    private static bool UpdateConsumedLength(
-        ReadinessLogRead read,
-        ref long consumedLength)
-    {
-        consumedLength = read.ConsumedLength;
-        return read.Ready;
     }
 
     private static string GetPreparedSavePath(PreparedWorld world)
@@ -275,22 +269,18 @@ internal static class FactorioDedicatedServer
         }
     }
 
-    private static void TryDeleteFile(string path)
+    private static void DeleteExistingConsoleLog(string path)
     {
-        try
+        if (!File.Exists(path))
         {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
+            return;
         }
-        catch (IOException)
+
+        File.Delete(path);
+        if (File.Exists(path))
         {
-            // The workspace is unique; a stale locked log will then make startup fail naturally.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Same fail-closed behavior as above.
+            throw new IOException(
+                $"Refusing to start Factorio dedicated hosting with stale readiness log '{path}'.");
         }
     }
 

@@ -186,6 +186,16 @@ public static class PostgreSqlBackendSchema
         CREATE INDEX IF NOT EXISTS ix_steward_package_transfers_expiry
             ON steward_package_transfers(state, expires_at);
 
+        CREATE TABLE IF NOT EXISTS steward_object_cleanup_queue (
+            object_key text PRIMARY KEY,
+            enqueued_at timestamptz NOT NULL,
+            attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+            last_attempt_at timestamptz NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS ix_steward_object_cleanup_queue_retry
+            ON steward_object_cleanup_queue(last_attempt_at, enqueued_at);
+
         CREATE TABLE IF NOT EXISTS steward_world_reservations (
             world_id uuid PRIMARY KEY REFERENCES steward_shared_worlds(world_id) ON DELETE CASCADE,
             session_id uuid NOT NULL UNIQUE,

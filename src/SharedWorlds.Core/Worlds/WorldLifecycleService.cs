@@ -367,6 +367,10 @@ public sealed class WorldLifecycleService
                 ?? throw new WorldIntegrityException(
                     worldId,
                     "The canonical state revision disappeared during preparation.");
+            var environmentRevisionId = context.World.CurrentEnvironmentRevisionId
+                ?? throw new WorldIntegrityException(
+                    worldId,
+                    "The canonical environment revision disappeared during preparation.");
 
             var now = DateTimeOffset.UtcNow;
             workspaceRecord = new WorkspaceRecoveryRecord(
@@ -378,7 +382,8 @@ public sealed class WorldLifecycleService
                 StartedBy: user,
                 CreatedAt: now,
                 UpdatedAt: now,
-                Status: WorkspaceRecoveryStatus.Active);
+                Status: WorkspaceRecoveryStatus.Active,
+                EnvironmentRevisionId: environmentRevisionId);
 
             Notify(worldId, mode, WorldLifecyclePhase.RegisteringRecovery);
             await _workspaceRecoveryStore.SaveAsync(workspaceRecord, cancellationToken);

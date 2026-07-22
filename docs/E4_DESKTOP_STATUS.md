@@ -1,6 +1,6 @@
 # E4 Windows Desktop Remote Composition Status
 
-Status: **CODE COMPOSITION COMPLETE AND CI GREEN; LIVE STEAM/BACKEND ACCEPTANCE STILL REQUIRED.**
+Status: **CODE COMPOSITION + PENDING-SYNC RECOVERY COMPLETE AND CI GREEN; LIVE STEAM/BACKEND ACCEPTANCE STILL REQUIRED.**
 
 This checkpoint records the point where the production Windows Desktop stopped being structurally local-only. The existing `Only on this PC` path remains local, while authenticated shared Worlds can now use the same remote storage, authority, transfer, commit, and recovery components already proven by BE-5.
 
@@ -41,6 +41,8 @@ When the same World ID exists in the old local store and in authenticated Stewar
 
 A remote outage does not make private local Worlds unusable. Desktop keeps the local library available and reports shared Worlds as temporarily unavailable.
 
+A stale local record marked `Shared` never falls back to local writable authority. Continue/Host, Verify/Repair, and shared environment-policy mutation remain blocked until authenticated Steward authority for that World is present.
+
 ## Exact environment is a real shared-play gate
 
 For a backend World, Verify/Repair reads the canonical structured `EnvironmentManifest` through `StewardWorldStorage`.
@@ -54,6 +56,8 @@ Remote environment-version mutation is intentionally not faked through a local c
 Desktop device settings are schema version 2 and persist one stable Steward installation ID. Existing schema-v1 settings migrate while preserving the user's hosting preference.
 
 The installation ID is used for Steward authentication and distributed reservation ownership. It is not regenerated on each launch.
+
+If durable device settings cannot be loaded/created, the temporary fallback identity is never used for remote authority. Shared functionality fails closed for that launch while local Worlds remain usable.
 
 Steward access/refresh credentials remain process-memory state. Desktop re-authenticates through Steam on a new launch instead of writing refresh credentials to the ordinary device settings JSON.
 
@@ -83,6 +87,36 @@ Remote sharing is currently enabled only when all three explicit deployment valu
 
 With none configured, Steward stays local-only. Partial/invalid configuration fails closed for shared functionality without disabling local Worlds.
 
+## Desktop pending-sync recovery
+
+The existing deterministic `StewardPendingSyncRecoveryService` is now connected to the Desktop recovery surface.
+
+For the selected authenticated shared World, `Retry sync` is exposed only from unresolved recovery responsibility. Before invoking the service Desktop confirms a matching `RecoveryPending` journal exists. The service remains the authority for reconciliation:
+
+```text
+canonical == journaled candidate
+    -> original commit already succeeded
+    -> no recapture/recommit
+    -> finalize workspace + clear recovery
+
+canonical == journaled base
+    -> reacquire/reconnect exact authority
+    -> reuse same candidate ID
+    -> reuse published candidate or recapture preserved workspace
+    -> expected-head commit
+
+canonical != base && canonical != candidate
+    -> no overwrite
+    -> preserve evidence
+    -> Recovery needed
+```
+
+Recovery journal reads and retries execute inside the normal Desktop operation boundary so UI exceptions do not escape an async event handler.
+
+`WorldLifecycleResponsibilityTracker.InitializeFromRecoveryRecords` now reconciles both directions: durable recovery evidence creates the tray/Quit/action guard, and removal of the final durable record clears a stale recovery guard. `CleanupPending` remains guarded. Core tests cover `RecoveryPending`, journal removal, `CleanupPending`, and crash-found `Active` records.
+
+After every pending-sync attempt Desktop re-reads the durable recovery journal and refreshes tray status, quit guard, responsibility banner, managed-game tiles, and writable actions. A successful recovery therefore cannot leave the process incorrectly stuck in `Recovery needed`.
+
 ## Failure behavior
 
 Before a shared runtime is available:
@@ -91,7 +125,7 @@ Before a shared runtime is available:
 - AppID mismatch -> remote auth stops;
 - Web API ticket timeout/rejection -> remote auth stops;
 - Steward authentication rejection -> remote auth stops;
-- API/session/network failure while loading shared Worlds -> local library remains usable.
+- API/session/network/malformed remote metadata failure while loading shared Worlds -> local library remains usable.
 
 After authenticated runtime composition, the existing remote one-writer and recovery rules remain authoritative. No Desktop shortcut bypasses generation, expected-head commit, recovery journal, or exact-environment verification.
 
@@ -109,9 +143,11 @@ The first fully green checkpoint containing the full Desktop remote composition 
 
 The follow-up robustness commit `6affc5536a3b17c331aca13cf91f5af7a2c4ff74` also passed the complete five-gate matrix in run `29927735994`.
 
+The Desktop pending-sync recovery + responsibility reconciliation checkpoint is commit `560a66e7a5d6e6fc2170f9f643b42cd9d1132e41`; GitHub Actions run `29929981444` passed Quality, Ubuntu, Windows, PostgreSQL, and S3-compatible integration.
+
 ## What E4 still needs before product acceptance
 
-Code composition is no longer the main gap. The remaining E4 acceptance work is evidence from the actual deployment boundary:
+Code composition and the Waiting-to-sync retry path are no longer the main gap. The remaining E4 acceptance work is evidence from the actual deployment boundary:
 
 ```text
 real Windows Steward build launched under Steward's Steam AppID
@@ -127,6 +163,6 @@ real Windows Steward build launched under Steward's Steam AppID
 -> second installation observes the new canonical revision
 ```
 
-Pending-sync recovery also needs to be connected to the Desktop recovery/action-required surface after authentication. That wiring must refresh the existing lifecycle-responsibility presentation when recovery evidence is resolved; it must not leave the UI blocked on stale responsibility state.
+Broader recovery UX still needs explicit treatment for a crash-found `Active` record and for `CleanupPending`; those states must keep preserving evidence and must not be mislabeled as a safe pending-sync retry.
 
 Palworld shared play remains fail-closed until its adapter has a real exact-environment verifier. Factorio hosted-server readiness remains a separate adapter acceptance item and should ultimately prove the authoritative server process is actually ready, not merely that a launcher process started.

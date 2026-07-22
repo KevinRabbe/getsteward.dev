@@ -10,6 +10,8 @@ public partial class MainWindow
     private Border? _worldResponsibilityBanner;
     private TextBlock? _worldResponsibilityText;
     private Button? _pendingSyncRetryButton;
+    private Button? _recoverInterruptedButton;
+    private Button? _discardInterruptedButton;
     private Button? _cleanupRetryButton;
     private bool _responsibilityPresentationInitialized;
     private bool _applyingResponsibilityActionGuard;
@@ -31,14 +33,36 @@ public partial class MainWindow
         };
         _pendingSyncRetryButton = new Button
         {
-            Content = "Retry sync",
+            Content = "Retry recovery",
             Visibility = Visibility.Collapsed,
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(0, 8, 0, 0),
             ToolTip =
-                "Reconcile the journaled candidate with Steward's canonical head. Steward never overwrites a different newer head automatically."
+                "Reconcile the journaled candidate with the canonical head. Steward never overwrites a different newer head automatically."
         };
         _pendingSyncRetryButton.Click += RetryPendingSyncButton_Click;
+
+        _recoverInterruptedButton = new Button
+        {
+            Content = "Recover changes",
+            Visibility = Visibility.Collapsed,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 8, 0, 0),
+            ToolTip =
+                "Preserve the interrupted workspace, assign one stable candidate revision, and recover it only if the canonical head still matches its recorded base."
+        };
+        _recoverInterruptedButton.Click += RecoverInterruptedSessionButton_Click;
+
+        _discardInterruptedButton = new Button
+        {
+            Content = "Discard interrupted session",
+            Visibility = Visibility.Collapsed,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 8, 0, 0),
+            ToolTip =
+                "Explicitly keep the last canonical World unchanged and remove only the preserved interrupted workspace after confirmation."
+        };
+        _discardInterruptedButton.Click += DiscardInterruptedSessionButton_Click;
 
         _cleanupRetryButton = new Button
         {
@@ -54,6 +78,8 @@ public partial class MainWindow
         var content = new StackPanel();
         content.Children.Add(_worldResponsibilityText);
         content.Children.Add(_pendingSyncRetryButton);
+        content.Children.Add(_recoverInterruptedButton);
+        content.Children.Add(_discardInterruptedButton);
         content.Children.Add(_cleanupRetryButton);
 
         _worldResponsibilityBanner = new Border
@@ -89,6 +115,8 @@ public partial class MainWindow
             _worldResponsibilityBanner is null ||
             _worldResponsibilityText is null ||
             _pendingSyncRetryButton is null ||
+            _recoverInterruptedButton is null ||
+            _discardInterruptedButton is null ||
             _cleanupRetryButton is null)
         {
             return;
@@ -101,31 +129,56 @@ public partial class MainWindow
         {
             _worldResponsibilityBanner.Visibility = Visibility.Collapsed;
             _pendingSyncRetryButton.Visibility = Visibility.Collapsed;
+            _recoverInterruptedButton.Visibility = Visibility.Collapsed;
+            _discardInterruptedButton.Visibility = Visibility.Collapsed;
             _cleanupRetryButton.Visibility = Visibility.Collapsed;
             EnforceResponsibilityActionGuard();
             return;
         }
 
         var selectedOwnsResponsibility = snapshot.WorldId == selectedWorld.Id;
+        var hasAuthority = HasAuthoritativeRuntimeForWorld(selectedWorld);
         _worldResponsibilityText.Text = selectedOwnsResponsibility
             ? FormatResponsibility(snapshot)
             : "Another World on this PC still has an active or unresolved Steward responsibility.";
+
         _pendingSyncRetryButton.Visibility =
             selectedOwnsResponsibility &&
-            snapshot.Kind == WorldLifecycleResponsibilityKind.RecoveryNeeded &&
-            _remoteRuntime is not null &&
-            _remoteWorldIds.Contains(selectedWorld.Id)
+            snapshot.Kind == WorldLifecycleResponsibilityKind.RecoveryNeeded
                 ? Visibility.Visible
                 : Visibility.Collapsed;
-        _pendingSyncRetryButton.IsEnabled = !_isBusy;
+        _pendingSyncRetryButton.IsEnabled = !_isBusy && hasAuthority;
+        _pendingSyncRetryButton.ToolTip = hasAuthority
+            ? "Reconcile the journaled candidate with the canonical head. Steward never overwrites a different newer head automatically."
+            : "Reconnect authenticated Steward authority before retrying this shared recovery.";
+
+        var interrupted = selectedOwnsResponsibility &&
+                          snapshot.Kind == WorldLifecycleResponsibilityKind.InterruptedSession;
+        _recoverInterruptedButton.Visibility = interrupted
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        _discardInterruptedButton.Visibility = interrupted
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        _recoverInterruptedButton.IsEnabled = !_isBusy && hasAuthority;
+        _discardInterruptedButton.IsEnabled = !_isBusy && hasAuthority;
+        if (!hasAuthority)
+        {
+            const string reconnect =
+                "Reconnect authenticated Steward authority before resolving this interrupted shared World.";
+            _recoverInterruptedButton.ToolTip = reconnect;
+            _discardInterruptedButton.ToolTip = reconnect;
+        }
 
         _cleanupRetryButton.Visibility =
             selectedOwnsResponsibility &&
-            snapshot.Kind == WorldLifecycleResponsibilityKind.CleanupPending &&
-            HasAuthoritativeRuntimeForWorld(selectedWorld)
+            snapshot.Kind == WorldLifecycleResponsibilityKind.CleanupPending
                 ? Visibility.Visible
                 : Visibility.Collapsed;
-        _cleanupRetryButton.IsEnabled = !_isBusy;
+        _cleanupRetryButton.IsEnabled = !_isBusy && hasAuthority;
+        _cleanupRetryButton.ToolTip = hasAuthority
+            ? "Retry adapter-owned workspace cleanup only. This does not capture, upload, commit, or change the canonical World head."
+            : "Reconnect authenticated Steward authority before resolving cleanup for this shared World.";
         _worldResponsibilityBanner.Visibility = Visibility.Visible;
 
         EnforceResponsibilityActionGuard();
@@ -163,6 +216,8 @@ public partial class MainWindow
     private static string FormatResponsibility(WorldLifecycleResponsibilitySnapshot snapshot)
         => snapshot.Kind switch
         {
+            WorldLifecycleResponsibilityKind.InterruptedSession =>
+                "Interrupted session — choose whether to recover its preserved changes or explicitly discard them.",
             WorldLifecycleResponsibilityKind.RecoveryNeeded => "Recovery needed",
             WorldLifecycleResponsibilityKind.CleanupPending => "Action required",
             WorldLifecycleResponsibilityKind.ActiveLifecycle => snapshot.Phase switch

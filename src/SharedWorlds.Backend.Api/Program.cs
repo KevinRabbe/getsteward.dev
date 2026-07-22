@@ -70,6 +70,10 @@ builder.Services.AddSingleton<PostgreSqlSharedPackageTransferStore>();
 builder.Services.AddSingleton<ISharedPackageTransferStore>(services =>
     services.GetRequiredService<PostgreSqlSharedPackageTransferStore>());
 
+builder.Services.AddSingleton<PostgreSqlSharedRevisionRetentionStore>();
+builder.Services.AddSingleton<ISharedRevisionRetentionStore>(services =>
+    services.GetRequiredService<PostgreSqlSharedRevisionRetentionStore>());
+
 builder.Services.AddSingleton<IPrivateImmutableObjectStore>(_ =>
     S3CompatibleObjectStoreFactory.Create(new S3CompatibleObjectStoreOptions(
         objectStorageServiceUrl,
@@ -114,6 +118,17 @@ builder.Services.AddSingleton(services => new SharedPackageTransferCleanupServic
     () => DateTimeOffset.UtcNow,
     services.GetRequiredService<SharedPackageTransferCleanupOptions>()));
 builder.Services.AddHostedService<SharedPackageTransferCleanupWorker>();
+
+builder.Services.AddSingleton(new SharedRevisionRetentionOptions(
+    retainedCanonicalHeadCount: 3,
+    uncommittedCandidateGrace: TimeSpan.FromDays(cleanupVerifiedCandidateRetentionDays),
+    cleanupBatchSize: cleanupBatchSize));
+builder.Services.AddSingleton(services => new SharedRevisionRetentionCleanupService(
+    services.GetRequiredService<ISharedRevisionRetentionStore>(),
+    services.GetRequiredService<IPrivateImmutableObjectStore>(),
+    () => DateTimeOffset.UtcNow,
+    services.GetRequiredService<SharedRevisionRetentionOptions>()));
+builder.Services.AddHostedService<SharedRevisionRetentionCleanupWorker>();
 
 var app = builder.Build();
 

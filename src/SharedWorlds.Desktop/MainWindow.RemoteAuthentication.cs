@@ -21,6 +21,13 @@ public partial class MainWindow
             return;
         }
 
+        if (!_deviceSettingsUsableForRemote)
+        {
+            StatusText.Text =
+                "Shared Worlds are disabled on this launch because Steward could not establish a durable installation identity. Local Worlds remain available.";
+            return;
+        }
+
         StatusText.Text = "Authenticating Steward with Steam...";
         try
         {

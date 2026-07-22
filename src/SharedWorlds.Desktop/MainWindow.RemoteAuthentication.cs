@@ -78,8 +78,7 @@ public partial class MainWindow
             exception is HttpRequestException or
             IOException or
             TimeoutException or
-            InvalidOperationException or
-            StewardRemoteApiException)
+            InvalidOperationException)
         {
             StatusText.Text =
                 $"Shared Worlds are temporarily unavailable: {exception.Message} Local Worlds remain available.";

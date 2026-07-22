@@ -176,7 +176,12 @@ public static class StewardAuthorityApiEndpoints
             return authentication.Error;
         }
 
-        var result = await authority.CommitAsync(
+        if (!TryGetIdempotencyKey(context, out var idempotencyKey, out var idempotencyError))
+        {
+            return idempotencyError!;
+        }
+
+        var mutation = await authority.CommitIdempotentAsync(
             authentication.Caller!.Identity,
             new CommitSharedWorldCommand(
                 new WorldId(worldId),
@@ -192,8 +197,16 @@ public static class StewardAuthorityApiEndpoints
                 request.CandidateEnvironmentRevisionId is { } candidateEnvironment
                     ? new RevisionId(candidateEnvironment)
                     : null),
+            idempotencyKey!,
             cancellationToken);
 
+        if (mutation.Status == IdempotentMutationStatus.KeyConflict)
+        {
+            return StewardApiResults.DomainConflict("IdempotencyKeyConflict");
+        }
+
+        var result = mutation.Result
+            ?? throw new InvalidOperationException("Idempotent commit returned no domain result.");
         var data = new CommitWorldReservationDto(
             SharedWorldHeadDto.From(result.CurrentHead),
             result.CandidateHead is null ? null : SharedWorldHeadDto.From(result.CandidateHead));
@@ -208,6 +221,33 @@ public static class StewardAuthorityApiEndpoints
                 StewardApiResults.DomainConflict("InvalidCandidate", data),
             _ => throw new InvalidOperationException("Unexpected World-commit result.")
         };
+    }
+
+    private static bool TryGetIdempotencyKey(
+        HttpContext context,
+        out StewardIdempotencyKey? idempotencyKey,
+        out IResult? error)
+    {
+        var values = context.Request.Headers["Idempotency-Key"];
+        if (values.Count != 1 || string.IsNullOrWhiteSpace(values[0]))
+        {
+            idempotencyKey = null;
+            error = StewardApiResults.Validation("IdempotencyKeyRequired");
+            return false;
+        }
+
+        try
+        {
+            idempotencyKey = new StewardIdempotencyKey(values[0]!);
+            error = null;
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            idempotencyKey = null;
+            error = StewardApiResults.Validation("InvalidIdempotencyKey");
+            return false;
+        }
     }
 
     private static async Task<AuthorityAuthenticationResolution> AuthenticateAsync(

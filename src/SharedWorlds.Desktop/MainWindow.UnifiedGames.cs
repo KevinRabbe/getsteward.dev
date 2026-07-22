@@ -107,11 +107,12 @@ public partial class MainWindow
             async () =>
             {
                 var installation = await GetGameInstallationAsync(adapter);
-                var updated = await _lifecycle.ContinueLocalAsync(
+                var lifecycle = GetLifecycleForWorld(world);
+                var updated = await lifecycle.ContinueLocalAsync(
                     world.Id,
                     adapter,
                     installation,
-                    GetLocalUser());
+                    GetUserForWorld(world));
 
                 StatusText.Text =
                     $"World '{updated.Name}' committed as revision {updated.CurrentStateRevisionId}.";
@@ -154,11 +155,12 @@ public partial class MainWindow
                 StatusText.Text =
                     $"{adapter.DisplayName} is running. End the game/server session normally; Steward will then capture and commit the new canonical revision.";
 
-                var updated = await _lifecycle.ContinueAsHostAsync(
+                var lifecycle = GetLifecycleForWorld(world);
+                var updated = await lifecycle.ContinueAsHostAsync(
                     world.Id,
                     adapter,
                     installation,
-                    GetLocalUser());
+                    GetUserForWorld(world));
 
                 StatusText.Text =
                     $"Hosted World '{updated.Name}' committed as revision {updated.CurrentStateRevisionId}.";
@@ -174,12 +176,12 @@ public partial class MainWindow
             return;
         }
 
-        // A local enum flip is not persistent Steward sharing. Until BE-2/UI-4 can create or
-        // administer real shared authority, keep the World unchanged and expose the honest entry
-        // point rather than manufacturing a false Shared state.
+        // A local enum flip is not persistent Steward sharing. Until the access-management UI can
+        // create or administer real shared authority, keep the World unchanged rather than
+        // manufacturing a false Shared state.
         StatusText.Text = world.SharingMode == WorldSharingMode.LocalOnly
-            ? "Share World requires the shared backend/access flow, which is not connected in this build yet. The World remains only on this PC."
-            : "Manage access requires the shared backend/access flow, which is not connected in this build yet.";
+            ? "Share World requires the shared backend/access flow, which is not connected to this button yet. The World remains only on this PC."
+            : "Manage access is not connected to this button yet.";
     }
 
     private async Task RefreshUnifiedWorldsAsync(
@@ -194,7 +196,7 @@ public partial class MainWindow
 
         try
         {
-            var worlds = await _storage.ListWorldsAsync();
+            var worlds = await ListDesktopWorldsAsync();
             var items = new List<UnifiedWorldListItem>(worlds.Count);
 
             foreach (var world in worlds)
@@ -202,8 +204,8 @@ public partial class MainWindow
                 var gameVersion = "unknown";
                 if (world.CurrentEnvironmentRevisionId is { } environmentRevisionId)
                 {
-                    var environment = await _storage.LoadEnvironmentRevisionAsync(
-                        world.Id,
+                    var environment = await LoadEnvironmentRevisionForWorldAsync(
+                        world,
                         environmentRevisionId);
                     if (!string.IsNullOrWhiteSpace(environment?.Manifest.GameVersion))
                     {
@@ -238,8 +240,9 @@ public partial class MainWindow
             if (ordered.Count == 0)
             {
                 _selectedWorld = null;
-                EmptyStateText.Text =
-                    "No managed Worlds yet. Use Import to turn a detected save into a private World.";
+                EmptyStateText.Text = _lastRemoteWorldLoadError is null
+                    ? "No managed Worlds yet. Use Import to turn a detected save into a private World."
+                    : "No local Worlds are managed on this PC. Shared Worlds are temporarily unavailable.";
                 EmptyStateText.Visibility = Visibility.Visible;
                 WorldDetailsPanel.Visibility = Visibility.Collapsed;
             }
@@ -253,13 +256,20 @@ public partial class MainWindow
 
             if (!preserveStatus)
             {
-                var gameCount = ordered
-                    .Select(item => item.GameName)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .Count();
-                StatusText.Text = ordered.Count == 1
-                    ? "1 managed World"
-                    : $"{ordered.Count} managed Worlds across {gameCount} games";
+                if (_lastRemoteWorldLoadError is not null)
+                {
+                    StatusText.Text = "Local Worlds loaded. Shared Worlds are temporarily unavailable.";
+                }
+                else
+                {
+                    var gameCount = ordered
+                        .Select(item => item.GameName)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Count();
+                    StatusText.Text = ordered.Count == 1
+                        ? "1 managed World"
+                        : $"{ordered.Count} managed Worlds across {gameCount} games";
+                }
             }
         }
         catch (Exception exception)
@@ -389,8 +399,8 @@ public partial class MainWindow
         ShareButton.ToolTip = world is null
             ? "Select a World."
             : world.SharingMode == WorldSharingMode.Shared
-                ? "Manage access becomes functional when the shared backend/access flow is connected."
-                : "Share World becomes functional when the shared backend/access flow is connected.";
+                ? "Manage access becomes functional when the shared access UI is connected."
+                : "Share World becomes functional when the shared access UI is connected.";
     }
 
     private void UpdateUnifiedImportActionState()

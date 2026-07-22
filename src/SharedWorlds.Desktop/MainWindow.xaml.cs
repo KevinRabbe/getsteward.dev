@@ -155,6 +155,7 @@ public partial class MainWindow : Window
         UpdateUnifiedImportActionState();
         UpdateWorldVersionPolicyUi();
         UpdateEnvironmentReadinessUi();
+        UpdateResponsibilityPresentation();
     }
 
     private void UpdateHostingPreferenceText()

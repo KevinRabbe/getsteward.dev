@@ -1,3 +1,4 @@
+using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
 using SharedWorlds.Core.Worlds;
 
@@ -64,6 +65,14 @@ public partial class MainWindow
         UpdateEnvironmentReadinessUi();
     }
 
+    private bool IsSelectedWorldEnvironmentReadyForPlay()
+    {
+        var world = _selectedWorld;
+        return world is not null &&
+               (world.SharingMode == WorldSharingMode.LocalOnly ||
+                _environmentVerification?.IsReady == true);
+    }
+
     private void ResetEnvironmentReadinessUi()
     {
         _environmentVerification = null;
@@ -77,6 +86,7 @@ public partial class MainWindow
             EnvironmentReadinessText.Text = string.Empty;
             VerifyEnvironmentButton.IsEnabled = false;
             RepairEnvironmentButton.IsEnabled = false;
+            UpdateUnifiedActionState();
             return;
         }
 
@@ -88,6 +98,7 @@ public partial class MainWindow
                 "Not checked yet. Verify tests the same exact environment reproduction path used before play without launching the game or changing the World.";
             RepairEnvironmentButton.IsEnabled = false;
             RepairEnvironmentButton.ToolTip = "Run Verify first.";
+            UpdateUnifiedActionState();
             return;
         }
 
@@ -97,6 +108,7 @@ public partial class MainWindow
                 "Ready. This device can reproduce the World's exact game version, mods and recorded environment requirements.";
             RepairEnvironmentButton.IsEnabled = false;
             RepairEnvironmentButton.ToolTip = "No repair is needed.";
+            UpdateUnifiedActionState();
             return;
         }
 
@@ -108,5 +120,6 @@ public partial class MainWindow
         RepairEnvironmentButton.ToolTip = _environmentVerification.CanRepairAutomatically
             ? "Apply only adapter-defined safe local repairs, then verify again."
             : "SharedWorlds does not have a safe automatic repair for this problem yet.";
+        UpdateUnifiedActionState();
     }
 }

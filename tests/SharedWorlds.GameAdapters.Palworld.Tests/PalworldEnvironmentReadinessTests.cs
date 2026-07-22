@@ -43,7 +43,9 @@ public sealed class PalworldEnvironmentReadinessTests
         var mismatch = await adapter.VerifyEnvironmentAsync(fixture.Installation, required);
 
         Assert.Equal(EnvironmentVerificationState.Blocked, mismatch.State);
-        var issue = Assert.Single(mismatch.Issues.Where(issue => issue.Code == "palworld-version-mismatch"));
+        var issue = Assert.Single(
+            mismatch.Issues,
+            issue => issue.Code == "palworld-version-mismatch");
         Assert.Contains("12345678", issue.Message, StringComparison.Ordinal);
         Assert.Contains("87654321", issue.Message, StringComparison.Ordinal);
     }

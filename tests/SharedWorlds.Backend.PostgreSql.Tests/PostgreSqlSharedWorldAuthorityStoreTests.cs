@@ -85,8 +85,8 @@ public sealed class PostgreSqlSharedWorldAuthorityStoreTests : IAsyncLifetime
 
         var results = await Task.WhenAll(first, second);
 
-        Assert.Single(results.Where(result => result.Status == AcquireSharedWorldReservationStatus.Acquired));
-        Assert.Single(results.Where(result => result.Status == AcquireSharedWorldReservationStatus.WorldBusy));
+        Assert.Single(results, result => result.Status == AcquireSharedWorldReservationStatus.Acquired);
+        Assert.Single(results, result => result.Status == AcquireSharedWorldReservationStatus.WorldBusy);
         var reservation = Assert.IsType<SharedWorldReservation>(
             await _authority.GetReservationAsync(_manager.Subject, _world.WorldId, Now, Options));
         Assert.Equal(1, reservation.Generation);

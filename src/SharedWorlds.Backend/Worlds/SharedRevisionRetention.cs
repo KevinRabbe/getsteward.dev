@@ -17,12 +17,26 @@ public sealed record SharedRevisionCleanupCandidate(
     DateTimeOffset PublishedAt,
     bool WasCanonical);
 
+public sealed record SharedImmutableObjectCleanupRecord(
+    string ObjectKey,
+    DateTimeOffset EnqueuedAt,
+    int AttemptCount,
+    DateTimeOffset? LastAttemptAt);
+
+public enum RetireSharedRevisionStatus
+{
+    Retired,
+    NoLongerEligible,
+    NotFound
+}
+
 public sealed record SharedRevisionRetentionOptions
 {
     public SharedRevisionRetentionOptions(
         int retainedCanonicalHeadCount,
         TimeSpan uncommittedCandidateGrace,
-        int cleanupBatchSize)
+        int cleanupBatchSize,
+        TimeSpan? objectCleanupRetryDelay = null)
     {
         if (retainedCanonicalHeadCount < 1)
         {
@@ -39,25 +53,39 @@ public sealed record SharedRevisionRetentionOptions
             throw new ArgumentOutOfRangeException(nameof(cleanupBatchSize));
         }
 
+        var retryDelay = objectCleanupRetryDelay ?? TimeSpan.FromMinutes(15);
+        if (retryDelay < TimeSpan.FromMinutes(1) || retryDelay > TimeSpan.FromDays(1))
+        {
+            throw new ArgumentOutOfRangeException(nameof(objectCleanupRetryDelay));
+        }
+
         RetainedCanonicalHeadCount = retainedCanonicalHeadCount;
         UncommittedCandidateGrace = uncommittedCandidateGrace;
         CleanupBatchSize = cleanupBatchSize;
+        ObjectCleanupRetryDelay = retryDelay;
     }
 
     public int RetainedCanonicalHeadCount { get; }
     public TimeSpan UncommittedCandidateGrace { get; }
     public int CleanupBatchSize { get; }
+    public TimeSpan ObjectCleanupRetryDelay { get; }
 
     public static SharedRevisionRetentionOptions FirstReleaseDefaults { get; } = new(
         retainedCanonicalHeadCount: 3,
         uncommittedCandidateGrace: TimeSpan.FromDays(7),
-        cleanupBatchSize: 100);
+        cleanupBatchSize: 100,
+        objectCleanupRetryDelay: TimeSpan.FromMinutes(15));
 }
 
 /// <summary>
 /// Reference-safe retention boundary for immutable revision metadata. Cleanup eligibility is derived
 /// from canonical commit sequence plus unresolved authority/transfer references; publication time is
 /// used only for verified candidates that never became canonical.
+///
+/// Physical object deletion is two-phase: retiring revision metadata and durably enqueueing its object
+/// key are one database transaction, while the object-store delete is retried asynchronously. The
+/// backend may therefore retain extra bytes after a storage failure, but it must never delete bytes
+/// first and leave authoritative revision metadata pointing at a missing package.
 /// </summary>
 public interface ISharedRevisionRetentionStore
 {
@@ -70,6 +98,27 @@ public interface ISharedRevisionRetentionStore
         DateTimeOffset uncommittedCandidateCutoff,
         int retainedCanonicalHeadCount,
         int limit,
+        CancellationToken cancellationToken = default);
+
+    Task<RetireSharedRevisionStatus> TryRetireCleanupCandidateAsync(
+        SharedRevisionCleanupCandidate candidate,
+        DateTimeOffset uncommittedCandidateCutoff,
+        int retainedCanonicalHeadCount,
+        DateTimeOffset retiredAt,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<SharedImmutableObjectCleanupRecord>> ListPendingObjectCleanupAsync(
+        DateTimeOffset retryAtOrBefore,
+        int limit,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> TryRecordObjectCleanupFailureAsync(
+        string objectKey,
+        DateTimeOffset attemptedAt,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> TryCompleteObjectCleanupAsync(
+        string objectKey,
         CancellationToken cancellationToken = default);
 }
 

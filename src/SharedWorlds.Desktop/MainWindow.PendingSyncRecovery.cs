@@ -41,21 +41,21 @@ public partial class MainWindow
             });
     }
 
-    private async Task<World> RetryPendingRecoveryCoreAsync(World world, IGameAdapter adapter)
+    private async Task<World> RetryPendingRecoveryCoreAsync(
+        World world,
+        IGameAdapter adapter,
+        GameInstallation? knownInstallation = null)
     {
         var records = await _workspaceRecoveryStore.ListAsync();
-        var pending = records
-            .Where(record =>
+        if (!records.Any(record =>
                 record.WorldId == world.Id &&
-                record.Status == WorkspaceRecoveryStatus.RecoveryPending)
-            .OrderBy(record => record.CreatedAt)
-            .ThenBy(record => record.Id.ToString(), StringComparer.Ordinal)
-            .FirstOrDefault()
-            ?? throw new InvalidOperationException(
+                record.Status == WorkspaceRecoveryStatus.RecoveryPending))
+        {
+            throw new InvalidOperationException(
                 "This responsibility is not a pending recovery. Steward left its evidence untouched for the appropriate recovery path.");
+        }
 
-        _ = pending;
-        var installation = await GetGameInstallationAsync(adapter);
+        var installation = knownInstallation ?? await GetGameInstallationAsync(adapter);
         if (_remoteWorldIds.Contains(world.Id))
         {
             var remote = _remoteRuntime

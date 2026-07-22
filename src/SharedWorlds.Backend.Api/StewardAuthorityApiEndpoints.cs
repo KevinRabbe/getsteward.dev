@@ -35,18 +35,30 @@ public static class StewardAuthorityApiEndpoints
             return authentication.Error;
         }
 
+        if (!TryGetIdempotencyKey(context, out var idempotencyKey, out var idempotencyError))
+        {
+            return idempotencyError!;
+        }
+
         var expectedHead = new SharedWorldHead(
             new RevisionId(request.ExpectedStateRevisionId),
             request.ExpectedEnvironmentRevisionId is { } environmentId
                 ? new RevisionId(environmentId)
                 : null);
-        var result = await authority.AcquireAsync(
+        var mutation = await authority.AcquireIdempotentAsync(
             authentication.Caller!.Identity,
             new WorldId(worldId),
             request.InstallationId,
             expectedHead,
+            idempotencyKey!,
             cancellationToken);
+        if (mutation.Status == IdempotentMutationStatus.KeyConflict)
+        {
+            return StewardApiResults.DomainConflict("IdempotencyKeyConflict");
+        }
 
+        var result = mutation.Result
+            ?? throw new InvalidOperationException("Idempotent acquire returned no domain result.");
         return result.Status switch
         {
             AcquireSharedWorldReservationStatus.Acquired => Results.Ok(new StewardApiResponse(
@@ -140,12 +152,25 @@ public static class StewardAuthorityApiEndpoints
             return authentication.Error;
         }
 
-        var result = await authority.ReclaimAsync(
+        if (!TryGetIdempotencyKey(context, out var idempotencyKey, out var idempotencyError))
+        {
+            return idempotencyError!;
+        }
+
+        var mutation = await authority.ReclaimIdempotentAsync(
             authentication.Caller!.Identity,
             new WorldId(worldId),
             request.ExpectedSessionId,
             request.ExpectedGeneration,
+            idempotencyKey!,
             cancellationToken);
+        if (mutation.Status == IdempotentMutationStatus.KeyConflict)
+        {
+            return StewardApiResults.DomainConflict("IdempotencyKeyConflict");
+        }
+
+        var result = mutation.Result
+            ?? throw new InvalidOperationException("Idempotent reclaim returned no domain result.");
         return result.Status switch
         {
             ReclaimSharedWorldReservationStatus.Reclaimed => Results.Ok(new StewardApiResponse(

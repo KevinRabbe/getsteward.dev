@@ -91,8 +91,14 @@ public static class StewardApiResults
             statusCode: StatusCodes.Status422UnprocessableEntity);
 
     public static IResult DomainConflict(string code, bool retryable = false)
+        => DomainConflict(code, data: null, retryable);
+
+    public static IResult DomainConflict(
+        string code,
+        object? data,
+        bool retryable = false)
         => Results.Json(
-            new StewardApiResponse(code, Retryable: retryable),
+            new StewardApiResponse(code, data, retryable),
             statusCode: StatusCodes.Status409Conflict);
 
     public static IResult Problem(

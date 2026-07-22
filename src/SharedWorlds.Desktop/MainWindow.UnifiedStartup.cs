@@ -19,6 +19,7 @@ public partial class MainWindow
         InitializeUnifiedImportBrowser();
         InitializeResponsibilityPresentation();
         InitializeWorldSharingUi();
+        await InitializeWorldInvitationsUiAsync();
         InitializeResponsiveWorkspace();
     }
 }

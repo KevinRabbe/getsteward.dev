@@ -28,9 +28,11 @@ public partial class MainWindow
                     installation);
 
                 UpdateEnvironmentReadinessUi();
-                StatusText.Text = _environmentVerification.IsReady
-                    ? $"This device is ready to play '{world.Name}' with its exact environment."
-                    : $"The exact environment for '{world.Name}' is not ready on this device.";
+                StatusText.Text = !_environmentVerification.IsReady
+                    ? $"The exact environment for '{world.Name}' is not ready on this device."
+                    : HasAuthoritativeRuntimeForWorld(world)
+                        ? $"This device is ready to play '{world.Name}' with its exact environment."
+                        : $"The exact environment for '{world.Name}' is ready, but authenticated shared-World authority is not connected.";
             });
 
         UpdateEnvironmentReadinessUi();
@@ -69,6 +71,7 @@ public partial class MainWindow
     {
         var world = _selectedWorld;
         return world is not null &&
+               HasAuthoritativeRuntimeForWorld(world) &&
                (world.SharingMode == WorldSharingMode.LocalOnly ||
                 _environmentVerification?.IsReady == true);
     }
@@ -104,8 +107,9 @@ public partial class MainWindow
 
         if (_environmentVerification.IsReady)
         {
-            EnvironmentReadinessText.Text =
-                "Ready. This device can reproduce the World's exact game version, mods and recorded environment requirements.";
+            EnvironmentReadinessText.Text = HasAuthoritativeRuntimeForWorld(_selectedWorld)
+                ? "Ready. This device can reproduce the World's exact game version, mods and recorded environment requirements."
+                : "Environment ready, but this shared World has no authenticated Steward authority connection. Steward will not fall back to local writable play.";
             RepairEnvironmentButton.IsEnabled = false;
             RepairEnvironmentButton.ToolTip = "No repair is needed.";
             UpdateUnifiedActionState();

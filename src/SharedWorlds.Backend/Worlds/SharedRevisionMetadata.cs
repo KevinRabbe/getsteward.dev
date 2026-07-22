@@ -1,5 +1,6 @@
 using SharedWorlds.Backend.Identity;
 using SharedWorlds.Core.Domain;
+using SharedWorlds.Core.Environment;
 
 namespace SharedWorlds.Backend.Worlds;
 
@@ -16,8 +17,9 @@ public sealed record SharedStateRevisionMetadata(
 
 /// <summary>
 /// Environment revisions may point either to a Steward-hosted immutable package or to an opaque
-/// reproducible/native artifact reference. When package integrity metadata is present, byte size
-/// and SHA-256 must be present together.
+/// reproducible/native artifact reference. The structured manifest is the game-agnostic runtime
+/// contract used by adapters to reproduce the exact environment. Legacy rows may not have a manifest;
+/// new remote-runtime environment revisions publish one explicitly.
 /// </summary>
 public sealed record SharedEnvironmentRevisionMetadata(
     WorldId WorldId,
@@ -27,7 +29,8 @@ public sealed record SharedEnvironmentRevisionMetadata(
     long? ByteSize,
     string? Sha256,
     ExternalIdentityRef PublishedBy,
-    DateTimeOffset PublishedAt);
+    DateTimeOffset PublishedAt,
+    EnvironmentManifest? Manifest = null);
 
 public enum StoreRevisionMetadataStatus
 {
@@ -67,6 +70,16 @@ public enum RecordRevisionMetadataStatus
     Conflict
 }
 
+public enum PublishEnvironmentManifestStatus
+{
+    Published,
+    AlreadyPublished,
+    NotFoundOrUnauthorized,
+    InvalidManifest,
+    AdapterMismatch,
+    Conflict
+}
+
 public sealed record SharedCurrentRevisionMetadata(
     SharedWorldMetadata World,
     SharedStateRevisionMetadata? State,
@@ -75,7 +88,9 @@ public sealed record SharedCurrentRevisionMetadata(
 /// <summary>
 /// BE-2 metadata catalog for already-verified immutable artifacts. Recording is an internal backend
 /// operation called only after the upstream transfer/session layer has authorized the caller and
-/// verified bytes/reference integrity. Normal queries still require active World membership.
+/// verified bytes/reference integrity. Normal queries require active World membership. The explicit
+/// environment-manifest publication method is the authenticated desktop boundary for native/reproducible
+/// environments that have no hosted package bytes.
 /// </summary>
 public sealed class SharedRevisionMetadataService
 {
@@ -113,6 +128,55 @@ public sealed class SharedRevisionMetadataService
         return MapStoreResult(await _revisionStore.TryRecordEnvironmentRevisionAsync(
             revision,
             cancellationToken));
+    }
+
+    public async Task<PublishEnvironmentManifestStatus> PublishEnvironmentManifestAsync(
+        VerifiedExternalIdentity caller,
+        WorldId worldId,
+        RevisionId revisionId,
+        EnvironmentManifest manifest,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        ArgumentNullException.ThrowIfNull(manifest);
+        if (worldId.Value == Guid.Empty || revisionId.Value == Guid.Empty || !IsValidManifest(manifest))
+        {
+            return PublishEnvironmentManifestStatus.InvalidManifest;
+        }
+
+        if (!await IsActiveMemberAsync(worldId, caller.Subject, cancellationToken))
+        {
+            return PublishEnvironmentManifestStatus.NotFoundOrUnauthorized;
+        }
+
+        var world = await _worldStore.LoadWorldAsync(worldId, cancellationToken);
+        if (world is null)
+        {
+            return PublishEnvironmentManifestStatus.NotFoundOrUnauthorized;
+        }
+
+        if (!string.Equals(world.AdapterId, manifest.AdapterId, StringComparison.Ordinal))
+        {
+            return PublishEnvironmentManifestStatus.AdapterMismatch;
+        }
+
+        var revision = new SharedEnvironmentRevisionMetadata(
+            worldId,
+            revisionId,
+            world.AdapterId,
+            $"manifest:{revisionId.Value:N}",
+            ByteSize: null,
+            Sha256: null,
+            caller.Subject,
+            DateTimeOffset.UtcNow,
+            manifest);
+        return await _revisionStore.TryRecordEnvironmentRevisionAsync(revision, cancellationToken) switch
+        {
+            StoreRevisionMetadataStatus.Recorded => PublishEnvironmentManifestStatus.Published,
+            StoreRevisionMetadataStatus.AlreadyRecorded => PublishEnvironmentManifestStatus.AlreadyPublished,
+            StoreRevisionMetadataStatus.Conflict => PublishEnvironmentManifestStatus.Conflict,
+            _ => throw new InvalidOperationException("Unexpected environment-manifest store result.")
+        };
     }
 
     public async Task<RecordRevisionMetadataStatus> RecordVerifiedStateRevisionAsync(
@@ -269,7 +333,27 @@ public sealed class SharedRevisionMetadataService
         {
             ValidatePackageIntegrity(byteSize, sha256, nameof(revision));
         }
+
+        if (revision.Manifest is not null &&
+            (!IsValidManifest(revision.Manifest) ||
+             !string.Equals(revision.Manifest.AdapterId, revision.AdapterId, StringComparison.Ordinal)))
+        {
+            throw new ArgumentException(
+                "Environment manifest is invalid or belongs to a different adapter.",
+                nameof(revision));
+        }
     }
+
+    private static bool IsValidManifest(EnvironmentManifest manifest)
+        => manifest.SchemaVersion > 0 &&
+           !string.IsNullOrWhiteSpace(manifest.AdapterId) &&
+           !string.IsNullOrWhiteSpace(manifest.GameVersion) &&
+           manifest.Components is not null &&
+           manifest.Configuration is not null &&
+           manifest.Components.All(component =>
+               component is not null &&
+               !string.IsNullOrWhiteSpace(component.Kind) &&
+               !string.IsNullOrWhiteSpace(component.Id));
 
     private static void ValidatePackageIntegrity(long byteSize, string sha256, string parameterName)
     {

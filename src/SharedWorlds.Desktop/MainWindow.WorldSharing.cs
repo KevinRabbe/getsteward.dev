@@ -43,13 +43,44 @@ public partial class MainWindow
 
         if (_remoteWorldIds.Contains(world.Id))
         {
-            StatusText.Text =
-                "This World is already shared. Access management is the next UI slice; canonical World authority is already remote.";
+            var remote = _remoteRuntime;
+            if (remote is null)
+            {
+                StatusText.Text = "Reconnect authenticated Steward before managing shared World access.";
+                return;
+            }
+
+            await RunOperationAsync(
+                $"Loading access for {world.Name}...",
+                async () =>
+                {
+                    var metadata = await remote.GetWorldMetadataAsync(world.Id)
+                        ?? throw new InvalidOperationException(
+                            "The shared World is no longer accessible to this Steward account.");
+                    var dialog = new WorldAccessDialog(
+                        remote.Access,
+                        world,
+                        remote.User,
+                        metadata.AccessManager)
+                    {
+                        Owner = this
+                    };
+                    dialog.ShowDialog();
+
+                    await RefreshUnifiedWorldsAsync(
+                        dialog.WorldLeft ? null : world.Id,
+                        preserveStatus: true);
+                    StatusText.Text = dialog.WorldLeft
+                        ? $"You left shared World '{world.Name}'."
+                        : $"Access for '{world.Name}' is up to date.";
+                });
+
+            UpdateWorldSharingActionState();
             return;
         }
 
-        var remote = _remoteRuntime;
-        if (remote is null)
+        var remoteRuntime = _remoteRuntime;
+        if (remoteRuntime is null)
         {
             StatusText.Text = world.SharingMode == WorldSharingMode.Shared
                 ? "Sharing is incomplete. Reconnect authenticated Steward and use Finish sharing."
@@ -106,12 +137,12 @@ public partial class MainWindow
                     await using var package = await _storage.OpenRevisionAsync(
                         localShadow.Id,
                         stateId);
-                    await remote.InitialWorldPublisher.PublishAsync(
+                    await remoteRuntime.InitialWorldPublisher.PublishAsync(
                         localShadow,
                         environment,
                         state,
                         package,
-                        remote.User);
+                        remoteRuntime.User);
 
                     await RefreshUnifiedWorldsAsync(localShadow.Id, preserveStatus: true);
                     StatusText.Text =
@@ -180,9 +211,9 @@ public partial class MainWindow
         if (_remoteWorldIds.Contains(world.Id))
         {
             ShareButton.Content = "Manage access";
-            ShareButton.IsEnabled = !_isBusy;
+            ShareButton.IsEnabled = !_isBusy && _remoteRuntime is not null;
             ShareButton.ToolTip =
-                "This World already uses Steward's remote canonical authority. Access-management UI is the next sharing slice.";
+                "Invite players, remove access, transfer Access Manager responsibility, or leave this shared World.";
             return;
         }
 

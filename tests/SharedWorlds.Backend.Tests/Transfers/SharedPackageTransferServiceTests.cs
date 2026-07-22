@@ -317,6 +317,72 @@ public sealed class SharedPackageTransferServiceTests
             (await fixture.Transfers.FinalizeAsync(fixture.Manager, transfer.Id)).Status);
     }
 
+    [Fact]
+    public async Task RetryAfterActiveBeginReturnsSameTransferWithoutAnotherProviderBegin()
+    {
+        var fixture = await Fixture.CreateAsync(SmallParts());
+        var command = fixture.EnvironmentCommand([1, 2, 3, 4]);
+
+        var first = await fixture.Transfers.BeginUploadAsync(fixture.Manager, command);
+        var firstTransfer = Assert.IsType<SharedPackageTransferRecord>(first.Transfer);
+        var beginCalls = fixture.ObjectStore.BeginCallCount;
+
+        var retry = await fixture.Transfers.BeginUploadAsync(fixture.Manager, command);
+        var retriedTransfer = Assert.IsType<SharedPackageTransferRecord>(retry.Transfer);
+
+        Assert.Equal(BeginPackageUploadStatus.Started, retry.Status);
+        Assert.Equal(firstTransfer, retriedTransfer);
+        Assert.Equal(beginCalls, fixture.ObjectStore.BeginCallCount);
+        Assert.Single(fixture.ObjectStore.Uploads);
+    }
+
+    [Fact]
+    public async Task RetryAfterProviderBeginFailureResumesSameProvisioningTransferAndProviderUpload()
+    {
+        var fixture = await Fixture.CreateAsync(SmallParts());
+        var command = fixture.EnvironmentCommand([1, 2, 3, 4]);
+        fixture.ObjectStore.ThrowAfterCreatingNextUpload = true;
+
+        await Assert.ThrowsAsync<IOException>(
+            () => fixture.Transfers.BeginUploadAsync(fixture.Manager, command));
+
+        var provisioning = Assert.Single(fixture.TransferStore.Records);
+        Assert.Equal(SharedPackageTransferState.Provisioning, provisioning.State);
+        Assert.StartsWith("pending:", provisioning.ProviderUploadId, StringComparison.Ordinal);
+        var originalProviderUpload = Assert.Single(fixture.ObjectStore.Uploads).Key;
+
+        var retry = await fixture.Transfers.BeginUploadAsync(fixture.Manager, command);
+        var active = Assert.IsType<SharedPackageTransferRecord>(retry.Transfer);
+
+        Assert.Equal(BeginPackageUploadStatus.Started, retry.Status);
+        Assert.Equal(provisioning.Id, active.Id);
+        Assert.Equal(SharedPackageTransferState.Active, active.State);
+        Assert.Equal(originalProviderUpload, active.ProviderUploadId);
+        Assert.Single(fixture.ObjectStore.Uploads);
+        Assert.Equal(2, fixture.ObjectStore.BeginCallCount);
+    }
+
+    [Fact]
+    public async Task ConflictingCallerCannotTakeOverExistingInFlightTransfer()
+    {
+        var fixture = await Fixture.CreateAsync(SmallParts());
+        var other = Steam("76561198000000002");
+        fixture.WorldStore.AddMember(new SharedWorldMember(
+            fixture.World.WorldId,
+            other.Subject,
+            SharedWorldMemberStatus.Active,
+            Start));
+        var command = fixture.EnvironmentCommand([1, 2, 3, 4]);
+        var first = await fixture.Transfers.BeginUploadAsync(fixture.Manager, command);
+        Assert.NotNull(first.Transfer);
+
+        var conflict = await fixture.Transfers.BeginUploadAsync(other, command);
+
+        Assert.Equal(BeginPackageUploadStatus.Conflict, conflict.Status);
+        Assert.Null(conflict.Transfer);
+        Assert.Single(fixture.ObjectStore.Uploads);
+    }
+
     private static SharedPackageTransferOptions SmallParts()
         => new(
             maximumPackageBytes: 1024,
@@ -447,6 +513,17 @@ public sealed class SharedPackageTransferServiceTests
         private readonly object _gate = new();
         private readonly Dictionary<SharedPackageTransferId, SharedPackageTransferRecord> _records = [];
 
+        public IReadOnlyCollection<SharedPackageTransferRecord> Records
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _records.Values.ToArray();
+                }
+            }
+        }
+
         public Task<bool> TryCreateAsync(
             SharedPackageTransferRecord transfer,
             CancellationToken cancellationToken = default)
@@ -454,7 +531,16 @@ public sealed class SharedPackageTransferServiceTests
             cancellationToken.ThrowIfCancellationRequested();
             lock (_gate)
             {
-                return Task.FromResult(_records.TryAdd(transfer.Id, transfer));
+                if (_records.ContainsKey(transfer.Id) ||
+                    _records.Values.Any(existing =>
+                        string.Equals(existing.ObjectKey, transfer.ObjectKey, StringComparison.Ordinal) &&
+                        existing.State is SharedPackageTransferState.Active or SharedPackageTransferState.Provisioning))
+                {
+                    return Task.FromResult(false);
+                }
+
+                _records.Add(transfer.Id, transfer);
+                return Task.FromResult(true);
             }
         }
 
@@ -467,6 +553,50 @@ public sealed class SharedPackageTransferServiceTests
             {
                 _records.TryGetValue(transferId, out var transfer);
                 return Task.FromResult(transfer);
+            }
+        }
+
+        public Task<SharedPackageTransferRecord?> LoadInFlightByObjectKeyAsync(
+            string objectKey,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_gate)
+            {
+                return Task.FromResult(
+                    _records.Values.SingleOrDefault(existing =>
+                        string.Equals(existing.ObjectKey, objectKey, StringComparison.Ordinal) &&
+                        existing.State is SharedPackageTransferState.Active or SharedPackageTransferState.Provisioning));
+            }
+        }
+
+        public Task<bool> TryActivateProvisioningAsync(
+            SharedPackageTransferId transferId,
+            ExternalIdentityRef expectedOwner,
+            string expectedPlaceholderProviderUploadId,
+            string providerUploadId,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_gate)
+            {
+                if (!_records.TryGetValue(transferId, out var transfer) ||
+                    transfer.Owner != expectedOwner ||
+                    transfer.State != SharedPackageTransferState.Provisioning ||
+                    !string.Equals(
+                        transfer.ProviderUploadId,
+                        expectedPlaceholderProviderUploadId,
+                        StringComparison.Ordinal))
+                {
+                    return Task.FromResult(false);
+                }
+
+                _records[transferId] = transfer with
+                {
+                    ProviderUploadId = providerUploadId,
+                    State = SharedPackageTransferState.Active
+                };
+                return Task.FromResult(true);
             }
         }
 
@@ -667,6 +797,8 @@ public sealed class SharedPackageTransferServiceTests
         }
 
         public IReadOnlyDictionary<string, UploadRecord> Uploads => _uploads;
+        public int BeginCallCount { get; private set; }
+        public bool ThrowAfterCreatingNextUpload { get; set; }
 
         public Task<ImmutableUploadSession> BeginMultipartUploadAsync(
             string objectKey,
@@ -675,12 +807,29 @@ public sealed class SharedPackageTransferServiceTests
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            BeginCallCount++;
+
+            var existing = _uploads.Values.SingleOrDefault(upload =>
+                !upload.Completed &&
+                string.Equals(upload.ObjectKey, objectKey, StringComparison.Ordinal));
+            if (existing is not null)
+            {
+                return Task.FromResult(new ImmutableUploadSession(existing.ProviderUploadId, objectKey));
+            }
+
             var providerId = $"upload-{++_nextUpload}";
             _uploads.Add(providerId, new UploadRecord(
                 providerId,
                 objectKey,
                 expectedByteSize,
                 expectedSha256));
+
+            if (ThrowAfterCreatingNextUpload)
+            {
+                ThrowAfterCreatingNextUpload = false;
+                throw new IOException("Simulated provider success followed by lost backend response.");
+            }
+
             return Task.FromResult(new ImmutableUploadSession(providerId, objectKey));
         }
 

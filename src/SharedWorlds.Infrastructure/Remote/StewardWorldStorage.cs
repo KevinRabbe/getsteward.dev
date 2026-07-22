@@ -57,6 +57,10 @@ public sealed class StewardCommitOutcomeUnknownException : IOException
 /// the verified BE-3 transfer/cache path; environment manifests use immutable backend metadata; and
 /// SaveWorldAsync maps the Core "write canonical head last" boundary onto the exact BE-4 reservation
 /// generation registered by <see cref="StewardWorldSessionCoordinator"/>.
+///
+/// Before any candidate bytes are published, the candidate revision ID is written into the local
+/// workspace recovery journal. This is the write-ahead record that lets Waiting to sync distinguish
+/// an interrupted upload, a lost commit response, and an already-successful canonical commit.
 /// </summary>
 public sealed class StewardWorldStorage : IWorldStorage
 {
@@ -66,6 +70,7 @@ public sealed class StewardWorldStorage : IWorldStorage
     private readonly StewardAuthorityClient _authority;
     private readonly IStewardAccessTokenProvider _accessTokens;
     private readonly StewardWritableReservationRegistry _reservations;
+    private readonly IWorkspaceRecoveryStore _recovery;
     private readonly StewardWorldStorageOptions _options;
 
     public StewardWorldStorage(
@@ -75,6 +80,7 @@ public sealed class StewardWorldStorage : IWorldStorage
         StewardAuthorityClient authority,
         IStewardAccessTokenProvider accessTokens,
         StewardWritableReservationRegistry reservations,
+        IWorkspaceRecoveryStore recovery,
         StewardWorldStorageOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(metadata);
@@ -83,6 +89,7 @@ public sealed class StewardWorldStorage : IWorldStorage
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(accessTokens);
         ArgumentNullException.ThrowIfNull(reservations);
+        ArgumentNullException.ThrowIfNull(recovery);
 
         _metadata = metadata;
         _packages = packages;
@@ -90,6 +97,7 @@ public sealed class StewardWorldStorage : IWorldStorage
         _authority = authority;
         _accessTokens = accessTokens;
         _reservations = reservations;
+        _recovery = recovery;
         _options = options ?? StewardWorldStorageOptions.FirstReleaseDefaults;
     }
 
@@ -194,6 +202,8 @@ public sealed class StewardWorldStorage : IWorldStorage
         ArgumentNullException.ThrowIfNull(package);
 
         var lease = RequireLease(revision.WorldId);
+        await JournalCandidateAsync(revision, lease, cancellationToken);
+
         var accessToken = await _accessTokens.GetAccessTokenAsync(cancellationToken);
         var result = await _uploads.UploadAsync(
             revision.WorldId,
@@ -360,6 +370,48 @@ public sealed class StewardWorldStorage : IWorldStorage
             default:
                 throw new InvalidOperationException("Unexpected canonical commit status.");
         }
+    }
+
+    private async Task JournalCandidateAsync(
+        StateRevision revision,
+        StewardWritableReservationLease lease,
+        CancellationToken cancellationToken)
+    {
+        var records = await _recovery.ListAsync(cancellationToken);
+        var record = records
+            .Where(candidate =>
+                candidate.WorldId == revision.WorldId &&
+                candidate.BaseStateRevisionId == lease.StartingHead.StateRevisionId &&
+                candidate.Status is WorkspaceRecoveryStatus.Active or WorkspaceRecoveryStatus.RecoveryPending)
+            .OrderBy(candidate => candidate.CreatedAt)
+            .ThenBy(candidate => candidate.Id.ToString(), StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (record is null)
+        {
+            throw new StewardWorldStorageException(
+                "RecoveryJournalMissing",
+                "Candidate publication was blocked because no matching writable workspace recovery journal exists.");
+        }
+
+        if (record.CandidateStateRevisionId is { } existingCandidate)
+        {
+            if (existingCandidate != revision.Id)
+            {
+                throw new StewardWorldStorageException(
+                    "RecoveryCandidateConflict",
+                    $"Workspace recovery already tracks candidate '{existingCandidate}', so candidate '{revision.Id}' cannot replace it.");
+            }
+
+            return;
+        }
+
+        await _recovery.SaveAsync(
+            record with
+            {
+                CandidateStateRevisionId = revision.Id,
+                UpdatedAt = DateTimeOffset.UtcNow
+            },
+            cancellationToken);
     }
 
     private StewardWritableReservationLease RequireLease(WorldId worldId)

@@ -36,23 +36,14 @@ public sealed class SharedWorldReservationAbandonService
     }
 
     public Task<AbandonSharedWorldReservationStatus> AbandonAsync(
-        ExternalIdentityRef caller,
+        VerifiedExternalIdentity caller,
         WorldId worldId,
         string installationId,
         Guid sessionId,
         long generation,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(caller.Provider))
-        {
-            throw new ArgumentException("Identity provider is required.", nameof(caller));
-        }
-
-        if (string.IsNullOrWhiteSpace(caller.ExternalId))
-        {
-            throw new ArgumentException("External identity ID is required.", nameof(caller));
-        }
-
+        ArgumentNullException.ThrowIfNull(caller);
         if (worldId.Value == Guid.Empty)
         {
             throw new ArgumentException("World ID is required.", nameof(worldId));
@@ -70,7 +61,7 @@ public sealed class SharedWorldReservationAbandonService
         }
 
         return _store.AbandonAsync(
-            caller,
+            caller.Subject,
             worldId,
             installationId,
             sessionId,

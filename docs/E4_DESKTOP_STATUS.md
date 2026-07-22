@@ -1,6 +1,6 @@
 # E4 Windows Desktop Remote Composition Status
 
-Status: **CODE COMPOSITION + PENDING-SYNC RECOVERY COMPLETE AND CI GREEN; LIVE STEAM/BACKEND ACCEPTANCE STILL REQUIRED.**
+Status: **CODE COMPOSITION + DETERMINISTIC SYNC/CLEANUP RECOVERY COMPLETE AND CI GREEN; LIVE STEAM/BACKEND ACCEPTANCE STILL REQUIRED.**
 
 This checkpoint records the point where the production Windows Desktop stopped being structurally local-only. The existing `Only on this PC` path remains local, while authenticated shared Worlds can now use the same remote storage, authority, transfer, commit, and recovery components already proven by BE-5.
 
@@ -19,9 +19,10 @@ The authenticated shared-World runtime owns and connects:
 - `StewardWorldStorage`;
 - one `ManagedWritableSessionGate` shared by normal lifecycle and pending-sync recovery;
 - `WorldLifecycleService`;
-- `StewardPendingSyncRecoveryService`.
+- `StewardPendingSyncRecoveryService`;
+- `WorkspaceCleanupRecoveryService` for cleanup-only responsibility.
 
-Desktop owns those resources through `StewardDesktopRemoteRuntime` and disposes them when the window/runtime ends.
+Desktop owns remote resources through `StewardDesktopRemoteRuntime` and disposes them when the window/runtime ends.
 
 ## Local and shared Worlds use different authoritative paths
 
@@ -89,7 +90,7 @@ With none configured, Steward stays local-only. Partial/invalid configuration fa
 
 ## Desktop pending-sync recovery
 
-The existing deterministic `StewardPendingSyncRecoveryService` is now connected to the Desktop recovery surface.
+The deterministic `StewardPendingSyncRecoveryService` is connected to the Desktop responsibility surface.
 
 For the selected authenticated shared World, `Retry sync` is exposed only from unresolved recovery responsibility. Before invoking the service Desktop confirms a matching `RecoveryPending` journal exists. The service remains the authority for reconciliation:
 
@@ -113,9 +114,39 @@ canonical != base && canonical != candidate
 
 Recovery journal reads and retries execute inside the normal Desktop operation boundary so UI exceptions do not escape an async event handler.
 
-`WorldLifecycleResponsibilityTracker.InitializeFromRecoveryRecords` now reconciles both directions: durable recovery evidence creates the tray/Quit/action guard, and removal of the final durable record clears a stale recovery guard. `CleanupPending` remains guarded. Core tests cover `RecoveryPending`, journal removal, `CleanupPending`, and crash-found `Active` records.
+`WorldLifecycleResponsibilityTracker.InitializeFromRecoveryRecords` reconciles both directions: durable recovery evidence creates the tray/Quit/action guard, and removal of the final durable record clears a stale recovery guard. `CleanupPending` remains guarded. Core tests cover `RecoveryPending`, journal removal, `CleanupPending`, and crash-found `Active` records.
 
 After every pending-sync attempt Desktop re-reads the durable recovery journal and refreshes tray status, quit guard, responsibility banner, managed-game tiles, and writable actions. A successful recovery therefore cannot leave the process incorrectly stuck in `Recovery needed`.
+
+## Desktop cleanup-only recovery
+
+`CleanupPending` is now a separate explicit recovery path rather than being treated as a sync failure.
+
+The responsibility banner exposes `Retry cleanup` only for the World that owns cleanup responsibility and only when that World has an authoritative runtime. The Core cleanup service is intentionally incapable of capture, upload, canonical commit, head mutation, or reservation acquisition.
+
+New workspace journals record the exact immutable `EnvironmentRevisionId` that created the prepared workspace. Cleanup uses that exact environment metadata when reconstructing adapter-owned cleanup context; it never substitutes the World's later current environment.
+
+```text
+CleanupPending + workspace exists
+    -> exact journaled EnvironmentRevisionId required
+    -> local game installation required
+    -> load that immutable environment revision
+    -> adapter FinalizePreparedWorldAsync(...Discard)
+    -> remove recovery journal only after cleanup succeeds
+
+CleanupPending + workspace already gone
+    -> no game installation or environment load required
+    -> remove stale cleanup journal
+
+legacy CleanupPending + workspace exists + no EnvironmentRevisionId
+    -> fail closed
+    -> preserve workspace + journal
+    -> never guess an environment
+```
+
+If adapter cleanup fails, the workspace and recovery evidence remain. If only journal removal fails, `CleanupPending` remains visible and retryable. Core tests prove exact-environment selection, journal-only cleanup, rejection of `RecoveryPending`, cleanup failure preservation, and fail-closed handling of older journals without an exact environment ID.
+
+Crash-found `Active` remains deliberately different: after a process restart Steward cannot prove whether gameplay started or whether a safe capture point was reached. It stays `Recovery needed`; Steward does not auto-recapture, auto-commit, or delete that evidence.
 
 ## Failure behavior
 
@@ -145,9 +176,11 @@ The follow-up robustness commit `6affc5536a3b17c331aca13cf91f5af7a2c4ff74` also 
 
 The Desktop pending-sync recovery + responsibility reconciliation checkpoint is commit `560a66e7a5d6e6fc2170f9f643b42cd9d1132e41`; GitHub Actions run `29929981444` passed Quality, Ubuntu, Windows, PostgreSQL, and S3-compatible integration.
 
+The exact-environment cleanup recovery checkpoint is commit `a796734c746829a39caa30a26e93d162b70e6c21`; GitHub Actions run `29931448332` passed the complete five-gate matrix: Quality, Ubuntu, Windows, PostgreSQL, and S3-compatible integration.
+
 ## What E4 still needs before product acceptance
 
-Code composition and the Waiting-to-sync retry path are no longer the main gap. The remaining E4 acceptance work is evidence from the actual deployment boundary:
+The remaining E4 acceptance gap is primarily evidence at the actual deployment boundary:
 
 ```text
 real Windows Steward build launched under Steward's Steam AppID
@@ -163,6 +196,6 @@ real Windows Steward build launched under Steward's Steam AppID
 -> second installation observes the new canonical revision
 ```
 
-Broader recovery UX still needs explicit treatment for a crash-found `Active` record and for `CleanupPending`; those states must keep preserving evidence and must not be mislabeled as a safe pending-sync retry.
+Crash-found `Active` recovery still needs a deliberately conservative user-facing decision path. Until Steward can prove more, preserved evidence remains guarded rather than being automatically captured, committed, or discarded.
 
-Palworld shared play remains fail-closed until its adapter has a real exact-environment verifier. Factorio hosted-server readiness remains a separate adapter acceptance item and should ultimately prove the authoritative server process is actually ready, not merely that a launcher process started.
+Palworld shared play remains fail-closed until its adapter has a real exact-environment verifier. Factorio hosted-server readiness remains a separate adapter acceptance item and should prove the authoritative server process is actually ready, not merely that a launcher process started.

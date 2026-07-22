@@ -1,5 +1,6 @@
 using System.IO;
 using System.IO.Compression;
+using System.Windows;
 using Microsoft.Win32;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Worlds;

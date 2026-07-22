@@ -45,7 +45,7 @@ Scaleway `fr-par` is the first deployment shape to test, not an approved long-te
 
 Current official documentation confirms the pieces needed for the disposable acceptance environment:
 
-- Serverless Containers accepts ordinary container images, injects a `PORT` environment variable, supports secret environment variables, health checks, and VPC/private-network integration;
+- Serverless Containers accepts ordinary container images, injects a `PORT` environment variable, supports secret environment variables, health checks, configurable min/max scaling, and VPC/private-network integration;
 - Managed PostgreSQL is available in the Paris `fr-par` region;
 - Object Storage exposes an S3-compatible Paris endpoint at `https://s3.fr-par.scw.cloud/` with region `fr-par`.
 
@@ -53,6 +53,7 @@ References:
 
 - https://www.scaleway.com/en/docs/serverless-containers/reference-content/port-parameter-variable/
 - https://www.scaleway.com/en/docs/serverless-containers/concepts/
+- https://www.scaleway.com/en/docs/serverless-containers/reference-content/containers-autoscaling/
 - https://www.scaleway.com/en/docs/serverless-containers/how-to/manage-a-container/
 - https://www.scaleway.com/en/developers/api/managed-database-postgre-mysql
 - https://www.scaleway.com/en/docs/object-storage/concepts/
@@ -64,6 +65,21 @@ containerized ASP.NET API
 + PostgreSQL
 + S3-compatible private object storage
 ```
+
+### Acceptance scaling rule
+
+For the first E4 deployment set:
+
+```text
+min scale = 1
+max scale = 1
+```
+
+This is deliberate, not a permanent scalability limit.
+
+`Backend.Api` currently contains periodic cleanup hosted services. A scale-to-zero deployment would suspend that periodic work while no instance exists, and multiple replicas would run multiple cleanup loops. PostgreSQL authority itself is designed for concurrent API processes, but E4 is not the milestone to introduce another deployment variable while proving the first real handoff.
+
+After live acceptance we can separately prove multi-instance cleanup behavior or move periodic maintenance to an explicit scheduled worker before raising max scale. Until then, one always-available acceptance replica removes an unnecessary variable.
 
 ## Backend image
 
@@ -83,7 +99,7 @@ The runtime image:
 - defaults to port `8080` locally;
 - honors a platform-provided `PORT` value after validating `1..65535`.
 
-CI builds the exact Dockerfile so deployment packaging cannot silently drift away from the normal code matrix.
+CI builds the exact Dockerfile and starts it against a real disposable PostgreSQL service, then requires both health probes to succeed. Deployment packaging therefore cannot silently drift away from the normal code matrix.
 
 ## Health boundary
 
@@ -160,8 +176,9 @@ For the acceptance environment:
 4. keep the database non-public where the selected container/network configuration can reach it privately;
 5. require HTTPS for the public Backend.Api endpoint;
 6. inject credentials through provider secrets only;
-7. collect application/container/database logs without logging Steam tickets, refresh credentials, object-storage secrets, RCON passwords, game passwords, or World contents;
-8. delete disposable users/credentials/resources after acceptance evidence is recorded.
+7. run one always-available API replica for the first acceptance proof;
+8. collect application/container/database logs without logging Steam tickets, refresh credentials, object-storage secrets, RCON passwords, game passwords, or World contents;
+9. delete disposable users/credentials/resources after acceptance evidence is recorded.
 
 ## Acceptance bootstrap
 
@@ -172,7 +189,7 @@ Before opening Steward on either test PC:
 2. Private S3-compatible bucket exists.
 3. Scoped object-storage credentials exist.
 4. Real Steward Steam AppID / publisher key / Web API identity are available.
-5. Backend image is deployed.
+5. Backend image is deployed with min scale = max scale = 1.
 6. GET /health/live -> 200.
 7. GET /health/ready -> 200.
 8. Desktop A and B receive the three STEWARD_* deployment variables.

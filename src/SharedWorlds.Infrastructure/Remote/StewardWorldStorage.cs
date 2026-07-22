@@ -89,7 +89,8 @@ public sealed class StewardWorldStorage : IWorldStorage
             accessTokens,
             reservations,
             recovery: null,
-            options)
+            options,
+            allowMissingRecovery: true)
     {
     }
 
@@ -109,10 +110,10 @@ public sealed class StewardWorldStorage : IWorldStorage
             authority,
             accessTokens,
             reservations,
-            (IWorkspaceRecoveryStore?)recovery,
-            options)
+            recovery,
+            options,
+            allowMissingRecovery: false)
     {
-        ArgumentNullException.ThrowIfNull(recovery);
     }
 
     private StewardWorldStorage(
@@ -123,7 +124,8 @@ public sealed class StewardWorldStorage : IWorldStorage
         IStewardAccessTokenProvider accessTokens,
         StewardWritableReservationRegistry reservations,
         IWorkspaceRecoveryStore? recovery,
-        StewardWorldStorageOptions? options)
+        StewardWorldStorageOptions? options,
+        bool allowMissingRecovery)
     {
         ArgumentNullException.ThrowIfNull(metadata);
         ArgumentNullException.ThrowIfNull(packages);
@@ -131,6 +133,10 @@ public sealed class StewardWorldStorage : IWorldStorage
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(accessTokens);
         ArgumentNullException.ThrowIfNull(reservations);
+        if (!allowMissingRecovery)
+        {
+            ArgumentNullException.ThrowIfNull(recovery);
+        }
 
         _metadata = metadata;
         _packages = packages;

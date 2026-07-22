@@ -8,6 +8,8 @@ namespace SharedWorlds.Desktop;
 
 public partial class MainWindow
 {
+    private const string WorldSearchPlaceholder = "Search Worlds";
+
     private readonly TextBox _worldSearchBox = new()
     {
         MinHeight = 34,
@@ -19,6 +21,7 @@ public partial class MainWindow
     };
     private DependencyPropertyDescriptor? _worldItemsSourceDescriptor;
     private bool _worldSearchUiInitialized;
+    private bool _worldSearchShowingPlaceholder;
 
     internal void InitializeWorldSearchUi()
     {
@@ -28,7 +31,7 @@ public partial class MainWindow
         }
 
         _worldSearchUiInitialized = true;
-        AutomationProperties.SetName(_worldSearchBox, "Search Worlds");
+        AutomationProperties.SetName(_worldSearchBox, WorldSearchPlaceholder);
         _worldSearchBox.SetResourceReference(Control.BackgroundProperty, "PanelAltBrush");
         _worldSearchBox.SetResourceReference(Control.ForegroundProperty, "TextBrush");
         _worldSearchBox.SetResourceReference(Control.BorderBrushProperty, "BorderBrush");
@@ -48,6 +51,8 @@ public partial class MainWindow
         }
 
         _worldSearchBox.TextChanged += (_, _) => ApplyWorldSearchFilter();
+        _worldSearchBox.GotKeyboardFocus += (_, _) => ClearWorldSearchPlaceholder();
+        _worldSearchBox.LostKeyboardFocus += (_, _) => RestoreWorldSearchPlaceholder();
         _worldItemsSourceDescriptor = DependencyPropertyDescriptor.FromProperty(
             ItemsControl.ItemsSourceProperty,
             typeof(ListBox));
@@ -55,7 +60,32 @@ public partial class MainWindow
             WorldList,
             (_, _) => ApplyWorldSearchFilter());
 
+        RestoreWorldSearchPlaceholder();
         ApplyWorldSearchFilter();
+    }
+
+    private void ClearWorldSearchPlaceholder()
+    {
+        if (!_worldSearchShowingPlaceholder)
+        {
+            return;
+        }
+
+        _worldSearchShowingPlaceholder = false;
+        _worldSearchBox.Text = string.Empty;
+        _worldSearchBox.Opacity = 1;
+    }
+
+    private void RestoreWorldSearchPlaceholder()
+    {
+        if (_worldSearchShowingPlaceholder || !string.IsNullOrWhiteSpace(_worldSearchBox.Text))
+        {
+            return;
+        }
+
+        _worldSearchShowingPlaceholder = true;
+        _worldSearchBox.Text = WorldSearchPlaceholder;
+        _worldSearchBox.Opacity = 0.7;
     }
 
     private void ApplyWorldSearchFilter()
@@ -80,7 +110,7 @@ public partial class MainWindow
         }
 
         WorldList.SelectedItem = view.Cast<object>().FirstOrDefault();
-        if (WorldList.SelectedItem is null && !string.IsNullOrWhiteSpace(_worldSearchBox.Text))
+        if (WorldList.SelectedItem is null && GetWorldSearchQuery().Length > 0)
         {
             _selectedWorld = null;
             EmptyStateText.Text = "No managed Worlds match this search.";
@@ -98,7 +128,7 @@ public partial class MainWindow
             return false;
         }
 
-        var query = _worldSearchBox.Text.Trim();
+        var query = GetWorldSearchQuery();
         if (query.Length == 0)
         {
             return true;
@@ -107,4 +137,7 @@ public partial class MainWindow
         return world.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
                world.GameName.Contains(query, StringComparison.OrdinalIgnoreCase);
     }
+
+    private string GetWorldSearchQuery()
+        => _worldSearchShowingPlaceholder ? string.Empty : _worldSearchBox.Text.Trim();
 }

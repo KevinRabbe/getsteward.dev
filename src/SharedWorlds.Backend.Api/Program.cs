@@ -60,8 +60,11 @@ builder.Services.AddSingleton<PostgreSqlSharedWorldAuthorityStore>();
 builder.Services.AddSingleton(services => new PostgreSqlIdempotentSharedWorldAuthorityStore(
     services.GetRequiredService<NpgsqlDataSource>(),
     services.GetRequiredService<PostgreSqlSharedWorldAuthorityStore>()));
+builder.Services.AddSingleton(services => new PostgreSqlIdempotentReservationAuthorityStore(
+    services.GetRequiredService<NpgsqlDataSource>(),
+    services.GetRequiredService<PostgreSqlIdempotentSharedWorldAuthorityStore>()));
 builder.Services.AddSingleton<ISharedWorldAuthorityStore>(services =>
-    services.GetRequiredService<PostgreSqlIdempotentSharedWorldAuthorityStore>());
+    services.GetRequiredService<PostgreSqlIdempotentReservationAuthorityStore>());
 builder.Services.AddSingleton<ISharedWorldResponsibilityInspector>(services =>
     services.GetRequiredService<PostgreSqlSharedWorldAuthorityStore>());
 

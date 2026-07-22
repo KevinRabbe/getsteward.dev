@@ -181,4 +181,11 @@ public partial class MainWindow : Window
         var path = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         return string.IsNullOrWhiteSpace(path) ? Path.GetTempPath() : path;
     }
+
+    private static void ShowError(string title, Exception exception)
+        => MessageBox.Show(
+            exception.Message,
+            title,
+            MessageBoxButton.OK,
+            MessageBoxImage.Error);
 }

@@ -19,27 +19,27 @@ public partial class MainWindow
             return;
         }
 
-        var records = await _workspaceRecoveryStore.ListAsync();
-        var pending = records
-            .Where(record =>
-                record.WorldId == world.Id &&
-                record.Status == WorkspaceRecoveryStatus.RecoveryPending)
-            .OrderBy(record => record.CreatedAt)
-            .ThenBy(record => record.Id.ToString(), StringComparer.Ordinal)
-            .FirstOrDefault();
-        if (pending is null)
-        {
-            StatusText.Text =
-                "This recovery is not a pending-sync retry. Steward left its evidence untouched for the appropriate recovery path.";
-            return;
-        }
-
         await RunOperationAsync(
             $"Reconciling pending sync for {world.Name}...",
             async () =>
             {
                 try
                 {
+                    var records = await _workspaceRecoveryStore.ListAsync();
+                    var pending = records
+                        .Where(record =>
+                            record.WorldId == world.Id &&
+                            record.Status == WorkspaceRecoveryStatus.RecoveryPending)
+                        .OrderBy(record => record.CreatedAt)
+                        .ThenBy(record => record.Id.ToString(), StringComparer.Ordinal)
+                        .FirstOrDefault();
+                    if (pending is null)
+                    {
+                        StatusText.Text =
+                            "This recovery is not a pending-sync retry. Steward left its evidence untouched for the appropriate recovery path.";
+                        return;
+                    }
+
                     var installation = await GetGameInstallationAsync(adapter);
                     var updated = await remote.PendingSyncRecovery.RetryAsync(
                         world.Id,

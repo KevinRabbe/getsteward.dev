@@ -1,3 +1,4 @@
+using System.Net.Http;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Worlds;
@@ -170,7 +171,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         }
 
         var absolute = apiBaseAddress.AbsoluteUri;
-        return absolute.EndsWith('/', StringComparison.Ordinal)
+        return absolute.EndsWith("/", StringComparison.Ordinal)
             ? apiBaseAddress
             : new Uri(absolute + '/', UriKind.Absolute);
     }

@@ -174,17 +174,27 @@ public static class PostgreSqlBackendSchema
             part_count integer NOT NULL CHECK (part_count > 0),
             created_at timestamptz NOT NULL,
             expires_at timestamptz NOT NULL,
-            state smallint NOT NULL CHECK (state IN (0, 1, 2, 3, 4)),
+            state smallint NOT NULL CHECK (state IN (0, 1, 2, 3, 4, 5)),
             finalized_at timestamptz NULL,
             FOREIGN KEY (world_id, required_environment_revision_id)
                 REFERENCES steward_environment_revisions(world_id, revision_id)
         );
+
+        ALTER TABLE steward_package_transfers
+            DROP CONSTRAINT IF EXISTS steward_package_transfers_state_check;
+        ALTER TABLE steward_package_transfers
+            ADD CONSTRAINT steward_package_transfers_state_check
+            CHECK (state IN (0, 1, 2, 3, 4, 5));
 
         CREATE INDEX IF NOT EXISTS ix_steward_package_transfers_owner
             ON steward_package_transfers(owner_provider, owner_external_id, state);
 
         CREATE INDEX IF NOT EXISTS ix_steward_package_transfers_expiry
             ON steward_package_transfers(state, expires_at);
+
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_steward_package_transfers_inflight_object
+            ON steward_package_transfers(object_key)
+            WHERE state IN (0, 5);
 
         CREATE TABLE IF NOT EXISTS steward_object_cleanup_queue (
             object_key text PRIMARY KEY,

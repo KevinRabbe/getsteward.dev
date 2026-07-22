@@ -74,8 +74,8 @@ public partial class MainWindow
         }
         catch (Exception exception) when (IsRemoteAvailabilityFailure(exception))
         {
-            // A shared-service outage must not make private local Worlds unusable. Keep the local
-            // library available and surface the remote failure in the status line instead.
+            // A shared-service outage or invalid remote response must not make private local Worlds
+            // unusable. Keep the local library available and surface shared Worlds as unavailable.
             _lastRemoteWorldLoadError = exception;
             return localWorlds;
         }
@@ -155,10 +155,22 @@ public partial class MainWindow
         World world,
         RevisionId revisionId,
         CancellationToken cancellationToken = default)
-        => await GetStorageForWorld(world).LoadEnvironmentRevisionAsync(
-            world.Id,
-            revisionId,
-            cancellationToken);
+    {
+        try
+        {
+            return await GetStorageForWorld(world).LoadEnvironmentRevisionAsync(
+                world.Id,
+                revisionId,
+                cancellationToken);
+        }
+        catch (Exception exception) when (
+            _remoteWorldIds.Contains(world.Id) &&
+            IsRemoteAvailabilityFailure(exception))
+        {
+            _lastRemoteWorldLoadError ??= exception;
+            return null;
+        }
+    }
 
     private void DisposeRemoteRuntime()
     {
@@ -170,7 +182,9 @@ public partial class MainWindow
     private static bool IsRemoteAvailabilityFailure(Exception exception)
         => exception is StewardSessionExpiredException or
             StewardRemoteApiException or
+            StewardWorldStorageException or
             HttpRequestException or
+            InvalidDataException or
             IOException or
             TimeoutException;
 }

@@ -48,9 +48,7 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
             switch (change.Phase)
             {
                 case WorldLifecyclePhase.Completed:
-                    _kind = WorldLifecycleResponsibilityKind.None;
-                    _worldId = null;
-                    _phase = null;
+                    Clear();
                     break;
 
                 case WorldLifecyclePhase.RecoveryNeeded:
@@ -78,8 +76,9 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
     }
 
     /// <summary>
-    /// Must run during startup before affected Worlds are presented as Ready. Durable recovery
-    /// evidence wins over an in-memory idle default after a previous crash/restart.
+    /// Reconciles the in-memory responsibility signal with durable recovery evidence while no normal
+    /// lifecycle is being supervised. Startup uses this before Worlds are presented; recovery UI uses
+    /// the same operation after a recovery attempt changes or removes the journal.
     /// </summary>
     public void InitializeFromRecoveryRecords(IEnumerable<WorkspaceRecoveryRecord> records)
     {
@@ -94,6 +93,7 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
 
             if (selected is null)
             {
+                Clear();
                 return;
             }
 
@@ -119,6 +119,13 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
                     break;
             }
         }
+    }
+
+    private void Clear()
+    {
+        _kind = WorldLifecycleResponsibilityKind.None;
+        _worldId = null;
+        _phase = null;
     }
 
     private WorldLifecycleResponsibilitySnapshot CreateSnapshot()

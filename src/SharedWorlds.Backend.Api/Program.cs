@@ -57,13 +57,13 @@ builder.Services.AddSingleton<ISharedRevisionMetadataStore>(services =>
     services.GetRequiredService<PostgreSqlSharedWorldStore>());
 
 builder.Services.AddSingleton<PostgreSqlSharedWorldAuthorityStore>();
-builder.Services.AddSingleton<ISharedWorldAuthorityStore>(services =>
-    services.GetRequiredService<PostgreSqlSharedWorldAuthorityStore>());
-builder.Services.AddSingleton<ISharedWorldResponsibilityInspector>(services =>
-    services.GetRequiredService<PostgreSqlSharedWorldAuthorityStore>());
 builder.Services.AddSingleton(services => new PostgreSqlIdempotentSharedWorldAuthorityStore(
     services.GetRequiredService<NpgsqlDataSource>(),
     services.GetRequiredService<PostgreSqlSharedWorldAuthorityStore>()));
+builder.Services.AddSingleton<ISharedWorldAuthorityStore>(services =>
+    services.GetRequiredService<PostgreSqlIdempotentSharedWorldAuthorityStore>());
+builder.Services.AddSingleton<ISharedWorldResponsibilityInspector>(services =>
+    services.GetRequiredService<PostgreSqlSharedWorldAuthorityStore>());
 
 builder.Services.AddSingleton<PostgreSqlStewardSessionStore>();
 builder.Services.AddSingleton<IStewardSessionStore>(services =>

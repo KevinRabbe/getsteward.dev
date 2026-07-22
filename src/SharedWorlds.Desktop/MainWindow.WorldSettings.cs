@@ -37,10 +37,10 @@ public partial class MainWindow
             return;
         }
 
-        if (_remoteWorldIds.Contains(world.Id))
+        if (world.SharingMode == WorldSharingMode.Shared)
         {
-            // Remote environment transitions need their own reviewed backend operation; do not route a
-            // settings click through gameplay commit authority just to mutate desktop metadata.
+            // Shared environment transitions need their own reviewed backend operation; do not route a
+            // settings click through gameplay commit authority or mutate a disconnected legacy copy.
             KeepExactGameVersionCheckBox.IsChecked = true;
             StatusText.Text =
                 "Shared Worlds stay on their current canonical environment until the explicit remote update flow is connected.";
@@ -82,12 +82,13 @@ public partial class MainWindow
             return;
         }
 
-        if (_remoteWorldIds.Contains(world.Id))
+        if (world.SharingMode == WorldSharingMode.Shared)
         {
             KeepExactGameVersionCheckBox.IsChecked = true;
             KeepExactGameVersionCheckBox.IsEnabled = false;
-            GameVersionPolicyText.Text =
-                "This shared World uses its canonical Steward environment. Environment upgrades remain explicit and are not changed by a local checkbox.";
+            GameVersionPolicyText.Text = HasAuthoritativeRuntimeForWorld(world)
+                ? "This shared World uses its canonical Steward environment. Environment upgrades remain explicit and are not changed by a local checkbox."
+                : "This is a shared World record, but authenticated Steward authority is not connected. Its environment policy cannot be changed locally.";
             return;
         }
 

@@ -37,6 +37,16 @@ public partial class MainWindow
             return;
         }
 
+        if (_remoteWorldIds.Contains(world.Id))
+        {
+            // Remote environment transitions need their own reviewed backend operation; do not route a
+            // settings click through gameplay commit authority just to mutate desktop metadata.
+            KeepExactGameVersionCheckBox.IsChecked = true;
+            StatusText.Text =
+                "Shared Worlds stay on their current canonical environment until the explicit remote update flow is connected.";
+            return;
+        }
+
         var nextPolicy = world.GameVersionPolicy == WorldGameVersionPolicy.KeepExact
             ? WorldGameVersionPolicy.AllowUpdateCandidates
             : WorldGameVersionPolicy.KeepExact;
@@ -47,7 +57,7 @@ public partial class MainWindow
                 : $"Allowing update candidates for {world.Name}...",
             async () =>
             {
-                var settings = new WorldSettingsService(_storage);
+                var settings = new WorldSettingsService(GetStorageForWorld(world));
                 var updated = await settings.SetGameVersionPolicyAsync(world.Id, nextPolicy);
                 _selectedWorld = updated;
 
@@ -67,12 +77,23 @@ public partial class MainWindow
         if (world is null)
         {
             KeepExactGameVersionCheckBox.IsChecked = false;
+            KeepExactGameVersionCheckBox.IsEnabled = false;
             GameVersionPolicyText.Text = string.Empty;
+            return;
+        }
+
+        if (_remoteWorldIds.Contains(world.Id))
+        {
+            KeepExactGameVersionCheckBox.IsChecked = true;
+            KeepExactGameVersionCheckBox.IsEnabled = false;
+            GameVersionPolicyText.Text =
+                "This shared World uses its canonical Steward environment. Environment upgrades remain explicit and are not changed by a local checkbox.";
             return;
         }
 
         var keepExact = world.GameVersionPolicy == WorldGameVersionPolicy.KeepExact;
         KeepExactGameVersionCheckBox.IsChecked = keepExact;
+        KeepExactGameVersionCheckBox.IsEnabled = !_isBusy;
         GameVersionPolicyText.Text = keepExact
             ? "SharedWorlds treats the current exact environment as known-good and ignores newer game versions for this World."
             : "Newer versions may be offered only as explicit update candidates. The current environment stays known-good until a tested candidate is accepted.";

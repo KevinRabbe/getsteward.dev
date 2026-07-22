@@ -38,6 +38,7 @@ public partial class MainWindow : Window
         _deviceSettingsStore = new DeviceSettingsStore(
             Path.Combine(sharedWorldsRoot, "settings", "device.json"));
 
+        Closed += (_, _) => DisposeRemoteRuntime();
         InitializeTray();
     }
 
@@ -146,6 +147,8 @@ public partial class MainWindow : Window
         WorldList.IsEnabled = !isBusy;
         UpdateUnifiedActionState();
         UpdateUnifiedImportActionState();
+        UpdateWorldVersionPolicyUi();
+        UpdateEnvironmentReadinessUi();
     }
 
     private void UpdateHostingPreferenceText()

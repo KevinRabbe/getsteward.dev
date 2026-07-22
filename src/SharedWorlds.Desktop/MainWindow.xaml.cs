@@ -12,6 +12,8 @@ namespace SharedWorlds.Desktop;
 public partial class MainWindow : Window
 {
     private readonly IWorldStorage _storage;
+    private readonly LocalWorldSessionCoordinator _localSessionCoordinator;
+    private readonly ManagedWritableSessionGate _localManagedSessionGate;
     private readonly WorldLifecycleService _lifecycle;
     private readonly DeviceSettingsStore _deviceSettingsStore;
 
@@ -30,11 +32,13 @@ public partial class MainWindow : Window
         var storageRoot = Path.Combine(sharedWorldsRoot, "data");
         _storage = new LocalWorldStorage(storageRoot);
         _workspaceRecoveryStore = new LocalWorkspaceRecoveryStore(storageRoot);
+        _localSessionCoordinator = new LocalWorldSessionCoordinator();
+        _localManagedSessionGate = new ManagedWritableSessionGate();
         _lifecycle = new WorldLifecycleService(
             _storage,
-            new LocalWorldSessionCoordinator(),
+            _localSessionCoordinator,
             _workspaceRecoveryStore,
-            new ManagedWritableSessionGate(),
+            _localManagedSessionGate,
             CreateDesktopLifecycleObserver());
         _deviceSettingsStore = new DeviceSettingsStore(
             Path.Combine(sharedWorldsRoot, "settings", "device.json"));
@@ -177,11 +181,4 @@ public partial class MainWindow : Window
         var path = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         return string.IsNullOrWhiteSpace(path) ? Path.GetTempPath() : path;
     }
-
-    private static void ShowError(string title, Exception exception)
-        => MessageBox.Show(
-            exception.Message,
-            title,
-            MessageBoxButton.OK,
-            MessageBoxImage.Error);
 }

@@ -21,19 +21,19 @@ public partial class MainWindow
             return;
         }
 
-        if (!SteamWebApiTicketSource.TryCreate(
-                configuration!.SteamAppId,
-                out var ticketSource,
-                out var steamProblem))
-        {
-            StatusText.Text =
-                $"Shared Worlds are unavailable on this launch. {steamProblem} Local Worlds remain available.";
-            return;
-        }
-
         StatusText.Text = "Authenticating Steward with Steam...";
         try
         {
+            if (!SteamWebApiTicketSource.TryCreate(
+                    configuration!.SteamAppId,
+                    out var ticketSource,
+                    out var steamProblem))
+            {
+                StatusText.Text =
+                    $"Shared Worlds are unavailable on this launch. {steamProblem} Local Worlds remain available.";
+                return;
+            }
+
             using var steamTickets = ticketSource!;
             using var ticket = await steamTickets.RequestAsync(
                 configuration.SteamWebApiIdentity,
@@ -62,7 +62,9 @@ public partial class MainWindow
                 authentication.Tokens,
                 ticket.User,
                 cancellationToken);
-            StatusText.Text = $"Shared Worlds connected as {ticket.User.DisplayName}.";
+            StatusText.Text = _lastRemoteWorldLoadError is null
+                ? $"Shared Worlds connected as {ticket.User.DisplayName}."
+                : "Steward authenticated successfully, but shared Worlds are temporarily unavailable. Local Worlds remain available.";
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

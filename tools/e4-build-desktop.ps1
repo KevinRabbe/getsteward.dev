@@ -61,10 +61,26 @@ $desktopExecutable = Join-Path $output 'SharedWorlds.Desktop.exe'
 $steamNative = Join-Path $output 'steam_api64.dll'
 
 if (-not [IO.File]::Exists($desktopExecutable)) {
+    Write-Host 'Published top-level files:'
+    Get-ChildItem -LiteralPath $output -File |
+        Sort-Object Name |
+        ForEach-Object { Write-Host "  $($_.Name)" }
     Fail "Published desktop executable is missing: $desktopExecutable"
 }
 
 if (-not [IO.File]::Exists($steamNative)) {
+    Write-Host 'Steam-related files found in the publish tree:'
+    $steamFiles = Get-ChildItem -LiteralPath $output -Recurse -File |
+        Where-Object { $_.Name -match 'steam' } |
+        Sort-Object FullName
+    if ($steamFiles.Count -eq 0) {
+        Write-Host '  (none)'
+    }
+    else {
+        foreach ($file in $steamFiles) {
+            Write-Host "  $([IO.Path]::GetRelativePath($output, $file.FullName))"
+        }
+    }
     Fail "Published Steam native runtime is missing: $steamNative"
 }
 

@@ -34,41 +34,35 @@ public partial class MainWindow
         StatusText.Text = "Authenticating Steward with Steam...";
         try
         {
-            StewardRemoteSessionTokens tokens;
-            SharedWorlds.Core.Domain.UserIdentity user;
-            using (ticketSource)
-            using (var ticket = await ticketSource!.RequestAsync(
-                       configuration.SteamWebApiIdentity,
-                       cancellationToken))
-            using (var apiClient = new HttpClient
-                   {
-                       BaseAddress = NormalizeBaseAddress(configuration.ApiBaseAddress),
-                       Timeout = TimeSpan.FromSeconds(30)
-                   })
+            using var steamTickets = ticketSource!;
+            using var ticket = await steamTickets.RequestAsync(
+                configuration.SteamWebApiIdentity,
+                cancellationToken);
+            using var apiClient = new HttpClient
             {
-                var sessionClient = new StewardSessionClient(apiClient);
-                var authentication = await sessionClient.AuthenticateSteamAsync(
-                    ticket.TicketHex,
-                    _deviceSettings.InstallationId,
-                    cancellationToken);
-                if (authentication.Status != RemoteSteamAuthenticationStatus.Authenticated ||
-                    authentication.Tokens is null)
-                {
-                    StatusText.Text =
-                        "Steam authentication was rejected by Steward. Local Worlds remain available.";
-                    return;
-                }
+                BaseAddress = NormalizeBaseAddress(configuration.ApiBaseAddress),
+                Timeout = TimeSpan.FromSeconds(30)
+            };
 
-                tokens = authentication.Tokens;
-                user = ticket.User;
+            var sessionClient = new StewardSessionClient(apiClient);
+            var authentication = await sessionClient.AuthenticateSteamAsync(
+                ticket.TicketHex,
+                _deviceSettings.InstallationId,
+                cancellationToken);
+            if (authentication.Status != RemoteSteamAuthenticationStatus.Authenticated ||
+                authentication.Tokens is null)
+            {
+                StatusText.Text =
+                    "Steam authentication was rejected by Steward. Local Worlds remain available.";
+                return;
             }
 
             await SetAuthenticatedRemoteRuntimeAsync(
                 configuration.ApiBaseAddress,
-                tokens,
-                user,
+                authentication.Tokens,
+                ticket.User,
                 cancellationToken);
-            StatusText.Text = $"Shared Worlds connected as {user.DisplayName}.";
+            StatusText.Text = $"Shared Worlds connected as {ticket.User.DisplayName}.";
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

@@ -123,6 +123,60 @@ This protocol client is **not yet evidence that Steward may safely rewrite PalWo
 
 Until that evidence exists, Steward must not replace the current conservative process behavior with an assumed REST configuration.
 
+## REST acceptance instrumentation
+
+The bounded `SharedWorlds.PalworldProbe --rest-acceptance` mode reports the
+dedicated server's REST configuration without rewriting it or printing the
+AdminPassword value. When the configuration gate passes, it starts PalServer,
+probes authenticated `/v1/api/info`, observes the REST listener, requests a
+save, requests graceful shutdown, and measures filesystem stabilization. It
+reports only safe evidence and keeps the password transient in memory.
+
+### Current real-machine observation
+
+On 2026-07-23, the installed server at
+`F:\SteamLibrary\steamapps\common\PalServer` was tested with a temporary
+local REST configuration:
+
+```text
+configPath: F:\SteamLibrary\steamapps\common\PalServer\Pal\Saved\Config\WindowsServer\PalWorldSettings.ini
+configExists: true
+restEnabled: true
+restPort: 8212
+adminPasswordConfigured: true
+configurationReady: true
+productionLifecycleReady: false
+```
+
+The probe selected the newest valid dedicated World because the existing
+configuration did not contain `DedicatedServerName`. PalServer started and
+bound the REST listener on `0.0.0.0:8212`, but all bounded `/v1/api/info`
+attempts returned unauthorized. The probe performed forced cleanup after the
+readiness timeout and therefore did not attempt save or shutdown. No files were
+modified by Steward, and the REST API remains neither production-wired nor
+accepted for lifecycle use. The next concrete acceptance task is to verify the
+temporary AdminPassword value independently, then rerun the same probe.
+
+### Acceptance status categories
+
+```text
+IMPLEMENTED:
+  read-only REST configuration parser and probe reporting
+  existing Palworld REST client for info/save/shutdown
+
+TESTED IN CI:
+  deterministic REST client and configuration parser behavior
+
+OBSERVED ON REAL PALSERVER:
+  installation and dedicated Worlds discovered
+  REST listener observed on 0.0.0.0:8212
+  authenticated REST readiness blocked by unauthorized responses
+  save/shutdown lifecycle not yet observed
+
+PRODUCTION-WIRED:
+  false
+```
+
 ## Capture
 
 The adapter captures the authoritative dedicated-server World directory into a portable package.

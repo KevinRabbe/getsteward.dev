@@ -7,6 +7,8 @@ var hostRequested = args.Any(arg =>
     string.Equals(arg, "--host", StringComparison.OrdinalIgnoreCase));
 var captureRequested = args.Any(arg =>
     string.Equals(arg, "--capture", StringComparison.OrdinalIgnoreCase));
+var restAcceptanceRequested = args.Any(arg =>
+    string.Equals(arg, "--rest-acceptance", StringComparison.OrdinalIgnoreCase));
 
 if (hostRequested && captureRequested)
 {
@@ -20,11 +22,14 @@ var installations = await adapter.DiscoverInstallationsAsync();
 var hostStarted = false;
 var captureCompleted = false;
 var captureBlockedByRunningServer = false;
+var restAcceptanceBlocked = false;
 
 Console.WriteLine(hostRequested
     ? "SharedWorlds Palworld probe (host test)"
     : captureRequested
         ? "SharedWorlds Palworld probe (state capture test)"
+        : restAcceptanceRequested
+            ? "SharedWorlds Palworld probe (REST acceptance configuration)"
         : "SharedWorlds Palworld probe (read-only)");
 Console.WriteLine();
 
@@ -48,6 +53,52 @@ foreach (var installation in installations)
     }
 
     PrintDedicatedServerRuntimeState(installation.Metadata);
+
+    if (restAcceptanceRequested)
+    {
+        string? serverRoot = null;
+        var hasServerRoot = installation.Metadata is not null &&
+            installation.Metadata.TryGetValue(
+                PalworldInstallationDiscovery.DedicatedServerRootPathKey,
+                out serverRoot);
+
+        Console.WriteLine("REST acceptance configuration:");
+        if (!hasServerRoot || string.IsNullOrWhiteSpace(serverRoot))
+        {
+            Console.WriteLine("  productionLifecycleReady: false");
+            Console.WriteLine("  blockingReasons:");
+            Console.WriteLine("    - dedicated server root was not discovered");
+            restAcceptanceBlocked = true;
+        }
+        else
+        {
+            var configuration = PalworldRestAcceptanceConfigurationReader.Read(serverRoot);
+            Console.WriteLine($"  configPath: {configuration.ConfigPath}");
+            Console.WriteLine($"  configExists: {configuration.ConfigExists}");
+            Console.WriteLine($"  restEnabled: {configuration.RestEnabled}");
+            Console.WriteLine($"  restPort: {(configuration.RestPort?.ToString() ?? "(none)")}");
+            Console.WriteLine($"  adminPasswordConfigured: {configuration.AdminPasswordConfigured}");
+            Console.WriteLine($"  selectedWorldId: {configuration.SelectedWorldId ?? "(none)"}");
+            Console.WriteLine($"  configurationReady: {configuration.IsUsable}");
+            if (configuration.BlockingReasons.Count > 0)
+            {
+                Console.WriteLine("  blockingReasons:");
+                foreach (var reason in configuration.BlockingReasons)
+                {
+                    Console.WriteLine($"    - {reason}");
+                }
+
+                restAcceptanceBlocked = true;
+            }
+            else if (!await RunRestAcceptanceAsync(installation, adapter, serverRoot, configuration))
+            {
+                restAcceptanceBlocked = true;
+            }
+        }
+
+        Console.WriteLine();
+        continue;
+    }
 
     var worlds = await adapter.DiscoverWorldsAsync(installation);
     Console.WriteLine($"Detected save Worlds: {worlds.Count}");
@@ -190,6 +241,379 @@ else
 {
     Console.WriteLine("Probe complete. No files were modified.");
 }
+
+if (restAcceptanceRequested && restAcceptanceBlocked)
+{
+    Environment.ExitCode = 2;
+}
+
+static async Task<bool> RunRestAcceptanceAsync(
+    GameInstallation installation,
+    PalworldAdapter adapter,
+    string serverRoot,
+    PalworldRestAcceptanceConfiguration configuration)
+{
+    Console.WriteLine();
+    Console.WriteLine("Palworld REST live acceptance");
+
+    var serverExecutable = installation.Metadata is not null &&
+        installation.Metadata.TryGetValue(
+            PalworldInstallationDiscovery.DedicatedServerExecutablePathKey,
+            out var discoveredExecutable)
+        ? discoveredExecutable
+        : null;
+    if (string.IsNullOrWhiteSpace(serverExecutable) || !File.Exists(serverExecutable))
+    {
+        Console.WriteLine("  blockingReasons: PalServer.exe was not discovered.");
+        return false;
+    }
+
+    var worlds = await adapter.DiscoverWorldsAsync(installation);
+    var selectedWorld = !string.IsNullOrWhiteSpace(configuration.SelectedWorldId)
+        ? worlds.FirstOrDefault(world =>
+            world.Id.EndsWith(":" + configuration.SelectedWorldId, StringComparison.OrdinalIgnoreCase) &&
+            world.Id.StartsWith("dedicated:", StringComparison.OrdinalIgnoreCase))
+        : worlds
+            .Where(world => world.Id.StartsWith("dedicated:", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(world => GetLastWriteTimeUtcSafe(Path.Combine(world.SourcePath, "Level.sav")))
+            .FirstOrDefault();
+    if (selectedWorld is null ||
+        !Directory.Exists(selectedWorld.SourcePath) ||
+        !File.Exists(Path.Combine(selectedWorld.SourcePath, "Level.sav")))
+    {
+        Console.WriteLine("  blockingReasons: no valid dedicated World was available for acceptance.");
+        return false;
+    }
+
+    if (IsProcessRunning("PalServer"))
+    {
+        Console.WriteLine("  blockingReasons: PalServer is already running; stop it before acceptance.");
+        return false;
+    }
+
+    var password = PalworldRestAcceptanceConfigurationReader.ReadAdminPassword(serverRoot);
+    if (string.IsNullOrWhiteSpace(password))
+    {
+        Console.WriteLine("  blockingReasons: AdminPassword could not be read for transient acceptance use.");
+        return false;
+    }
+
+    var beforeSave = SnapshotWorldFiles(selectedWorld.SourcePath);
+    Process? process = null;
+    var forcedCleanupUsed = false;
+    var productionLifecycleReady = false;
+    try
+    {
+        var processStartedAt = DateTimeOffset.UtcNow;
+        process = Process.Start(new ProcessStartInfo
+        {
+            FileName = serverExecutable,
+            WorkingDirectory = serverRoot,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        });
+        if (process is null)
+        {
+            Console.WriteLine("  blockingReasons: PalServer could not be started.");
+            return false;
+        }
+
+        Console.WriteLine("session:");
+        Console.WriteLine($"  processStarted: {processStartedAt:O}");
+        Console.WriteLine($"  pid: {process.Id}");
+        Console.WriteLine("  worldId: " + selectedWorld.Id);
+
+        var restPort = configuration.RestPort ?? throw new InvalidOperationException("REST port was not available after configuration validation.");
+        using var httpClient = new HttpClient
+        {
+            BaseAddress = new Uri($"http://127.0.0.1:{restPort}/", UriKind.Absolute),
+            Timeout = TimeSpan.FromSeconds(5)
+        };
+        var restClient = new PalworldRestApiClient(httpClient, "admin", password);
+        PalworldServerInfo? serverInfo = null;
+        var transportFailures = 0;
+        var authenticationFailures = 0;
+        var malformedResponseFailures = 0;
+        var timeoutFailures = 0;
+        var lastReadinessFailure = "none";
+        var readinessStartedAt = DateTimeOffset.UtcNow;
+        DateTimeOffset? readyAt = null;
+        var readinessDeadline = readinessStartedAt + TimeSpan.FromSeconds(90);
+        while (DateTimeOffset.UtcNow < readinessDeadline)
+        {
+            if (process.HasExited)
+            {
+                break;
+            }
+
+            try
+            {
+                serverInfo = await restClient.GetInfoAsync();
+                readyAt = DateTimeOffset.UtcNow;
+                break;
+            }
+            catch (HttpRequestException)
+            {
+                transportFailures++;
+                lastReadinessFailure = "transport";
+                await Task.Delay(TimeSpan.FromSeconds(1));
+            }
+            catch (InvalidOperationException)
+            {
+                authenticationFailures++;
+                lastReadinessFailure = "authentication";
+                await Task.Delay(TimeSpan.FromSeconds(1));
+            }
+            catch (InvalidDataException)
+            {
+                malformedResponseFailures++;
+                lastReadinessFailure = "malformed-response";
+                await Task.Delay(TimeSpan.FromSeconds(1));
+            }
+            catch (TaskCanceledException)
+            {
+                timeoutFailures++;
+                lastReadinessFailure = "timeout";
+                await Task.Delay(TimeSpan.FromSeconds(1));
+            }
+        }
+
+        Console.WriteLine("readiness:");
+        Console.WriteLine($"  success: {serverInfo is not null}");
+        Console.WriteLine($"  elapsed: {(readyAt is null ? "(none)" : (readyAt.Value - readinessStartedAt).ToString())}");
+        if (serverInfo is null)
+        {
+            Console.WriteLine($"  lastFailure: {lastReadinessFailure}");
+            Console.WriteLine($"  transportFailures: {transportFailures}");
+            Console.WriteLine($"  authenticationFailures: {authenticationFailures}");
+            Console.WriteLine($"  malformedResponseFailures: {malformedResponseFailures}");
+            Console.WriteLine($"  timeoutFailures: {timeoutFailures}");
+            PrintListenerObservation(restPort);
+            Console.WriteLine("  blockingReasons: authenticated REST /info did not become ready before the bounded timeout.");
+            return false;
+        }
+
+        Console.WriteLine($"  version: {serverInfo.Version}");
+        Console.WriteLine($"  serverName: {serverInfo.ServerName}");
+        Console.WriteLine($"  worldGuid: {serverInfo.WorldGuid}");
+        PrintListenerObservation(restPort);
+
+        var saveRequestedAt = DateTimeOffset.UtcNow;
+        var saveRequestSucceeded = false;
+        try
+        {
+            await restClient.SaveAsync();
+            saveRequestSucceeded = true;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            Console.WriteLine($"  saveError: {exception.Message}");
+        }
+
+        var saveObservation = await ObserveWorldStabilityAsync(
+            selectedWorld.SourcePath,
+            beforeSave,
+            TimeSpan.FromSeconds(30),
+            TimeSpan.FromSeconds(3));
+        Console.WriteLine("save:");
+        Console.WriteLine($"  requestSucceeded: {saveRequestSucceeded}");
+        Console.WriteLine($"  requestTimestamp: {saveRequestedAt:O}");
+        Console.WriteLine($"  filesystemWriteObserved: {saveObservation.ChangedFiles.Count > 0}");
+        Console.WriteLine($"  changedFiles: {(saveObservation.ChangedFiles.Count == 0 ? "(none)" : string.Join(", ", saveObservation.ChangedFiles))}");
+        Console.WriteLine($"  stabilizationTime: {FormatDuration(saveObservation.StabilizedAt - saveRequestedAt)}");
+
+        var beforeShutdown = SnapshotWorldFiles(selectedWorld.SourcePath);
+        var shutdownRequestedAt = DateTimeOffset.UtcNow;
+        var shutdownRequestSucceeded = false;
+        try
+        {
+            await restClient.ShutdownAsync(1, "Steward acceptance probe shutdown.");
+            shutdownRequestSucceeded = true;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            Console.WriteLine($"  shutdownError: {exception.Message}");
+        }
+
+        var processExited = await WaitForExitAsync(process, TimeSpan.FromSeconds(60));
+        var shutdownObservation = await ObserveWorldStabilityAsync(
+            selectedWorld.SourcePath,
+            beforeShutdown,
+            TimeSpan.FromSeconds(30),
+            TimeSpan.FromSeconds(3));
+        var exitAt = processExited ? DateTimeOffset.UtcNow : (DateTimeOffset?)null;
+        Console.WriteLine("shutdown:");
+        Console.WriteLine($"  requestSucceeded: {shutdownRequestSucceeded}");
+        Console.WriteLine($"  requestTimestamp: {shutdownRequestedAt:O}");
+        Console.WriteLine($"  processExited: {processExited}");
+        Console.WriteLine($"  exitLatency: {(exitAt is null ? "(none)" : FormatDuration(exitAt.Value - shutdownRequestedAt))}");
+        Console.WriteLine($"  writesAfterShutdownRequest: {shutdownObservation.ChangedFiles.Count > 0}");
+        Console.WriteLine($"  finalStabilizationTime: {FormatDuration(shutdownObservation.StabilizedAt - shutdownRequestedAt)}");
+
+        productionLifecycleReady = saveRequestSucceeded &&
+            saveObservation.Stabilized &&
+            shutdownRequestSucceeded &&
+            processExited &&
+            shutdownObservation.Stabilized;
+        Console.WriteLine($"productionLifecycleReady: {productionLifecycleReady}");
+        if (!productionLifecycleReady)
+        {
+            Console.WriteLine("blockingReasons: one or more save, stabilization, shutdown, or process-exit conditions were not proven.");
+        }
+
+        return productionLifecycleReady;
+    }
+    finally
+    {
+        password = string.Empty;
+        if (process is not null)
+        {
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    forcedCleanupUsed = true;
+                    Console.WriteLine("forcedCleanupUsed: true");
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // The process exited between observation and cleanup.
+            }
+            finally
+            {
+                process.Dispose();
+            }
+        }
+
+        if (forcedCleanupUsed)
+        {
+            Console.WriteLine("productionLifecycleReady: false");
+        }
+    }
+}
+
+static void PrintListenerObservation(int port)
+{
+    var endpoints = System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties()
+        .GetActiveTcpListeners()
+        .Where(endpoint => endpoint.Port == port)
+        .Select(endpoint => endpoint.ToString())
+        .OrderBy(endpoint => endpoint, StringComparer.Ordinal)
+        .ToArray();
+    var exposure = endpoints.Length == 0
+        ? "not-observed"
+        : endpoints.All(endpoint => endpoint.StartsWith("127.0.0.1:", StringComparison.Ordinal) || endpoint.StartsWith("[::1]:", StringComparison.Ordinal))
+            ? "loopback-only"
+            : endpoints.Any(endpoint => endpoint.StartsWith("0.0.0.0:", StringComparison.Ordinal) || endpoint.StartsWith("[::]:", StringComparison.Ordinal))
+                ? "wildcard-or-all-interfaces"
+                : "specific-interface";
+    Console.WriteLine("listener:");
+    Console.WriteLine($"  binding: {(endpoints.Length == 0 ? "(none)" : string.Join(", ", endpoints))}");
+    Console.WriteLine($"  exposure: {exposure}");
+}
+
+static async Task<bool> WaitForExitAsync(Process process, TimeSpan timeout)
+{
+    var deadline = DateTimeOffset.UtcNow + timeout;
+    while (DateTimeOffset.UtcNow < deadline)
+    {
+        if (process.HasExited)
+        {
+            return true;
+        }
+
+        await Task.Delay(TimeSpan.FromMilliseconds(250));
+    }
+
+    return process.HasExited;
+}
+
+static async Task<WorldObservation> ObserveWorldStabilityAsync(
+    string worldPath,
+    IReadOnlyDictionary<string, WorldFileState> baseline,
+    TimeSpan maximumDuration,
+    TimeSpan stabilityWindow)
+{
+    var changedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    var previous = baseline;
+    DateTimeOffset? firstChange = null;
+    DateTimeOffset? lastChange = null;
+    DateTimeOffset? stableSince = null;
+    var deadline = DateTimeOffset.UtcNow + maximumDuration;
+    while (DateTimeOffset.UtcNow < deadline)
+    {
+        var current = SnapshotWorldFiles(worldPath);
+        var changed = GetChangedFiles(previous, current);
+        foreach (var changedFile in GetChangedFiles(baseline, current))
+        {
+            changedFiles.Add(changedFile);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if (changed.Count > 0)
+        {
+            firstChange ??= now;
+            lastChange = now;
+            stableSince = null;
+        }
+        else
+        {
+            stableSince ??= now;
+            if (now - stableSince >= stabilityWindow)
+            {
+                return new(changedFiles.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray(), firstChange, lastChange, now, true);
+            }
+        }
+
+        previous = current;
+        await Task.Delay(TimeSpan.FromMilliseconds(500));
+    }
+
+    return new(changedFiles.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray(), firstChange, lastChange, DateTimeOffset.UtcNow, false);
+}
+
+static IReadOnlyList<string> GetChangedFiles(
+    IReadOnlyDictionary<string, WorldFileState> before,
+    IReadOnlyDictionary<string, WorldFileState> after)
+{
+    return before.Keys.Union(after.Keys, StringComparer.OrdinalIgnoreCase)
+        .Where(path => !before.TryGetValue(path, out var oldState) ||
+                       !after.TryGetValue(path, out var newState) ||
+                       oldState != newState)
+        .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+}
+
+static IReadOnlyDictionary<string, WorldFileState> SnapshotWorldFiles(string worldPath)
+{
+    var snapshot = new Dictionary<string, WorldFileState>(StringComparer.OrdinalIgnoreCase);
+    foreach (var filePath in Directory.EnumerateFiles(worldPath, "*", SearchOption.AllDirectories))
+    {
+        var relativePath = Path.GetRelativePath(worldPath, filePath);
+        if (IsExcludedWorldPath(relativePath))
+        {
+            continue;
+        }
+
+        var info = new FileInfo(filePath);
+        snapshot[relativePath] = new(info.Length, info.LastWriteTimeUtc);
+    }
+
+    return snapshot;
+}
+
+static bool IsExcludedWorldPath(string relativePath)
+{
+    return relativePath
+        .Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries)
+        .Any(segment => string.Equals(segment, "backup", StringComparison.OrdinalIgnoreCase) ||
+                        segment.Contains(".sharedworlds-backup", StringComparison.OrdinalIgnoreCase) ||
+                        segment.Contains(".sharedworlds-staging-", StringComparison.OrdinalIgnoreCase));
+}
+
+static string FormatDuration(TimeSpan duration) => duration < TimeSpan.Zero ? "(before observation)" : duration.ToString();
 
 static void PrintDedicatedServerRuntimeState(IReadOnlyDictionary<string, string>? metadata)
 {

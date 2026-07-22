@@ -10,6 +10,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 function Fail([string]$Message) {
+    if ($env:GITHUB_ACTIONS -eq 'true') {
+        Add-Content -LiteralPath (Join-Path $repoRoot 'build.log') -Value "E4 package validation: $Message"
+    }
     Write-Error $Message
     exit 1
 }
@@ -52,33 +55,52 @@ $publishArguments = @(
     '--verbosity', 'minimal'
 )
 
-& dotnet @publishArguments
-if ($LASTEXITCODE -ne 0) {
-    Fail "dotnet publish failed with exit code $LASTEXITCODE."
+$publishOutput = @(& dotnet @publishArguments 2>&1)
+$publishExitCode = $LASTEXITCODE
+$publishOutput | ForEach-Object { Write-Host $_ }
+if ($publishExitCode -ne 0) {
+    if ($env:GITHUB_ACTIONS -eq 'true') {
+        Add-Content -LiteralPath (Join-Path $repoRoot 'build.log') -Value 'E4 acceptance package dotnet publish output:'
+        $publishOutput | Add-Content -LiteralPath (Join-Path $repoRoot 'build.log')
+    }
+    Fail "dotnet publish failed with exit code $publishExitCode."
 }
 
 $desktopExecutable = Join-Path $output 'SharedWorlds.Desktop.exe'
 $steamNative = Join-Path $output 'steam_api64.dll'
 
 if (-not [IO.File]::Exists($desktopExecutable)) {
+    $files = Get-ChildItem -LiteralPath $output -File | Sort-Object Name
     Write-Host 'Published top-level files:'
-    Get-ChildItem -LiteralPath $output -File |
-        Sort-Object Name |
-        ForEach-Object { Write-Host "  $($_.Name)" }
+    $files | ForEach-Object { Write-Host "  $($_.Name)" }
+    if ($env:GITHUB_ACTIONS -eq 'true') {
+        Add-Content -LiteralPath (Join-Path $repoRoot 'build.log') -Value 'E4 package top-level files:'
+        $files.Name | Add-Content -LiteralPath (Join-Path $repoRoot 'build.log')
+    }
     Fail "Published desktop executable is missing: $desktopExecutable"
 }
 
 if (-not [IO.File]::Exists($steamNative)) {
     Write-Host 'Steam-related files found in the publish tree:'
-    $steamFiles = Get-ChildItem -LiteralPath $output -Recurse -File |
+    $steamFiles = @(Get-ChildItem -LiteralPath $output -Recurse -File |
         Where-Object { $_.Name -match 'steam' } |
-        Sort-Object FullName
-    if ($steamFiles.Count -eq 0) {
+        Sort-Object FullName)
+    $relativeSteamFiles = @($steamFiles | ForEach-Object {
+        [IO.Path]::GetRelativePath($output, $_.FullName)
+    })
+    if ($relativeSteamFiles.Count -eq 0) {
         Write-Host '  (none)'
     }
     else {
-        foreach ($file in $steamFiles) {
-            Write-Host "  $([IO.Path]::GetRelativePath($output, $file.FullName))"
+        $relativeSteamFiles | ForEach-Object { Write-Host "  $_" }
+    }
+    if ($env:GITHUB_ACTIONS -eq 'true') {
+        Add-Content -LiteralPath (Join-Path $repoRoot 'build.log') -Value 'E4 package Steam-related files:'
+        if ($relativeSteamFiles.Count -eq 0) {
+            Add-Content -LiteralPath (Join-Path $repoRoot 'build.log') -Value '(none)'
+        }
+        else {
+            $relativeSteamFiles | Add-Content -LiteralPath (Join-Path $repoRoot 'build.log')
         }
     }
     Fail "Published Steam native runtime is missing: $steamNative"

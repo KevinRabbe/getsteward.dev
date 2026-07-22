@@ -25,9 +25,7 @@ public sealed class StewardApiEndpointsTests
     public async Task AuthenticatedTransferFlowUsesStableCodesAndDoesNotExposeStorageInternals()
     {
         await using var harness = await ApiTestHarness.CreateAsync();
-        harness.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer",
-            harness.Tokens.AccessToken);
+        var seeded = await AuthenticateAndCreateWorldAsync(harness);
 
         using (var worldsResponse = await harness.Client.GetAsync("/api/v1/worlds"))
         {
@@ -35,13 +33,13 @@ public sealed class StewardApiEndpointsTests
             using var worlds = JsonDocument.Parse(await worldsResponse.Content.ReadAsStringAsync());
             Assert.Equal("WorldsListed", worlds.RootElement.GetProperty("code").GetString());
             var world = Assert.Single(worlds.RootElement.GetProperty("data").EnumerateArray());
-            Assert.Equal(harness.WorldId.Value, world.GetProperty("worldId").GetGuid());
+            Assert.Equal(seeded.WorldId, world.GetProperty("worldId").GetGuid());
         }
 
         var revisionId = Guid.NewGuid();
         var sha256 = new string('A', 64);
         using var beginResponse = await harness.Client.PostAsJsonAsync(
-            $"/api/v1/worlds/{harness.WorldId.Value:D}/transfers",
+            $"/api/v1/worlds/{seeded.WorldId:D}/transfers",
             new
             {
                 revisionId,
@@ -88,7 +86,7 @@ public sealed class StewardApiEndpointsTests
         }
 
         using (var downloadResponse = await harness.Client.PostAsync(
-                   $"/api/v1/worlds/{harness.WorldId.Value:D}/revisions/{revisionId:D}/state/download-authorization",
+                   $"/api/v1/worlds/{seeded.WorldId:D}/revisions/{revisionId:D}/state/download-authorization",
                    null))
         {
             Assert.Equal(HttpStatusCode.OK, downloadResponse.StatusCode);
@@ -98,14 +96,14 @@ public sealed class StewardApiEndpointsTests
         }
 
         using (var currentResponse = await harness.Client.GetAsync(
-                   $"/api/v1/worlds/{harness.WorldId.Value:D}/current-revision"))
+                   $"/api/v1/worlds/{seeded.WorldId:D}/current-revision"))
         {
             Assert.Equal(HttpStatusCode.OK, currentResponse.StatusCode);
             using var current = JsonDocument.Parse(await currentResponse.Content.ReadAsStringAsync());
             Assert.Equal("CurrentRevisionFound", current.RootElement.GetProperty("code").GetString());
             var currentWorld = current.RootElement.GetProperty("data").GetProperty("world");
             Assert.Equal(
-                harness.InitialStateRevisionId.Value,
+                seeded.InitialStateRevisionId,
                 currentWorld.GetProperty("currentStateRevisionId").GetGuid());
         }
     }
@@ -114,12 +112,10 @@ public sealed class StewardApiEndpointsTests
     public async Task InvalidPackageKindReturnsMachineReadableValidationOutcome()
     {
         await using var harness = await ApiTestHarness.CreateAsync();
-        harness.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer",
-            harness.Tokens.AccessToken);
+        var seeded = await AuthenticateAndCreateWorldAsync(harness);
 
         using var response = await harness.Client.PostAsJsonAsync(
-            $"/api/v1/worlds/{harness.WorldId.Value:D}/transfers",
+            $"/api/v1/worlds/{seeded.WorldId:D}/transfers",
             new
             {
                 revisionId = Guid.NewGuid(),
@@ -133,4 +129,46 @@ public sealed class StewardApiEndpointsTests
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.Equal("InvalidPackageKind", body.RootElement.GetProperty("code").GetString());
     }
+
+    private static async Task<SeededWorld> AuthenticateAndCreateWorldAsync(ApiTestHarness harness)
+    {
+        using var authenticationResponse = await harness.Client.PostAsJsonAsync(
+            "/api/v1/auth/steam/session",
+            new
+            {
+                ticketHex = "AABBCC",
+                installationId = "test-installation"
+            });
+        Assert.Equal(HttpStatusCode.OK, authenticationResponse.StatusCode);
+        using var authentication = JsonDocument.Parse(await authenticationResponse.Content.ReadAsStringAsync());
+        Assert.Equal("Authenticated", authentication.RootElement.GetProperty("code").GetString());
+        var accessToken = authentication.RootElement
+            .GetProperty("data")
+            .GetProperty("accessToken")
+            .GetString();
+        Assert.False(string.IsNullOrWhiteSpace(accessToken));
+        harness.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        var worldId = Guid.NewGuid();
+        var initialStateRevisionId = Guid.NewGuid();
+        using var createResponse = await harness.Client.PostAsJsonAsync(
+            "/api/v1/worlds",
+            new
+            {
+                worldId,
+                adapterId = "factorio",
+                displayName = "HTTP Contract World",
+                currentStateRevisionId = initialStateRevisionId,
+                currentEnvironmentRevisionId = (Guid?)null
+            });
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        using var created = JsonDocument.Parse(await createResponse.Content.ReadAsStringAsync());
+        Assert.Equal("WorldCreated", created.RootElement.GetProperty("code").GetString());
+
+        return new SeededWorld(worldId, initialStateRevisionId);
+    }
+
+    private sealed record SeededWorld(
+        Guid WorldId,
+        Guid InitialStateRevisionId);
 }

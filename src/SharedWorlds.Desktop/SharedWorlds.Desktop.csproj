@@ -14,6 +14,9 @@
     <Using Include="SharedWorlds.Core.Worlds" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Steamworks.NET" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../SharedWorlds.Core/SharedWorlds.Core.csproj" />
     <ProjectReference Include="../SharedWorlds.Infrastructure/SharedWorlds.Infrastructure.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/Factorio/SharedWorlds.GameAdapters.Factorio.csproj" />

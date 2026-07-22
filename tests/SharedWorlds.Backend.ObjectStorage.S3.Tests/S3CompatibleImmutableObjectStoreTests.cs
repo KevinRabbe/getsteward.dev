@@ -98,6 +98,65 @@ public sealed class S3CompatibleImmutableObjectStoreTests
     }
 
     [Fact]
+    public async Task BeginAfterBackendRestartRecoversSameInProgressMultipartUpload()
+    {
+        var settings = TestSettings.Load();
+        var bucket = $"steward-test-{Guid.NewGuid():N}";
+        var objectKey = $"packages/test/{Guid.NewGuid():N}.package";
+        var bytes = CreatePayload(6 * MiB);
+        var sha256 = Convert.ToHexString(SHA256.HashData(bytes));
+        var protocol = GetProtocol(settings.Endpoint);
+
+        using var clientOne = CreateClient(settings);
+        await clientOne.PutBucketAsync(new PutBucketRequest { BucketName = bucket });
+        try
+        {
+            string firstHandle;
+            using (var firstStore = new RecoveringS3CompatibleImmutableObjectStore(
+                       clientOne,
+                       bucket,
+                       protocol))
+            {
+                firstHandle = (await firstStore.BeginMultipartUploadAsync(
+                    objectKey,
+                    bytes.LongLength,
+                    sha256)).ProviderUploadId;
+            }
+
+            using var clientTwo = CreateClient(settings);
+            using var restartedStore = new RecoveringS3CompatibleImmutableObjectStore(
+                clientTwo,
+                bucket,
+                protocol);
+            var recovered = await restartedStore.BeginMultipartUploadAsync(
+                objectKey,
+                bytes.LongLength,
+                sha256);
+
+            Assert.Equal(firstHandle, recovered.ProviderUploadId);
+            Assert.Equal(objectKey, recovered.ObjectKey);
+
+            var inProgress = await clientTwo.ListMultipartUploadsAsync(
+                new ListMultipartUploadsRequest
+                {
+                    BucketName = bucket,
+                    Prefix = objectKey
+                });
+            Assert.Single(
+                (inProgress.MultipartUploads ?? [])
+                    .Where(upload => string.Equals(upload.Key, objectKey, StringComparison.Ordinal)));
+
+            await restartedStore.AbortMultipartUploadAsync(recovered.ProviderUploadId);
+        }
+        finally
+        {
+            await AbortMultipartUploadsAsync(clientOne, bucket);
+            await DeleteBucketContentsAsync(clientOne, bucket);
+            await clientOne.DeleteBucketAsync(bucket);
+        }
+    }
+
+    [Fact]
     public async Task AbortIsIdempotentAndDoesNotCreateAnObject()
     {
         var settings = TestSettings.Load();
@@ -170,6 +229,27 @@ public sealed class S3CompatibleImmutableObjectStoreTests
         }
 
         return bytes;
+    }
+
+    private static async Task AbortMultipartUploadsAsync(IAmazonS3 client, string bucket)
+    {
+        var response = await client.ListMultipartUploadsAsync(
+            new ListMultipartUploadsRequest { BucketName = bucket });
+        foreach (var upload in response.MultipartUploads ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(upload.Key) || string.IsNullOrWhiteSpace(upload.UploadId))
+            {
+                continue;
+            }
+
+            await client.AbortMultipartUploadAsync(
+                new AbortMultipartUploadRequest
+                {
+                    BucketName = bucket,
+                    Key = upload.Key,
+                    UploadId = upload.UploadId
+                });
+        }
     }
 
     private static async Task DeleteBucketContentsAsync(IAmazonS3 client, string bucket)

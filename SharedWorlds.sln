@@ -36,6 +36,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Backend.Api.Te
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04ECF79EFBC}") = "SharedWorlds.GameAdapters.Factorio.Tests", "tests\SharedWorlds.GameAdapters.Factorio.Tests\SharedWorlds.GameAdapters.Factorio.Tests.csproj", "{99999999-9999-9999-9999-999999999999}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04ECF79EFBC}") = "SharedWorlds.GameAdapters.Palworld.Tests", "tests\SharedWorlds.GameAdapters.Palworld.Tests\SharedWorlds.GameAdapters.Palworld.Tests.csproj", "{ABABABAB-ABAB-ABAB-ABAB-ABABABABABAB}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04ECF79EFBC}") = "SharedWorlds.Architecture.Tests", "tests\SharedWorlds.Architecture.Tests\SharedWorlds.Architecture.Tests.csproj", "{AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}"
 EndProject
 Global
@@ -112,6 +114,10 @@ Global
         {99999999-9999-9999-9999-999999999999}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {99999999-9999-9999-9999-999999999999}.Release|Any CPU.ActiveCfg = Release|Any CPU
         {99999999-9999-9999-9999-999999999999}.Release|Any CPU.Build.0 = Release|Any CPU
+        {ABABABAB-ABAB-ABAB-ABAB-ABABABABABAB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {ABABABAB-ABAB-ABAB-ABAB-ABABABABABAB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {ABABABAB-ABAB-ABAB-ABAB-ABABABABABAB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {ABABABAB-ABAB-ABAB-ABAB-ABABABABABAB}.Release|Any CPU.Build.0 = Release|Any CPU
         {AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
         {AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}.Release|Any CPU.ActiveCfg = Release|Any CPU

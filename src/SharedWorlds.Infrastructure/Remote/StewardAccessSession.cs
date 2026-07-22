@@ -51,7 +51,7 @@ public sealed class StewardAccessSession : IStewardAccessTokenProvider, IDisposa
         _client = client;
         _installationId = installationId;
         _tokens = initialTokens;
-        _utcNow = utcNow ?? static () => DateTimeOffset.UtcNow;
+        _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         _refreshSkew = effectiveSkew;
     }
 

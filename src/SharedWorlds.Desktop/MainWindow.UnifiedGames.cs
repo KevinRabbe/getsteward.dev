@@ -95,6 +95,13 @@ public partial class MainWindow
             return;
         }
 
+        if (!IsSelectedWorldEnvironmentReadyForPlay())
+        {
+            StatusText.Text =
+                $"Verify the exact environment for shared World '{world.Name}' before starting it.";
+            return;
+        }
+
         await RunUnifiedOperationAsync(
             $"Starting {world.Name}...",
             async () =>
@@ -129,6 +136,13 @@ public partial class MainWindow
         if (!adapter.Capabilities.HasFlag(GameAdapterCapabilities.AutomaticHostLaunch))
         {
             StatusText.Text = $"{adapter.DisplayName} does not support Steward-managed hosting yet.";
+            return;
+        }
+
+        if (!IsSelectedWorldEnvironmentReadyForPlay())
+        {
+            StatusText.Text =
+                $"Verify the exact environment for shared World '{world.Name}' before hosting it.";
             return;
         }
 
@@ -340,19 +354,23 @@ public partial class MainWindow
             GameAdapterCapabilities.AutomaticLocalLaunch) == true;
         var canHost = adapter?.Capabilities.HasFlag(
             GameAdapterCapabilities.AutomaticHostLaunch) == true;
+        var environmentReady = IsSelectedWorldEnvironmentReadyForPlay();
 
         ContinueButton.Visibility = Visibility.Visible;
         HostButton.Visibility = Visibility.Visible;
-        ContinueButton.IsEnabled = !_isBusy && canStart;
+        ContinueButton.IsEnabled = !_isBusy && canStart && environmentReady;
         HostButton.IsEnabled = !_isBusy &&
                                canHost &&
-                               _deviceSettings.AllowHosting;
+                               _deviceSettings.AllowHosting &&
+                               environmentReady;
 
         ContinueButton.ToolTip = world is null
             ? "Select a World."
-            : canStart
-                ? $"Start this {adapter!.DisplayName} World on this device."
-                : $"{adapter?.DisplayName ?? world.GameAdapterId} does not support managed local launch yet.";
+            : !canStart
+                ? $"{adapter?.DisplayName ?? world.GameAdapterId} does not support managed local launch yet."
+                : !environmentReady
+                    ? "Run Verify Environment and reach Ready before starting this shared World."
+                    : $"Start this {adapter!.DisplayName} World on this device.";
 
         HostButton.ToolTip = world is null
             ? "Select a World."
@@ -360,7 +378,9 @@ public partial class MainWindow
                 ? $"{adapter?.DisplayName ?? world.GameAdapterId} does not support managed hosting yet."
                 : !_deviceSettings.AllowHosting
                     ? "Enable 'Allow this device to host' in Device settings first."
-                    : $"Host this {adapter!.DisplayName} World temporarily on this device.";
+                    : !environmentReady
+                        ? "Run Verify Environment and reach Ready before hosting this shared World."
+                        : $"Host this {adapter!.DisplayName} World temporarily on this device.";
 
         ShareButton.IsEnabled = !_isBusy && world is not null;
         ShareButton.Content = world?.SharingMode == WorldSharingMode.Shared

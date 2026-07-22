@@ -67,6 +67,9 @@ builder.Services.AddSingleton<ISharedWorldAuthorityStore>(services =>
     services.GetRequiredService<PostgreSqlIdempotentReservationAuthorityStore>());
 builder.Services.AddSingleton<ISharedWorldResponsibilityInspector>(services =>
     services.GetRequiredService<PostgreSqlSharedWorldAuthorityStore>());
+builder.Services.AddSingleton<PostgreSqlSharedWorldReservationAbandonStore>();
+builder.Services.AddSingleton<ISharedWorldReservationAbandonStore>(services =>
+    services.GetRequiredService<PostgreSqlSharedWorldReservationAbandonStore>());
 
 builder.Services.AddSingleton<PostgreSqlStewardSessionStore>();
 builder.Services.AddSingleton<IStewardSessionStore>(services =>
@@ -105,6 +108,7 @@ builder.Services.AddSingleton<SharedRevisionMetadataService>();
 builder.Services.AddSingleton(services => new SharedWorldAuthorityService(
     services.GetRequiredService<ISharedWorldAuthorityStore>(),
     () => DateTimeOffset.UtcNow));
+builder.Services.AddSingleton<SharedWorldReservationAbandonService>();
 builder.Services.AddSingleton(services => new SharedPackageTransferService(
     services.GetRequiredService<ISharedWorldMetadataStore>(),
     services.GetRequiredService<SharedRevisionMetadataService>(),
@@ -143,6 +147,7 @@ await PostgreSqlBackendSchema.InitializeAsync(app.Services.GetRequiredService<Np
 app.UseStewardApiProblemHandling();
 app.MapStewardApiV1();
 app.MapStewardAuthorityApiV1();
+app.MapStewardReservationAbandonApiV1();
 
 await app.RunAsync();
 

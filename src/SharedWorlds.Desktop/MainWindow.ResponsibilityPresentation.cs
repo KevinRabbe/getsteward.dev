@@ -9,6 +9,7 @@ public partial class MainWindow
 {
     private Border? _worldResponsibilityBanner;
     private TextBlock? _worldResponsibilityText;
+    private Button? _pendingSyncRetryButton;
     private bool _responsibilityPresentationInitialized;
     private bool _applyingResponsibilityActionGuard;
 
@@ -27,6 +28,21 @@ public partial class MainWindow
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap
         };
+        _pendingSyncRetryButton = new Button
+        {
+            Content = "Retry sync",
+            Visibility = Visibility.Collapsed,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 8, 0, 0),
+            ToolTip =
+                "Reconcile the journaled candidate with Steward's canonical head. Steward never overwrites a different newer head automatically."
+        };
+        _pendingSyncRetryButton.Click += RetryPendingSyncButton_Click;
+
+        var content = new StackPanel();
+        content.Children.Add(_worldResponsibilityText);
+        content.Children.Add(_pendingSyncRetryButton);
+
         _worldResponsibilityBanner = new Border
         {
             Visibility = Visibility.Collapsed,
@@ -36,7 +52,7 @@ public partial class MainWindow
             BorderBrush = (Brush)FindResource("BorderBrush"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
-            Child = _worldResponsibilityText
+            Child = content
         };
 
         // World name and game name stay first. Responsibility appears immediately after them,
@@ -58,7 +74,8 @@ public partial class MainWindow
     {
         if (!_responsibilityPresentationInitialized ||
             _worldResponsibilityBanner is null ||
-            _worldResponsibilityText is null)
+            _worldResponsibilityText is null ||
+            _pendingSyncRetryButton is null)
         {
             return;
         }
@@ -69,6 +86,7 @@ public partial class MainWindow
         if (snapshot.Kind == WorldLifecycleResponsibilityKind.None || selectedWorld is null)
         {
             _worldResponsibilityBanner.Visibility = Visibility.Collapsed;
+            _pendingSyncRetryButton.Visibility = Visibility.Collapsed;
             EnforceResponsibilityActionGuard();
             return;
         }
@@ -77,6 +95,14 @@ public partial class MainWindow
         _worldResponsibilityText.Text = selectedOwnsResponsibility
             ? FormatResponsibility(snapshot)
             : "Another World on this PC still has an active or unresolved Steward responsibility.";
+        _pendingSyncRetryButton.Visibility =
+            selectedOwnsResponsibility &&
+            snapshot.Kind == WorldLifecycleResponsibilityKind.RecoveryNeeded &&
+            _remoteRuntime is not null &&
+            _remoteWorldIds.Contains(selectedWorld.Id)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        _pendingSyncRetryButton.IsEnabled = !_isBusy;
         _worldResponsibilityBanner.Visibility = Visibility.Visible;
 
         EnforceResponsibilityActionGuard();

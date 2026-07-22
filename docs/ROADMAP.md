@@ -14,7 +14,7 @@ They deliver one product model. No workstream may invent a competing definition 
 
 ## Current mode: implementation unlocked
 
-Status: **P0 COMPLETE. E1 COMPLETE AND GREEN. E2 SHARED STATE FOUNDATION ACTIVE — BE-2 COMPLETE, BE-3 ACTIVE.**
+Status: **P0 COMPLETE. E1 COMPLETE AND GREEN. BACKEND BE-2 THROUGH BE-4 COMPLETE AND GREEN. E4 BACKGROUND RUNTIME INTEGRATION ACTIVE TOWARD THE BE-5 / E5 TWO-DEVICE PROOF.**
 
 The planning contracts remain the first-release implementation baseline. Changes remain possible, but any deliberate product-boundary or contract change must be documented before implementation changes follow it.
 
@@ -24,7 +24,7 @@ Implementation is allowed only when it maps to:
 - one numbered milestone;
 - one acceptance criterion.
 
-The active implementation phase is **E2: Shared state foundation**.
+The active implementation phase is **E4: Background runtime integration**, with the real **BE-5 / E5 two-device handoff proof** as the next decisive acceptance target.
 
 ## Product boundaries
 
@@ -216,6 +216,10 @@ BE-2 replaced the simulated identity/access/metadata side with real backend cont
 
 BE-2 persistence was validated by GitHub Actions run `29866444653`: formatter verification, Ubuntu Release build/tests, Windows Release build/tests, and live PostgreSQL integration tests all passed. Canonical detail is recorded in `BE2_STATUS.md`.
 
+BE-3 replaced the simulated package path with provider-neutral durable transfer: private immutable object storage, resumable multipart upload, direct authorized client/object-store transfer, exact size/SHA-256 verification, publication, cleanup/retention, and verified desktop download/cache/materialization. The S3-compatible protocol proof and full matrix are recorded in `BE3_S3_CHECKPOINT.md`.
+
+BE-4 replaced the simulated distributed authority with PostgreSQL-backed reservation/generation coordination and canonical commit: one-writer acquisition, heartbeat/Uncertain/reconnect, deliberate reclaim, generation invalidation, expected-head commit, late-writer rejection, and durable acquire/reclaim/commit idempotency. Canonical detail is recorded in `BE4_STATUS.md`; GitHub Actions run `29906786662` passed Quality, Ubuntu, Windows, PostgreSQL, and S3-compatible integration.
+
 # Execution plan
 
 ## E1: Contract and conformance foundation — COMPLETE AND GREEN
@@ -233,9 +237,9 @@ Canonical evidence:
 
 No provider-specific or game-specific shortcut may bypass the E1 contracts as later phases replace simulated boundaries with real services.
 
-## E2: Shared state foundation — ACTIVE
+## E2: Shared state foundation — BACKEND COMPLETE AND GREEN
 
-E2 is replacing BE-1's simulated shared-state boundaries incrementally while preserving the same authority and failure semantics.
+E2 replaced BE-1's simulated identity/metadata/transfer boundaries while preserving the same authority and failure semantics.
 
 ### BE-2 — Authentication and World metadata service: COMPLETE AND GREEN
 
@@ -255,54 +259,81 @@ Canonical evidence:
 - `BE2_STATUS.md`;
 - CI run `29866444653`.
 
-### BE-3 — Immutable object transfer: ACTIVE
+### BE-3 — Immutable object transfer: COMPLETE AND GREEN
 
-Implement:
+Implemented and validated:
 
 - HTTPS/JSON transfer authorization control plane;
 - private immutable object-storage boundary;
-- bounded/resumable upload;
+- bounded/resumable multipart upload;
 - exact size/hash verification before publication;
 - immutable state/environment package publication;
 - resumable authorized download;
 - direct desktop/object-storage byte transfer;
 - orphan/partial cleanup;
 - BE-D009/BE-D010 retention integration;
-- client verification/cache/materialization contract.
+- client verification/cache/materialization contract;
+- generic S3-compatible provider adapter and real protocol acceptance test.
 
-Provider selection may occur during BE-3 only after the provider-neutral contract is fixed and current EU storage/transfer economics have been measured. No provider may redefine World authority or package semantics.
+Canonical evidence:
 
-Canonical-head compare-and-swap commit and distributed reservation/generation authority remain **BE-4 / E3** concerns. Object storage never decides what revision is current.
+- `BE3_S3_CHECKPOINT.md`;
+- full BE-3 acceptance CI run `29875411791` on `58a73702dbe96219e7b781b5c869cae35972e01e`.
 
-## E3: Distributed one-writer coordination
+Object storage never decides what revision is current.
+
+## E3: Distributed one-writer coordination — BACKEND COMPLETE AND GREEN
+
+BE-4 now provides and proves:
 
 - acquire;
 - heartbeat;
-- Uncertain;
-- reconnect/reclaim;
+- Active -> Uncertain;
+- same-generation reconnect;
+- deliberate reclaim;
 - generation invalidation;
-- stale/late writer rejection;
-- UI active-elsewhere/recovery states.
+- expected-head canonical commit;
+- durable idempotent acquire/reclaim/commit;
+- parallel race protection;
+- stale/late writer rejection.
 
-## E4: Background runtime integration
+Canonical evidence:
 
-- desktop/tray lifetime;
-- shared reservation/transfer integration;
-- safe start/end;
-- candidate preservation;
-- startup recovery scan;
-- safe close/update behavior.
+- `BE4_STATUS.md`;
+- CI run `29906786662`.
 
-## E5: Development two-device proof
+UI/runtime consumption of those states is part of the active integration phase rather than a second authority implementation.
+
+## E4: Background runtime integration — ACTIVE
+
+- wire desktop/background runtime to authenticated shared-World metadata;
+- use verified remote package download/cache/materialization before shared play;
+- acquire and maintain the real backend reservation around writable sessions;
+- upload/verify candidate state and commit canonical head after safe capture;
+- preserve candidate/workspace evidence across network or process interruption;
+- surface Connection required / Waiting to sync / Action required / Recovery needed without inventing authority locally;
+- preserve safe close/update behavior while responsibility is unresolved.
+
+The runtime must consume the BE-2/BE-3/BE-4 contracts; it must not reproduce them with a second local authority model.
+
+## E5: Development two-device proof / BE-5 acceptance target
 
 ```text
 PC A commits N+1
--> PC B restores/continues N+1
+-> PC B downloads, verifies, restores, and continues N+1
 -> PC B commits N+2
--> PC A restores N+2
+-> PC A downloads, verifies, restores N+2
 ```
 
-Also prove competing writer rejection and interruption/recovery behavior.
+Also prove:
+
+- competing writer rejection;
+- interrupted transfer resume;
+- outage during an active generation;
+- Waiting to sync completion;
+- deliberate reclaim;
+- late old-generation rejection;
+- last-safe recovery.
 
 No broad UI polishing or new adapter work takes priority over this proof.
 
@@ -377,4 +408,4 @@ Not required:
 
 # Immediate next step
 
-Begin **E2 / BE-3 immutable object transfer** by defining the provider-neutral private object-storage and transfer-authorization contracts first. Preserve the 20 GiB hard ceiling, resumable transfer semantics, exact byte/hash verification, opaque package boundary, and direct client/object-store architecture before selecting a production storage provider.
+Begin **E4 background runtime integration** by composing the already-proven BE-2 authentication/metadata, BE-3 verified package transfer/cache, and BE-4 one-writer authority around the existing desktop lifecycle. The first target is not another abstraction: it is the smallest real path that can execute the BE-5 / E5 PC A -> PC B -> PC A handoff without bypassing any authority or integrity boundary.

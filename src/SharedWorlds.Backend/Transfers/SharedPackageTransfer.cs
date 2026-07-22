@@ -21,7 +21,8 @@ public enum SharedPackageTransferState
     Finalized,
     IntegrityFailed,
     PublicationConflict,
-    Abandoned
+    Abandoned,
+    Provisioning
 }
 
 public sealed record SharedPackageTransferRecord(
@@ -52,6 +53,28 @@ public interface ISharedPackageTransferStore
     Task<SharedPackageTransferRecord?> LoadAsync(
         SharedPackageTransferId transferId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Loads the single Provisioning/Active transfer for an immutable object key. Production stores
+    /// must enforce the same one-in-flight-per-object-key invariant transactionally.
+    /// </summary>
+    Task<SharedPackageTransferRecord?> LoadInFlightByObjectKeyAsync(
+        string objectKey,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This transfer store does not support provisioning lookup.");
+
+    /// <summary>
+    /// Atomically attaches the provider upload handle to a durable Provisioning intent and advances
+    /// it to Active. The placeholder check prevents a stale concurrent initializer from overwriting a
+    /// provider handle that another request already attached.
+    /// </summary>
+    Task<bool> TryActivateProvisioningAsync(
+        SharedPackageTransferId transferId,
+        ExternalIdentityRef expectedOwner,
+        string expectedPlaceholderProviderUploadId,
+        string providerUploadId,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This transfer store does not support durable provisioning.");
 
     Task<bool> TrySetStateAsync(
         SharedPackageTransferId transferId,

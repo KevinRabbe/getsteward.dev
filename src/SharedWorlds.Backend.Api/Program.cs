@@ -9,6 +9,7 @@ using SharedWorlds.Backend.Transfers;
 using SharedWorlds.Backend.Worlds;
 
 var builder = WebApplication.CreateBuilder(args);
+ConfigureListenPort(builder);
 
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -145,12 +146,57 @@ var app = builder.Build();
 await PostgreSqlBackendSchema.InitializeAsync(app.Services.GetRequiredService<NpgsqlDataSource>());
 
 app.UseStewardApiProblemHandling();
+app.MapGet("/health/live", () => Results.Ok(new { status = "live" }));
+app.MapGet("/health/ready", CheckReadinessAsync);
 app.MapStewardApiV1();
 app.MapStewardRevisionMetadataApiV1();
 app.MapStewardAuthorityApiV1();
 app.MapStewardReservationAbandonApiV1();
 
 await app.RunAsync();
+
+static void ConfigureListenPort(WebApplicationBuilder builder)
+{
+    var value = builder.Configuration["PORT"];
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        return;
+    }
+
+    if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var port) ||
+        port is < 1 or > 65535)
+    {
+        throw new InvalidOperationException("Configuration 'PORT' must be an integer between 1 and 65535.");
+    }
+
+    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+}
+
+static async Task<IResult> CheckReadinessAsync(
+    NpgsqlDataSource dataSource,
+    CancellationToken cancellationToken)
+{
+    try
+    {
+        await using var command = dataSource.CreateCommand("SELECT 1;");
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is not null
+            ? Results.Ok(new { status = "ready" })
+            : Results.Json(new { status = "not-ready" }, statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+        throw;
+    }
+    catch
+    {
+        // Readiness is intentionally non-diagnostic on the public surface. Deployment logs own the
+        // concrete database error; clients and load balancers only need a safe ready/not-ready signal.
+        return Results.Json(
+            new { status = "not-ready" },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+}
 
 static string RequireConfiguration(IConfiguration configuration, string key)
 {

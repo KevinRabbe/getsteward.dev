@@ -15,12 +15,14 @@ A record contains the operational information required to recover safely:
 - workspace id;
 - World id;
 - starting state revision;
+- exact immutable environment revision that created the workspace;
 - adapter id;
 - workspace location or adapter-owned locator;
 - session/device identity where available;
 - creation and update timestamps;
 - recovery status;
-- optional failure reason.
+- optional stable candidate state revision id;
+- optional failure/decision reason.
 
 The registry is persisted independently of the running application so a hard process or OS crash can be detected later.
 
@@ -30,11 +32,15 @@ The registry is persisted independently of the running application so a hard pro
 
 The workspace was prepared and registered for a session whose lifecycle has not completed.
 
-An `Active` record found after application restart is treated conservatively as a possible interrupted session. It is evidence, not proof, that newer recoverable state exists.
+An `Active` record found after application restart is treated conservatively as an **Interrupted session**. The record proves Steward owned a prepared workspace, but it does not prove whether gameplay actually started or whether a normal safe-capture boundary was reached.
+
+Steward therefore does not automatically capture, commit, or delete it.
 
 ### `RecoveryPending`
 
-Gameplay started, but the updated state was not successfully committed.
+A specific preserved workspace is intentionally being recovered as one stable candidate revision.
+
+This status can arise because gameplay started and normal completion failed, or because the user explicitly chose **Recover changes** for an `Active` record found after restart.
 
 Examples:
 
@@ -43,30 +49,34 @@ Examples:
 - package validation failed;
 - durable storage or upload failed;
 - stored-result verification failed;
-- current-head advancement failed.
+- current-head advancement failed;
+- the user chose to recover an interrupted workspace after restart.
 
-The adapter receives `PreparedWorldDisposition.PreserveForRecovery`. The workspace remains intact until an explicit recovery decision resolves it.
+The adapter receives `PreparedWorldDisposition.PreserveForRecovery` on normal post-launch failure. The workspace remains intact until deterministic recovery resolves it.
 
 ### `CleanupPending`
 
-The workspace is no longer needed for state recovery, but controlled cleanup could not complete.
+The workspace is no longer needed for state recovery, but controlled cleanup could not complete, or the user explicitly chose to discard an interrupted workspace.
 
 Examples:
 
 - commit succeeded but workspace deletion failed;
-- preparation failed before launch and unused workspace cleanup failed.
+- preparation failed before launch and unused workspace cleanup failed;
+- the user explicitly chose **Discard interrupted session**;
+- canonical recovery completed but recovery-journal removal failed.
 
-This is cleanup debt, not a second World history.
+This is cleanup responsibility, not a second World history.
 
 ## Successful session flow
 
 ```text
 prepare latest World state
--> persist Active recovery record
+-> persist Active recovery record with exact state + environment heads
 -> launch game or temporary host
 -> adapter observes safe session end
 -> capture and validate state
--> durably store and verify new revision
+-> journal stable candidate revision id
+-> durably store and verify candidate revision
 -> advance current World head
 -> adapter discards controlled workspace
 -> remove recovery record
@@ -106,7 +116,79 @@ The previous valid World state remains authoritative. The workspace stays separa
 
 A hard crash may bypass every `finally` block.
 
-Persisting `Active` before launch allows the next Steward startup to detect that the previous lifecycle may have been interrupted. The desktop should surface the affected World as `Recovery needed` instead of silently releasing it as fully safe.
+Persisting `Active` before launch allows the next Steward startup to detect that the previous lifecycle may have been interrupted. Startup maps that durable record to a distinct guarded **Interrupted session** responsibility instead of pretending it is either a known pending-sync candidate or ordinary temporary cleanup.
+
+The Desktop then offers two explicit decisions for the affected World:
+
+```text
+Interrupted session
+├─ Recover changes
+│    -> require exact journaled environment + preserved workspace
+│    -> Active -> RecoveryPending
+│    -> assign/reuse one stable candidate revision id
+│    -> run normal deterministic local/remote recovery
+│
+└─ Discard interrupted session
+     -> explicit destructive confirmation
+     -> Active -> CleanupPending
+     -> canonical World remains unchanged
+     -> adapter-owned controlled cleanup only
+```
+
+The status transition itself is persisted before the follow-up work. A second crash therefore resumes from `RecoveryPending` or `CleanupPending` rather than forgetting the user's decision.
+
+## Deterministic pending recovery
+
+Local-only and authenticated shared Worlds use different authority implementations, but the same safety rule:
+
+```text
+canonical state == candidate
+    -> original commit already succeeded
+    -> never recapture/recommit
+    -> finish controlled cleanup + clear journal
+
+canonical state == base
+AND canonical environment == journaled environment
+    -> acquire exact writable authority
+    -> re-check state + environment heads
+    -> reuse the same candidate revision id
+    -> reuse already stored candidate metadata when valid
+       OR capture preserved workspace under that same id
+    -> commit candidate
+    -> finish cleanup
+
+canonical state != base && != candidate
+    -> never overwrite
+    -> preserve evidence
+
+canonical environment != journaled environment while candidate is not canonical
+    -> never combine histories
+    -> preserve evidence
+```
+
+Remote recovery additionally verifies that the acquired reservation's starting **state and environment heads** both match the journal. A mismatched reservation is explicitly abandoned rather than used.
+
+An already-published candidate is reusable only when its adapter and parent revision match the journaled recovery lineage.
+
+Older recovery records that do not identify the exact environment fail closed whenever Steward would need that environment to reconstruct or capture an existing workspace. Steward does not substitute the World's current environment.
+
+## Cleanup-only recovery
+
+`CleanupPending` cannot capture, upload, publish, commit, or acquire writable authority.
+
+```text
+workspace still exists
+    -> exact journaled EnvironmentRevisionId required
+    -> load that immutable environment
+    -> adapter FinalizePreparedWorldAsync(...Discard)
+    -> remove journal only after cleanup succeeds
+
+workspace already gone
+    -> cleanup already happened or nothing remains
+    -> remove stale journal only
+```
+
+A legacy cleanup record with an existing workspace but no exact environment ID remains preserved rather than guessed.
 
 ## Adapter responsibility
 
@@ -128,19 +210,22 @@ A preserved workspace never automatically replaces the current World state.
 
 Recovery may perform only explicit safe actions such as:
 
-1. inspect the candidate through the owning adapter;
-2. validate that required World contents are complete;
-3. compare the candidate's starting revision with the current World head;
-4. retry capture and durable commit when the expected head still matches;
-5. deliberately choose the validated candidate as the continuing complete state when policy allows;
-6. discard the candidate after explicit confirmation when it is no longer needed.
+1. identify the exact immutable environment that created the workspace;
+2. compare the candidate's starting state/environment heads with current canonical heads;
+3. reuse one journaled candidate identity across retries;
+4. retry capture and durable commit only when the expected heads still match;
+5. recognize that a candidate already became canonical without generating another revision;
+6. discard an interrupted workspace only after explicit confirmation.
 
-Steward does not merge the recovery candidate with another independently advanced save. When the current World has already advanced elsewhere, the candidate remains separate evidence until the user chooses one complete state or discards it.
+Steward does not merge the recovery candidate with another independently advanced save. A changed canonical state or incompatible environment stops automatic recovery rather than creating branch/merge behavior.
 
 ## Recovery invariants
 
 - The last committed state remains authoritative until a replacement commit succeeds.
 - Recovery evidence is never deleted merely to release a stuck session.
 - A stale candidate must not overwrite a newer current state silently.
+- A preserved workspace is never reconstructed under a different environment silently.
+- Candidate identity is stable across retries.
+- Exact state **and** environment heads are re-checked at the authority boundary.
 - Recovery does not create Fork, branch, or merge workflows.
 - Cleanup and state authority remain separate concerns.

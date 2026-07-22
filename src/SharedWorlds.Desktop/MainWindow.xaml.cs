@@ -17,6 +17,7 @@ public partial class MainWindow : Window
 
     private World? _selectedWorld;
     private DeviceSettings _deviceSettings = DeviceSettingsStore.CreateInitial(hasManagedWorlds: false);
+    private bool _deviceSettingsUsableForRemote;
     private bool _isBusy;
 
     public MainWindow()
@@ -44,20 +45,24 @@ public partial class MainWindow : Window
 
     private async Task LoadDeviceSettingsAsync()
     {
+        _deviceSettingsUsableForRemote = false;
         try
         {
             var worlds = await _storage.ListWorldsAsync();
             _deviceSettings = await _deviceSettingsStore.LoadOrCreateAsync(
                 hasManagedWorlds: worlds.Count > 0);
+            _deviceSettingsUsableForRemote = true;
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or JsonException)
         {
+            // The fallback keeps local UI behavior usable, but its generated installation ID is not
+            // durable. Never use it for installation-bound remote identity/authority.
             _deviceSettings = DeviceSettingsStore.CreateInitial(hasManagedWorlds: false);
             ShowError(
                 "Could not load device settings",
                 new InvalidOperationException(
-                    "Steward kept hosting disabled on this device because its local device settings could not be loaded.",
+                    "Steward kept hosting and shared Worlds disabled on this device because its durable device settings could not be loaded.",
                     exception));
         }
 
@@ -78,6 +83,7 @@ public partial class MainWindow : Window
         {
             await _deviceSettingsStore.SaveAsync(updated);
             _deviceSettings = updated;
+            _deviceSettingsUsableForRemote = true;
             AllowHostingCheckBox.IsChecked = true;
             UpdateHostingPreferenceText();
         }

@@ -1,3 +1,5 @@
+using System.IO;
+using System.Net.Http;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;

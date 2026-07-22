@@ -1,7 +1,9 @@
+using System.Text.Json;
 using Npgsql;
 using NpgsqlTypes;
 using SharedWorlds.Backend.Worlds;
 using SharedWorlds.Core.Domain;
+using SharedWorlds.Core.Environment;
 
 namespace SharedWorlds.Backend.PostgreSql;
 
@@ -82,6 +84,7 @@ public sealed partial class PostgreSqlSharedWorldStore
                 artifact_reference,
                 byte_size,
                 sha256,
+                manifest_json,
                 published_by_provider,
                 published_by_external_id,
                 published_at)
@@ -92,6 +95,7 @@ public sealed partial class PostgreSqlSharedWorldStore
                 @artifact_reference,
                 @byte_size,
                 @sha256,
+                @manifest_json,
                 @published_by_provider,
                 @published_by_external_id,
                 @published_at)
@@ -110,6 +114,12 @@ public sealed partial class PostgreSqlSharedWorldStore
         command.Parameters.Add(new NpgsqlParameter("sha256", NpgsqlDbType.Text)
         {
             Value = revision.Sha256 is { } sha256 ? sha256.ToUpperInvariant() : DBNull.Value
+        });
+        command.Parameters.Add(new NpgsqlParameter("manifest_json", NpgsqlDbType.Jsonb)
+        {
+            Value = revision.Manifest is null
+                ? DBNull.Value
+                : JsonSerializer.Serialize(revision.Manifest)
         });
         command.Parameters.AddWithValue("published_by_provider", revision.PublishedBy.Provider);
         command.Parameters.AddWithValue("published_by_external_id", revision.PublishedBy.ExternalId);
@@ -171,6 +181,7 @@ public sealed partial class PostgreSqlSharedWorldStore
                 artifact_reference,
                 byte_size,
                 sha256,
+                manifest_json,
                 published_by_provider,
                 published_by_external_id,
                 published_at
@@ -207,5 +218,68 @@ public sealed partial class PostgreSqlSharedWorldStore
            string.Equals(left.ArtifactReference, right.ArtifactReference, StringComparison.Ordinal) &&
            left.ByteSize == right.ByteSize &&
            string.Equals(left.Sha256, right.Sha256, StringComparison.OrdinalIgnoreCase) &&
-           left.PublishedBy == right.PublishedBy;
+           left.PublishedBy == right.PublishedBy &&
+           SameManifest(left.Manifest, right.Manifest);
+
+    private static bool SameManifest(EnvironmentManifest? left, EnvironmentManifest? right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+
+        if (left is null || right is null ||
+            left.SchemaVersion != right.SchemaVersion ||
+            !string.Equals(left.AdapterId, right.AdapterId, StringComparison.Ordinal) ||
+            !string.Equals(left.GameVersion, right.GameVersion, StringComparison.Ordinal) ||
+            left.Components.Count != right.Components.Count ||
+            !SameDictionary(left.Configuration, right.Configuration))
+        {
+            return false;
+        }
+
+        for (var index = 0; index < left.Components.Count; index++)
+        {
+            var leftComponent = left.Components[index];
+            var rightComponent = right.Components[index];
+            if (!string.Equals(leftComponent.Kind, rightComponent.Kind, StringComparison.Ordinal) ||
+                !string.Equals(leftComponent.Id, rightComponent.Id, StringComparison.Ordinal) ||
+                !string.Equals(leftComponent.Version, rightComponent.Version, StringComparison.Ordinal) ||
+                !string.Equals(leftComponent.Source, rightComponent.Source, StringComparison.Ordinal) ||
+                !SameNullableDictionary(leftComponent.Metadata, rightComponent.Metadata))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool SameNullableDictionary(
+        IReadOnlyDictionary<string, string>? left,
+        IReadOnlyDictionary<string, string>? right)
+        => left is null
+            ? right is null
+            : right is not null && SameDictionary(left, right);
+
+    private static bool SameDictionary(
+        IReadOnlyDictionary<string, string> left,
+        IReadOnlyDictionary<string, string> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        foreach (var pair in left)
+        {
+            if (!right.TryGetValue(pair.Key, out var value) ||
+                !string.Equals(pair.Value, value, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 }

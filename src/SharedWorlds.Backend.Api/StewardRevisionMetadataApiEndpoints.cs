@@ -1,6 +1,7 @@
 using SharedWorlds.Backend.Identity;
 using SharedWorlds.Backend.Worlds;
 using SharedWorlds.Core.Domain;
+using SharedWorlds.Core.Environment;
 
 namespace SharedWorlds.Backend.Api;
 
@@ -17,6 +18,9 @@ public static class StewardRevisionMetadataApiEndpoints
         api.MapGet(
             "/worlds/{worldId:guid}/revisions/{revisionId:guid}/environment",
             GetEnvironmentRevisionAsync);
+        api.MapPost(
+            "/worlds/{worldId:guid}/revisions/{revisionId:guid}/environment",
+            PublishEnvironmentRevisionAsync);
 
         return endpoints;
     }
@@ -70,7 +74,48 @@ public static class StewardRevisionMetadataApiEndpoints
             ? StewardApiResults.NotFound("RevisionNotFoundOrUnauthorized")
             : Results.Ok(new StewardApiResponse(
                 "EnvironmentRevisionFound",
-                SharedEnvironmentRevisionDto.From(revision)));
+                EnvironmentRevisionMetadataDto.From(revision)));
+    }
+
+    private static async Task<IResult> PublishEnvironmentRevisionAsync(
+        Guid worldId,
+        Guid revisionId,
+        PublishEnvironmentRevisionRequest request,
+        HttpContext context,
+        StewardSessionService sessions,
+        SharedRevisionMetadataService revisions,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var caller = await AuthenticateAsync(context, sessions, cancellationToken);
+        if (caller is null)
+        {
+            return StewardApiResults.AuthenticationRequired();
+        }
+
+        var result = await revisions.PublishEnvironmentManifestAsync(
+            caller.Identity,
+            new WorldId(worldId),
+            new RevisionId(revisionId),
+            request.Manifest,
+            cancellationToken);
+        return result switch
+        {
+            PublishEnvironmentManifestStatus.Published => Results.Created(
+                $"/api/v1/worlds/{worldId:D}/revisions/{revisionId:D}/environment",
+                new StewardApiResponse("EnvironmentRevisionPublished")),
+            PublishEnvironmentManifestStatus.AlreadyPublished => Results.Ok(
+                new StewardApiResponse("EnvironmentRevisionAlreadyPublished")),
+            PublishEnvironmentManifestStatus.NotFoundOrUnauthorized =>
+                StewardApiResults.NotFound("WorldNotFoundOrUnauthorized"),
+            PublishEnvironmentManifestStatus.InvalidManifest =>
+                StewardApiResults.Validation("InvalidEnvironmentManifest"),
+            PublishEnvironmentManifestStatus.AdapterMismatch =>
+                StewardApiResults.DomainConflict("AdapterMismatch"),
+            PublishEnvironmentManifestStatus.Conflict =>
+                StewardApiResults.DomainConflict("RevisionConflict"),
+            _ => throw new InvalidOperationException("Unexpected environment-manifest publication result.")
+        };
     }
 
     private static async Task<StewardAuthenticatedCaller?> AuthenticateAsync(
@@ -93,4 +138,24 @@ public static class StewardRevisionMetadataApiEndpoints
 
         return await sessions.ValidateAccessTokenAsync(token, cancellationToken);
     }
+}
+
+public sealed record PublishEnvironmentRevisionRequest(EnvironmentManifest Manifest);
+
+public sealed record EnvironmentRevisionMetadataDto(
+    Guid RevisionId,
+    string ArtifactReference,
+    long? ByteSize,
+    string? Sha256,
+    DateTimeOffset PublishedAt,
+    EnvironmentManifest? Manifest)
+{
+    public static EnvironmentRevisionMetadataDto From(SharedEnvironmentRevisionMetadata revision)
+        => new(
+            revision.RevisionId.Value,
+            revision.ArtifactReference,
+            revision.ByteSize,
+            revision.Sha256,
+            revision.PublishedAt,
+            revision.Manifest);
 }

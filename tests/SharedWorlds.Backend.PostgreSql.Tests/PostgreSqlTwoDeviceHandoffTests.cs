@@ -374,6 +374,12 @@ public sealed class PostgreSqlTwoDeviceHandoffTests : IAsyncLifetime
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<EnvironmentVerificationReport> VerifyEnvironmentAsync(
+            GameInstallation installation,
+            EnvironmentManifest requiredEnvironment,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(EnvironmentVerificationReport.Ready());
+
         public Task<CapturedState> CaptureDetectedWorldAsync(
             GameInstallation installation,
             DetectedWorld world,

@@ -56,6 +56,9 @@ builder.Services.AddSingleton<ISharedWorldMetadataStore>(services =>
     services.GetRequiredService<PostgreSqlSharedWorldStore>());
 builder.Services.AddSingleton<ISharedRevisionMetadataStore>(services =>
     services.GetRequiredService<PostgreSqlSharedWorldStore>());
+builder.Services.AddSingleton<PostgreSqlSharedWorldAccessStore>();
+builder.Services.AddSingleton<ISharedWorldAccessStore>(services =>
+    services.GetRequiredService<PostgreSqlSharedWorldAccessStore>());
 
 builder.Services.AddSingleton<PostgreSqlSharedWorldAuthorityStore>();
 builder.Services.AddSingleton(services => new PostgreSqlIdempotentSharedWorldAuthorityStore(
@@ -110,6 +113,11 @@ builder.Services.AddSingleton(services => new SharedWorldAuthorityService(
     services.GetRequiredService<ISharedWorldAuthorityStore>(),
     () => DateTimeOffset.UtcNow));
 builder.Services.AddSingleton<SharedWorldReservationAbandonService>();
+builder.Services.AddSingleton(services => new SharedWorldAccessService(
+    services.GetRequiredService<ISharedWorldMetadataStore>(),
+    services.GetRequiredService<ISharedWorldAccessStore>(),
+    services.GetRequiredService<ISharedWorldResponsibilityInspector>(),
+    () => DateTimeOffset.UtcNow));
 builder.Services.AddSingleton(services => new SharedPackageTransferService(
     services.GetRequiredService<ISharedWorldMetadataStore>(),
     services.GetRequiredService<SharedRevisionMetadataService>(),
@@ -149,6 +157,7 @@ app.UseStewardApiProblemHandling();
 app.MapGet("/health/live", () => Results.Ok(new { status = "live" }));
 app.MapGet("/health/ready", CheckReadinessAsync);
 app.MapStewardApiV1();
+app.MapStewardAccessApiV1();
 app.MapStewardRevisionMetadataApiV1();
 app.MapStewardAuthorityApiV1();
 app.MapStewardReservationAbandonApiV1();

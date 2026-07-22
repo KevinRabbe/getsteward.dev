@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Worlds;

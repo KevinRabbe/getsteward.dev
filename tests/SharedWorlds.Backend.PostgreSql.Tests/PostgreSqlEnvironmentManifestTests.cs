@@ -80,8 +80,15 @@ public sealed class PostgreSqlEnvironmentManifestTests : IAsyncLifetime
         Assert.NotNull(loaded.Manifest);
         Assert.Equal(manifest.SchemaVersion, loaded.Manifest.SchemaVersion);
         Assert.Equal(manifest.GameVersion, loaded.Manifest.GameVersion);
-        Assert.Equal(manifest.Components, loaded.Manifest.Components);
+        var component = Assert.Single(loaded.Manifest.Components);
+        Assert.Equal("mod", component.Kind);
+        Assert.Equal("base", component.Id);
+        Assert.Equal("2.0.0", component.Version);
+        Assert.Equal("steam", component.Source);
+        Assert.NotNull(component.Metadata);
+        Assert.Equal("true", component.Metadata["required"]);
         Assert.Equal("normal", loaded.Manifest.Configuration["difficulty"]);
+        Assert.Equal("fixed", loaded.Manifest.Configuration["seed-policy"]);
 
         var reordered = Manifest(
             new Dictionary<string, string>

@@ -108,7 +108,7 @@ public sealed class PalworldEnvironmentReadinessTests
             var clientRoot = Path.Combine(_root, "Palworld");
             var serverRoot = Path.Combine(_root, "PalServer");
             var serverExecutable = Path.Combine(serverRoot, "PalServer.exe");
-            var serverManifest = Path.Combine(_root, "appmanifest_2394010.acf");
+            ServerManifestPath = Path.Combine(_root, "appmanifest_2394010.acf");
             WorldId = "0123456789ABCDEF0123456789ABCDEF";
             var worldPath = Path.Combine(clientRoot, "Pal", "Saved", "SaveGames", "76561198000000000", WorldId);
             ServerConfigPath = Path.Combine(
@@ -138,13 +138,12 @@ public sealed class PalworldEnvironmentReadinessTests
                     ["dedicatedServerInstallState"] = "installed",
                     ["dedicatedServerRootPath"] = serverRoot,
                     ["dedicatedServerExecutablePath"] = serverExecutable,
-                    ["dedicatedServerManifestPath"] = serverManifest
+                    ["dedicatedServerManifestPath"] = ServerManifestPath
                 });
             World = new DetectedWorld(
                 Id: $"local:76561198000000000:{WorldId}",
                 DisplayName: "Palworld readiness test",
                 SourcePath: worldPath);
-            ServerManifestPath = serverManifest;
         }
 
         public GameInstallation Installation { get; }

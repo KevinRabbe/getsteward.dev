@@ -38,11 +38,10 @@ public sealed class WorkspaceCleanupRecoveryService
     public async Task RetryAsync(
         WorldId worldId,
         IGameAdapter adapter,
-        GameInstallation installation,
+        GameInstallation? installation,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(adapter);
-        ArgumentNullException.ThrowIfNull(installation);
 
         var record = await LoadCleanupRecordAsync(worldId, cancellationToken);
         if (!string.Equals(record.AdapterId, adapter.Id, StringComparison.Ordinal))
@@ -54,6 +53,13 @@ public sealed class WorkspaceCleanupRecoveryService
 
         if (Directory.Exists(record.WorkingDirectory))
         {
+            if (installation is null)
+            {
+                throw new WorkspaceCleanupRecoveryException(
+                    "InstallationRequired",
+                    "The preserved workspace still exists, so the game adapter requires a local installation to finish cleanup safely.");
+            }
+
             var world = await _storage.LoadWorldAsync(worldId, cancellationToken)
                 ?? throw new WorkspaceCleanupRecoveryException(
                     "WorldNotFound",

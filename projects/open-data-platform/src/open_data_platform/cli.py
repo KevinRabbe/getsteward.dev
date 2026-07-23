@@ -18,10 +18,11 @@ from .operations import replicate_release, status_report
 from .serve import serve
 from .retention import retention_plan
 from .deployment import deployment_readiness
+from .runtime import pipeline_lock_status, recovery_plan
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="odp", description="Open Data Platform v0.8")
+    parser = argparse.ArgumentParser(prog="odp", description="Open Data Platform v0.9")
     sub = parser.add_subparsers(dest="command", required=True)
 
     ingest = sub.add_parser("ingest-gleif", help="Discover and archive the latest GLEIF Level 1 snapshot")
@@ -120,6 +121,12 @@ def build_parser() -> argparse.ArgumentParser:
     deployment.add_argument("--release-root", type=Path, default=None)
     deployment.add_argument("--product-root", type=Path, default=None)
     deployment.add_argument("--replica-root", type=Path, default=None)
+
+    lock = sub.add_parser("pipeline-lock", help="Report whether a scheduled pipeline lock is clear, active, or stale")
+    lock.add_argument("--data-root", type=Path, default=Path("data"))
+
+    recovery = sub.add_parser("recovery-plan", help="Report interrupted pipeline artifacts without deleting anything")
+    recovery.add_argument("--data-root", type=Path, default=Path("data"))
 
     return parser
 
@@ -229,6 +236,10 @@ def main() -> None:
                 product_root=args.product_root,
                 replica_root=args.replica_root,
             )
+        elif args.command == "pipeline-lock":
+            result = pipeline_lock_status(args.data_root)
+        elif args.command == "recovery-plan":
+            result = recovery_plan(args.data_root)
         else:
             raise RuntimeError("unreachable")
     except (PlatformError, OSError, ValueError) as exc:

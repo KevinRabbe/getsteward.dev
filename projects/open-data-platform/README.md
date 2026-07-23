@@ -1,4 +1,4 @@
-# Open Data Platform v0.8 — Phases 1-11
+# Open Data Platform v0.9 — Phases 1-12
 
 Der erste echte Trust-Boundary-Durchlauf für **GLEIF Level 1 LEI-CDF**.
 
@@ -242,6 +242,17 @@ python .\odp.py deployment-check --replica-root "E:\\open-data-releases"
 The live global CDF can contain a small number of repeated LEIs across source records. The product preserves every normalized row, reports `record_count`, `unique_lei_count`, and `duplicate_lei_count`, and returns `AMBIGUOUS` with all variants for a conflicting `lookup-lei`. No record is silently discarded or heuristically selected.
 
 Release packaging uses ZIP64 when needed, so the same deterministic packaging path works for multi-gigabyte SQLite products as well as the small offline fixtures.
+
+## Phase 12 - scheduled-run locking and recovery visibility
+
+The end-to-end pipeline now takes an exclusive lock under `data/events/pipeline.lock`, preventing overlapping scheduled runs from racing on the same archive. The lock records run ID, PID, host, and start time and is released only by its owning process.
+
+```powershell
+python .\odp.py pipeline-lock
+python .\odp.py recovery-plan
+```
+
+Both commands are report-only. `pipeline-lock` distinguishes `CLEAR`, `ACTIVE`, `STALE`, and `CORRUPT`. `recovery-plan` lists interrupted `.tmp-*` artifacts and partial staging downloads without deleting them. A stale lock or temporary artifact requires explicit operator review before retrying.
 
 ## Tests
 

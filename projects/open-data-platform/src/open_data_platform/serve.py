@@ -16,7 +16,7 @@ def _json_bytes(value: dict[str, Any]) -> bytes:
 
 def _handler_for(store: QueryStore):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "OpenDataPlatform/0.8"
+        server_version = "OpenDataPlatform/0.9"
 
         def _respond(self, status: int, value: dict[str, Any]) -> None:
             payload = _json_bytes(value)

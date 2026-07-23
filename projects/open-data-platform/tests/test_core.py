@@ -17,7 +17,7 @@ from urllib.request import urlopen
 from open_data_platform.archive import archive_staged_file
 from open_data_platform.deployment import deployment_readiness
 from open_data_platform.discovery import discover_latest
-from open_data_platform.errors import ParseError
+from open_data_platform.errors import ParseError, PlatformError
 from open_data_platform.http_client import find_download_url, find_publication_date
 from open_data_platform.parser import parse_snapshot, verify_normalized_artifact
 from open_data_platform.pipeline import run_gleif_pipeline
@@ -26,6 +26,7 @@ from open_data_platform.query import lookup_lei, search_name
 from open_data_platform.release import build_release, verify_release
 from open_data_platform.operations import replicate_release, status_report
 from open_data_platform.retention import retention_plan
+from open_data_platform.runtime import pipeline_lock, pipeline_lock_status, recovery_plan
 from open_data_platform.serve import create_server
 from open_data_platform.verify import verify_snapshot
 
@@ -81,6 +82,32 @@ class MetadataTests(unittest.TestCase):
             "https://leidata.gleif.org/api/v1/concatenated-files/lei2/20260723/zip",
         )
         self.assertEqual(remote.record_count, 3381912)
+
+
+class RuntimeTests(unittest.TestCase):
+    def test_pipeline_lock_and_recovery_plan_are_report_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertEqual(pipeline_lock_status(root)["status"], "CLEAR")
+            with pipeline_lock(root) as metadata:
+                active = pipeline_lock_status(root)
+                self.assertEqual(active["status"], "ACTIVE")
+                self.assertEqual(active["metadata"]["run_id"], metadata["run_id"])
+                with self.assertRaises(PlatformError):
+                    with pipeline_lock(root):
+                        pass
+                plan = recovery_plan(root)
+                self.assertEqual(plan["status"], "REVIEW_REQUIRED")
+                self.assertEqual(plan["recommended_action"], "WAIT_FOR_ACTIVE_PIPELINE")
+            self.assertEqual(pipeline_lock_status(root)["status"], "CLEAR")
+
+            stale_path = root / "events" / "pipeline.lock"
+            stale_path.write_text(
+                '{"lock_version": 1, "pid": 2147483647, "run_id": "run_stale"}\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(pipeline_lock_status(root)["status"], "STALE")
+            self.assertEqual(recovery_plan(root)["recommended_action"], "REVIEW_LOCK_AND_TEMP_ARTIFACTS")
 
 
 class ArchiveTests(unittest.TestCase):

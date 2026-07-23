@@ -370,6 +370,7 @@ static async Task<bool> RunAsync()
         saveSucceeded &&
         shutdownSucceeded &&
         processesExited &&
+        !runtimeMutatedByServer &&
         originalRestored &&
         !credentialPresentAfterRestore &&
         !forcedCleanupUsed)
@@ -458,6 +459,7 @@ static async Task<bool> RunAsync()
         saveSucceeded &&
         shutdownSucceeded &&
         processesExited &&
+        !runtimeMutatedByServer &&
         originalRestored &&
         !credentialPresentAfterRestore &&
         !forcedCleanupUsed &&

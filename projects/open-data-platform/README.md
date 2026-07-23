@@ -16,7 +16,7 @@ Source Registry
 → optional verified second copy
 ```
 
-Noch **nicht** enthalten: XML-Parsing, Normalisierung, Product Build oder Release Packaging. Das kommt erst, wenn der Raw-Ingest sauber funktioniert.
+Phase 1 archived and verified the raw payload. Phase 2 now adds streaming XML parsing and normalized artifact generation; Product Build and Release Packaging remain out of scope.
 
 ## Warum GLEIF
 
@@ -103,6 +103,28 @@ Das prüft:
 - bereits archivierte Bytes werden read-back-verifiziert
 - ein bereits vorhandenes Content-Objekt wird vor Deduplication erneut verifiziert
 - neue Source-Version überschreibt keinen alten Snapshot
+
+## Phase 2 - streaming normalization
+
+After a raw snapshot has been archived and verified, normalize it without extracting the ZIP to disk:
+
+```powershell
+python .\odp.py parse-gleif snp_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+```
+
+The parser reads the single CDF XML member with a streaming `iterparse` loop and writes one normalized LEI record per line. It validates the CDF header record count and required fields before atomically publishing:
+
+```text
+data/normalized/<source_dataset_id>/<snapshot_id>/
+  records.jsonl
+  records.jsonl.sha256
+  quality.json
+  quality.json.sha256
+  artifact.json
+  artifact.json.sha256
+```
+
+The raw archive and raw snapshot manifest are never modified. A repeated parse of the same snapshot returns `NO_CHANGE` after verifying the normalized artifact checksums.
 
 ## Tests
 

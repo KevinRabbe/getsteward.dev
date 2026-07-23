@@ -13,3 +13,5 @@ data/archive/snapshots/*
 !data/archive/snapshots/.gitkeep
 data/events/*
 !data/events/.gitkeep
+data/normalized/*
+!data/normalized/.gitkeep

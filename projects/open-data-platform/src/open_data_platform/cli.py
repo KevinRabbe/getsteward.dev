@@ -7,11 +7,12 @@ from pathlib import Path
 
 from .errors import PlatformError
 from .ingest import ingest_latest
+from .parser import parse_snapshot
 from .verify import verify_snapshot
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="odp", description="Open Data Platform v0.1")
+    parser = argparse.ArgumentParser(prog="odp", description="Open Data Platform v0.2")
     sub = parser.add_subparsers(dest="command", required=True)
 
     ingest = sub.add_parser("ingest-gleif", help="Discover and archive the latest GLEIF Level 1 snapshot")
@@ -23,6 +24,11 @@ def build_parser() -> argparse.ArgumentParser:
     verify = sub.add_parser("verify", help="Verify one archived snapshot and its manifest")
     verify.add_argument("snapshot_id")
     verify.add_argument("--data-root", type=Path, default=Path("data"))
+
+    parse = sub.add_parser("parse-gleif", help="Stream one verified GLEIF snapshot into normalized JSONL")
+    parse.add_argument("snapshot_id")
+    parse.add_argument("--data-root", type=Path, default=Path("data"))
+    parse.add_argument("--output-root", type=Path, default=None)
 
     return parser
 
@@ -39,6 +45,13 @@ def main() -> None:
             )
         elif args.command == "verify":
             result = verify_snapshot(args.data_root, args.snapshot_id)
+        elif args.command == "parse-gleif":
+            result = parse_snapshot(
+                args.data_root,
+                args.snapshot_id,
+                output_root=args.output_root,
+                event_log=args.data_root / "events" / "events.jsonl",
+            )
         else:
             raise RuntimeError("unreachable")
     except (PlatformError, OSError, ValueError) as exc:

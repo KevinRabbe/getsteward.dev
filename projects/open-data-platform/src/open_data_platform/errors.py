@@ -16,3 +16,7 @@ class AcquisitionError(PlatformError):
 
 class IntegrityError(PlatformError):
     pass
+
+
+class ParseError(PlatformError):
+    """The admitted raw payload cannot be normalized safely."""

@@ -12,6 +12,11 @@ public sealed class PalworldOodleProductionLookupTests : IDisposable
     [Fact]
     public void ProductionLookupIgnoresAcceptanceEnvironmentOverride()
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
         Directory.CreateDirectory(_root);
         var outsideRoot = Path.Combine(
             Path.GetTempPath(),

@@ -1,4 +1,4 @@
-# Open Data Platform v0.1 — Phase 1
+# Open Data Platform v0.5 — Phases 1-7
 
 Der erste echte Trust-Boundary-Durchlauf für **GLEIF Level 1 LEI-CDF**.
 
@@ -153,6 +153,50 @@ data/products/<source_dataset_id>/<snapshot_id>/
 
 The SQLite build is zero-install, streams the normalized JSONL, rejects duplicate LEIs, runs `PRAGMA integrity_check`, and publishes atomically.
 
+## Phase 4 - release packaging
+
+Package a verified product together with its source manifest and normalized quality report:
+
+```powershell
+python .\odp.py build-release snp_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+python .\odp.py verify-release snp_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+```
+
+The resulting deterministic ZIP contains the SQLite database, product manifest, raw snapshot manifest, quality report, and checksum sidecars. It does not duplicate the large raw ZIP payload.
+
+## Phase 5 - consumer query access
+
+Read-only queries verify the selected product before opening SQLite:
+
+```powershell
+python .\odp.py lookup-lei 5493001KJTIIGC8Y1R12
+python .\odp.py search-name "Example" --limit 20
+```
+
+Queries return provenance for the exact snapshot and product used. Omitting `--snapshot-id` selects the newest verified product by source version.
+
+## Phase 6 - end-to-end operation
+
+Run the complete pipeline with one command:
+
+```powershell
+python .\odp.py run-gleif
+python .\odp.py events
+```
+
+This executes ingest, normalization, SQLite build, and release packaging while appending stage events to the existing event log. A failure at any boundary stops the pipeline and records `PIPELINE_FAILED`.
+
+## Phase 7 - operations
+
+Copy a verified release to a second physical root and verify the copied bytes:
+
+```powershell
+python .\odp.py replicate-release snp_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx --replica-root "E:\open-data-releases"
+python .\odp.py status
+```
+
+Replication never overwrites an existing destination. The status report verifies each snapshot through raw, normalized, product, and release boundaries and includes a recent event summary.
+
 ## Tests
 
 Im Projektordner:
@@ -166,4 +210,4 @@ Die Tests brauchen kein Internet.
 
 ## Next step
 
-The next scope is release packaging and consumer-facing query access. The raw archive, normalized artifact, and SQLite product are already separate, verified trust boundaries.
+The next scope is serving verified products to downstream applications and adding scheduled retention/replication operations. The raw archive, normalized artifact, SQLite product, and release bundle are already separate, verified trust boundaries.

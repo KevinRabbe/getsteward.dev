@@ -17,3 +17,5 @@ data/normalized/*
 !data/normalized/.gitkeep
 data/products/*
 !data/products/.gitkeep
+data/releases/*
+!data/releases/.gitkeep

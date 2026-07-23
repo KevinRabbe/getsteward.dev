@@ -24,3 +24,11 @@ class ParseError(PlatformError):
 
 class ProductError(PlatformError):
     """The normalized artifact cannot be built into a product safely."""
+
+
+class ReleaseError(PlatformError):
+    """A release bundle cannot be created or verified safely."""
+
+
+class QueryError(PlatformError):
+    """A read-only consumer query cannot be completed safely."""

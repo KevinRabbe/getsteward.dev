@@ -9,12 +9,17 @@ import unittest
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from unittest.mock import patch
 
 from open_data_platform.archive import archive_staged_file
 from open_data_platform.errors import ParseError
 from open_data_platform.http_client import find_download_url, find_publication_date
 from open_data_platform.parser import parse_snapshot, verify_normalized_artifact
+from open_data_platform.pipeline import run_gleif_pipeline
 from open_data_platform.product import build_product, verify_product
+from open_data_platform.query import lookup_lei, search_name
+from open_data_platform.release import build_release, verify_release
+from open_data_platform.operations import replicate_release, status_report
 from open_data_platform.verify import verify_snapshot
 
 
@@ -308,6 +313,72 @@ class ProductTests(unittest.TestCase):
 
             with self.assertRaises(ParseError):
                 build_product(root, manifest["snapshot_id"])
+
+
+class ReleaseAndQueryTests(unittest.TestCase):
+    def test_builds_release_and_serves_verified_read_only_queries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _archive_cdf(root, record_count=2, include_second_record=True)
+            parse_snapshot(root, manifest["snapshot_id"])
+            build_product(root, manifest["snapshot_id"])
+
+            release = build_release(root, manifest["snapshot_id"])
+
+            self.assertEqual(release["status"], "BUILT")
+            self.assertTrue(Path(release["bundle_path"]).exists())
+            verified = verify_release(root, manifest["snapshot_id"])
+            self.assertEqual(verified["status"], "VERIFIED")
+            with zipfile.ZipFile(release["bundle_path"], "r") as bundle:
+                self.assertIn("product/lei.sqlite", bundle.namelist())
+                self.assertIn("source/manifest.json", bundle.namelist())
+
+            found = lookup_lei(root, "5493001KJTIIGC8Y1R12", snapshot_id=manifest["snapshot_id"])
+            self.assertEqual(found["status"], "FOUND")
+            self.assertEqual(found["record"]["legal_name"], "Example Holdings GmbH")
+            self.assertEqual(found["provenance"]["snapshot_id"], manifest["snapshot_id"])
+
+            search = search_name(root, "Example", snapshot_id=manifest["snapshot_id"], limit=10)
+            self.assertEqual(search["count"], 2)
+            self.assertEqual(search["records"][0]["legal_name"], "Example Holdings GmbH")
+
+            missing = lookup_lei(root, "00000000000000000000", snapshot_id=manifest["snapshot_id"])
+            self.assertEqual(missing["status"], "NOT_FOUND")
+
+            replica = root / "release-replica"
+            replicated = replicate_release(root, manifest["snapshot_id"], replica)
+            self.assertEqual(replicated["status"], "REPLICATED")
+            self.assertTrue((replica / manifest["source_dataset_id"] / manifest["snapshot_id"] / "release.zip").exists())
+            self.assertEqual(
+                replicate_release(root, manifest["snapshot_id"], replica)["status"],
+                "NO_CHANGE",
+            )
+
+            status = status_report(root)
+            self.assertEqual(status["snapshot_count"], 1)
+            snapshot_status = status["snapshots"][0]
+            self.assertEqual(snapshot_status["raw"], "VERIFIED")
+            self.assertEqual(snapshot_status["normalized"], "VERIFIED")
+            self.assertEqual(snapshot_status["product"], "VERIFIED")
+            self.assertEqual(snapshot_status["release"], "VERIFIED")
+
+    def test_end_to_end_pipeline_records_completion_events(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _archive_cdf(root)
+            fake_ingest_result = {"status": "ARCHIVED", "snapshot": manifest, "replica_path": None}
+
+            with patch("open_data_platform.pipeline.ingest_latest", return_value=fake_ingest_result):
+                result = run_gleif_pipeline(
+                    source_config=root / "source.json",
+                    admission_config=root / "admission.json",
+                    data_root=root,
+                )
+
+            self.assertEqual(result["status"], "COMPLETED")
+            self.assertEqual(result["release"]["status"], "BUILT")
+            events = (root / "events" / "events.jsonl").read_text(encoding="utf-8")
+            self.assertIn('"event": "PIPELINE_COMPLETED"', events)
 
 
 if __name__ == "__main__":

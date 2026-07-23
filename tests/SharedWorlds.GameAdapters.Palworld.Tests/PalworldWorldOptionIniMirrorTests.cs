@@ -42,7 +42,7 @@ public sealed class PalworldWorldOptionIniMirrorTests
         var exception = Assert.Throws<InvalidDataException>(() =>
             PalworldWorldOptionIniMirror.Create(snapshot, "runtime-secret", 8212));
 
-        Assert.Contains("unsupported property type", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("opaque", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

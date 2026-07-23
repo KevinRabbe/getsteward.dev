@@ -40,5 +40,17 @@ jobs:
       - name: Build startup precedence probe
         run: dotnet build tools/SharedWorlds.PalworldWorldOptionStartupProbe/SharedWorlds.PalworldWorldOptionStartupProbe.csproj --configuration Release --no-restore --nologo --verbosity minimal
 
+      - name: Restore read-only settings probe
+        run: dotnet restore tools/SharedWorlds.PalworldWorldOptionSettingsProbe/SharedWorlds.PalworldWorldOptionSettingsProbe.csproj
+
+      - name: Build read-only settings probe
+        run: dotnet build tools/SharedWorlds.PalworldWorldOptionSettingsProbe/SharedWorlds.PalworldWorldOptionSettingsProbe.csproj --configuration Release --no-restore --nologo --verbosity minimal
+
+      - name: Restore INI mirror probe
+        run: dotnet restore tools/SharedWorlds.PalworldWorldOptionIniMirrorProbe/SharedWorlds.PalworldWorldOptionIniMirrorProbe.csproj
+
+      - name: Build INI mirror probe
+        run: dotnet build tools/SharedWorlds.PalworldWorldOptionIniMirrorProbe/SharedWorlds.PalworldWorldOptionIniMirrorProbe.csproj --configuration Release --no-restore --nologo --verbosity minimal
+
       - name: Test Palworld adapter
         run: dotnet test tests/SharedWorlds.GameAdapters.Palworld.Tests/SharedWorlds.GameAdapters.Palworld.Tests.csproj --configuration Release --nologo --verbosity minimal

@@ -19,6 +19,7 @@ from .verify import verify_snapshot
 _XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
 _LEI_RE = re.compile(r"^[A-Z0-9]{18}[0-9]{2}$")
 _PARSER_VERSION = "0.2.0"
+_EXPECTED_FILE_CONTENT = "GLEIF_FULL_PUBLISHED"
 _REQUIRED_NORMALIZED_FIELDS = {
     "lei",
     "legal_name",
@@ -397,6 +398,22 @@ def verify_normalized_artifact(
             "Quality report record count mismatch: "
             f"report declares {quality.get('records_written')}, file contains {records_seen}"
         )
+    if quality.get("file_content") != _EXPECTED_FILE_CONTENT:
+        raise ParseError(
+            "Normalized artifact is not a global GLEIF concatenated file: "
+            f"file content is {quality.get('file_content')!r}"
+        )
+    declared_metadata_count = snapshot_manifest.get("declared_record_count")
+    if declared_metadata_count is not None:
+        try:
+            declared_metadata_count = int(declared_metadata_count)
+        except (TypeError, ValueError) as exc:
+            raise ParseError("Snapshot declared_record_count is not an integer") from exc
+        if declared_metadata_count != records_seen:
+            raise ParseError(
+                "Source metadata record count does not match normalized records: "
+                f"metadata declares {declared_metadata_count}, file contains {records_seen}"
+            )
 
     return {
         "status": "VERIFIED",
@@ -434,11 +451,15 @@ def parse_snapshot(
 
     try:
         if final_dir.exists():
-            artifact = _load_existing_artifact(final_dir, snapshot_id)
+            existing = verify_normalized_artifact(
+                data_root,
+                snapshot_id,
+                output_root=output_root,
+            )
             result = {
                 "status": "NO_CHANGE",
                 "snapshot_id": snapshot_id,
-                "artifact": artifact,
+                "artifact": existing["artifact"],
                 "verification": verification,
             }
             log("NORMALIZATION_NO_CHANGE", {"snapshot_id": snapshot_id})
@@ -468,6 +489,24 @@ def parse_snapshot(
             except zipfile.BadZipFile as exc:
                 raise ParseError(f"Raw snapshot is not a valid ZIP archive: {archive_path}") from exc
 
+            if header["file_content"] != _EXPECTED_FILE_CONTENT:
+                raise ParseError(
+                    "Expected a global GLEIF concatenated file, got "
+                    f"{header['file_content']!r}"
+                )
+            declared_metadata_count = manifest.get("declared_record_count")
+            if declared_metadata_count is not None:
+                try:
+                    declared_metadata_count = int(declared_metadata_count)
+                except (TypeError, ValueError) as exc:
+                    raise ParseError("Snapshot declared_record_count is not an integer") from exc
+                if declared_metadata_count != header["record_count"]:
+                    raise ParseError(
+                        "Source metadata record count does not match CDF header: "
+                        f"metadata declares {declared_metadata_count}, "
+                        f"CDF declares {header['record_count']}"
+                    )
+
             records_hash, records_size = sha256_file(records_path)
             make_read_only(records_path)
             _write_checksum(records_path)
@@ -476,6 +515,11 @@ def parse_snapshot(
                 {
                     "snapshot_id": snapshot_id,
                     "source_record_count": header["record_count"],
+                    "declared_metadata_record_count": declared_metadata_count,
+                    "record_count_matches_metadata": (
+                        declared_metadata_count is None
+                        or declared_metadata_count == header["record_count"]
+                    ),
                     "content_date": header["content_date"],
                     "file_content": header["file_content"],
                     "generated_at": utc_now_iso(),

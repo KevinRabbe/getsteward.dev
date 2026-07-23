@@ -15,6 +15,8 @@ from urllib.error import HTTPError
 from urllib.request import urlopen
 
 from open_data_platform.archive import archive_staged_file
+from open_data_platform.deployment import deployment_readiness
+from open_data_platform.discovery import discover_latest
 from open_data_platform.errors import ParseError
 from open_data_platform.http_client import find_download_url, find_publication_date
 from open_data_platform.parser import parse_snapshot, verify_normalized_artifact
@@ -50,6 +52,35 @@ class MetadataTests(unittest.TestCase):
             find_download_url(metadata, ["leidata.gleif.org"]),
             metadata["download"]["zip"],
         )
+
+    def test_discovery_prefers_concatenated_endpoint_over_embedded_lou_file(self):
+        metadata = {
+            "data": {
+                "content_date": "2026-07-23 09:00:01",
+                "record_count": 3381912,
+                "cdf_version": "LEI_3.1",
+                "sources": [
+                    {
+                        "lou_file": {
+                            "record_count": 526991,
+                            "file": "https://leidata.gleif.org/api/v1/source-files/lei2/get/3924761/zip",
+                        }
+                    }
+                ],
+            }
+        }
+        source = {
+            "metadata_url": "https://leidata.gleif.org/api/v1/concatenated-files/lei2/latest",
+            "allowed_hosts": ["leidata.gleif.org"],
+            "download_url_template": "https://leidata.gleif.org/api/v1/concatenated-files/lei2/{yyyymmdd}/zip",
+        }
+        with patch("open_data_platform.discovery.get_json", return_value=metadata):
+            remote = discover_latest(source)
+        self.assertEqual(
+            remote.download_url,
+            "https://leidata.gleif.org/api/v1/concatenated-files/lei2/20260723/zip",
+        )
+        self.assertEqual(remote.record_count, 3381912)
 
 
 class ArchiveTests(unittest.TestCase):
@@ -221,7 +252,7 @@ def _archive_cdf(root: Path, *, record_count: int = 1, include_second_record: bo
         data_root=root,
         source=source,
         admission=admission,
-        remote=Remote(),
+        remote=Remote(record_count=record_count),
         acquisition_metadata={"bytes_downloaded": staged.stat().st_size},
     )
 
@@ -424,6 +455,14 @@ class ReleaseAndQueryTests(unittest.TestCase):
             self.assertFalse(plan["policy"]["deletion_enabled"])
             self.assertEqual(len(plan["retained"]), 1)
             self.assertGreater(plan["storage"]["total_bytes"], 0)
+
+            readiness = deployment_readiness(root, snapshot_id=manifest["snapshot_id"])
+            self.assertEqual(readiness["status"], "READY")
+            self.assertEqual(
+                {check["name"] for check in readiness["checks"]},
+                {"release", "query_product", "normalized_artifact"},
+            )
+            self.assertIn("serve", readiness["service"]["suggested_command"])
 
 
 if __name__ == "__main__":

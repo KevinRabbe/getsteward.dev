@@ -211,7 +211,7 @@ def verify_product(
     if product_manifest.get("source_snapshot_id") != snapshot_id:
         raise ProductError("Product belongs to a different snapshot")
 
-    connection = sqlite3.connect(database_path.as_uri() + "?mode=ro", uri=True)
+    connection = sqlite3.connect(database_path.resolve().as_uri() + "?mode=ro", uri=True)
     try:
         integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
         if integrity != "ok":

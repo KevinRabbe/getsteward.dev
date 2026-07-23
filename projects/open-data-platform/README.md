@@ -1,4 +1,4 @@
-# Open Data Platform v0.6 — Phases 1-9
+# Open Data Platform v0.7 — Phases 1-10
 
 Der erste echte Trust-Boundary-Durchlauf für **GLEIF Level 1 LEI-CDF**.
 
@@ -16,7 +16,7 @@ Source Registry
 → optional verified second copy
 ```
 
-Phase 1 archived and verified the raw payload. Phase 2 now adds streaming XML parsing and normalized artifact generation; Product Build and Release Packaging remain out of scope.
+Phase 1 archived and verified the raw payload. Phases 2-10 extend that boundary through normalization, a queryable product, deterministic releases, read-only serving, retention planning, and deployment readiness.
 
 ## Warum GLEIF
 
@@ -217,6 +217,26 @@ python .\odp.py retention-plan --keep-latest 7
 
 Only snapshots outside the keep window whose raw, normalized, product, and release boundaries all verify are marked `eligible_for_archive_review`. The command is explicitly report-only.
 
+## Phase 10 - scheduled execution and deployment readiness
+
+For Windows Task Scheduler or another external scheduler, use the checked-in wrapper. It runs the complete pipeline, writes a timestamped log, forwards the pipeline exit code, and never installs packages:
+
+```powershell
+.\scripts\run_gleif_pipeline.ps1
+.\scripts\run_gleif_pipeline.ps1 -PythonExe "C:\\Python311\\python.exe" -ReplicaRoot "E:\\open-data-releases"
+```
+
+The wrapper is intentionally a process boundary rather than an automatic Task Scheduler registration. Scheduling, credentials, host binding, backups, and restart policy remain deployment-owner decisions.
+
+Check whether the newest release and query product are verified before exposing the service:
+
+```powershell
+python .\odp.py deployment-check
+python .\odp.py deployment-check --replica-root "E:\\open-data-releases"
+```
+
+`deployment-check` is report-only. It verifies the selected release and SQLite product, optionally compares a second physical release copy, and prints suggested service and scheduled-run commands. It does not start, copy, delete, or overwrite anything.
+
 ## Tests
 
 Im Projektordner:
@@ -230,4 +250,4 @@ Die Tests brauchen kein Internet.
 
 ## Next step
 
-The next scope is scheduled execution and external deployment policy. The raw archive, normalized artifact, SQLite product, release bundle, HTTP service, and retention report are already separate, verified trust boundaries.
+Remaining work is environment-specific deployment policy: choose a scheduler, bind the HTTP service behind the intended network boundary, define backup/restore ownership, and add monitoring/alert delivery. The repository provides verification and report-only primitives for those decisions without making them implicitly.

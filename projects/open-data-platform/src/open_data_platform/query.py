@@ -113,7 +113,7 @@ class QueryStore:
     def _connection(self) -> sqlite3.Connection:
         database_path = Path(self.verified["database_path"])
         try:
-            connection = sqlite3.connect(database_path.as_uri() + "?mode=ro", uri=True)
+            connection = sqlite3.connect(database_path.resolve().as_uri() + "?mode=ro", uri=True)
         except sqlite3.Error as exc:
             raise QueryError(f"Could not open product read-only: {database_path}") from exc
         connection.row_factory = sqlite3.Row

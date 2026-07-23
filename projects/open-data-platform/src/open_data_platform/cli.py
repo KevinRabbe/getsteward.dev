@@ -17,10 +17,11 @@ from .release import build_release, verify_release
 from .operations import replicate_release, status_report
 from .serve import serve
 from .retention import retention_plan
+from .deployment import deployment_readiness
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="odp", description="Open Data Platform v0.6")
+    parser = argparse.ArgumentParser(prog="odp", description="Open Data Platform v0.7")
     sub = parser.add_subparsers(dest="command", required=True)
 
     ingest = sub.add_parser("ingest-gleif", help="Discover and archive the latest GLEIF Level 1 snapshot")
@@ -112,6 +113,13 @@ def build_parser() -> argparse.ArgumentParser:
     retention = sub.add_parser("retention-plan", help="Create a non-destructive retention and storage report")
     retention.add_argument("--data-root", type=Path, default=Path("data"))
     retention.add_argument("--keep-latest", type=int, default=7)
+
+    deployment = sub.add_parser("deployment-check", help="Report whether a verified release is deployment-ready")
+    deployment.add_argument("--data-root", type=Path, default=Path("data"))
+    deployment.add_argument("--snapshot-id", default=None)
+    deployment.add_argument("--release-root", type=Path, default=None)
+    deployment.add_argument("--product-root", type=Path, default=None)
+    deployment.add_argument("--replica-root", type=Path, default=None)
 
     return parser
 
@@ -213,6 +221,14 @@ def main() -> None:
             return
         elif args.command == "retention-plan":
             result = retention_plan(args.data_root, keep_latest=args.keep_latest)
+        elif args.command == "deployment-check":
+            result = deployment_readiness(
+                args.data_root,
+                snapshot_id=args.snapshot_id,
+                release_root=args.release_root,
+                product_root=args.product_root,
+                replica_root=args.replica_root,
+            )
         else:
             raise RuntimeError("unreachable")
     except (PlatformError, OSError, ValueError) as exc:

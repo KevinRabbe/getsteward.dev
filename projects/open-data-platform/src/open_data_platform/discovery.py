@@ -22,10 +22,16 @@ def discover_latest(source: dict) -> RemoteSnapshot:
     if not publication_date:
         raise AcquisitionError("Could not determine publication date from GLEIF metadata")
 
-    download_url = find_download_url(metadata, source["allowed_hosts"])
-    if not download_url:
+    # The metadata response also contains one ZIP URL per LOU. Those are valid
+    # source files, but they are not the requested global concatenated file.
+    # Prefer the explicit dataset endpoint from the source registry and only
+    # fall back to embedded metadata URLs for sources without a template.
+    download_url = None
+    if source.get("download_url_template"):
         yyyymmdd = publication_date.replace("-", "")
         download_url = source["download_url_template"].format(yyyymmdd=yyyymmdd)
+    if not download_url:
+        download_url = find_download_url(metadata, source["allowed_hosts"])
 
     cdf_version = find_scalar(metadata, ("cdf_version", "cdfversion"))
     record_count = find_scalar(metadata, ("record_count", "recordcount", "records"))

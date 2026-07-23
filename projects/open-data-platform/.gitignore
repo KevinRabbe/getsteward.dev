@@ -19,3 +19,5 @@ data/products/*
 !data/products/.gitkeep
 data/releases/*
 !data/releases/.gitkeep
+data/logs/*
+!data/logs/.gitkeep

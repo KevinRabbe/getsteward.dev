@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "open-data-platform-v01"
-version = "0.1.0"
-description = "Minimal immutable open-data ingest pipeline proof of concept"
+version = "0.7.0"
+description = "Verified, zero-install GLEIF open-data ingest and query pipeline"
 requires-python = ">=3.11"
 dependencies = []
 

@@ -1,4 +1,4 @@
-# Open Data Platform v0.11 — Phases 1-14
+# Open Data Platform v0.12 — Phases 1-15
 
 Der erste echte Trust-Boundary-Durchlauf für **GLEIF Level 1 LEI-CDF**.
 
@@ -281,6 +281,23 @@ python .\odp.py serve --host 0.0.0.0 --allow-remote --auth-token-file "C:\\secre
 ```
 
 With a token configured, every endpoint requires `Authorization: Bearer <token>`. Token contents are read once at startup and never returned or logged. Responses include no-store, MIME-sniffing, and clickjacking headers; name queries are bounded to 500 characters.
+
+## Phase 15 - backup, restore, and query failover
+
+Verify a release stored on a second physical root:
+
+```powershell
+python .\odp.py verify-replica snp_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx --replica-root "E:\\open-data-releases"
+```
+
+Restore the verified release into a separate failover data root without overwriting existing artifacts:
+
+```powershell
+python .\odp.py restore-release snp_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx --replica-root "E:\\open-data-releases" --restore-root "F:\\odp-failover"
+python .\odp.py lookup-lei 5493001KJTIIGC8Y1R12 --data-root "F:\\odp-failover"
+```
+
+The restore contains the source manifest, SQLite product, and release bundle. It is query-failover-ready, while raw and normalized source payloads remain owned by the primary archive. Existing target artifacts are never overwritten.
 
 ## Tests
 

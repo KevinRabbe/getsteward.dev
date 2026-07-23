@@ -15,6 +15,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from open_data_platform.archive import archive_staged_file
+from open_data_platform.backup import restore_release, verify_replica_release
 from open_data_platform.deployment import deployment_readiness
 from open_data_platform.discovery import discover_latest
 from open_data_platform.errors import ParseError, PlatformError, QueryError
@@ -477,6 +478,22 @@ class ReleaseAndQueryTests(unittest.TestCase):
             self.assertTrue((replica / manifest["source_dataset_id"] / manifest["snapshot_id"] / "release.zip").exists())
             self.assertEqual(
                 replicate_release(root, manifest["snapshot_id"], replica)["status"],
+                "NO_CHANGE",
+            )
+            replica_check = verify_replica_release(replica, manifest["snapshot_id"])
+            self.assertEqual(replica_check["status"], "VERIFIED")
+            restored_root = root / "restored-failover"
+            restored = restore_release(replica, manifest["snapshot_id"], restored_root)
+            self.assertEqual(restored["status"], "RESTORED")
+            self.assertTrue(restored["query_failover_ready"])
+            restored_lookup = lookup_lei(
+                restored_root,
+                "5493001KJTIIGC8Y1R12",
+                snapshot_id=manifest["snapshot_id"],
+            )
+            self.assertEqual(restored_lookup["status"], "FOUND")
+            self.assertEqual(
+                restore_release(replica, manifest["snapshot_id"], restored_root)["status"],
                 "NO_CHANGE",
             )
 

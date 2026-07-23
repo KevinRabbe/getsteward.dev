@@ -29,7 +29,7 @@ def _read_auth_token(path: Path | None) -> str | None:
 
 def _handler_for(store: QueryStore, auth_token: str | None):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "OpenDataPlatform/0.11"
+        server_version = "OpenDataPlatform/0.12"
         sys_version = ""
 
         def _respond(

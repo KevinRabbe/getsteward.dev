@@ -20,6 +20,7 @@ from .retention import retention_plan
 from .deployment import deployment_readiness
 from .runtime import pipeline_lock_status, recovery_plan
 from .schedule import schedule_plan
+from .backup import restore_release, verify_replica_release
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -138,6 +139,15 @@ def build_parser() -> argparse.ArgumentParser:
     schedule.add_argument("--replica-root", type=Path, default=None)
     schedule.add_argument("--frequency", choices=("daily", "weekly"), default="daily")
     schedule.add_argument("--start-time", default="02:00")
+
+    replica_verify = sub.add_parser("verify-replica", help="Verify a release stored in a backup replica")
+    replica_verify.add_argument("snapshot_id")
+    replica_verify.add_argument("--replica-root", type=Path, required=True)
+
+    restore = sub.add_parser("restore-release", help="Restore a verified replica into a query-capable failover root")
+    restore.add_argument("snapshot_id")
+    restore.add_argument("--replica-root", type=Path, required=True)
+    restore.add_argument("--restore-root", type=Path, required=True)
 
     return parser
 
@@ -262,6 +272,10 @@ def main() -> None:
                 frequency=args.frequency,
                 start_time=args.start_time,
             )
+        elif args.command == "verify-replica":
+            result = verify_replica_release(args.replica_root, args.snapshot_id)
+        elif args.command == "restore-release":
+            result = restore_release(args.replica_root, args.snapshot_id, args.restore_root)
         else:
             raise RuntimeError("unreachable")
     except (PlatformError, OSError, ValueError) as exc:

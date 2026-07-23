@@ -1,4 +1,4 @@
-# Open Data Platform v0.12 — Phases 1-15
+# Open Data Platform v0.13 — Phases 1-16
 
 Der erste echte Trust-Boundary-Durchlauf für **GLEIF Level 1 LEI-CDF**.
 
@@ -299,6 +299,23 @@ python .\odp.py lookup-lei 5493001KJTIIGC8Y1R12 --data-root "F:\\odp-failover"
 
 The restore contains the source manifest, SQLite product, and release bundle. It is query-failover-ready, while raw and normalized source payloads remain owned by the primary archive. Existing target artifacts are never overwritten.
 
+## Phase 16 - monitoring and operations runbook
+
+Generate one machine-readable health report for scheduled monitoring:
+
+```powershell
+python .\odp.py monitor
+python .\odp.py monitor --replica-root "E:\\open-data-releases"
+```
+
+The report aggregates deployment readiness, pipeline-lock state, interrupted-artifact recovery state, and recent events. It prints `HEALTHY` with exit code `0` when all checks pass and `ALERT` with exit code `3` when operator attention is required. The checked-in wrapper writes a timestamped log and forwards that alert status:
+
+```powershell
+.\scripts\monitor_gleif.ps1
+```
+
+The operator procedures for daily monitoring, scheduler ownership, HTTP security, backup restore, and incident handling are in [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+
 ## Tests
 
 Im Projektordner:
@@ -310,6 +327,6 @@ python -m unittest discover -s tests -v
 
 Die Tests brauchen kein Internet.
 
-## Next step
+## Current completion boundary
 
-Remaining work is environment-specific deployment policy: choose a scheduler, bind the HTTP service behind the intended network boundary, define backup/restore ownership, and add monitoring/alert delivery. The repository provides verification and report-only primitives for those decisions without making them implicitly.
+The four production-readiness phases are implemented: scheduler integration, HTTP security boundaries, backup/restore failover, and monitoring/runbook coverage. Remaining work is environment-specific deployment ownership, such as selecting the production host, configuring credentials and alert delivery, and operating the pipeline at the desired scale.

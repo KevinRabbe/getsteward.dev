@@ -20,6 +20,7 @@ from open_data_platform.deployment import deployment_readiness
 from open_data_platform.discovery import discover_latest
 from open_data_platform.errors import ParseError, PlatformError, QueryError
 from open_data_platform.http_client import find_download_url, find_publication_date
+from open_data_platform.monitor import monitor_report
 from open_data_platform.parser import parse_snapshot, verify_normalized_artifact
 from open_data_platform.pipeline import run_gleif_pipeline
 from open_data_platform.product import build_product, verify_product
@@ -440,6 +441,21 @@ class ProductTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 thread.join(timeout=5)
+
+    def test_monitor_report_is_healthy_for_a_verified_release(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _archive_cdf(root)
+            parse_snapshot(root, manifest["snapshot_id"])
+            build_product(root, manifest["snapshot_id"])
+            build_release(root, manifest["snapshot_id"])
+
+            report = monitor_report(root, snapshot_id=manifest["snapshot_id"])
+
+            self.assertEqual(report["status"], "HEALTHY")
+            self.assertEqual(report["exit_code"], 0)
+            self.assertEqual(report["alerts"], [])
+            self.assertEqual(report["deployment"]["status"], "READY")
 
 
 class ReleaseAndQueryTests(unittest.TestCase):

@@ -21,10 +21,11 @@ from .deployment import deployment_readiness
 from .runtime import pipeline_lock_status, recovery_plan
 from .schedule import schedule_plan
 from .backup import restore_release, verify_replica_release
+from .monitor import monitor_report
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="odp", description="Open Data Platform v0.11")
+    parser = argparse.ArgumentParser(prog="odp", description="Open Data Platform v0.13")
     sub = parser.add_subparsers(dest="command", required=True)
 
     ingest = sub.add_parser("ingest-gleif", help="Discover and archive the latest GLEIF Level 1 snapshot")
@@ -148,6 +149,14 @@ def build_parser() -> argparse.ArgumentParser:
     restore.add_argument("snapshot_id")
     restore.add_argument("--replica-root", type=Path, required=True)
     restore.add_argument("--restore-root", type=Path, required=True)
+
+    monitor = sub.add_parser("monitor", help="Produce an alert-friendly operational health report")
+    monitor.add_argument("--data-root", type=Path, default=Path("data"))
+    monitor.add_argument("--snapshot-id", default=None)
+    monitor.add_argument("--release-root", type=Path, default=None)
+    monitor.add_argument("--product-root", type=Path, default=None)
+    monitor.add_argument("--replica-root", type=Path, default=None)
+    monitor.add_argument("--event-limit", type=int, default=10)
 
     return parser
 
@@ -276,6 +285,15 @@ def main() -> None:
             result = verify_replica_release(args.replica_root, args.snapshot_id)
         elif args.command == "restore-release":
             result = restore_release(args.replica_root, args.snapshot_id, args.restore_root)
+        elif args.command == "monitor":
+            result = monitor_report(
+                args.data_root,
+                snapshot_id=args.snapshot_id,
+                release_root=args.release_root,
+                product_root=args.product_root,
+                replica_root=args.replica_root,
+                event_limit=args.event_limit,
+            )
         else:
             raise RuntimeError("unreachable")
     except (PlatformError, OSError, ValueError) as exc:
@@ -283,6 +301,8 @@ def main() -> None:
         raise SystemExit(2)
 
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    if args.command == "monitor" and result["status"] != "HEALTHY":
+        raise SystemExit(3)
 
 
 if __name__ == "__main__":

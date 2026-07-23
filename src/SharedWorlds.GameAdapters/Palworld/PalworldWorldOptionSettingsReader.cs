@@ -334,7 +334,14 @@ internal static class PalworldWorldOptionSettingsReader
                 ? valueBytes.Span[0].ToString(System.Globalization.CultureInfo.InvariantCulture)
                 : TryReadSingleFString(valueBytes.Span);
         }
-        else if (propertyType is "ArrayProperty" or "SetProperty")
+        else if (propertyType == "ArrayProperty")
+        {
+            valueType = ReadFString(data, ref cursor);
+            ReadPropertyGuid(data, ref cursor, path, name);
+            valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
+            displayValue = TryFormatSimpleArray(valueType, valueBytes.Span, path, name);
+        }
+        else if (propertyType == "SetProperty")
         {
             valueType = ReadFString(data, ref cursor);
             ReadPropertyGuid(data, ref cursor, path, name);
@@ -356,6 +363,45 @@ internal static class PalworldWorldOptionSettingsReader
         }
 
         return new ParsedProperty(name, propertyType, valueType, displayValue, valueBytes);
+    }
+
+    private static string? TryFormatSimpleArray(
+        string elementType,
+        ReadOnlySpan<byte> value,
+        string path,
+        string name)
+    {
+        if (elementType is not ("EnumProperty" or "NameProperty" or "StrProperty"))
+        {
+            return null;
+        }
+
+        EnsureRemaining(value, 0, sizeof(uint), path, name);
+        var count = BinaryPrimitives.ReadUInt32LittleEndian(value[..sizeof(uint)]);
+        var cursor = sizeof(uint);
+
+        // Every FString element requires at least its 4-byte length field. This bound both
+        // rejects impossible counts and prevents allocating from attacker-controlled save data.
+        var maximumPossibleCount = (value.Length - sizeof(uint)) / sizeof(int);
+        if (count > maximumPossibleCount)
+        {
+            throw new InvalidDataException(
+                $"WorldOption.sav {path}.{name} declares {count} {elementType} array entries in only {value.Length} bytes.");
+        }
+
+        var entries = new string[(int)count];
+        for (var index = 0; index < entries.Length; index++)
+        {
+            entries[index] = ReadFString(value, ref cursor);
+        }
+
+        if (cursor != value.Length)
+        {
+            throw new InvalidDataException(
+                $"WorldOption.sav {path}.{name} {elementType} array contains unexpected trailing bytes.");
+        }
+
+        return $"({string.Join(',', entries)})";
     }
 
     private static string? TryFormatScalar(string propertyType, ReadOnlySpan<byte> value)

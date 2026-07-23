@@ -113,69 +113,77 @@ A minimal adapter-owned REST protocol client now covers:
 
 ```text
 GET  /v1/api/info
+GET  /v1/api/settings
 POST /v1/api/save
 POST /v1/api/shutdown
 ```
 
 with HTTP Basic authentication and no secret values in errors.
 
-This protocol client is **not yet evidence that Steward may safely rewrite PalWorldSettings.ini or that the REST endpoint is safely isolated on every host**. Configuration ownership, credential lifetime, endpoint exposure, readiness timing, and shutdown/save observation still require controlled Palworld acceptance evidence before they are wired into the authoritative host lifecycle.
+The REST endpoint is still not production-wired. On the real Windows installation it binds `0.0.0.0:8212`, so endpoint isolation remains a separate production-security gate.
 
-Until that evidence exists, Steward must not replace the current conservative process behavior with an assumed REST configuration.
+## REST acceptance evidence
 
-## REST acceptance instrumentation
+Controlled real-machine acceptance on 2026-07-23 established:
 
-The bounded `SharedWorlds.PalworldProbe --rest-acceptance` mode reports the
-dedicated server's REST configuration without rewriting it or printing the
-AdminPassword value. When the configuration gate passes, it starts PalServer,
-probes authenticated `/v1/api/info`, observes the REST listener, requests a
-save, requests graceful shutdown, and measures filesystem stabilization. It
-reports only safe evidence and keeps the password transient in memory.
+- `PalServer.exe` is the launcher;
+- `PalServer-Win64-Shipping-Cmd.exe` is the real server process and owns the REST listener;
+- authenticated `/v1/api/info` identifies the intended World when the effective `AdminPassword` is configured;
+- `POST /v1/api/save` succeeds and writes canonical World files;
+- `POST /v1/api/shutdown` succeeds;
+- launcher and Shipping process exit normally without forced cleanup;
+- Palworld transaction artifacts complete before the Shipping process exits;
+- no canonical World file changed after Shipping exit;
+- post-exit hash snapshots remained stable;
+- canonical capture and restore passed byte-for-byte verification.
 
-### Current real-machine observation
-
-On 2026-07-23, the installed server at
-`F:\SteamLibrary\steamapps\common\PalServer` was tested with a temporary
-local REST configuration:
-
-```text
-configPath: F:\SteamLibrary\steamapps\common\PalServer\Pal\Saved\Config\WindowsServer\PalWorldSettings.ini
-configExists: true
-restEnabled: true
-restPort: 8212
-adminPasswordConfigured: true
-configurationReady: true
-productionLifecycleReady: false
-```
-
-The probe selected the newest valid dedicated World because the existing
-configuration did not contain `DedicatedServerName`. PalServer started and
-bound the REST listener on `0.0.0.0:8212`, but all bounded `/v1/api/info`
-attempts returned unauthorized. The probe performed forced cleanup after the
-readiness timeout and therefore did not attempt save or shutdown. No files were
-modified by Steward, and the REST API remains neither production-wired nor
-accepted for lifecycle use. The next concrete acceptance task is to verify the
-temporary AdminPassword value independently, then rerun the same probe.
-
-### Acceptance status categories
+The empirically proven safe capture boundary is therefore:
 
 ```text
-IMPLEMENTED:
-  read-only REST configuration parser and probe reporting
-  existing Palworld REST client for info/save/shutdown
-
-TESTED IN CI:
-  deterministic REST client and configuration parser behavior
-
-OBSERVED ON REAL PALSERVER:
-  installation and dedicated Worlds discovered
-  REST listener observed on 0.0.0.0:8212
-  authenticated REST readiness blocked by unauthorized responses
-  save/shutdown lifecycle not yet observed
-
-PRODUCTION-WIRED:
-  false
+POST /save
+-> POST /shutdown
+-> wait for Shipping process exit
+-> short post-exit verification
+-> capture
 ```
+
+A live running server does not need to become permanently quiet before shutdown. The earlier acceptance probe's `filesystemStable: false` result was a measurement-boundary defect, not evidence of writes continuing after the authoritative process had exited.
+
+## WorldOption.sav management override
+
+A real migrated World contains `WorldOption.sav`, and Palworld gives that World-owned configuration precedence over the `AdminPassword` in `PalWorldSettings.ini`.
+
+This was proven directly:
+
+```text
+WorldOption.sav present
+-> REST returns 401: AdminPassword is empty
+
+same WorldOption.sav reversibly renamed
+-> REST authentication succeeds
+-> /v1/api/info reports the expected World GUID
+```
+
+Canonical restore recreating `WorldOption.sav` is correct behavior. Steward must preserve it as World state rather than deleting or excluding it merely to gain administrative access.
+
+The remaining acceptance question is whether Steward can apply a temporary runtime-only `AdminPassword` overlay, use REST for the managed session, restore the exact original `WorldOption.sav` bytes after server exit, and capture without leaking the transient credential.
+
+### Current Palworld 1.0 container format
+
+The first overlay probe failed closed before writing because it assumed the older `PlZ` zlib save container. The real Palworld 1.0.1 `WorldOption.sav` uses the current `PlM` container instead.
+
+Current implementation therefore keeps both paths explicit:
+
+```text
+PlZ + 0x31/0x32 -> legacy zlib acceptance path
+PlM + 0x31      -> Oodle Mermaid acceptance path
+```
+
+For `PlM`, Steward does not redistribute Oodle. The acceptance tool looks only for an already-installed `oo2core_9_win64.dll` under the discovered Palworld client/server roots and fails closed if no usable runtime is present.
+
+After decompression, the payload must begin with `GVAS`. The runtime overlay still changes only the structurally validated `AdminPassword` `StrProperty`; it does not deserialize/rewrite the complete World. The patched GVAS is recompressed with Mermaid and immediately decompressed again to prove byte-for-byte round-trip before any temporary runtime file may be written.
+
+This PlM path remains **acceptance-only** until the real PalServer experiment succeeds.
 
 ## Capture
 

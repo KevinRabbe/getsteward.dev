@@ -64,5 +64,11 @@ jobs:
       - name: Build runtime input lifecycle probe
         run: dotnet build tools/SharedWorlds.PalworldRuntimeInputLifecycleProbe/SharedWorlds.PalworldRuntimeInputLifecycleProbe.csproj --configuration Release --no-restore --nologo --verbosity minimal
 
+      - name: Restore REST firewall probe
+        run: dotnet restore tools/SharedWorlds.PalworldRestFirewallProbe/SharedWorlds.PalworldRestFirewallProbe.csproj
+
+      - name: Build REST firewall probe
+        run: dotnet build tools/SharedWorlds.PalworldRestFirewallProbe/SharedWorlds.PalworldRestFirewallProbe.csproj --configuration Release --no-restore --nologo --verbosity minimal
+
       - name: Test Palworld adapter
         run: dotnet test tests/SharedWorlds.GameAdapters.Palworld.Tests/SharedWorlds.GameAdapters.Palworld.Tests.csproj --configuration Release --nologo --verbosity minimal

@@ -22,6 +22,21 @@ internal static class PalworldWorldOptionIniMirror
         "RESTAPIPort"
     };
 
+    private static readonly HashSet<string> AllowedCrossplayPlatforms = new(StringComparer.Ordinal)
+    {
+        "Steam",
+        "Xbox",
+        "PS5",
+        "Mac"
+    };
+
+    private static readonly HashSet<string> SupportedSimpleArrayElementTypes = new(StringComparer.Ordinal)
+    {
+        "EnumProperty",
+        "NameProperty",
+        "StrProperty"
+    };
+
     public static PalworldWorldOptionIniMirrorResult Create(
         PalworldWorldOptionSettingsSnapshot snapshot,
         string transientAdminPassword,
@@ -85,6 +100,8 @@ internal static class PalworldWorldOptionIniMirror
             "FloatProperty" or "DoubleProperty" => NormalizeFloatingPoint(setting.Value, setting.Name),
             "StrProperty" or "NameProperty" => setting.Value,
             "EnumProperty" or "ByteProperty" => StripEnumPrefix(setting.Value),
+            "ArrayProperty" when string.Equals(setting.Name, "CrossplayPlatforms", StringComparison.Ordinal) =>
+                SerializeCrossplayPlatforms(setting),
             _ => throw new InvalidDataException(
                 $"WorldOption setting {setting.Name} uses unsupported property type {setting.PropertyType}.")
         };
@@ -106,6 +123,8 @@ internal static class PalworldWorldOptionIniMirror
             "FloatProperty" or "DoubleProperty" => NormalizeFloatingPoint(setting.Value, setting.Name),
             "StrProperty" or "NameProperty" => QuoteIniString(setting.Value),
             "EnumProperty" or "ByteProperty" => SerializeEnum(setting),
+            "ArrayProperty" when string.Equals(setting.Name, "CrossplayPlatforms", StringComparison.Ordinal) =>
+                SerializeCrossplayPlatforms(setting),
             _ => throw new InvalidDataException(
                 $"WorldOption setting {setting.Name} uses unsupported property type {setting.PropertyType}; refusing to guess its INI representation.")
         };
@@ -121,6 +140,50 @@ internal static class PalworldWorldOptionIniMirror
         }
 
         return value;
+    }
+
+    private static string SerializeCrossplayPlatforms(PalworldWorldOptionSetting setting)
+    {
+        if (setting.ValueType is null || !SupportedSimpleArrayElementTypes.Contains(setting.ValueType))
+        {
+            throw new InvalidDataException(
+                $"WorldOption setting CrossplayPlatforms uses unsupported array element type {setting.ValueType ?? "(none)"}.");
+        }
+
+        var value = setting.Value!;
+        if (value.Length < 2 || value[0] != '(' || value[^1] != ')')
+        {
+            throw new InvalidDataException(
+                "WorldOption setting CrossplayPlatforms does not contain a structurally decoded tuple.");
+        }
+
+        var inner = value[1..^1];
+        if (string.IsNullOrWhiteSpace(inner))
+        {
+            throw new InvalidDataException("WorldOption setting CrossplayPlatforms cannot be empty.");
+        }
+
+        var platforms = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var encoded in inner.Split(',', StringSplitOptions.None))
+        {
+            var platform = StripEnumPrefix(encoded.Trim());
+            if (!AllowedCrossplayPlatforms.Contains(platform))
+            {
+                throw new InvalidDataException(
+                    $"WorldOption setting CrossplayPlatforms contains unsupported platform token {platform}.");
+            }
+
+            if (!seen.Add(platform))
+            {
+                throw new InvalidDataException(
+                    $"WorldOption setting CrossplayPlatforms contains duplicate platform token {platform}.");
+            }
+
+            platforms.Add(platform);
+        }
+
+        return $"({string.Join(',', platforms)})";
     }
 
     private static string StripEnumPrefix(string value)

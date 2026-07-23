@@ -47,7 +47,7 @@ internal static class PalworldWorldOptionAdminPasswordOverlay
                 $"Palworld acceptance passwords are limited to {MaximumPasswordCharacters} characters.");
         }
 
-        if (transientPassword.IndexOf('\0', StringComparison.Ordinal) >= 0)
+        if (transientPassword.IndexOf('\0') >= 0)
         {
             throw new ArgumentException("Palworld acceptance passwords cannot contain NUL characters.", nameof(transientPassword));
         }

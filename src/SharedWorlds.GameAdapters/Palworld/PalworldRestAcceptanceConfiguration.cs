@@ -46,6 +46,9 @@ internal static class PalworldRestAcceptanceConfigurationReader
         var restEnabledText = ReadValue(text, "RESTAPIEnabled");
         var restPortText = ReadValue(text, "RESTAPIPort");
         var adminPasswordText = ReadValue(text, "AdminPassword");
+
+        // Palworld keeps the dedicated World selection in GameUserSettings.ini.
+        // PalWorldSettings.ini owns server options such as REST and AdminPassword.
         var selectedWorldId = ReadSelectedWorldId(dedicatedServerRootPath);
         var blockingReasons = new List<string>();
 

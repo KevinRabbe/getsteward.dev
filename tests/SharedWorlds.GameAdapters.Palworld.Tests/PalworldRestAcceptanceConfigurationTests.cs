@@ -22,12 +22,13 @@ public sealed class PalworldRestAcceptanceConfigurationTests
     }
 
     [Fact]
-    public void ValidConfigurationReportsOnlyPasswordPresence()
+    public void ValidConfigurationReportsPasswordPresenceAndSelectedWorld()
     {
         var root = CreateTemporaryDirectory();
         try
         {
-            var configPath = CreateConfig(root, "RESTAPIEnabled=True,RESTAPIPort=8212,AdminPassword=\"do-not-return-this\",DedicatedServerName=ABC123");
+            var configPath = CreateConfig(root, "RESTAPIEnabled=True,RESTAPIPort=8212,AdminPassword=\"do-not-return-this\"");
+            CreateSelectedWorld(root, "ABC123");
 
             var result = PalworldRestAcceptanceConfigurationReader.Read(root);
 
@@ -35,8 +36,49 @@ public sealed class PalworldRestAcceptanceConfigurationTests
             Assert.True(result.IsUsable);
             Assert.Equal(8212, result.RestPort);
             Assert.True(result.AdminPasswordConfigured);
+            Assert.Equal("ABC123", result.SelectedWorldId);
             Assert.Equal("do-not-return-this", PalworldRestAcceptanceConfigurationReader.ReadAdminPassword(root));
             Assert.DoesNotContain("do-not-return-this", string.Join('|', result.BlockingReasons));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SelectedWorldComesFromGameUserSettingsNotPalWorldSettings()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            CreateConfig(
+                root,
+                "RESTAPIEnabled=True,RESTAPIPort=8212,AdminPassword=\"configured\",DedicatedServerName=WRONG-WORLD");
+            CreateSelectedWorld(root, "RIGHT-WORLD");
+
+            var result = PalworldRestAcceptanceConfigurationReader.Read(root);
+
+            Assert.Equal("RIGHT-WORLD", result.SelectedWorldId);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void MissingGameUserSettingsLeavesSelectedWorldUnknownWithoutBreakingRestConfiguration()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            CreateConfig(root, "RESTAPIEnabled=True,RESTAPIPort=8212,AdminPassword=\"configured\"");
+
+            var result = PalworldRestAcceptanceConfigurationReader.Read(root);
+
+            Assert.True(result.IsUsable);
+            Assert.Null(result.SelectedWorldId);
         }
         finally
         {
@@ -50,7 +92,8 @@ public sealed class PalworldRestAcceptanceConfigurationTests
         var root = CreateTemporaryDirectory();
         try
         {
-            CreateConfig(root, "RESTAPIEnabled=False,RESTAPIPort=99999,AdminPassword=,DedicatedServerName=ABC123");
+            CreateConfig(root, "RESTAPIEnabled=False,RESTAPIPort=99999,AdminPassword=");
+            CreateSelectedWorld(root, "ABC123");
 
             var result = PalworldRestAcceptanceConfigurationReader.Read(root);
 
@@ -79,6 +122,15 @@ public sealed class PalworldRestAcceptanceConfigurationTests
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, "PalWorldSettings.ini");
         File.WriteAllText(path, $"OptionSettings=({values})");
+        return path;
+    }
+
+    private static string CreateSelectedWorld(string root, string worldId)
+    {
+        var directory = Path.Combine(root, "Pal", "Saved", "Config", "WindowsServer");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "GameUserSettings.ini");
+        File.WriteAllText(path, $"[/Script/Engine.GameUserSettings]\nDedicatedServerName={worldId}\n");
         return path;
     }
 }

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>SharedWorlds.PalworldWorldOptionStartupProbe</AssemblyName>
+    <RootNamespace>SharedWorlds.PalworldWorldOptionStartupProbe</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/SharedWorlds.GameAdapters/Palworld/SharedWorlds.GameAdapters.Palworld.csproj" />
+  </ItemGroup>
+</Project>

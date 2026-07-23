@@ -89,6 +89,22 @@ public interface IGameAdapter
         PreparedWorld world,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Requests the adapter-defined safe end of an already-running managed host session. Core never
+    /// assumes that stopping a server means killing a process; an adapter may need to save, issue a
+    /// game-specific shutdown command, wait for child processes, or restore temporary runtime inputs.
+    /// The adapter must not return successfully until its own safe-stop boundary has completed.
+    /// </summary>
+    Task RequestHostStopAsync(
+        GameSessionHandle session,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        cancellationToken.ThrowIfCancellationRequested();
+        throw new NotSupportedException(
+            $"{DisplayName} does not expose a validated managed host-stop path.");
+    }
+
     Task<GameSessionHandle> LaunchClientAsync(
         PreparedWorld world,
         HostConnection host,
@@ -143,7 +159,8 @@ public enum GameAdapterCapabilities
     ExactGameVersion = 1 << 3,
     ExactModVersions = 1 << 4,
     EnvironmentIsolation = 1 << 5,
-    AutomaticLocalLaunch = 1 << 6
+    AutomaticLocalLaunch = 1 << 6,
+    AutomaticHostStop = 1 << 7
 }
 
 public enum JoinCapabilityKind

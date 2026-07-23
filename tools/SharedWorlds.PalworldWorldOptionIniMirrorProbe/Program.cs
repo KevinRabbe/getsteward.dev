@@ -573,6 +573,11 @@ static SettingsComparison CompareSettings(
 
 static bool RestValueMatches(PalworldWorldOptionSetting setting, JsonElement actual)
 {
+    if (setting.PropertyType == "ArrayProperty")
+    {
+        return RestArrayMatches(setting, actual);
+    }
+
     var expected = PalworldWorldOptionIniMirror.NormalizeExpectedRestValue(setting);
     if (setting.PropertyType == "BoolProperty")
     {
@@ -621,6 +626,69 @@ static bool RestValueMatches(PalworldWorldOptionSetting setting, JsonElement act
 
     return actual.ValueKind == JsonValueKind.String &&
         string.Equals(actual.GetString(), expected, StringComparison.Ordinal);
+}
+
+static bool RestArrayMatches(PalworldWorldOptionSetting setting, JsonElement actual)
+{
+    if (actual.ValueKind != JsonValueKind.Array || setting.Value is null)
+    {
+        return false;
+    }
+
+    if (!TryNormalizeWorldArray(setting.Value, out var expected))
+    {
+        return false;
+    }
+
+    var actualValues = actual.EnumerateArray().ToArray();
+    if (actualValues.Length != expected.Length)
+    {
+        return false;
+    }
+
+    for (var index = 0; index < expected.Length; index++)
+    {
+        if (actualValues[index].ValueKind != JsonValueKind.String ||
+            !string.Equals(actualValues[index].GetString(), expected[index], StringComparison.Ordinal))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool TryNormalizeWorldArray(string encoded, out string[] normalized)
+{
+    if (encoded.Length < 2 || encoded[0] != '(' || encoded[^1] != ')')
+    {
+        normalized = Array.Empty<string>();
+        return false;
+    }
+
+    var inner = encoded[1..^1];
+    if (inner.Length == 0)
+    {
+        normalized = Array.Empty<string>();
+        return true;
+    }
+
+    var entries = inner.Split(',', StringSplitOptions.None);
+    normalized = new string[entries.Length];
+    for (var index = 0; index < entries.Length; index++)
+    {
+        var entry = entries[index].Trim();
+        if (entry.Length == 0)
+        {
+            normalized = Array.Empty<string>();
+            return false;
+        }
+
+        var enumSeparator = entry.LastIndexOf("::", StringComparison.Ordinal);
+        normalized[index] = enumSeparator >= 0 ? entry[(enumSeparator + 2)..] : entry;
+    }
+
+    return true;
 }
 
 static bool TryGetJsonInteger(JsonElement value, out long result)

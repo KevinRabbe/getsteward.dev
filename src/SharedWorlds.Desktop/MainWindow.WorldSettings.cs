@@ -37,6 +37,16 @@ public partial class MainWindow
             return;
         }
 
+        if (world.SharingMode == WorldSharingMode.Shared)
+        {
+            // Shared environment transitions need their own reviewed backend operation; do not route a
+            // settings click through gameplay commit authority or mutate a disconnected legacy copy.
+            KeepExactGameVersionCheckBox.IsChecked = true;
+            StatusText.Text =
+                "Shared Worlds stay on their current canonical environment until the explicit remote update flow is connected.";
+            return;
+        }
+
         var nextPolicy = world.GameVersionPolicy == WorldGameVersionPolicy.KeepExact
             ? WorldGameVersionPolicy.AllowUpdateCandidates
             : WorldGameVersionPolicy.KeepExact;
@@ -47,7 +57,7 @@ public partial class MainWindow
                 : $"Allowing update candidates for {world.Name}...",
             async () =>
             {
-                var settings = new WorldSettingsService(_storage);
+                var settings = new WorldSettingsService(GetStorageForWorld(world));
                 var updated = await settings.SetGameVersionPolicyAsync(world.Id, nextPolicy);
                 _selectedWorld = updated;
 
@@ -55,7 +65,7 @@ public partial class MainWindow
                     ? $"World '{updated.Name}' will stay on its exact known-good game version."
                     : $"World '{updated.Name}' may consider future update candidates; updates remain explicit.";
 
-                await RefreshWorldsAsync(updated.Id, preserveStatus: true);
+                await RefreshUnifiedWorldsAsync(updated.Id, preserveStatus: true);
             });
 
         UpdateWorldVersionPolicyUi();
@@ -67,12 +77,24 @@ public partial class MainWindow
         if (world is null)
         {
             KeepExactGameVersionCheckBox.IsChecked = false;
+            KeepExactGameVersionCheckBox.IsEnabled = false;
             GameVersionPolicyText.Text = string.Empty;
+            return;
+        }
+
+        if (world.SharingMode == WorldSharingMode.Shared)
+        {
+            KeepExactGameVersionCheckBox.IsChecked = true;
+            KeepExactGameVersionCheckBox.IsEnabled = false;
+            GameVersionPolicyText.Text = HasAuthoritativeRuntimeForWorld(world)
+                ? "This shared World uses its canonical Steward environment. Environment upgrades remain explicit and are not changed by a local checkbox."
+                : "This is a shared World record, but authenticated Steward authority is not connected. Its environment policy cannot be changed locally.";
             return;
         }
 
         var keepExact = world.GameVersionPolicy == WorldGameVersionPolicy.KeepExact;
         KeepExactGameVersionCheckBox.IsChecked = keepExact;
+        KeepExactGameVersionCheckBox.IsEnabled = !_isBusy;
         GameVersionPolicyText.Text = keepExact
             ? "SharedWorlds treats the current exact environment as known-good and ignores newer game versions for this World."
             : "Newer versions may be offered only as explicit update candidates. The current environment stays known-good until a tested candidate is accepted.";

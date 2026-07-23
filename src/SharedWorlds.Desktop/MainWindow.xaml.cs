@@ -12,13 +12,14 @@ namespace SharedWorlds.Desktop;
 public partial class MainWindow : Window
 {
     private readonly IWorldStorage _storage;
+    private readonly LocalWorldSessionCoordinator _localSessionCoordinator;
+    private readonly ManagedWritableSessionGate _localManagedSessionGate;
     private readonly WorldLifecycleService _lifecycle;
     private readonly DeviceSettingsStore _deviceSettingsStore;
 
     private World? _selectedWorld;
-    private DeviceSettings _deviceSettings = new(
-        AllowHosting: false,
-        HostingPreferenceExplicit: false);
+    private DeviceSettings _deviceSettings = DeviceSettingsStore.CreateInitial(hasManagedWorlds: false);
+    private bool _deviceSettingsUsableForRemote;
     private bool _isBusy;
 
     public MainWindow()
@@ -31,36 +32,41 @@ public partial class MainWindow : Window
         var storageRoot = Path.Combine(sharedWorldsRoot, "data");
         _storage = new LocalWorldStorage(storageRoot);
         _workspaceRecoveryStore = new LocalWorkspaceRecoveryStore(storageRoot);
+        _localSessionCoordinator = new LocalWorldSessionCoordinator();
+        _localManagedSessionGate = new ManagedWritableSessionGate();
         _lifecycle = new WorldLifecycleService(
             _storage,
-            new LocalWorldSessionCoordinator(),
+            _localSessionCoordinator,
             _workspaceRecoveryStore,
-            new ManagedWritableSessionGate(),
+            _localManagedSessionGate,
             CreateDesktopLifecycleObserver());
         _deviceSettingsStore = new DeviceSettingsStore(
             Path.Combine(sharedWorldsRoot, "settings", "device.json"));
 
+        Closed += (_, _) => DisposeRemoteRuntime();
         InitializeTray();
     }
 
     private async Task LoadDeviceSettingsAsync()
     {
+        _deviceSettingsUsableForRemote = false;
         try
         {
             var worlds = await _storage.ListWorldsAsync();
             _deviceSettings = await _deviceSettingsStore.LoadOrCreateAsync(
                 hasManagedWorlds: worlds.Count > 0);
+            _deviceSettingsUsableForRemote = true;
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or JsonException)
         {
-            _deviceSettings = new DeviceSettings(
-                AllowHosting: false,
-                HostingPreferenceExplicit: false);
+            // The fallback keeps local UI behavior usable, but its generated installation ID is not
+            // durable. Never use it for installation-bound remote identity/authority.
+            _deviceSettings = DeviceSettingsStore.CreateInitial(hasManagedWorlds: false);
             ShowError(
                 "Could not load device settings",
                 new InvalidOperationException(
-                    "Steward kept hosting disabled on this device because its local device settings could not be loaded.",
+                    "Steward kept hosting and shared Worlds disabled on this device because its durable device settings could not be loaded.",
                     exception));
         }
 
@@ -81,6 +87,7 @@ public partial class MainWindow : Window
         {
             await _deviceSettingsStore.SaveAsync(updated);
             _deviceSettings = updated;
+            _deviceSettingsUsableForRemote = true;
             AllowHostingCheckBox.IsChecked = true;
             UpdateHostingPreferenceText();
         }
@@ -150,6 +157,9 @@ public partial class MainWindow : Window
         WorldList.IsEnabled = !isBusy;
         UpdateUnifiedActionState();
         UpdateUnifiedImportActionState();
+        UpdateWorldVersionPolicyUi();
+        UpdateEnvironmentReadinessUi();
+        UpdateResponsibilityPresentation();
     }
 
     private void UpdateHostingPreferenceText()

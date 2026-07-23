@@ -9,7 +9,13 @@
     <RootNamespace>SharedWorlds.Desktop</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <Using Remove="System.Drawing" />
     <Using Remove="System.Windows.Forms" />
+    <Using Include="SharedWorlds.Core.Worlds" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Steamworks.NET" />
+    <PackageReference Include="Facepunch.Steamworks.Dll" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../SharedWorlds.Core/SharedWorlds.Core.csproj" />

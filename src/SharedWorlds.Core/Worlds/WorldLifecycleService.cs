@@ -232,6 +232,27 @@ public sealed class WorldLifecycleService
             environmentRevision.Manifest.AdapterId,
             "environment revision");
 
+        if (world.SharingMode == WorldSharingMode.Shared)
+        {
+            var verification = await adapter.VerifyEnvironmentAsync(
+                installation,
+                environmentRevision.Manifest,
+                cancellationToken);
+            if (!verification.IsReady)
+            {
+                var detail = verification.Issues.Count == 0
+                    ? "The adapter could not verify the exact World environment."
+                    : string.Join(
+                        " ",
+                        verification.Issues
+                            .Take(3)
+                            .Select(static issue => issue.Message));
+                throw new EnvironmentReproductionException(
+                    adapter.Id,
+                    $"shared World '{world.Name}' is not verified ready. {detail} Run Verify/Repair before writable play.");
+            }
+        }
+
         var stateRevision = await _storage.LoadStateRevisionAsync(
             worldId,
             stateRevisionId,
@@ -346,6 +367,10 @@ public sealed class WorldLifecycleService
                 ?? throw new WorldIntegrityException(
                     worldId,
                     "The canonical state revision disappeared during preparation.");
+            var environmentRevisionId = context.World.CurrentEnvironmentRevisionId
+                ?? throw new WorldIntegrityException(
+                    worldId,
+                    "The canonical environment revision disappeared during preparation.");
 
             var now = DateTimeOffset.UtcNow;
             workspaceRecord = new WorkspaceRecoveryRecord(
@@ -357,7 +382,8 @@ public sealed class WorldLifecycleService
                 StartedBy: user,
                 CreatedAt: now,
                 UpdatedAt: now,
-                Status: WorkspaceRecoveryStatus.Active);
+                Status: WorkspaceRecoveryStatus.Active,
+                EnvironmentRevisionId: environmentRevisionId);
 
             Notify(worldId, mode, WorldLifecyclePhase.RegisteringRecovery);
             await _workspaceRecoveryStore.SaveAsync(workspaceRecord, cancellationToken);
@@ -375,6 +401,13 @@ public sealed class WorldLifecycleService
                 Notify(worldId, mode, WorldLifecyclePhase.Capturing);
                 captured = await adapter.CaptureStateAsync(context.PreparedWorld, cancellationToken);
                 var nextRevisionId = RevisionId.New();
+
+                workspaceRecord = workspaceRecord with
+                {
+                    CandidateStateRevisionId = nextRevisionId,
+                    UpdatedAt = DateTimeOffset.UtcNow
+                };
+                await _workspaceRecoveryStore.SaveAsync(workspaceRecord, cancellationToken);
 
                 var revision = new StateRevision(
                     Id: nextRevisionId,

@@ -6,7 +6,8 @@ namespace SharedWorlds.Desktop;
 internal sealed class DeviceSettingsStore
 {
     private const string DocumentType = "sharedworlds.device-settings";
-    private const int SchemaVersion = 1;
+    private const int CurrentSchemaVersion = 2;
+    private const int LegacySchemaVersion = 1;
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
@@ -28,9 +29,7 @@ internal sealed class DeviceSettingsStore
     {
         if (!File.Exists(_path))
         {
-            var initial = new DeviceSettings(
-                AllowHosting: hasManagedWorlds,
-                HostingPreferenceExplicit: false);
+            var initial = CreateInitial(hasManagedWorlds);
             await SaveAsync(initial, cancellationToken);
             return initial;
         }
@@ -43,14 +42,30 @@ internal sealed class DeviceSettingsStore
 
         if (envelope is null ||
             !string.Equals(envelope.DocumentType, DocumentType, StringComparison.Ordinal) ||
-            envelope.SchemaVersion != SchemaVersion ||
-            envelope.Payload is null)
+            envelope.Payload is null ||
+            envelope.SchemaVersion is not (LegacySchemaVersion or CurrentSchemaVersion))
         {
             throw new InvalidDataException(
-                $"Device settings at '{_path}' are not a supported {DocumentType} v{SchemaVersion} document.");
+                $"Device settings at '{_path}' are not a supported {DocumentType} document.");
         }
 
-        return envelope.Payload;
+        if (envelope.SchemaVersion == CurrentSchemaVersion)
+        {
+            var installationId = ValidateInstallationId(envelope.Payload.InstallationId);
+            return new DeviceSettings(
+                envelope.Payload.AllowHosting,
+                envelope.Payload.HostingPreferenceExplicit,
+                installationId);
+        }
+
+        // v1 predated installation-bound Steward authentication. Preserve the user's existing
+        // hosting preference and add exactly one stable installation identity during migration.
+        var migrated = new DeviceSettings(
+            envelope.Payload.AllowHosting,
+            envelope.Payload.HostingPreferenceExplicit,
+            CreateInstallationId());
+        await SaveAsync(migrated, cancellationToken);
+        return migrated;
     }
 
     public async Task SaveAsync(
@@ -58,6 +73,7 @@ internal sealed class DeviceSettingsStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        var installationId = ValidateInstallationId(settings.InstallationId);
 
         var directory = Path.GetDirectoryName(_path)
             ?? throw new InvalidOperationException($"Cannot resolve settings directory for '{_path}'.");
@@ -65,8 +81,11 @@ internal sealed class DeviceSettingsStore
 
         var envelope = new DeviceSettingsEnvelope(
             DocumentType,
-            SchemaVersion,
-            settings);
+            CurrentSchemaVersion,
+            new DeviceSettingsPayload(
+                settings.AllowHosting,
+                settings.HostingPreferenceExplicit,
+                installationId));
         var tempPath = $"{_path}.{Guid.NewGuid():N}.tmp";
 
         try
@@ -97,12 +116,38 @@ internal sealed class DeviceSettingsStore
         }
     }
 
+    internal static DeviceSettings CreateInitial(bool hasManagedWorlds)
+        => new(
+            AllowHosting: hasManagedWorlds,
+            HostingPreferenceExplicit: false,
+            InstallationId: CreateInstallationId());
+
+    private static string CreateInstallationId() => Guid.NewGuid().ToString("N");
+
+    private static string ValidateInstallationId(string? installationId)
+    {
+        if (string.IsNullOrWhiteSpace(installationId) ||
+            installationId.Any(char.IsWhiteSpace) ||
+            installationId.Length > 128)
+        {
+            throw new InvalidDataException("Device settings contain an invalid Steward installation identity.");
+        }
+
+        return installationId;
+    }
+
     private sealed record DeviceSettingsEnvelope(
         string DocumentType,
         int SchemaVersion,
-        DeviceSettings? Payload);
+        DeviceSettingsPayload? Payload);
+
+    private sealed record DeviceSettingsPayload(
+        bool AllowHosting,
+        bool HostingPreferenceExplicit,
+        string? InstallationId);
 }
 
 internal sealed record DeviceSettings(
     bool AllowHosting,
-    bool HostingPreferenceExplicit);
+    bool HostingPreferenceExplicit,
+    string InstallationId);

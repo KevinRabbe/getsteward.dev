@@ -16,13 +16,16 @@ The backend exists only to support:
 
 It must not become a second Steam, social platform, permanent game-hosting fleet, or generic save-merging/version-control service.
 
-## Planning status
+## Implementation status
 
-Status: **BE-0 approved; master planning lock remains active**.
+Status: **BE-0 approved; implementation unlocked. BE-1 COMPLETE AND GREEN. BE-2 COMPLETE AND GREEN. BE-3 ACTIVE.**
 
-BE-D001 through BE-D015 are the canonical first-release backend decisions.
+BE-D001 through BE-D015 remain the canonical first-release backend decisions.
 
-No production backend/service/schema/provider deployment begins until the master planning lock is explicitly lifted.
+Current implementation evidence:
+- BE-1 deterministic contract foundation: `E1_STATUS.md`;
+- BE-2 authenticated World/access/revision metadata + PostgreSQL persistence: `BE2_STATUS.md`;
+- active backend milestone: **BE-3 — Immutable object transfer**.
 
 # Approved BE-0 decisions
 
@@ -231,9 +234,9 @@ Initial provider contract:
 
 Named database/object-storage vendors are deliberately deferred until measured package size, transfer, restore, durability, and cost evidence exists.
 
-BE-1 must use deterministic in-memory/local simulation and no cloud SDKs/credentials.
+BE-1 used deterministic in-memory/local simulation and no cloud SDKs/credentials. BE-2 then implemented the relational side with provider-neutral PostgreSQL semantics. BE-3 applies the same rule to immutable object transfer before a production storage provider is selected.
 
-Commercial pricing is not required to unlock BE-1; hard technical bounds, retention rules, cost telemetry requirements, and provider-neutral assumptions are sufficient for the first implementation slice.
+Commercial pricing is not required to define the provider-neutral transfer contract; hard technical bounds, retention rules, cost telemetry requirements, and provider-neutral assumptions remain sufficient until provider selection is actually needed for deployment.
 
 ## BE-D008: Active-session connectivity loss
 
@@ -471,7 +474,7 @@ It does not understand:
 
 # Minimal logical data model
 
-Exact SQL schema remains an implementation decision. BE-0 requires these logical records.
+BE-0 defined the following logical records. BE-2 has now implemented the identity/access/revision portion using provider-neutral PostgreSQL-compatible relational semantics; later milestones add transfer and distributed-session records without changing the product model.
 
 ## ExternalIdentity
 - identity provider (Steam first);
@@ -631,8 +634,9 @@ It does not require corporation-scale distributed infrastructure.
 
 # Backend milestones after planning unlock
 
-## BE-1: Provider-free deterministic contract simulation
+## BE-1: Provider-free deterministic contract simulation — COMPLETE AND GREEN
 
+Completed:
 - in-memory transactional records;
 - deterministic clock/failure injection;
 - two independent clients/processes;
@@ -645,20 +649,29 @@ It does not require corporation-scale distributed infrastructure.
 - candidate preservation/last-safe recovery;
 - failure matrix.
 
-No Steam integration, HTTP hosting, cloud SDK, production credential, or provider deployment in BE-1.
+No Steam integration, HTTP hosting, cloud SDK, production credential, or provider deployment was introduced in BE-1.
 
-## BE-2: Authentication and World metadata service
+Evidence: `E1_STATUS.md`.
 
+## BE-2: Authentication and World metadata service — COMPLETE AND GREEN
+
+Completed:
 - verified Steam authentication;
+- Steward short-lived access + installation-bound rotating refresh sessions;
 - accessible Worlds;
 - membership/Access Manager;
 - World-access invitations;
-- acceptance/decline/revocation/transfer;
+- acceptance/decline/revocation/pending revocation/leave/transfer;
 - state/environment metadata;
-- authorization tests.
+- authorization tests;
+- provider-neutral PostgreSQL persistence;
+- live PostgreSQL integration tests.
 
-## BE-3: Immutable object transfer
+Evidence: `BE2_STATUS.md`; latest full BE-2 persistence CI run `29866444653`.
 
+## BE-3: Immutable object transfer — ACTIVE
+
+Implement:
 - HTTPS/JSON authorization control plane;
 - bounded/resumable upload;
 - size/hash verification;
@@ -669,7 +682,7 @@ No Steam integration, HTTP hosting, cloud SDK, production credential, or provide
 - orphan/partial cleanup;
 - retention policy enforcement.
 
-Provider selection occurs before production BE-3 deployment, informed by measured evidence.
+Provider selection occurs before production BE-3 deployment, informed by measured evidence. The provider-neutral object/transfer contract is fixed first so provider capabilities cannot redefine World authority.
 
 ## BE-4: Distributed reservation and commit
 
@@ -730,12 +743,12 @@ Status: **complete and approved**.
 
 BE-0 is complete because:
 - BE-D001 through BE-D015 are approved and numbered canonically;
-- backend shape/auth/access/API/package/reservation/offline/recovery contracts are deterministic enough for BE-1 simulation;
+- backend shape/auth/access/API/package/reservation/offline/recovery contracts are deterministic enough for incremental implementation;
 - package/retention/security/geography/provider assumptions are explicit;
-- provider vendor choice is explicitly deferred without blocking BE-1;
+- provider vendor choice is deliberately deferred until the milestone that requires deployment evidence;
 - UI-visible states/actions match `CROSS_WORKSTREAM_CONTRACT.md`;
 - runtime recovery semantics match AR-0;
 - first two-device acceptance proof is specified;
 - no backend feature depends on merging, branches, social role hierarchies, or permanent game-server execution.
 
-Production backend implementation remains blocked only by the master planning lock.
+The planning lock is lifted. Backend implementation is active under the numbered milestone sequence above; current work is **BE-3 immutable object transfer**.

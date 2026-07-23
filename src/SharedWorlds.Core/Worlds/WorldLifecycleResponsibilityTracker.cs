@@ -6,6 +6,7 @@ public enum WorldLifecycleResponsibilityKind
 {
     None,
     ActiveLifecycle,
+    InterruptedSession,
     RecoveryNeeded,
     CleanupPending
 }
@@ -48,9 +49,7 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
             switch (change.Phase)
             {
                 case WorldLifecyclePhase.Completed:
-                    _kind = WorldLifecycleResponsibilityKind.None;
-                    _worldId = null;
-                    _phase = null;
+                    Clear();
                     break;
 
                 case WorldLifecyclePhase.RecoveryNeeded:
@@ -78,8 +77,9 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
     }
 
     /// <summary>
-    /// Must run during startup before affected Worlds are presented as Ready. Durable recovery
-    /// evidence wins over an in-memory idle default after a previous crash/restart.
+    /// Reconciles the in-memory responsibility signal with durable recovery evidence while no normal
+    /// lifecycle is being supervised. Startup uses this before Worlds are presented; recovery UI uses
+    /// the same operation after a recovery attempt changes or removes the journal.
     /// </summary>
     public void InitializeFromRecoveryRecords(IEnumerable<WorkspaceRecoveryRecord> records)
     {
@@ -94,6 +94,7 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
 
             if (selected is null)
             {
+                Clear();
                 return;
             }
 
@@ -112,13 +113,21 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
 
                 case WorkspaceRecoveryStatus.Active:
                 default:
-                    // An Active record found after process restart is an interrupted-session
-                    // candidate, not evidence that gameplay is still safely supervised.
-                    _kind = WorldLifecycleResponsibilityKind.RecoveryNeeded;
+                    // An Active record found after process restart is not the same as a known
+                    // pending-sync candidate: Steward cannot prove whether gameplay started. Keep it
+                    // separately guarded so the UI can require an explicit recover-or-discard decision.
+                    _kind = WorldLifecycleResponsibilityKind.InterruptedSession;
                     _phase = WorldLifecyclePhase.RecoveryNeeded;
                     break;
             }
         }
+    }
+
+    private void Clear()
+    {
+        _kind = WorldLifecycleResponsibilityKind.None;
+        _worldId = null;
+        _phase = null;
     }
 
     private WorldLifecycleResponsibilitySnapshot CreateSnapshot()

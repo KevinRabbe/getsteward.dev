@@ -83,7 +83,7 @@ public sealed class WorldLifecycleResponsibilityTrackerTests
     }
 
     [Fact]
-    public void StartupActiveRecoveryRecordBecomesRecoveryNeededBeforeReady()
+    public void StartupActiveRecoveryRecordBecomesInterruptedSessionBeforeReady()
     {
         var tracker = new WorldLifecycleResponsibilityTracker();
         var worldId = WorldId.New();
@@ -105,10 +105,11 @@ public sealed class WorldLifecycleResponsibilityTrackerTests
         });
 
         var snapshot = tracker.Current;
-        Assert.Equal(WorldLifecycleResponsibilityKind.RecoveryNeeded, snapshot.Kind);
+        Assert.Equal(WorldLifecycleResponsibilityKind.InterruptedSession, snapshot.Kind);
         Assert.Equal(worldId, snapshot.WorldId);
         Assert.Equal(WorldLifecyclePhase.RecoveryNeeded, snapshot.Phase);
         Assert.False(snapshot.CanQuitWithoutGuard);
+        Assert.False(snapshot.CanSelfUpdate);
     }
 
     [Fact]

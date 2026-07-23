@@ -20,6 +20,7 @@ public sealed class PalworldWorldOptionIniMirrorTests
                     "EnumProperty",
                     64,
                     false),
+                new("DenyTechnologyList", "ArrayProperty", "()", "NameProperty", 4, false),
                 new("AdminPassword", "StrProperty", "canonical-secret", null, 0, true),
                 new("RESTAPIEnabled", "BoolProperty", "False", null, 0, false),
                 new("RESTAPIPort", "IntProperty", "8212", null, 4, false)
@@ -33,11 +34,46 @@ public sealed class PalworldWorldOptionIniMirrorTests
         Assert.Contains("DeathPenalty=All", mirror.Contents, StringComparison.Ordinal);
         Assert.Contains("ServerName=\"Steward Test\"", mirror.Contents, StringComparison.Ordinal);
         Assert.Contains("CrossplayPlatforms=(Steam,Xbox,PS5,Mac)", mirror.Contents, StringComparison.Ordinal);
+        Assert.Contains("DenyTechnologyList=,", mirror.Contents, StringComparison.Ordinal);
         Assert.Contains("AdminPassword=\"runtime-secret\"", mirror.Contents, StringComparison.Ordinal);
         Assert.Contains("RESTAPIEnabled=True", mirror.Contents, StringComparison.Ordinal);
         Assert.Contains("RESTAPIPort=9123", mirror.Contents, StringComparison.Ordinal);
         Assert.DoesNotContain("canonical-secret", mirror.Contents, StringComparison.Ordinal);
         Assert.Equal(3, mirror.ManagementOverrides.Count);
+    }
+
+    [Fact]
+    public void PopulatedDenyTechnologyListUsesDocumentedQuotedTupleSyntax()
+    {
+        var snapshot = new PalworldWorldOptionSettingsSnapshot(
+            "PlM/0x31",
+            [new(
+                "DenyTechnologyList",
+                "ArrayProperty",
+                "(PALBOX,RepairBench,SkillUnlock_JetDragon,GrapplingGun5)",
+                "NameProperty",
+                64,
+                false)]);
+
+        var mirror = PalworldWorldOptionIniMirror.Create(snapshot, "runtime-secret", 8212);
+
+        Assert.Contains(
+            "DenyTechnologyList=(\"PALBOX\",\"RepairBench\",\"SkillUnlock_JetDragon\",\"GrapplingGun5\")",
+            mirror.Contents,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnsafeDenyTechnologyIdFailsClosed()
+    {
+        var snapshot = new PalworldWorldOptionSettingsSnapshot(
+            "PlM/0x31",
+            [new("DenyTechnologyList", "ArrayProperty", "(PALBOX,bad-id)", "NameProperty", 24, false)]);
+
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            PalworldWorldOptionIniMirror.Create(snapshot, "runtime-secret", 8212));
+
+        Assert.Contains("unsafe Technology ID", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

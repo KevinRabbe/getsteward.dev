@@ -53,4 +53,6 @@ public sealed class PalworldOodleProductionLookupTests : IDisposable
 }
 
 [CollectionDefinition("PalworldOodleEnvironment", DisableParallelization = true)]
-public sealed class PalworldOodleEnvironmentCollection;
+public sealed class PalworldOodleEnvironmentCollection
+{
+}

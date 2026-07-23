@@ -52,5 +52,11 @@ jobs:
       - name: Build INI mirror probe
         run: dotnet build tools/SharedWorlds.PalworldWorldOptionIniMirrorProbe/SharedWorlds.PalworldWorldOptionIniMirrorProbe.csproj --configuration Release --no-restore --nologo --verbosity minimal
 
+      - name: Restore array REST diagnostic probe
+        run: dotnet restore tools/SharedWorlds.PalworldWorldOptionArrayRestProbe/SharedWorlds.PalworldWorldOptionArrayRestProbe.csproj
+
+      - name: Build array REST diagnostic probe
+        run: dotnet build tools/SharedWorlds.PalworldWorldOptionArrayRestProbe/SharedWorlds.PalworldWorldOptionArrayRestProbe.csproj --configuration Release --no-restore --nologo --verbosity minimal
+
       - name: Test Palworld adapter
         run: dotnet test tests/SharedWorlds.GameAdapters.Palworld.Tests/SharedWorlds.GameAdapters.Palworld.Tests.csproj --configuration Release --nologo --verbosity minimal

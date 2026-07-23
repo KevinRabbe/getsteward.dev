@@ -116,27 +116,28 @@ internal static class PalworldWorldOptionSettingsReader
         }
         else if (magic.SequenceEqual(PlZMagic))
         {
-            switch (saveType)
+            if (saveType == SingleCompressionSaveType)
             {
-                case SingleCompressionSaveType:
-                    if (compressedLength != compressedPayload.Length)
-                    {
-                        throw new InvalidDataException("WorldOption.sav PlZ compressed length is inconsistent.");
-                    }
+                if (compressedLength != compressedPayload.Length)
+                {
+                    throw new InvalidDataException("WorldOption.sav PlZ compressed length is inconsistent.");
+                }
 
-                    payload = DecompressZlib(compressedPayload);
-                    break;
-                case DoubleZlibSaveType:
-                    var innerCompressed = DecompressZlib(compressedPayload);
-                    if (compressedLength != innerCompressed.Length)
-                    {
-                        throw new InvalidDataException("WorldOption.sav PlZ inner compressed length is inconsistent.");
-                    }
+                payload = DecompressZlib(compressedPayload);
+            }
+            else if (saveType == DoubleZlibSaveType)
+            {
+                var innerCompressed = DecompressZlib(compressedPayload);
+                if (compressedLength != innerCompressed.Length)
+                {
+                    throw new InvalidDataException("WorldOption.sav PlZ inner compressed length is inconsistent.");
+                }
 
-                    payload = DecompressZlib(innerCompressed);
-                    break;
-                default:
-                    throw new InvalidDataException($"Unsupported Palworld PlZ save type 0x{saveType:X2}.");
+                payload = DecompressZlib(innerCompressed);
+            }
+            else
+            {
+                throw new InvalidDataException($"Unsupported Palworld PlZ save type 0x{saveType:X2}.");
             }
 
             container = $"PlZ/0x{saveType:X2}";
@@ -220,7 +221,6 @@ internal static class PalworldWorldOptionSettingsReader
         }
         catch (InvalidDataException)
         {
-            // A matching byte sequence is not enough. Only a complete structurally valid tag counts.
             return null;
         }
         catch (OverflowException)
@@ -292,85 +292,67 @@ internal static class PalworldWorldOptionSettingsReader
         string? displayValue = null;
         ReadOnlyMemory<byte> valueBytes;
 
-        switch (propertyType)
+        if (propertyType == "BoolProperty")
         {
-            case "BoolProperty":
+            EnsureRemaining(data, cursor, 1, path, name);
+            var value = data[cursor++];
+            if (value is not (0 or 1))
             {
-                EnsureRemaining(data, cursor, 1, path, name);
-                var value = data[cursor++];
-                if (value is not (0 or 1))
-                {
-                    throw new InvalidDataException($"WorldOption.sav {path}.{name} has invalid BoolProperty value {value}.");
-                }
+                throw new InvalidDataException($"WorldOption.sav {path}.{name} has invalid BoolProperty value {value}.");
+            }
 
-                ReadPropertyGuid(data, ref cursor, path, name);
-                if (declaredSize != 0)
-                {
-                    throw new InvalidDataException($"WorldOption.sav {path}.{name} BoolProperty declared non-zero size {declaredSize}.");
-                }
+            ReadPropertyGuid(data, ref cursor, path, name);
+            if (declaredSize != 0)
+            {
+                throw new InvalidDataException($"WorldOption.sav {path}.{name} BoolProperty declared non-zero size {declaredSize}.");
+            }
 
-                valueBytes = ReadOnlyMemory<byte>.Empty;
-                displayValue = value == 1 ? "True" : "False";
-                break;
-            }
-            case "StructProperty":
-            {
-                valueType = ReadFString(data, ref cursor);
-                EnsureRemaining(data, cursor, 16, path, name);
-                cursor += 16;
-                ReadPropertyGuid(data, ref cursor, path, name);
-                valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
-                break;
-            }
-            case "EnumProperty":
-            {
-                valueType = ReadFString(data, ref cursor);
-                ReadPropertyGuid(data, ref cursor, path, name);
-                valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
-                displayValue = TryReadSingleFString(valueBytes.Span);
-                break;
-            }
-            case "ByteProperty":
-            {
-                valueType = ReadFString(data, ref cursor);
-                ReadPropertyGuid(data, ref cursor, path, name);
-                valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
-                if (declaredSize == 1)
-                {
-                    displayValue = valueBytes.Span[0]
-                        .ToString(System.Globalization.CultureInfo.InvariantCulture);
-                }
-                else
-                {
-                    displayValue = TryReadSingleFString(valueBytes.Span);
-                }
-
-                break;
-            }
-            case "ArrayProperty":
-            case "SetProperty":
-            {
-                valueType = ReadFString(data, ref cursor);
-                ReadPropertyGuid(data, ref cursor, path, name);
-                valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
-                break;
-            }
-            case "MapProperty":
-            {
-                var keyType = ReadFString(data, ref cursor);
-                var elementType = ReadFString(data, ref cursor);
-                valueType = $"{keyType}->{elementType}";
-                ReadPropertyGuid(data, ref cursor, path, name);
-                valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
-                break;
-            }
-            default:
-            {
-                ReadPropertyGuid(data, ref cursor, path, name);
-                valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
-                displayValue = TryFormatScalar(propertyType, valueBytes.Span);
-                break;
-            }
+            valueBytes = ReadOnlyMemory<byte>.Empty;
+            displayValue = value == 1 ? "True" : "False";
+        }
+        else if (propertyType == "StructProperty")
+        {
+            valueType = ReadFString(data, ref cursor);
+            EnsureRemaining(data, cursor, 16, path, name);
+            cursor += 16;
+            ReadPropertyGuid(data, ref cursor, path, name);
+            valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
+        }
+        else if (propertyType == "EnumProperty")
+        {
+            valueType = ReadFString(data, ref cursor);
+            ReadPropertyGuid(data, ref cursor, path, name);
+            valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
+            displayValue = TryReadSingleFString(valueBytes.Span);
+        }
+        else if (propertyType == "ByteProperty")
+        {
+            valueType = ReadFString(data, ref cursor);
+            ReadPropertyGuid(data, ref cursor, path, name);
+            valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
+            displayValue = declaredSize == 1
+                ? valueBytes.Span[0].ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : TryReadSingleFString(valueBytes.Span);
+        }
+        else if (propertyType is "ArrayProperty" or "SetProperty")
+        {
+            valueType = ReadFString(data, ref cursor);
+            ReadPropertyGuid(data, ref cursor, path, name);
+            valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
+        }
+        else if (propertyType == "MapProperty")
+        {
+            var keyType = ReadFString(data, ref cursor);
+            var elementType = ReadFString(data, ref cursor);
+            valueType = $"{keyType}->{elementType}";
+            ReadPropertyGuid(data, ref cursor, path, name);
+            valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
+        }
+        else
+        {
+            ReadPropertyGuid(data, ref cursor, path, name);
+            valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
+            displayValue = TryFormatScalar(propertyType, valueBytes.Span);
         }
 
         return new ParsedProperty(name, propertyType, valueType, displayValue, valueBytes);

@@ -3,7 +3,7 @@ namespace SharedWorlds.GameAdapters.Palworld.Tests;
 public sealed class PalworldWorldOptionIniMirrorTests
 {
     [Fact]
-    public void MirrorsKnownScalarSettingsAndOverridesOnlyManagementFields()
+    public void MirrorsKnownSettingsAndOverridesOnlyManagementFields()
     {
         var snapshot = new PalworldWorldOptionSettingsSnapshot(
             "PlM/0x31",
@@ -13,6 +13,13 @@ public sealed class PalworldWorldOptionIniMirrorTests
                 new("bIsPvP", "BoolProperty", "False", null, 0, false),
                 new("DeathPenalty", "EnumProperty", "EPalOptionWorldDeathPenalty::All", "EPalOptionWorldDeathPenalty", 0, false),
                 new("ServerName", "StrProperty", "Steward Test", null, 0, false),
+                new(
+                    "CrossplayPlatforms",
+                    "ArrayProperty",
+                    "(EPalPlatformType::Steam,EPalPlatformType::Xbox,EPalPlatformType::PS5,EPalPlatformType::Mac)",
+                    "EnumProperty",
+                    64,
+                    false),
                 new("AdminPassword", "StrProperty", "canonical-secret", null, 0, true),
                 new("RESTAPIEnabled", "BoolProperty", "False", null, 0, false),
                 new("RESTAPIPort", "IntProperty", "8212", null, 4, false)
@@ -25,6 +32,7 @@ public sealed class PalworldWorldOptionIniMirrorTests
         Assert.Contains("bIsPvP=False", mirror.Contents, StringComparison.Ordinal);
         Assert.Contains("DeathPenalty=All", mirror.Contents, StringComparison.Ordinal);
         Assert.Contains("ServerName=\"Steward Test\"", mirror.Contents, StringComparison.Ordinal);
+        Assert.Contains("CrossplayPlatforms=(Steam,Xbox,PS5,Mac)", mirror.Contents, StringComparison.Ordinal);
         Assert.Contains("AdminPassword=\"runtime-secret\"", mirror.Contents, StringComparison.Ordinal);
         Assert.Contains("RESTAPIEnabled=True", mirror.Contents, StringComparison.Ordinal);
         Assert.Contains("RESTAPIPort=9123", mirror.Contents, StringComparison.Ordinal);
@@ -43,6 +51,32 @@ public sealed class PalworldWorldOptionIniMirrorTests
             PalworldWorldOptionIniMirror.Create(snapshot, "runtime-secret", 8212));
 
         Assert.Contains("opaque", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void UnsupportedCrossplayPlatformFailsClosed()
+    {
+        var snapshot = new PalworldWorldOptionSettingsSnapshot(
+            "PlM/0x31",
+            [new("CrossplayPlatforms", "ArrayProperty", "(Steam,UnknownPlatform)", "NameProperty", 24, false)]);
+
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            PalworldWorldOptionIniMirror.Create(snapshot, "runtime-secret", 8212));
+
+        Assert.Contains("unsupported platform", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void UnsupportedCrossplayElementTypeFailsClosed()
+    {
+        var snapshot = new PalworldWorldOptionSettingsSnapshot(
+            "PlM/0x31",
+            [new("CrossplayPlatforms", "ArrayProperty", "(Steam)", "StructProperty", 24, false)]);
+
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            PalworldWorldOptionIniMirror.Create(snapshot, "runtime-secret", 8212));
+
+        Assert.Contains("array element type", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

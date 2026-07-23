@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 
@@ -132,8 +131,20 @@ internal sealed class PalworldRestApiClient
         }
 
         ArgumentNullException.ThrowIfNull(message);
+
+        // Palworld's embedded REST server requires a normal length-delimited JSON request body
+        // for /shutdown. JsonContent may be emitted with chunked transfer encoding because its
+        // length is not known up front, which this server can reject with HTTP 411. Serialize the
+        // small payload first so Content-Length is explicit and deterministic.
+        var payload = JsonSerializer.SerializeToUtf8Bytes(
+            new ShutdownRequest(waitSeconds, message),
+            _jsonOptions);
+
         using var request = CreateRequest(HttpMethod.Post, "v1/api/shutdown");
-        request.Content = JsonContent.Create(new ShutdownRequest(waitSeconds, message));
+        request.Content = new ByteArrayContent(payload);
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        request.Content.Headers.ContentLength = payload.Length;
+
         using var response = await _httpClient.SendAsync(
             request,
             HttpCompletionOption.ResponseHeadersRead,

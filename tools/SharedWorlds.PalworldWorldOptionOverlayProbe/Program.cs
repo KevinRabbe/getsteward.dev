@@ -116,6 +116,7 @@ static async Task<bool> RunAsync()
     }
 
     var transientPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+    using var transientCredential = new SecretBytes(transientPassword);
     PalworldWorldOptionOverlayResult overlay;
     try
     {
@@ -323,7 +324,7 @@ static async Task<bool> RunAsync()
                 var restoredBytes = await File.ReadAllBytesAsync(worldOptionPath);
                 credentialPresentAfterRestore = ContainsSequence(
                     restoredBytes,
-                    Encoding.ASCII.GetBytes(transientPassword));
+                    transientCredential.Bytes);
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
@@ -372,7 +373,7 @@ static async Task<bool> RunAsync()
             var inspection = await InspectCaptureAsync(
                 capturePackagePath,
                 originalHash,
-                transientPassword: null);
+                transientCredential.Bytes);
             captureCreated = true;
             capturedWorldOptionMatchesOriginal = inspection.WorldOptionMatchesOriginal;
             capturedPackageContainsCredential = inspection.ContainsCredential;
@@ -595,7 +596,7 @@ static async Task WriteAtomicallyAsync(string destinationPath, byte[] bytes)
 static async Task<CaptureInspection> InspectCaptureAsync(
     string packagePath,
     string expectedWorldOptionSha256,
-    string? transientPassword)
+    byte[] transientCredential)
 {
     using var archive = ZipFile.OpenRead(packagePath);
     var worldOptionEntry = archive.Entries.SingleOrDefault(entry =>
@@ -618,17 +619,13 @@ static async Task<CaptureInspection> InspectCaptureAsync(
         entry.FullName.Contains(PreservedWorldOptionSuffix, StringComparison.OrdinalIgnoreCase));
 
     var containsCredential = false;
-    if (!string.IsNullOrEmpty(transientPassword))
+    foreach (var entry in archive.Entries.Where(entry => !string.IsNullOrEmpty(entry.Name)))
     {
-        var needle = Encoding.ASCII.GetBytes(transientPassword);
-        foreach (var entry in archive.Entries.Where(entry => !string.IsNullOrEmpty(entry.Name)))
+        await using var stream = entry.Open();
+        if (await StreamContainsAsync(stream, transientCredential))
         {
-            await using var stream = entry.Open();
-            if (await StreamContainsAsync(stream, needle))
-            {
-                containsCredential = true;
-                break;
-            }
+            containsCredential = true;
+            break;
         }
     }
 
@@ -697,6 +694,21 @@ static async Task<string> Sha256FileAsync(string path)
 
 static bool ContainsSequence(ReadOnlySpan<byte> haystack, ReadOnlySpan<byte> needle)
     => needle.Length == 0 || haystack.IndexOf(needle) >= 0;
+
+sealed class SecretBytes : IDisposable
+{
+    public SecretBytes(string value)
+    {
+        Bytes = Encoding.ASCII.GetBytes(value);
+    }
+
+    public byte[] Bytes { get; }
+
+    public void Dispose()
+    {
+        CryptographicOperations.ZeroMemory(Bytes);
+    }
+}
 
 sealed record CaptureInspection(
     bool WorldOptionMatchesOriginal,

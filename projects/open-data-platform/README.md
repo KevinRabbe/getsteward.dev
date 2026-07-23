@@ -1,4 +1,4 @@
-# Open Data Platform v0.10 — Phases 1-13
+# Open Data Platform v0.11 — Phases 1-14
 
 Der erste echte Trust-Boundary-Durchlauf für **GLEIF Level 1 LEI-CDF**.
 
@@ -271,6 +271,16 @@ When the host owner is ready to register the task, use the explicit PowerShell r
 ```
 
 The repository does not register a task implicitly; task identity, schedule, credentials, and host policy remain visible operator choices.
+
+## Phase 14 - HTTP service security and network boundaries
+
+The service remains loopback-only by default. Remote binding requires both explicit `--allow-remote` and a bearer token file:
+
+```powershell
+python .\odp.py serve --host 0.0.0.0 --allow-remote --auth-token-file "C:\\secrets\\odp.token"
+```
+
+With a token configured, every endpoint requires `Authorization: Bearer <token>`. Token contents are read once at startup and never returned or logged. Responses include no-store, MIME-sniffing, and clickjacking headers; name queries are bounded to 500 characters.
 
 ## Tests
 

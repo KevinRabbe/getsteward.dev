@@ -12,12 +12,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from open_data_platform.archive import archive_staged_file
 from open_data_platform.deployment import deployment_readiness
 from open_data_platform.discovery import discover_latest
-from open_data_platform.errors import ParseError, PlatformError
+from open_data_platform.errors import ParseError, PlatformError, QueryError
 from open_data_platform.http_client import find_download_url, find_publication_date
 from open_data_platform.parser import parse_snapshot, verify_normalized_artifact
 from open_data_platform.pipeline import run_gleif_pipeline
@@ -553,6 +553,42 @@ class ReleaseAndQueryTests(unittest.TestCase):
                 {"release", "query_product", "normalized_artifact"},
             )
             self.assertIn("serve", readiness["service"]["suggested_command"])
+
+    def test_http_service_requires_auth_for_remote_binding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _archive_cdf(root)
+            parse_snapshot(root, manifest["snapshot_id"])
+            build_product(root, manifest["snapshot_id"])
+            token_path = root / "odp.token"
+            token_path.write_text("test-token\n", encoding="utf-8")
+
+            with self.assertRaises(QueryError):
+                create_server(root, snapshot_id=manifest["snapshot_id"], host="0.0.0.0", port=0)
+
+            server = create_server(
+                root,
+                snapshot_id=manifest["snapshot_id"],
+                host="127.0.0.1",
+                port=0,
+                auth_token_file=token_path,
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_port}"
+            try:
+                with self.assertRaises(HTTPError) as unauthorized:
+                    urlopen(base_url + "/healthz")
+                self.assertEqual(unauthorized.exception.code, 401)
+
+                request = Request(base_url + "/healthz", headers={"Authorization": "Bearer test-token"})
+                with urlopen(request) as response:
+                    health = json.loads(response.read().decode("utf-8"))
+                self.assertEqual(health["status"], "OK")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
 
 
 if __name__ == "__main__":

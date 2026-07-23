@@ -23,7 +23,7 @@ from .schedule import schedule_plan
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="odp", description="Open Data Platform v0.10")
+    parser = argparse.ArgumentParser(prog="odp", description="Open Data Platform v0.11")
     sub = parser.add_subparsers(dest="command", required=True)
 
     ingest = sub.add_parser("ingest-gleif", help="Discover and archive the latest GLEIF Level 1 snapshot")
@@ -111,6 +111,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("--snapshot-id", default=None)
     serve_parser.add_argument("--host", default="127.0.0.1")
     serve_parser.add_argument("--port", type=int, default=8080)
+    serve_parser.add_argument("--auth-token-file", type=Path, default=None)
+    serve_parser.add_argument("--allow-remote", action="store_true")
 
     retention = sub.add_parser("retention-plan", help="Create a non-destructive retention and storage report")
     retention.add_argument("--data-root", type=Path, default=Path("data"))
@@ -233,6 +235,8 @@ def main() -> None:
                 snapshot_id=args.snapshot_id,
                 host=args.host,
                 port=args.port,
+                auth_token_file=args.auth_token_file,
+                allow_remote=args.allow_remote,
             )
             return
         elif args.command == "retention-plan":

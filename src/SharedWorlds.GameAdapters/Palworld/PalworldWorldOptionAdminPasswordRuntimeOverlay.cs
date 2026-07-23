@@ -7,8 +7,9 @@ namespace SharedWorlds.GameAdapters.Palworld;
 /// <summary>
 /// Container-aware entry point for the temporary WorldOption AdminPassword overlay.
 /// Older PlZ saves continue through the existing zlib implementation. Current PlM
-/// saves are decoded/re-encoded through an installed Oodle runtime, while the GVAS
-/// property edit remains delegated to the already validated fail-closed patcher.
+/// saves require Oodle only for decoding; the temporary runtime overlay is emitted as
+/// legacy PlZ/0x31 because current Palworld remains able to read that container.
+/// The GVAS property edit remains delegated to the already validated fail-closed patcher.
 /// </summary>
 internal static class PalworldWorldOptionAdminPasswordRuntimeOverlay
 {
@@ -83,8 +84,9 @@ internal static class PalworldWorldOptionAdminPasswordRuntimeOverlay
         var originalPayload = oodleCodec.Decompress(compressedPayload, uncompressedLength);
         ValidateGvas(originalPayload);
 
-        // Reuse the already tested property patcher by putting the decoded GVAS in a
-        // temporary legacy PlZ container. The synthetic wrapper never reaches disk.
+        // Current Palworld can still read the legacy PlZ/0x31 container. Use that as
+        // the temporary runtime representation so an external Oodle runtime is needed
+        // only to decode the canonical PlM input, never to generate bytes PalServer must trust.
         var syntheticLegacy = WrapSingleZlib(originalPayload);
         var legacyPatched = PalworldWorldOptionAdminPasswordOverlay.Create(
             syntheticLegacy,
@@ -92,19 +94,10 @@ internal static class PalworldWorldOptionAdminPasswordRuntimeOverlay
         var patchedPayload = UnwrapSingleZlib(legacyPatched.PatchedSave);
         ValidateGvas(patchedPayload);
 
-        var patchedCompressed = oodleCodec.CompressMermaid(patchedPayload);
-        var roundTrip = oodleCodec.Decompress(patchedCompressed, patchedPayload.Length);
-        if (!roundTrip.AsSpan().SequenceEqual(patchedPayload))
-        {
-            throw new InvalidDataException(
-                "Oodle Mermaid compression did not round-trip the patched WorldOption GVAS payload byte-for-byte.");
-        }
-
-        var patchedSave = WrapPlM(patchedPayload.Length, patchedCompressed);
         return new PalworldWorldOptionOverlayResult(
-            patchedSave,
+            legacyPatched.PatchedSave,
             Sha256(originalSave),
-            Sha256(patchedSave),
+            Sha256(legacyPatched.PatchedSave),
             SingleCompressionSaveType,
             legacyPatched.ExistingAdminPasswordConfigured,
             originalPayload.Length,
@@ -118,17 +111,6 @@ internal static class PalworldWorldOptionAdminPasswordRuntimeOverlay
             throw new InvalidDataException(
                 "Decompressed WorldOption.sav does not begin with the expected GVAS header.");
         }
-    }
-
-    private static byte[] WrapPlM(int uncompressedLength, ReadOnlySpan<byte> compressedPayload)
-    {
-        var result = new byte[HeaderLength + compressedPayload.Length];
-        BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(0, 4), checked((uint)uncompressedLength));
-        BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(4, 4), checked((uint)compressedPayload.Length));
-        PlMMagic.CopyTo(result, 8);
-        result[11] = SingleCompressionSaveType;
-        compressedPayload.CopyTo(result.AsSpan(HeaderLength));
-        return result;
     }
 
     private static byte[] WrapSingleZlib(ReadOnlySpan<byte> payload)

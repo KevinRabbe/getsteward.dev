@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Runtime data: never commit real source payloads.
+data/staging/*
+!data/staging/.gitkeep
+data/archive/content/sha256/*
+!data/archive/content/sha256/.gitkeep
+data/archive/snapshots/*
+!data/archive/snapshots/.gitkeep
+data/events/*
+!data/events/.gitkeep

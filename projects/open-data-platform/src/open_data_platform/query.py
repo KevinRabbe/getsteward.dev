@@ -92,24 +92,88 @@ def _provenance(verified: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _open_verified_product(
-    data_root: Path,
-    snapshot_id: str | None,
-    product_root: Path | None,
-) -> tuple[sqlite3.Connection, dict[str, Any]]:
-    root = _product_root(data_root, product_root)
-    selected_snapshot = snapshot_id or _latest_snapshot_id(data_root, root)
-    try:
-        verified = verify_product(data_root, selected_snapshot, output_root=root)
-    except (ProductError, OSError, ValueError) as exc:
-        raise QueryError(f"Product verification failed for {selected_snapshot}: {exc}") from exc
-    database_path = Path(verified["database_path"])
-    try:
-        connection = sqlite3.connect(database_path.as_uri() + "?mode=ro", uri=True)
-    except sqlite3.Error as exc:
-        raise QueryError(f"Could not open product read-only: {database_path}") from exc
-    connection.row_factory = sqlite3.Row
-    return connection, verified
+class QueryStore:
+    """A verified, read-only view of one immutable SQLite product."""
+
+    def __init__(
+        self,
+        data_root: Path,
+        *,
+        snapshot_id: str | None = None,
+        product_root: Path | None = None,
+    ) -> None:
+        self.data_root = data_root
+        self.root = _product_root(data_root, product_root)
+        self.snapshot_id = snapshot_id or _latest_snapshot_id(data_root, self.root)
+        try:
+            self.verified = verify_product(data_root, self.snapshot_id, output_root=self.root)
+        except (ProductError, OSError, ValueError) as exc:
+            raise QueryError(f"Product verification failed for {self.snapshot_id}: {exc}") from exc
+
+    def _connection(self) -> sqlite3.Connection:
+        database_path = Path(self.verified["database_path"])
+        try:
+            connection = sqlite3.connect(database_path.as_uri() + "?mode=ro", uri=True)
+        except sqlite3.Error as exc:
+            raise QueryError(f"Could not open product read-only: {database_path}") from exc
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    def health(self) -> dict[str, Any]:
+        return {
+            "status": "OK",
+            "service": "open-data-platform",
+            "provenance": _provenance(self.verified),
+        }
+
+    def lookup(self, lei: str) -> dict[str, Any]:
+        normalized_lei = lei.strip().upper()
+        if len(normalized_lei) != 20:
+            raise QueryError("LEI must contain exactly 20 characters")
+        connection = self._connection()
+        try:
+            row = connection.execute(
+                f"SELECT {', '.join(_SELECT_COLUMNS)} FROM lei WHERE lei = ?",
+                (normalized_lei,),
+            ).fetchone()
+        finally:
+            connection.close()
+        result: dict[str, Any] = {
+            "status": "FOUND" if row is not None else "NOT_FOUND",
+            "query": normalized_lei,
+            "provenance": _provenance(self.verified),
+        }
+        if row is not None:
+            result["record"] = _record_from_row(row)
+        return result
+
+    def search(self, query: str, *, limit: int = 20) -> dict[str, Any]:
+        normalized_query = query.strip()
+        if not normalized_query:
+            raise QueryError("Name query must not be empty")
+        if limit < 1 or limit > 1000:
+            raise QueryError("limit must be between 1 and 1000")
+
+        escaped = normalized_query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        connection = self._connection()
+        try:
+            rows = connection.execute(
+                f"SELECT {', '.join(_SELECT_COLUMNS)} FROM lei "
+                "WHERE legal_name LIKE ? ESCAPE '\\' "
+                "ORDER BY legal_name COLLATE NOCASE, lei LIMIT ?",
+                (f"%{escaped}%", limit),
+            ).fetchall()
+        finally:
+            connection.close()
+
+        return {
+            "status": "OK",
+            "query": normalized_query,
+            "limit": limit,
+            "count": len(rows),
+            "records": [_record_from_row(row) for row in rows],
+            "provenance": _provenance(self.verified),
+        }
 
 
 def lookup_lei(
@@ -119,25 +183,7 @@ def lookup_lei(
     snapshot_id: str | None = None,
     product_root: Path | None = None,
 ) -> dict[str, Any]:
-    normalized_lei = lei.strip().upper()
-    if len(normalized_lei) != 20:
-        raise QueryError("LEI must contain exactly 20 characters")
-    connection, verified = _open_verified_product(data_root, snapshot_id, product_root)
-    try:
-        row = connection.execute(
-            f"SELECT {', '.join(_SELECT_COLUMNS)} FROM lei WHERE lei = ?",
-            (normalized_lei,),
-        ).fetchone()
-    finally:
-        connection.close()
-    result: dict[str, Any] = {
-        "status": "FOUND" if row is not None else "NOT_FOUND",
-        "query": normalized_lei,
-        "provenance": _provenance(verified),
-    }
-    if row is not None:
-        result["record"] = _record_from_row(row)
-    return result
+    return QueryStore(data_root, snapshot_id=snapshot_id, product_root=product_root).lookup(lei)
 
 
 def search_name(
@@ -148,29 +194,4 @@ def search_name(
     product_root: Path | None = None,
     limit: int = 20,
 ) -> dict[str, Any]:
-    normalized_query = query.strip()
-    if not normalized_query:
-        raise QueryError("Name query must not be empty")
-    if limit < 1 or limit > 1000:
-        raise QueryError("limit must be between 1 and 1000")
-
-    escaped = normalized_query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    connection, verified = _open_verified_product(data_root, snapshot_id, product_root)
-    try:
-        rows = connection.execute(
-            f"SELECT {', '.join(_SELECT_COLUMNS)} FROM lei "
-            "WHERE legal_name LIKE ? ESCAPE '\\' "
-            "ORDER BY legal_name COLLATE NOCASE, lei LIMIT ?",
-            (f"%{escaped}%", limit),
-        ).fetchall()
-    finally:
-        connection.close()
-
-    return {
-        "status": "OK",
-        "query": normalized_query,
-        "limit": limit,
-        "count": len(rows),
-        "records": [_record_from_row(row) for row in rows],
-        "provenance": _provenance(verified),
-    }
+    return QueryStore(data_root, snapshot_id=snapshot_id, product_root=product_root).search(query, limit=limit)

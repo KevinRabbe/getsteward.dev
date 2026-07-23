@@ -15,10 +15,12 @@ from .verify import verify_snapshot
 from .query import lookup_lei, search_name
 from .release import build_release, verify_release
 from .operations import replicate_release, status_report
+from .serve import serve
+from .retention import retention_plan
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="odp", description="Open Data Platform v0.5")
+    parser = argparse.ArgumentParser(prog="odp", description="Open Data Platform v0.6")
     sub = parser.add_subparsers(dest="command", required=True)
 
     ingest = sub.add_parser("ingest-gleif", help="Discover and archive the latest GLEIF Level 1 snapshot")
@@ -99,6 +101,17 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="Report verification status across archived snapshots")
     status.add_argument("--data-root", type=Path, default=Path("data"))
     status.add_argument("--event-limit", type=int, default=20)
+
+    serve_parser = sub.add_parser("serve", help="Serve a verified product over a read-only HTTP API")
+    serve_parser.add_argument("--data-root", type=Path, default=Path("data"))
+    serve_parser.add_argument("--product-root", type=Path, default=None)
+    serve_parser.add_argument("--snapshot-id", default=None)
+    serve_parser.add_argument("--host", default="127.0.0.1")
+    serve_parser.add_argument("--port", type=int, default=8080)
+
+    retention = sub.add_parser("retention-plan", help="Create a non-destructive retention and storage report")
+    retention.add_argument("--data-root", type=Path, default=Path("data"))
+    retention.add_argument("--keep-latest", type=int, default=7)
 
     return parser
 
@@ -189,6 +202,17 @@ def main() -> None:
             )
         elif args.command == "status":
             result = status_report(args.data_root, event_limit=args.event_limit)
+        elif args.command == "serve":
+            serve(
+                args.data_root,
+                product_root=args.product_root,
+                snapshot_id=args.snapshot_id,
+                host=args.host,
+                port=args.port,
+            )
+            return
+        elif args.command == "retention-plan":
+            result = retention_plan(args.data_root, keep_latest=args.keep_latest)
         else:
             raise RuntimeError("unreachable")
     except (PlatformError, OSError, ValueError) as exc:

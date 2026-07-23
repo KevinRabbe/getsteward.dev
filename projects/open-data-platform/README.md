@@ -1,4 +1,4 @@
-# Open Data Platform v0.5 — Phases 1-7
+# Open Data Platform v0.6 — Phases 1-9
 
 Der erste echte Trust-Boundary-Durchlauf für **GLEIF Level 1 LEI-CDF**.
 
@@ -197,6 +197,26 @@ python .\odp.py status
 
 Replication never overwrites an existing destination. The status report verifies each snapshot through raw, normalized, product, and release boundaries and includes a recent event summary.
 
+## Phase 8 - downstream HTTP service
+
+Serve one verified product through a small read-only standard-library HTTP API:
+
+```powershell
+python .\odp.py serve --host 127.0.0.1 --port 8080
+```
+
+Endpoints are `GET /healthz`, `GET /v1/lei/<lei>`, `GET /v1/search?name=<text>&limit=<n>`, and `GET /v1/status`. The product is fully verified once at startup and every request uses a separate SQLite read-only connection.
+
+## Phase 9 - retention planning
+
+Generate a report without deleting or overwriting anything:
+
+```powershell
+python .\odp.py retention-plan --keep-latest 7
+```
+
+Only snapshots outside the keep window whose raw, normalized, product, and release boundaries all verify are marked `eligible_for_archive_review`. The command is explicitly report-only.
+
 ## Tests
 
 Im Projektordner:
@@ -210,4 +230,4 @@ Die Tests brauchen kein Internet.
 
 ## Next step
 
-The next scope is serving verified products to downstream applications and adding scheduled retention/replication operations. The raw archive, normalized artifact, SQLite product, and release bundle are already separate, verified trust boundaries.
+The next scope is scheduled execution and external deployment policy. The raw archive, normalized artifact, SQLite product, release bundle, HTTP service, and retention report are already separate, verified trust boundaries.

@@ -5,11 +5,14 @@ import os
 import sqlite3
 import stat
 import tempfile
+import threading
 import unittest
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError
+from urllib.request import urlopen
 
 from open_data_platform.archive import archive_staged_file
 from open_data_platform.errors import ParseError
@@ -20,6 +23,8 @@ from open_data_platform.product import build_product, verify_product
 from open_data_platform.query import lookup_lei, search_name
 from open_data_platform.release import build_release, verify_release
 from open_data_platform.operations import replicate_release, status_report
+from open_data_platform.retention import retention_plan
+from open_data_platform.serve import create_server
 from open_data_platform.verify import verify_snapshot
 
 
@@ -379,6 +384,46 @@ class ReleaseAndQueryTests(unittest.TestCase):
             self.assertEqual(result["release"]["status"], "BUILT")
             events = (root / "events" / "events.jsonl").read_text(encoding="utf-8")
             self.assertIn('"event": "PIPELINE_COMPLETED"', events)
+
+    def test_http_service_and_retention_plan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _archive_cdf(root)
+            parse_snapshot(root, manifest["snapshot_id"])
+            build_product(root, manifest["snapshot_id"])
+            build_release(root, manifest["snapshot_id"])
+
+            server = create_server(root, snapshot_id=manifest["snapshot_id"], port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_port}"
+            try:
+                with urlopen(base_url + "/healthz") as response:
+                    health = json.loads(response.read().decode("utf-8"))
+                self.assertEqual(health["status"], "OK")
+                self.assertEqual(health["provenance"]["snapshot_id"], manifest["snapshot_id"])
+
+                with urlopen(base_url + "/v1/lei/5493001KJTIIGC8Y1R12") as response:
+                    lookup = json.loads(response.read().decode("utf-8"))
+                self.assertEqual(lookup["status"], "FOUND")
+
+                with urlopen(base_url + "/v1/search?name=Example&limit=1") as response:
+                    search = json.loads(response.read().decode("utf-8"))
+                self.assertEqual(search["count"], 1)
+
+                with self.assertRaises(HTTPError) as missing:
+                    urlopen(base_url + "/v1/lei/00000000000000000000")
+                self.assertEqual(missing.exception.code, 404)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+            plan = retention_plan(root, keep_latest=1)
+            self.assertEqual(plan["mode"], "REPORT_ONLY")
+            self.assertFalse(plan["policy"]["deletion_enabled"])
+            self.assertEqual(len(plan["retained"]), 1)
+            self.assertGreater(plan["storage"]["total_bytes"], 0)
 
 
 if __name__ == "__main__":

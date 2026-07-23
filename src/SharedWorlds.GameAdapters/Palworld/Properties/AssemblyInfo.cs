@@ -4,3 +4,4 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("SharedWorlds.PalworldProbe")]
 [assembly: InternalsVisibleTo("SharedWorlds.PalworldWorldOptionOverlayProbe")]
 [assembly: InternalsVisibleTo("SharedWorlds.PalworldWorldOptionPlMProbe")]
+[assembly: InternalsVisibleTo("SharedWorlds.PalworldWorldOptionStartupProbe")]

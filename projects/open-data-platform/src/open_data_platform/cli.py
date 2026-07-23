@@ -19,10 +19,11 @@ from .serve import serve
 from .retention import retention_plan
 from .deployment import deployment_readiness
 from .runtime import pipeline_lock_status, recovery_plan
+from .schedule import schedule_plan
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="odp", description="Open Data Platform v0.9")
+    parser = argparse.ArgumentParser(prog="odp", description="Open Data Platform v0.10")
     sub = parser.add_subparsers(dest="command", required=True)
 
     ingest = sub.add_parser("ingest-gleif", help="Discover and archive the latest GLEIF Level 1 snapshot")
@@ -127,6 +128,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     recovery = sub.add_parser("recovery-plan", help="Report interrupted pipeline artifacts without deleting anything")
     recovery.add_argument("--data-root", type=Path, default=Path("data"))
+
+    schedule = sub.add_parser("schedule-plan", help="Create a scheduler registration plan without changing the host")
+    schedule.add_argument("--project-root", type=Path, default=Path("."))
+    schedule.add_argument("--python-exe", default="python")
+    schedule.add_argument("--data-root", type=Path, default=Path("data"))
+    schedule.add_argument("--replica-root", type=Path, default=None)
+    schedule.add_argument("--frequency", choices=("daily", "weekly"), default="daily")
+    schedule.add_argument("--start-time", default="02:00")
 
     return parser
 
@@ -240,6 +249,15 @@ def main() -> None:
             result = pipeline_lock_status(args.data_root)
         elif args.command == "recovery-plan":
             result = recovery_plan(args.data_root)
+        elif args.command == "schedule-plan":
+            result = schedule_plan(
+                project_root=args.project_root,
+                python_exe=args.python_exe,
+                data_root=args.data_root,
+                replica_root=args.replica_root,
+                frequency=args.frequency,
+                start_time=args.start_time,
+            )
         else:
             raise RuntimeError("unreachable")
     except (PlatformError, OSError, ValueError) as exc:

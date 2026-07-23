@@ -27,6 +27,7 @@ from open_data_platform.release import build_release, verify_release
 from open_data_platform.operations import replicate_release, status_report
 from open_data_platform.retention import retention_plan
 from open_data_platform.runtime import pipeline_lock, pipeline_lock_status, recovery_plan
+from open_data_platform.schedule import schedule_plan
 from open_data_platform.serve import create_server
 from open_data_platform.verify import verify_snapshot
 
@@ -108,6 +109,22 @@ class RuntimeTests(unittest.TestCase):
             )
             self.assertEqual(pipeline_lock_status(root)["status"], "STALE")
             self.assertEqual(recovery_plan(root)["recommended_action"], "REVIEW_LOCK_AND_TEMP_ARTIFACTS")
+
+    def test_schedule_plan_is_non_mutating_and_validates_time(self):
+        plan = schedule_plan(
+            project_root=Path("C:/odp"),
+            python_exe="C:/Python/python.exe",
+            data_root=Path("data"),
+            replica_root=Path("E:/replica"),
+            frequency="weekly",
+            start_time="03:30",
+        )
+        self.assertEqual(plan["mode"], "PLAN_ONLY")
+        self.assertEqual(plan["frequency"], "weekly")
+        self.assertTrue(plan["lock_required"])
+        self.assertIn("register_task_scheduler.ps1", plan["registration"])
+        with self.assertRaises(ValueError):
+            schedule_plan(project_root=Path("C:/odp"), start_time="3:30")
 
 
 class ArchiveTests(unittest.TestCase):

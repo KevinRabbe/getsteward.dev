@@ -1,4 +1,4 @@
-# Open Data Platform v0.9 — Phases 1-12
+# Open Data Platform v0.10 — Phases 1-13
 
 Der erste echte Trust-Boundary-Durchlauf für **GLEIF Level 1 LEI-CDF**.
 
@@ -253,6 +253,24 @@ python .\odp.py recovery-plan
 ```
 
 Both commands are report-only. `pipeline-lock` distinguishes `CLEAR`, `ACTIVE`, `STALE`, and `CORRUPT`. `recovery-plan` lists interrupted `.tmp-*` artifacts and partial staging downloads without deleting them. A stale lock or temporary artifact requires explicit operator review before retrying.
+
+## Phase 13 - scheduler/deployment integration
+
+Create a Task Scheduler plan without changing the machine:
+
+```powershell
+python .\odp.py schedule-plan --frequency daily --start-time 02:00
+python .\odp.py schedule-plan --replica-root "E:\\open-data-releases"
+```
+
+When the host owner is ready to register the task, use the explicit PowerShell registration script. It supports `-WhatIf`, runs under the interactive user with limited privileges, and relies on the pipeline lock:
+
+```powershell
+.\scripts\register_task_scheduler.ps1 -WhatIf
+.\scripts\register_task_scheduler.ps1 -TaskName "OpenDataPlatform-GLEIF" -Frequency Daily -StartTime "02:00"
+```
+
+The repository does not register a task implicitly; task identity, schedule, credentials, and host policy remain visible operator choices.
 
 ## Tests
 

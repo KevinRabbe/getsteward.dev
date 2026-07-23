@@ -102,6 +102,8 @@ internal static class PalworldWorldOptionIniMirror
             "EnumProperty" or "ByteProperty" => StripEnumPrefix(setting.Value),
             "ArrayProperty" when string.Equals(setting.Name, "CrossplayPlatforms", StringComparison.Ordinal) =>
                 SerializeCrossplayPlatforms(setting),
+            "ArrayProperty" when string.Equals(setting.Name, "DenyTechnologyList", StringComparison.Ordinal) =>
+                SerializeDenyTechnologyList(setting),
             _ => throw new InvalidDataException(
                 $"WorldOption setting {setting.Name} uses unsupported property type {setting.PropertyType}.")
         };
@@ -125,6 +127,8 @@ internal static class PalworldWorldOptionIniMirror
             "EnumProperty" or "ByteProperty" => SerializeEnum(setting),
             "ArrayProperty" when string.Equals(setting.Name, "CrossplayPlatforms", StringComparison.Ordinal) =>
                 SerializeCrossplayPlatforms(setting),
+            "ArrayProperty" when string.Equals(setting.Name, "DenyTechnologyList", StringComparison.Ordinal) =>
+                SerializeDenyTechnologyList(setting),
             _ => throw new InvalidDataException(
                 $"WorldOption setting {setting.Name} uses unsupported property type {setting.PropertyType}; refusing to guess its INI representation.")
         };
@@ -144,30 +148,18 @@ internal static class PalworldWorldOptionIniMirror
 
     private static string SerializeCrossplayPlatforms(PalworldWorldOptionSetting setting)
     {
-        if (setting.ValueType is null || !SupportedSimpleArrayElementTypes.Contains(setting.ValueType))
-        {
-            throw new InvalidDataException(
-                $"WorldOption setting CrossplayPlatforms uses unsupported array element type {setting.ValueType ?? "(none)"}.");
-        }
-
-        var value = setting.Value!;
-        if (value.Length < 2 || value[0] != '(' || value[^1] != ')')
-        {
-            throw new InvalidDataException(
-                "WorldOption setting CrossplayPlatforms does not contain a structurally decoded tuple.");
-        }
-
-        var inner = value[1..^1];
-        if (string.IsNullOrWhiteSpace(inner))
+        EnsureSupportedSimpleArrayElementType(setting);
+        var entries = ParseSimpleArrayEntries(setting);
+        if (entries.Count == 0)
         {
             throw new InvalidDataException("WorldOption setting CrossplayPlatforms cannot be empty.");
         }
 
-        var platforms = new List<string>();
+        var platforms = new List<string>(entries.Count);
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var encoded in inner.Split(',', StringSplitOptions.None))
+        foreach (var encoded in entries)
         {
-            var platform = StripEnumPrefix(encoded.Trim());
+            var platform = StripEnumPrefix(encoded);
             if (!AllowedCrossplayPlatforms.Contains(platform))
             {
                 throw new InvalidDataException(
@@ -184,6 +176,71 @@ internal static class PalworldWorldOptionIniMirror
         }
 
         return $"({string.Join(',', platforms)})";
+    }
+
+    private static string SerializeDenyTechnologyList(PalworldWorldOptionSetting setting)
+    {
+        EnsureSupportedSimpleArrayElementType(setting);
+        var entries = ParseSimpleArrayEntries(setting);
+        if (entries.Count == 0)
+        {
+            // Palworld's current default configuration represents an empty DenyTechnologyList
+            // as an empty assignment rather than inventing an array value.
+            return string.Empty;
+        }
+
+        var serialized = new List<string>(entries.Count);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var encoded in entries)
+        {
+            var technologyId = StripEnumPrefix(encoded);
+            if (string.IsNullOrWhiteSpace(technologyId) ||
+                technologyId.Any(character => !(char.IsAsciiLetterOrDigit(character) || character == '_')))
+            {
+                throw new InvalidDataException(
+                    $"WorldOption setting DenyTechnologyList contains an unsafe Technology ID {technologyId}.");
+            }
+
+            if (!seen.Add(technologyId))
+            {
+                throw new InvalidDataException(
+                    $"WorldOption setting DenyTechnologyList contains duplicate Technology ID {technologyId}.");
+            }
+
+            serialized.Add(QuoteIniString(technologyId));
+        }
+
+        return $"({string.Join(',', serialized)})";
+    }
+
+    private static void EnsureSupportedSimpleArrayElementType(PalworldWorldOptionSetting setting)
+    {
+        if (setting.ValueType is null || !SupportedSimpleArrayElementTypes.Contains(setting.ValueType))
+        {
+            throw new InvalidDataException(
+                $"WorldOption setting {setting.Name} uses unsupported array element type {setting.ValueType ?? "(none)"}.");
+        }
+    }
+
+    private static IReadOnlyList<string> ParseSimpleArrayEntries(PalworldWorldOptionSetting setting)
+    {
+        var value = setting.Value!;
+        if (value.Length < 2 || value[0] != '(' || value[^1] != ')')
+        {
+            throw new InvalidDataException(
+                $"WorldOption setting {setting.Name} does not contain a structurally decoded tuple.");
+        }
+
+        var inner = value[1..^1];
+        if (inner.Length == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        return inner
+            .Split(',', StringSplitOptions.None)
+            .Select(entry => entry.Trim())
+            .ToArray();
     }
 
     private static string StripEnumPrefix(string value)

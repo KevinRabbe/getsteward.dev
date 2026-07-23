@@ -44,6 +44,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.PalworldWorldO
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.PalworldWorldOptionStartupProbe", "tools\SharedWorlds.PalworldWorldOptionStartupProbe\SharedWorlds.PalworldWorldOptionStartupProbe.csproj", "{ADADADAD-ADAD-ADAD-ADAD-ADADADADADAD}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.PalworldWorldOptionSettingsProbe", "tools\SharedWorlds.PalworldWorldOptionSettingsProbe\SharedWorlds.PalworldWorldOptionSettingsProbe.csproj", "{AEAEAEAE-AEAE-AEAE-AEAE-AEAEAEAEAEAE}"
+EndProject
 Global
     GlobalSection(SolutionConfigurationPlatforms) = preSolution
         Debug|Any CPU = Debug|Any CPU
@@ -134,5 +136,9 @@ Global
         {ADADADAD-ADAD-ADAD-ADAD-ADADADADADAD}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {ADADADAD-ADAD-ADAD-ADAD-ADADADADADAD}.Release|Any CPU.ActiveCfg = Release|Any CPU
         {ADADADAD-ADAD-ADAD-ADAD-ADADADADADAD}.Release|Any CPU.Build.0 = Release|Any CPU
+        {AEAEAEAE-AEAE-AEAE-AEAE-AEAEAEAEAEAE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {AEAEAEAE-AEAE-AEAE-AEAE-AEAEAEAEAEAE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {AEAEAEAE-AEAE-AEAE-AEAE-AEAEAEAEAEAE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {AEAEAEAE-AEAE-AEAE-AEAE-AEAEAEAEAEAE}.Release|Any CPU.Build.0 = Release|Any CPU
     EndGlobalSection
 EndGlobal

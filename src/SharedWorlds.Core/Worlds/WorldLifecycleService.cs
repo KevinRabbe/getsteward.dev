@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Errors;
@@ -15,6 +16,7 @@ public sealed class WorldLifecycleService
     private readonly IWorkspaceRecoveryStore _workspaceRecoveryStore;
     private readonly ManagedWritableSessionGate _managedSessionGate;
     private readonly IWorldLifecycleObserver _observer;
+    private readonly ConcurrentDictionary<WorldId, ActiveHostedSession> _activeHostedSessions = new();
 
     public WorldLifecycleService(
         IWorldStorage storage,
@@ -195,6 +197,25 @@ public sealed class WorldLifecycleService
             ManagedWorldSessionMode.Hosted,
             launchSession: adapter.LaunchHostAsync,
             cancellationToken: cancellationToken);
+
+    /// <summary>
+    /// Requests the adapter-defined safe stop of the currently active managed host for this World.
+    /// This does not capture or commit state; the normal lifecycle remains responsible for waiting
+    /// for adapter-observed session end and then advancing the canonical World transaction.
+    /// </summary>
+    public async Task<bool> RequestHostStopAsync(
+        WorldId worldId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_activeHostedSessions.TryGetValue(worldId, out var active))
+        {
+            return false;
+        }
+
+        await active.RequestStopAsync(cancellationToken);
+        return true;
+    }
 
     private async Task<PreparedWorldContext> PrepareCoreAsync(
         WorldId worldId,
@@ -391,8 +412,32 @@ public sealed class WorldLifecycleService
             Notify(worldId, mode, WorldLifecyclePhase.StartingSession);
             var session = await launchSession(context.PreparedWorld, cancellationToken);
             sessionStarted = true;
+
+            ActiveHostedSession? activeHostedSession = null;
+            if (mode == ManagedWorldSessionMode.Hosted)
+            {
+                activeHostedSession = new ActiveHostedSession(adapter, session);
+                if (!_activeHostedSessions.TryAdd(worldId, activeHostedSession))
+                {
+                    throw new InvalidOperationException(
+                        $"World '{worldId}' already has a registered managed host session.");
+                }
+            }
+
             Notify(worldId, mode, WorldLifecyclePhase.Running);
-            await adapter.WaitForSessionEndAsync(session, cancellationToken);
+            try
+            {
+                await adapter.WaitForSessionEndAsync(session, cancellationToken);
+            }
+            finally
+            {
+                if (activeHostedSession is not null &&
+                    _activeHostedSessions.TryGetValue(worldId, out var registered) &&
+                    ReferenceEquals(registered, activeHostedSession))
+                {
+                    _activeHostedSessions.TryRemove(worldId, out _);
+                }
+            }
 
             Notify(worldId, mode, WorldLifecyclePhase.WaitingForSafeCapture);
             CapturedState? captured = null;
@@ -692,6 +737,52 @@ public sealed class WorldLifecycleService
         catch
         {
             return false;
+        }
+    }
+
+    private sealed class ActiveHostedSession
+    {
+        private readonly object _gate = new();
+        private readonly IGameAdapter _adapter;
+        private readonly GameSessionHandle _session;
+        private Task? _stopTask;
+
+        public ActiveHostedSession(IGameAdapter adapter, GameSessionHandle session)
+        {
+            _adapter = adapter;
+            _session = session;
+        }
+
+        public async Task RequestStopAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            Task stopTask;
+            lock (_gate)
+            {
+                _stopTask ??= _adapter.RequestHostStopAsync(_session, CancellationToken.None);
+                stopTask = _stopTask;
+            }
+
+            try
+            {
+                await stopTask.WaitAsync(cancellationToken);
+            }
+            catch
+            {
+                if (stopTask.IsFaulted || stopTask.IsCanceled)
+                {
+                    lock (_gate)
+                    {
+                        if (ReferenceEquals(_stopTask, stopTask))
+                        {
+                            _stopTask = null;
+                        }
+                    }
+                }
+
+                throw;
+            }
         }
     }
 

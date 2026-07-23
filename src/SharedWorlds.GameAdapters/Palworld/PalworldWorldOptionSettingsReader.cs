@@ -44,14 +44,18 @@ internal static class PalworldWorldOptionSettingsReader
             decoded.Payload,
             OptionWorldDataName,
             expectedStructType: "PalOptionWorldSaveData");
+
         var optionProperties = ReadPropertyList(optionWorldData.ValueBytes, "OptionWorldData");
-        var settings = optionProperties.SingleOrDefault(property =>
-            string.Equals(property.Name, "Settings", StringComparison.Ordinal));
-        if (settings is null)
+        var matchingSettings = optionProperties
+            .Where(property => string.Equals(property.Name, "Settings", StringComparison.Ordinal))
+            .ToArray();
+        if (matchingSettings.Length != 1)
         {
-            throw new InvalidDataException("WorldOption.sav OptionWorldData does not contain Settings.");
+            throw new InvalidDataException(
+                $"WorldOption.sav OptionWorldData must contain exactly one Settings property; found {matchingSettings.Length}.");
         }
 
+        var settings = matchingSettings[0];
         if (!string.Equals(settings.PropertyType, "StructProperty", StringComparison.Ordinal) ||
             !string.Equals(settings.ValueType, "PalOptionWorldSettings", StringComparison.Ordinal))
         {
@@ -82,8 +86,8 @@ internal static class PalworldWorldOptionSettingsReader
             throw new InvalidDataException("WorldOption.sav is too small to contain a Palworld wrapper.");
         }
 
-        var uncompressedLength = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(save[..4]));
-        var compressedLength = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(save.Slice(4, 4)));
+        var uncompressedLength = ReadLength32(save[..4], "uncompressed");
+        var compressedLength = ReadLength32(save.Slice(4, 4), "compressed");
         var magic = save.Slice(8, 3);
         var saveType = save[11];
         var compressedPayload = save[WrapperHeaderLength..];
@@ -156,6 +160,17 @@ internal static class PalworldWorldOptionSettingsReader
         return new DecodedWorldOption(container, payload);
     }
 
+    private static int ReadLength32(ReadOnlySpan<byte> bytes, string description)
+    {
+        var value = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
+        if (value > int.MaxValue)
+        {
+            throw new InvalidDataException($"WorldOption.sav {description} length exceeds the supported acceptance bound.");
+        }
+
+        return (int)value;
+    }
+
     private static ParsedProperty FindUniqueStructProperty(
         ReadOnlySpan<byte> payload,
         ReadOnlySpan<byte> encodedName,
@@ -173,33 +188,45 @@ internal static class PalworldWorldOptionSettingsReader
 
             var offset = searchOffset + relative;
             searchOffset = offset + encodedName.Length;
-            try
-            {
-                var cursor = offset;
-                var property = ReadProperty(payload, ref cursor, "root-search");
-                if (property is null ||
-                    !string.Equals(property.Name, "OptionWorldData", StringComparison.Ordinal) ||
-                    !string.Equals(property.PropertyType, "StructProperty", StringComparison.Ordinal) ||
-                    !string.Equals(property.ValueType, expectedStructType, StringComparison.Ordinal))
-                {
-                    continue;
-                }
 
-                if (match is not null)
-                {
-                    throw new InvalidDataException("WorldOption.sav contains multiple structurally valid OptionWorldData properties.");
-                }
-
-                match = property;
-            }
-            catch (InvalidDataException)
+            var property = TryReadCandidate(payload, offset);
+            if (property is null ||
+                !string.Equals(property.Name, "OptionWorldData", StringComparison.Ordinal) ||
+                !string.Equals(property.PropertyType, "StructProperty", StringComparison.Ordinal) ||
+                !string.Equals(property.ValueType, expectedStructType, StringComparison.Ordinal))
             {
-                // A matching byte sequence is not enough. Only a complete structurally valid tag counts.
+                continue;
             }
+
+            if (match is not null)
+            {
+                throw new InvalidDataException(
+                    "WorldOption.sav contains multiple structurally valid OptionWorldData properties.");
+            }
+
+            match = property;
         }
 
         return match ?? throw new InvalidDataException(
             "WorldOption.sav does not contain one structurally valid OptionWorldData PalOptionWorldSaveData property.");
+    }
+
+    private static ParsedProperty? TryReadCandidate(ReadOnlySpan<byte> payload, int offset)
+    {
+        try
+        {
+            var cursor = offset;
+            return ReadProperty(payload, ref cursor, "root-search");
+        }
+        catch (InvalidDataException)
+        {
+            // A matching byte sequence is not enough. Only a complete structurally valid tag counts.
+            return null;
+        }
+        catch (OverflowException)
+        {
+            return null;
+        }
     }
 
     private static IReadOnlyList<ParsedProperty> ReadPropertyList(
@@ -209,12 +236,14 @@ internal static class PalworldWorldOptionSettingsReader
         var data = memory.Span;
         var result = new List<ParsedProperty>();
         var cursor = 0;
+        var terminated = false;
         while (cursor < data.Length)
         {
             var before = cursor;
             var property = ReadProperty(data, ref cursor, path);
             if (property is null)
             {
+                terminated = true;
                 break;
             }
 
@@ -223,6 +252,16 @@ internal static class PalworldWorldOptionSettingsReader
             {
                 throw new InvalidDataException($"WorldOption.sav parser made no progress at {path}.");
             }
+        }
+
+        if (!terminated)
+        {
+            throw new InvalidDataException($"WorldOption.sav {path} property list is missing its None terminator.");
+        }
+
+        if (cursor != data.Length)
+        {
+            throw new InvalidDataException($"WorldOption.sav {path} contains unexpected trailing bytes after its None terminator.");
         }
 
         return result;
@@ -241,9 +280,14 @@ internal static class PalworldWorldOptionSettingsReader
 
         var propertyType = ReadFString(data, ref cursor);
         EnsureRemaining(data, cursor, sizeof(ulong), path, name);
-        var declaredSize = checked((int)BinaryPrimitives.ReadUInt64LittleEndian(data.Slice(cursor, sizeof(ulong))));
+        var declaredSize64 = BinaryPrimitives.ReadUInt64LittleEndian(data.Slice(cursor, sizeof(ulong)));
         cursor += sizeof(ulong);
+        if (declaredSize64 > int.MaxValue)
+        {
+            throw new InvalidDataException($"WorldOption.sav {path}.{name} exceeds the supported acceptance value bound.");
+        }
 
+        var declaredSize = (int)declaredSize64;
         string? valueType = null;
         string? displayValue = null;
         ReadOnlyMemory<byte> valueBytes;
@@ -273,7 +317,7 @@ internal static class PalworldWorldOptionSettingsReader
             {
                 valueType = ReadFString(data, ref cursor);
                 EnsureRemaining(data, cursor, 16, path, name);
-                cursor += 16; // struct GUID
+                cursor += 16;
                 ReadPropertyGuid(data, ref cursor, path, name);
                 valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
                 break;
@@ -283,20 +327,7 @@ internal static class PalworldWorldOptionSettingsReader
                 valueType = ReadFString(data, ref cursor);
                 ReadPropertyGuid(data, ref cursor, path, name);
                 valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
-                var enumCursor = 0;
-                try
-                {
-                    var enumValue = ReadFString(valueBytes.Span, ref enumCursor);
-                    if (enumCursor == valueBytes.Length)
-                    {
-                        displayValue = enumValue;
-                    }
-                }
-                catch (InvalidDataException)
-                {
-                    // Keep the value opaque; the tag itself was still parsed safely.
-                }
-
+                displayValue = TryReadSingleFString(valueBytes.Span);
                 break;
             }
             case "ByteProperty":
@@ -306,7 +337,12 @@ internal static class PalworldWorldOptionSettingsReader
                 valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
                 if (declaredSize == 1)
                 {
-                    displayValue = valueBytes.Span[0].ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    displayValue = valueBytes.Span[0]
+                        .ToString(System.Globalization.CultureInfo.InvariantCulture);
+                }
+                else
+                {
+                    displayValue = TryReadSingleFString(valueBytes.Span);
                 }
 
                 break;
@@ -374,6 +410,10 @@ internal static class PalworldWorldOptionSettingsReader
         {
             return null;
         }
+        catch (OverflowException)
+        {
+            return null;
+        }
     }
 
     private static void ReadPropertyGuid(
@@ -405,11 +445,6 @@ internal static class PalworldWorldOptionSettingsReader
         string path,
         string name)
     {
-        if (length < 0)
-        {
-            throw new InvalidDataException($"WorldOption.sav {path}.{name} has a negative value length.");
-        }
-
         EnsureRemaining(data, cursor, length, path, name);
         var bytes = data.Slice(cursor, length).ToArray();
         cursor += length;
@@ -492,7 +527,15 @@ internal static class PalworldWorldOptionSettingsReader
         using var source = new MemoryStream(compressed.ToArray(), writable: false);
         using var zlib = new ZLibStream(source, CompressionMode.Decompress);
         using var destination = new MemoryStream();
-        zlib.CopyTo(destination);
+        try
+        {
+            zlib.CopyTo(destination);
+        }
+        catch (InvalidDataException exception)
+        {
+            throw new InvalidDataException("WorldOption.sav contains invalid zlib data.", exception);
+        }
+
         return destination.ToArray();
     }
 

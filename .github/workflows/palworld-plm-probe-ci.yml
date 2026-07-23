@@ -16,7 +16,7 @@ env:
 
 jobs:
   probe:
-    name: Build PlM probe and Palworld tests
+    name: Build Palworld acceptance probes and tests
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -28,11 +28,17 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Restore probe
+      - name: Restore PlM probe
         run: dotnet restore tools/SharedWorlds.PalworldWorldOptionPlMProbe/SharedWorlds.PalworldWorldOptionPlMProbe.csproj
 
-      - name: Build probe
+      - name: Build PlM probe
         run: dotnet build tools/SharedWorlds.PalworldWorldOptionPlMProbe/SharedWorlds.PalworldWorldOptionPlMProbe.csproj --configuration Release --no-restore --nologo --verbosity minimal
+
+      - name: Restore startup precedence probe
+        run: dotnet restore tools/SharedWorlds.PalworldWorldOptionStartupProbe/SharedWorlds.PalworldWorldOptionStartupProbe.csproj
+
+      - name: Build startup precedence probe
+        run: dotnet build tools/SharedWorlds.PalworldWorldOptionStartupProbe/SharedWorlds.PalworldWorldOptionStartupProbe.csproj --configuration Release --no-restore --nologo --verbosity minimal
 
       - name: Test Palworld adapter
         run: dotnet test tests/SharedWorlds.GameAdapters.Palworld.Tests/SharedWorlds.GameAdapters.Palworld.Tests.csproj --configuration Release --nologo --verbosity minimal

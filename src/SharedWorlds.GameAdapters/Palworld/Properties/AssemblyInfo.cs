@@ -7,3 +7,4 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("SharedWorlds.PalworldWorldOptionStartupProbe")]
 [assembly: InternalsVisibleTo("SharedWorlds.PalworldWorldOptionSettingsProbe")]
 [assembly: InternalsVisibleTo("SharedWorlds.PalworldWorldOptionIniMirrorProbe")]
+[assembly: InternalsVisibleTo("SharedWorlds.PalworldWorldOptionArrayRestProbe")]

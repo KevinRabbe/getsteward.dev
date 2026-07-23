@@ -46,7 +46,7 @@ internal static class PalworldRestAcceptanceConfigurationReader
         var restEnabledText = ReadValue(text, "RESTAPIEnabled");
         var restPortText = ReadValue(text, "RESTAPIPort");
         var adminPasswordText = ReadValue(text, "AdminPassword");
-        var selectedWorldId = ReadValue(text, "DedicatedServerName");
+        var selectedWorldId = ReadSelectedWorldId(dedicatedServerRootPath);
         var blockingReasons = new List<string>();
 
         var restEnabled = bool.TryParse(restEnabledText, out var parsedRestEnabled) && parsedRestEnabled;
@@ -98,6 +98,47 @@ internal static class PalworldRestAcceptanceConfigurationReader
         {
             return null;
         }
+    }
+
+    private static string? ReadSelectedWorldId(string dedicatedServerRootPath)
+    {
+        var path = Path.Combine(
+            dedicatedServerRootPath,
+            "Pal",
+            "Saved",
+            "Config",
+            "WindowsServer",
+            "GameUserSettings.ini");
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            foreach (var rawLine in File.ReadLines(path))
+            {
+                var line = rawLine.Trim();
+                const string prefix = "DedicatedServerName=";
+                if (!line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var value = line[prefix.Length..].Trim();
+                return string.IsNullOrWhiteSpace(value) ? null : value;
+            }
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+
+        return null;
     }
 
     private static string? ReadValue(string text, string key)

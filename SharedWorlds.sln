@@ -42,6 +42,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04ECF79EFBC}") = "SharedWorlds.Architecture
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.PalworldWorldOptionOverlayProbe", "tools\SharedWorlds.PalworldWorldOptionOverlayProbe\SharedWorlds.PalworldWorldOptionOverlayProbe.csproj", "{ACACACAC-ACAC-ACAC-ACAC-ACACACACACAC}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.PalworldWorldOptionStartupProbe", "tools\SharedWorlds.PalworldWorldOptionStartupProbe\SharedWorlds.PalworldWorldOptionStartupProbe.csproj", "{ADADADAD-ADAD-ADAD-ADAD-ADADADADADAD}"
+EndProject
 Global
     GlobalSection(SolutionConfigurationPlatforms) = preSolution
         Debug|Any CPU = Debug|Any CPU
@@ -128,5 +130,9 @@ Global
         {ACACACAC-ACAC-ACAC-ACAC-ACACACACACAC}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {ACACACAC-ACAC-ACAC-ACAC-ACACACACACAC}.Release|Any CPU.ActiveCfg = Release|Any CPU
         {ACACACAC-ACAC-ACAC-ACAC-ACACACACACAC}.Release|Any CPU.Build.0 = Release|Any CPU
+        {ADADADAD-ADAD-ADAD-ADAD-ADADADADADAD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {ADADADAD-ADAD-ADAD-ADAD-ADADADADADAD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {ADADADAD-ADAD-ADAD-ADAD-ADADADADADAD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {ADADADAD-ADAD-ADAD-ADAD-ADADADADADAD}.Release|Any CPU.Build.0 = Release|Any CPU
     EndGlobalSection
 EndGlobal

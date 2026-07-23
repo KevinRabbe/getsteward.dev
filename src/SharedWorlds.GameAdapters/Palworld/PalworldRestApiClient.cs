@@ -15,7 +15,8 @@ internal sealed record PalworldServerInfo(
 /// <summary>
 /// Small adapter-owned client for Palworld's documented dedicated-server REST management surface.
 /// It deliberately contains only the operations Steward needs for lifecycle evidence: readiness,
-/// explicit save, and graceful shutdown. The API is expected to remain private to the host device/LAN.
+/// settings observation, explicit save, and graceful shutdown. The API is expected to remain private
+/// to the host device/LAN.
 /// </summary>
 internal sealed class PalworldRestApiClient
 {
@@ -87,6 +88,27 @@ internal sealed class PalworldRestApiClient
             payload.ServerName,
             payload.Description ?? string.Empty,
             payload.WorldGuid);
+    }
+
+    public async Task<JsonDocument> GetSettingsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var request = CreateRequest(HttpMethod.Get, "v1/api/settings");
+        using var response = await _httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+        await EnsureSuccessAsync(response, "read Palworld server settings", cancellationToken);
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        try
+        {
+            return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("Palworld returned malformed server-settings JSON.", exception);
+        }
     }
 
     public async Task SaveAsync(CancellationToken cancellationToken = default)

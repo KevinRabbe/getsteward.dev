@@ -29,16 +29,16 @@ public sealed class WorldLifecycleResponsibilityTrackerModeTests
     {
         var tracker = new WorldLifecycleResponsibilityTracker();
         var record = new WorkspaceRecoveryRecord(
-            WorkspaceId.New(),
-            WorldId.New(),
-            RevisionId.New(),
-            "palworld",
-            "C:\\steward\\workspace",
-            new UserIdentity("local", "tester", "Tester"),
-            DateTimeOffset.UtcNow,
-            DateTimeOffset.UtcNow,
-            WorkspaceRecoveryStatus.Active,
-            RevisionId.New());
+            Id: WorkspaceId.New(),
+            WorldId: WorldId.New(),
+            BaseStateRevisionId: RevisionId.New(),
+            AdapterId: "palworld",
+            WorkingDirectory: "C:\\steward\\workspace",
+            StartedBy: new UserIdentity("local", "tester", "Tester"),
+            CreatedAt: DateTimeOffset.UtcNow,
+            UpdatedAt: DateTimeOffset.UtcNow,
+            Status: WorkspaceRecoveryStatus.Active,
+            EnvironmentRevisionId: RevisionId.New());
 
         tracker.InitializeFromRecoveryRecords([record]);
 

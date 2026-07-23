@@ -81,8 +81,8 @@ public sealed class PalworldWorldOptionAdminPasswordOverlayTests
     }
 
     [Theory]
-    [InlineData(0x30)]
-    [InlineData(0x33)]
+    [InlineData((byte)0x30)]
+    [InlineData((byte)0x33)]
     public void UnknownOrUnsupportedSaveTypeFailsClosed(byte saveType)
     {
         var source = BuildSave(string.Empty, 0x31);

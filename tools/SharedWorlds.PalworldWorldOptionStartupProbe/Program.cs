@@ -17,8 +17,7 @@ if (!OperatingSystem.IsWindows())
     return;
 }
 
-var succeeded = await RunAsync();
-Environment.ExitCode = succeeded ? 0 : 2;
+Environment.ExitCode = await RunAsync() ? 0 : 2;
 
 static async Task<bool> RunAsync()
 {
@@ -57,13 +56,15 @@ static async Task<bool> RunAsync()
     Console.WriteLine($"  restPort: {(configuration.RestPort?.ToString() ?? "(none)")}");
     Console.WriteLine($"  iniAdminPasswordConfigured: {configuration.AdminPasswordConfigured}");
     Console.WriteLine($"  selectedWorldId: {configuration.SelectedWorldId ?? "(none)"}");
+
     if (!configuration.ConfigExists ||
         !configuration.RestEnabled ||
         configuration.RestPort is null ||
         !configuration.AdminPasswordConfigured ||
         string.IsNullOrWhiteSpace(configuration.SelectedWorldId))
     {
-        Console.Error.WriteLine("  blockingReason: the existing PalWorldSettings.ini and selected World are not ready for this probe.");
+        Console.Error.WriteLine(
+            "  blockingReason: the existing PalWorldSettings.ini and selected World are not ready for this probe.");
         return false;
     }
 
@@ -81,6 +82,7 @@ static async Task<bool> RunAsync()
             Path.GetFileName(Path.TrimEndingDirectorySeparator(world.SourcePath)),
             configuration.SelectedWorldId,
             StringComparison.OrdinalIgnoreCase));
+
     if (selectedWorld is null || !File.Exists(Path.Combine(selectedWorld.SourcePath, "Level.sav")))
     {
         password = string.Empty;
@@ -112,10 +114,11 @@ static async Task<bool> RunAsync()
     Console.WriteLine($"  worldId: {configuration.SelectedWorldId}");
     Console.WriteLine($"  path: {worldOptionPath}");
     Console.WriteLine($"  originalSha256: {originalHash}");
-    Console.WriteLine("  experiment: park canonical file -> launch from INI -> restore a byte-exact live copy -> observe");
+    Console.WriteLine("  experiment: park canonical file -> launch from INI -> restore byte-exact live copy -> observe");
 
     Process? launcher = null;
     var parked = false;
+    var coreSucceeded = false;
     var liveCopyRestored = false;
     var generatedBeforeRestore = false;
     var readyBeforeRestore = false;
@@ -171,7 +174,8 @@ static async Task<bool> RunAsync()
         Console.WriteLine($"  lastFailure: {readiness.LastFailure}");
         if (!readyBeforeRestore)
         {
-            Console.Error.WriteLine("  blockingReason: authenticated REST /info did not become ready while WorldOption.sav was parked.");
+            Console.Error.WriteLine(
+                "  blockingReason: authenticated REST /info did not become ready while WorldOption.sav was parked.");
             return false;
         }
 
@@ -207,10 +211,9 @@ static async Task<bool> RunAsync()
             return false;
         }
 
-        await File.WriteAllBytesAsync(worldOptionPath, originalBytes);
+        await WriteAtomicallyAsync(worldOptionPath, originalBytes);
         liveCopyRestored = true;
-        var liveCopyHash = await Sha256FileAsync(worldOptionPath);
-        if (!string.Equals(liveCopyHash, originalHash, StringComparison.Ordinal))
+        if (!string.Equals(await Sha256FileAsync(worldOptionPath), originalHash, StringComparison.Ordinal))
         {
             Console.Error.WriteLine("The live WorldOption copy did not restore byte-for-byte.");
             return false;
@@ -247,6 +250,7 @@ static async Task<bool> RunAsync()
                     info.WorldGuid,
                     configuration.SelectedWorldId,
                     StringComparison.OrdinalIgnoreCase);
+
                 using var settings = await restClient.GetSettingsAsync();
                 var snapshot = SnapshotSettings(settings.RootElement);
                 settingsSucceeded = snapshot.Count > 0;
@@ -277,6 +281,7 @@ static async Task<bool> RunAsync()
         await restClient.ShutdownAsync(1, "Steward startup-precedence acceptance shutdown.");
         shutdownSucceeded = true;
         allProcessesExited = await WaitForPalworldExitAsync(launcher, TimeSpan.FromSeconds(60));
+
         Console.WriteLine();
         Console.WriteLine("shutdown:");
         Console.WriteLine($"  requestSucceeded: {shutdownSucceeded}");
@@ -288,12 +293,14 @@ static async Task<bool> RunAsync()
 
         if (File.Exists(worldOptionPath))
         {
-            var afterExitHash = await Sha256FileAsync(worldOptionPath);
-            liveCopyMutatedByPalworld = !string.Equals(afterExitHash, originalHash, StringComparison.Ordinal);
+            liveCopyMutatedByPalworld = !string.Equals(
+                await Sha256FileAsync(worldOptionPath),
+                originalHash,
+                StringComparison.Ordinal);
             Console.WriteLine($"  liveWorldOptionMutatedByPalworld: {liveCopyMutatedByPalworld}");
         }
 
-        return readyBeforeRestore &&
+        coreSucceeded = readyBeforeRestore &&
             worldGuidMatched &&
             settingsBeforeRestoreReadable &&
             liveCopyRestored &&
@@ -311,7 +318,7 @@ static async Task<bool> RunAsync()
         TaskCanceledException)
     {
         Console.Error.WriteLine($"Startup-precedence acceptance failed: {exception.Message}");
-        return false;
+        coreSucceeded = false;
     }
     finally
     {
@@ -338,8 +345,7 @@ static async Task<bool> RunAsync()
 
         try
         {
-            // The parked file is the untouched canonical original. Whatever PalServer may
-            // have done to a live copy is discarded only after every Palworld process is gone.
+            // parkingPath is the untouched canonical original. Any live copy is disposable.
             if (parked && File.Exists(parkingPath))
             {
                 if (File.Exists(worldOptionPath))
@@ -353,8 +359,10 @@ static async Task<bool> RunAsync()
             }
             else if (File.Exists(worldOptionPath))
             {
-                var currentHash = await Sha256FileAsync(worldOptionPath);
-                canonicalOriginalRestored = string.Equals(currentHash, originalHash, StringComparison.Ordinal);
+                canonicalOriginalRestored = string.Equals(
+                    await Sha256FileAsync(worldOptionPath),
+                    originalHash,
+                    StringComparison.Ordinal);
                 if (!canonicalOriginalRestored)
                 {
                     await WriteAtomicallyAsync(worldOptionPath, originalBytes);
@@ -375,6 +383,11 @@ static async Task<bool> RunAsync()
             Console.Error.WriteLine($"CRITICAL: canonical WorldOption restoration failed: {exception.Message}");
         }
 
+        var proven = coreSucceeded &&
+            !forcedCleanupUsed &&
+            canonicalOriginalRestored &&
+            finalOriginalHashMatches;
+
         Console.WriteLine();
         Console.WriteLine("result:");
         Console.WriteLine($"  readyWithWorldOptionParked: {readyBeforeRestore}");
@@ -390,8 +403,13 @@ static async Task<bool> RunAsync()
         Console.WriteLine($"  forcedCleanupUsed: {forcedCleanupUsed}");
         Console.WriteLine($"  canonicalOriginalRestored: {canonicalOriginalRestored}");
         Console.WriteLine($"  finalOriginalSha256Matches: {finalOriginalHashMatches}");
-        Console.WriteLine($"startupOnlyWorldOptionPrecedenceProven: {readyBeforeRestore && worldGuidMatched && settingsBeforeRestoreReadable && liveCopyRestored && authSurvivedRestore && settingsUnchangedAfterRestore && shutdownSucceeded && allProcessesExited && !forcedCleanupUsed && canonicalOriginalRestored && finalOriginalHashMatches}");
+        Console.WriteLine($"startupOnlyWorldOptionPrecedenceProven: {proven}");
     }
+
+    return coreSucceeded &&
+        !forcedCleanupUsed &&
+        canonicalOriginalRestored &&
+        finalOriginalHashMatches;
 }
 
 static async Task<ReadinessResult> WaitForInfoAsync(
@@ -402,6 +420,7 @@ static async Task<ReadinessResult> WaitForInfoAsync(
     var started = DateTimeOffset.UtcNow;
     var deadline = started + timeout;
     var lastFailure = "none";
+
     while (DateTimeOffset.UtcNow < deadline)
     {
         try
@@ -418,8 +437,7 @@ static async Task<ReadinessResult> WaitForInfoAsync(
 
         try
         {
-            var info = await restClient.GetInfoAsync();
-            return new(info, DateTimeOffset.UtcNow - started, "none");
+            return new(await restClient.GetInfoAsync(), DateTimeOffset.UtcNow - started, "none");
         }
         catch (Exception exception) when (
             exception is HttpRequestException or
@@ -445,13 +463,10 @@ static SortedDictionary<string, string> SnapshotSettings(JsonElement root)
 
     foreach (var property in root.EnumerateObject())
     {
-        // Never retain password-valued fields even if a future Palworld build adds one.
-        if (property.Name.Contains("Password", StringComparison.OrdinalIgnoreCase))
+        if (!property.Name.Contains("Password", StringComparison.OrdinalIgnoreCase))
         {
-            continue;
+            result[property.Name] = property.Value.GetRawText();
         }
-
-        result[property.Name] = property.Value.GetRawText();
     }
 
     return result;
@@ -470,9 +485,7 @@ static IReadOnlyList<string> GetChangedSettingNames(
 
 static string SettingsFingerprint(IReadOnlyDictionary<string, string> settings)
 {
-    var canonical = string.Join(
-        "\n",
-        settings.Select(pair => pair.Key + "=" + pair.Value));
+    var canonical = string.Join("\n", settings.Select(pair => pair.Key + "=" + pair.Value));
     return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
 }
 

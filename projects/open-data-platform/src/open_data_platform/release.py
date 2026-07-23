@@ -14,7 +14,7 @@ from .product import verify_product
 from .util import atomic_write_json, load_json, make_read_only, sha256_file
 from .verify import verify_snapshot
 
-_RELEASE_VERSION = "0.4.0"
+_RELEASE_VERSION = "0.5.0"
 
 
 def release_path(
@@ -79,7 +79,7 @@ def _deterministic_zip(source_dir: Path, destination: Path) -> None:
             info.external_attr = 0o644 << 16
             info.extra = b""
             info.comment = b""
-            with path.open("rb") as source, bundle.open(info, "w") as destination:
+            with path.open("rb") as source, bundle.open(info, "w", force_zip64=True) as destination:
                 shutil.copyfileobj(source, destination, length=1024 * 1024)
 
 

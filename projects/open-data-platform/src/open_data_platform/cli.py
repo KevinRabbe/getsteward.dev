@@ -21,7 +21,7 @@ from .deployment import deployment_readiness
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="odp", description="Open Data Platform v0.7")
+    parser = argparse.ArgumentParser(prog="odp", description="Open Data Platform v0.8")
     sub = parser.add_subparsers(dest="command", required=True)
 
     ingest = sub.add_parser("ingest-gleif", help="Discover and archive the latest GLEIF Level 1 snapshot")

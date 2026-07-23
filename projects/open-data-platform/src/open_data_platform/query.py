@@ -132,19 +132,23 @@ class QueryStore:
             raise QueryError("LEI must contain exactly 20 characters")
         connection = self._connection()
         try:
-            row = connection.execute(
-                f"SELECT {', '.join(_SELECT_COLUMNS)} FROM lei WHERE lei = ?",
+            rows = connection.execute(
+                f"SELECT {', '.join(_SELECT_COLUMNS)} FROM lei WHERE lei = ? ORDER BY row_id",
                 (normalized_lei,),
-            ).fetchone()
+            ).fetchall()
         finally:
             connection.close()
+        records = [_record_from_row(row) for row in rows]
         result: dict[str, Any] = {
-            "status": "FOUND" if row is not None else "NOT_FOUND",
+            "status": "NOT_FOUND" if not records else "FOUND" if len(records) == 1 else "AMBIGUOUS",
             "query": normalized_lei,
             "provenance": _provenance(self.verified),
         }
-        if row is not None:
-            result["record"] = _record_from_row(row)
+        if len(records) == 1:
+            result["record"] = records[0]
+        elif len(records) > 1:
+            result["count"] = len(records)
+            result["records"] = records
         return result
 
     def search(self, query: str, *, limit: int = 20) -> dict[str, Any]:

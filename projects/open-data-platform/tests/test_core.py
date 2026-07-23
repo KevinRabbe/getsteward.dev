@@ -149,7 +149,12 @@ class ArchiveTests(unittest.TestCase):
             self.assertTrue(manifests[1]["content"]["deduplicated_existing_content"])
 
 
-def _cdf_xml(*, record_count: int = 1, include_second_record: bool = False) -> str:
+def _cdf_xml(
+    *,
+    record_count: int = 1,
+    include_second_record: bool = False,
+    duplicate_second_record: bool = False,
+) -> str:
     second_record = """
     <LEIRecord>
       <LEI>529900T8BM49AURSDO55</LEI>
@@ -176,6 +181,9 @@ def _cdf_xml(*, record_count: int = 1, include_second_record: bool = False) -> s
       </Registration>
     </LEIRecord>
     """ if include_second_record else ""
+    if duplicate_second_record:
+        second_record = second_record.replace("529900T8BM49AURSDO55", "5493001KJTIIGC8Y1R12")
+
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <LEIData xmlns="http://www.gleif.org/data/schema/lei/common/2016">
   <LEIHeader>
@@ -226,13 +234,20 @@ def _cdf_xml(*, record_count: int = 1, include_second_record: bool = False) -> s
 """
 
 
-def _archive_cdf(root: Path, *, record_count: int = 1, include_second_record: bool = False) -> dict:
+def _archive_cdf(
+    root: Path,
+    *,
+    record_count: int = 1,
+    include_second_record: bool = False,
+    duplicate_second_record: bool = False,
+) -> dict:
     staged = root / "staging" / "gleif.zip"
     staged.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(staged, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("lei_20260720.xml", _cdf_xml(
             record_count=record_count,
             include_second_record=include_second_record,
+            duplicate_second_record=duplicate_second_record,
         ))
 
     source = {
@@ -349,6 +364,37 @@ class ProductTests(unittest.TestCase):
 
             with self.assertRaises(ParseError):
                 build_product(root, manifest["snapshot_id"])
+
+    def test_preserves_duplicate_lei_rows_and_reports_ambiguous_lookup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _archive_cdf(
+                root,
+                record_count=2,
+                include_second_record=True,
+                duplicate_second_record=True,
+            )
+            parse_snapshot(root, manifest["snapshot_id"])
+            product = build_product(root, manifest["snapshot_id"])
+
+            self.assertEqual(product["record_count"], 2)
+            self.assertEqual(product["product"]["unique_lei_count"], 1)
+            self.assertEqual(product["product"]["duplicate_lei_count"], 1)
+            ambiguous = lookup_lei(root, "5493001KJTIIGC8Y1R12", snapshot_id=manifest["snapshot_id"])
+            self.assertEqual(ambiguous["status"], "AMBIGUOUS")
+            self.assertEqual(ambiguous["count"], 2)
+
+            server = create_server(root, snapshot_id=manifest["snapshot_id"], port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with self.assertRaises(HTTPError) as conflict:
+                    urlopen(f"http://127.0.0.1:{server.server_port}/v1/lei/5493001KJTIIGC8Y1R12")
+                self.assertEqual(conflict.exception.code, 409)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
 
 
 class ReleaseAndQueryTests(unittest.TestCase):

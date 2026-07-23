@@ -16,7 +16,7 @@ def _json_bytes(value: dict[str, Any]) -> bytes:
 
 def _handler_for(store: QueryStore):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "OpenDataPlatform/0.7"
+        server_version = "OpenDataPlatform/0.8"
 
         def _respond(self, status: int, value: dict[str, Any]) -> None:
             payload = _json_bytes(value)
@@ -40,7 +40,12 @@ def _handler_for(store: QueryStore):
                 if parsed.path.startswith("/v1/lei/"):
                     lei = unquote(parsed.path[len("/v1/lei/"):])
                     result = store.lookup(lei)
-                    self._respond(200 if result["status"] == "FOUND" else 404, result)
+                    response_status = {
+                        "FOUND": 200,
+                        "AMBIGUOUS": 409,
+                        "NOT_FOUND": 404,
+                    }.get(result["status"], 500)
+                    self._respond(response_status, result)
                     return
                 if parsed.path == "/v1/search":
                     name = params.get("name", [""])[0]

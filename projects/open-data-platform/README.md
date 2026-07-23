@@ -1,4 +1,4 @@
-# Open Data Platform v0.7 — Phases 1-10
+# Open Data Platform v0.8 — Phases 1-11
 
 Der erste echte Trust-Boundary-Durchlauf für **GLEIF Level 1 LEI-CDF**.
 
@@ -141,7 +141,7 @@ python .\odp.py build-gleif snp_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 python .\odp.py verify-product snp_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ```
 
-The product is built only after every JSONL record, sidecar checksum, and declared record count passes verification. It contains a `lei` table with stable lookup indexes and a `metadata` table linking the database to the immutable raw snapshot and normalized artifact.
+The product is built only after every JSONL record, sidecar checksum, and declared record count passes verification. It contains a `lei` table with stable lookup indexes and a `metadata` table linking the database to the immutable raw snapshot and normalized artifact. Duplicate LEIs are preserved as separate source rows; `lookup-lei` returns `AMBIGUOUS` with all variants instead of silently selecting one.
 
 ```text
 data/products/<source_dataset_id>/<snapshot_id>/
@@ -236,6 +236,12 @@ python .\odp.py deployment-check --replica-root "E:\\open-data-releases"
 ```
 
 `deployment-check` is report-only. It verifies the selected release and SQLite product, optionally compares a second physical release copy, and prints suggested service and scheduled-run commands. It does not start, copy, delete, or overwrite anything.
+
+## Phase 11 - full-file conflict handling and large releases
+
+The live global CDF can contain a small number of repeated LEIs across source records. The product preserves every normalized row, reports `record_count`, `unique_lei_count`, and `duplicate_lei_count`, and returns `AMBIGUOUS` with all variants for a conflicting `lookup-lei`. No record is silently discarded or heuristically selected.
+
+Release packaging uses ZIP64 when needed, so the same deterministic packaging path works for multi-gigabyte SQLite products as well as the small offline fixtures.
 
 ## Tests
 

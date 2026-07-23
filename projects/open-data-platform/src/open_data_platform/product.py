@@ -12,7 +12,7 @@ from .parser import validate_normalized_record, verify_normalized_artifact
 from .events import append_event
 from .util import atomic_write_json, load_json, make_read_only, sha256_file
 
-_BUILDER_VERSION = "0.3.0"
+_BUILDER_VERSION = "0.4.0"
 
 _SCHEMA = """
 CREATE TABLE metadata (
@@ -21,7 +21,8 @@ CREATE TABLE metadata (
 ) WITHOUT ROWID;
 
 CREATE TABLE lei (
-    lei TEXT PRIMARY KEY NOT NULL,
+    row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lei TEXT NOT NULL,
     legal_name TEXT NOT NULL,
     legal_name_language TEXT,
     entity_status TEXT NOT NULL,
@@ -34,8 +35,9 @@ CREATE TABLE lei (
     legal_address_json TEXT NOT NULL,
     headquarters_address_json TEXT NOT NULL,
     registration_json TEXT NOT NULL
-) WITHOUT ROWID;
+);
 
+CREATE INDEX idx_lei_lookup ON lei(lei, row_id);
 CREATE INDEX idx_lei_entity_status ON lei(entity_status, lei);
 CREATE INDEX idx_lei_legal_jurisdiction ON lei(legal_jurisdiction, lei);
 """
@@ -94,7 +96,7 @@ def _build_database(
     metadata: dict[str, Any],
     expected_record_count: int,
     expected_records_hash: str,
-) -> int:
+) -> dict[str, int]:
     connection = sqlite3.connect(str(db_path))
     records_written = 0
     try:
@@ -135,29 +137,26 @@ def _build_database(
                     raise ProductError(f"Normalized record #{ordinal} is not valid JSON") from exc
                 validate_normalized_record(record, ordinal)
 
-                try:
-                    connection.execute(
-                        insert_sql,
-                        (
-                            record["lei"],
-                            record["legal_name"],
-                            _optional_string(record, "legal_name_language"),
-                            record["entity_status"],
-                            _optional_string(record, "legal_jurisdiction"),
-                            _optional_string(record, "entity_category"),
-                            _optional_string(record, "entity_subcategory"),
-                            _optional_string(record, "entity_creation_date"),
-                            _canonical_json(record.get("legal_form")) if record.get("legal_form") is not None else None,
-                            _canonical_json(record.get("registration_authority"))
-                            if record.get("registration_authority") is not None
-                            else None,
-                            _canonical_json(record["legal_address"]),
-                            _canonical_json(record["headquarters_address"]),
-                            _canonical_json(record["registration"]),
-                        ),
-                    )
-                except sqlite3.IntegrityError as exc:
-                    raise ProductError(f"Duplicate LEI in normalized records: {record['lei']}") from exc
+                connection.execute(
+                    insert_sql,
+                    (
+                        record["lei"],
+                        record["legal_name"],
+                        _optional_string(record, "legal_name_language"),
+                        record["entity_status"],
+                        _optional_string(record, "legal_jurisdiction"),
+                        _optional_string(record, "entity_category"),
+                        _optional_string(record, "entity_subcategory"),
+                        _optional_string(record, "entity_creation_date"),
+                        _canonical_json(record.get("legal_form")) if record.get("legal_form") is not None else None,
+                        _canonical_json(record.get("registration_authority"))
+                        if record.get("registration_authority") is not None
+                        else None,
+                        _canonical_json(record["legal_address"]),
+                        _canonical_json(record["headquarters_address"]),
+                        _canonical_json(record["registration"]),
+                    ),
+                )
                 records_written += 1
 
         if records_written != expected_record_count:
@@ -172,13 +171,19 @@ def _build_database(
         connection.commit()
         connection.execute("ANALYZE")
         connection.commit()
+        unique_lei_count = connection.execute("SELECT COUNT(DISTINCT lei) FROM lei").fetchone()[0]
+        duplicate_lei_count = records_written - unique_lei_count
         integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
         if integrity != "ok":
             raise ProductError(f"SQLite integrity check failed: {integrity}")
         connection.execute("VACUUM")
     finally:
         connection.close()
-    return records_written
+    return {
+        "record_count": records_written,
+        "unique_lei_count": unique_lei_count,
+        "duplicate_lei_count": duplicate_lei_count,
+    }
 
 
 def verify_product(
@@ -217,6 +222,8 @@ def verify_product(
         if integrity != "ok":
             raise ProductError(f"SQLite integrity check failed: {integrity}")
         records_in_db = connection.execute("SELECT COUNT(*) FROM lei").fetchone()[0]
+        unique_lei_count = connection.execute("SELECT COUNT(DISTINCT lei) FROM lei").fetchone()[0]
+        duplicate_lei_count = records_in_db - unique_lei_count
         metadata = dict(connection.execute("SELECT key, value FROM metadata"))
     finally:
         connection.close()
@@ -226,6 +233,10 @@ def verify_product(
             "Product record count mismatch: "
             f"manifest declares {product_manifest.get('record_count')}, database contains {records_in_db}"
         )
+    if "unique_lei_count" in product_manifest and unique_lei_count != product_manifest["unique_lei_count"]:
+        raise ProductError("Product unique LEI count does not match its database")
+    if "duplicate_lei_count" in product_manifest and duplicate_lei_count != product_manifest["duplicate_lei_count"]:
+        raise ProductError("Product duplicate LEI count does not match its database")
     if json.loads(metadata.get("source_snapshot_id", "null")) != snapshot_id:
         raise ProductError("Product metadata snapshot mismatch")
 
@@ -284,7 +295,7 @@ def build_product(
                 "normalized_artifact_sha256": normalized["artifact"]["artifact_sha256"],
                 "normalized_records_sha256": normalized["artifact"]["records_sha256"],
             }
-            record_count = _build_database(
+            database_counts = _build_database(
                 database_path,
                 Path(normalized["records_path"]),
                 metadata=metadata,
@@ -296,7 +307,7 @@ def build_product(
             _write_checksum(database_path)
 
             product_manifest = {
-                "product_version": 1,
+                "product_version": 2,
                 "product_type": "gleif_level1_sqlite",
                 "builder_version": _BUILDER_VERSION,
                 "source_snapshot_id": snapshot_id,
@@ -308,8 +319,10 @@ def build_product(
                 "database_file": "lei.sqlite",
                 "database_sha256": database_hash,
                 "database_size_bytes": database_size,
-                "record_count": record_count,
-                "schema": "gleif-level1-normalized-v1",
+                "record_count": database_counts["record_count"],
+                "unique_lei_count": database_counts["unique_lei_count"],
+                "duplicate_lei_count": database_counts["duplicate_lei_count"],
+                "schema": "gleif-level1-normalized-v2",
             }
             product_manifest_path = temporary_dir / "product.json"
             atomic_write_json(product_manifest_path, product_manifest)
@@ -325,12 +338,18 @@ def build_product(
             "snapshot_id": snapshot_id,
             "product_dir": str(final_dir),
             "database_path": str(final_dir / "lei.sqlite"),
-            "record_count": record_count,
+            "record_count": database_counts["record_count"],
             "product": {**product_manifest, "product_sha256": product_hash},
         }
         log(
             "PRODUCT_BUILD_COMPLETED",
-            {"snapshot_id": snapshot_id, "record_count": record_count, "database_sha256": database_hash},
+            {
+                "snapshot_id": snapshot_id,
+                "record_count": database_counts["record_count"],
+                "unique_lei_count": database_counts["unique_lei_count"],
+                "duplicate_lei_count": database_counts["duplicate_lei_count"],
+                "database_sha256": database_hash,
+            },
         )
         return result
     except Exception as exc:

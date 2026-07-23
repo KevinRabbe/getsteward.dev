@@ -26,6 +26,10 @@ public sealed class PalworldWorldOptionSettingsReaderTests
         Assert.Equal("Steward Test", settings["ServerName"].Value);
         Assert.Equal("EPalOptionWorldDeathPenalty::ItemAndEquipment", settings["DeathPenalty"].Value);
         Assert.Equal("EPalOptionWorldDeathPenalty", settings["DeathPenalty"].ValueType);
+        Assert.Equal(
+            "(EPalPlatformType::Steam,EPalPlatformType::Xbox,EPalPlatformType::PS5,EPalPlatformType::Mac)",
+            settings["CrossplayPlatforms"].Value);
+        Assert.Equal("EnumProperty", settings["CrossplayPlatforms"].ValueType);
         Assert.True(settings["AdminPassword"].IsSensitive);
         Assert.Equal("do-not-print-me", settings["AdminPassword"].Value);
     }
@@ -91,6 +95,28 @@ public sealed class PalworldWorldOptionSettingsReaderTests
         Assert.Contains("terminator", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void MalformedSimpleArrayFailsClosed()
+    {
+        var malformedArrayBody = new List<byte>();
+        malformedArrayBody.AddRange(UInt32Bytes(2));
+        malformedArrayBody.AddRange(EncodeFString("EPalPlatformType::Steam"));
+
+        var settings = new List<byte>();
+        settings.AddRange(ArrayProperty("CrossplayPlatforms", "EnumProperty", malformedArrayBody.ToArray()));
+        settings.AddRange(EncodeFString("None"));
+
+        var optionValue = new List<byte>();
+        optionValue.AddRange(StructProperty("Settings", "PalOptionWorldSettings", settings.ToArray()));
+        optionValue.AddRange(EncodeFString("None"));
+
+        var payload = new List<byte>("GVAS"u8.ToArray());
+        payload.AddRange(StructProperty("OptionWorldData", "PalOptionWorldSaveData", optionValue.ToArray()));
+        var save = WrapPlZ(payload.ToArray());
+
+        Assert.Throws<InvalidDataException>(() => PalworldWorldOptionSettingsReader.Read(save));
+    }
+
     private static byte[] BuildGvasPayload()
     {
         var payload = new List<byte>("GVAS"u8.ToArray());
@@ -122,6 +148,14 @@ public sealed class PalworldWorldOptionSettingsReaderTests
             "DeathPenalty",
             "EPalOptionWorldDeathPenalty",
             "EPalOptionWorldDeathPenalty::ItemAndEquipment"));
+        settings.AddRange(ArrayProperty(
+            "CrossplayPlatforms",
+            "EnumProperty",
+            BuildStringArrayBody(
+                "EPalPlatformType::Steam",
+                "EPalPlatformType::Xbox",
+                "EPalPlatformType::PS5",
+                "EPalPlatformType::Mac")));
         if (includeTerminator)
         {
             settings.AddRange(EncodeFString("None"));
@@ -184,6 +218,30 @@ public sealed class PalworldWorldOptionSettingsReaderTests
         return result.ToArray();
     }
 
+    private static byte[] ArrayProperty(string name, string elementType, byte[] value)
+    {
+        var result = new List<byte>();
+        result.AddRange(EncodeFString(name));
+        result.AddRange(EncodeFString("ArrayProperty"));
+        result.AddRange(UInt64Bytes((ulong)value.Length));
+        result.AddRange(EncodeFString(elementType));
+        result.Add(0);
+        result.AddRange(value);
+        return result.ToArray();
+    }
+
+    private static byte[] BuildStringArrayBody(params string[] values)
+    {
+        var result = new List<byte>();
+        result.AddRange(UInt32Bytes((uint)values.Length));
+        foreach (var value in values)
+        {
+            result.AddRange(EncodeFString(value));
+        }
+
+        return result.ToArray();
+    }
+
     private static byte[] ScalarProperty(string name, string type, byte[] value)
     {
         var result = new List<byte>();
@@ -222,6 +280,13 @@ public sealed class PalworldWorldOptionSettingsReaderTests
     {
         var bytes = new byte[8];
         BinaryPrimitives.WriteUInt64LittleEndian(bytes, value);
+        return bytes;
+    }
+
+    private static byte[] UInt32Bytes(uint value)
+    {
+        var bytes = new byte[4];
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes, value);
         return bytes;
     }
 

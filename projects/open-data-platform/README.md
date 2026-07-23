@@ -126,6 +126,33 @@ data/normalized/<source_dataset_id>/<snapshot_id>/
 
 The raw archive and raw snapshot manifest are never modified. A repeated parse of the same snapshot returns `NO_CHANGE` after verifying the normalized artifact checksums.
 
+## Phase 3 - verified SQLite product
+
+Verify the normalized artifact independently:
+
+```powershell
+python .\odp.py verify-normalized snp_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+```
+
+Then build the queryable SQLite product:
+
+```powershell
+python .\odp.py build-gleif snp_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+python .\odp.py verify-product snp_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+```
+
+The product is built only after every JSONL record, sidecar checksum, and declared record count passes verification. It contains a `lei` table with stable lookup indexes and a `metadata` table linking the database to the immutable raw snapshot and normalized artifact.
+
+```text
+data/products/<source_dataset_id>/<snapshot_id>/
+  lei.sqlite
+  lei.sqlite.sha256
+  product.json
+  product.json.sha256
+```
+
+The SQLite build is zero-install, streams the normalized JSONL, rejects duplicate LEIs, runs `PRAGMA integrity_check`, and publishes atomically.
+
 ## Tests
 
 Im Projektordner:
@@ -137,14 +164,6 @@ python -m unittest discover -s tests -v
 
 Die Tests brauchen kein Internet.
 
-## Nächster Schritt
+## Next step
 
-Erst nachdem ein echter GLEIF-Snapshot archiviert und `verify` erfolgreich ist:
-
-```text
-ZIP
-→ streaming XML parser
-→ selected source-native fields
-→ normalized artifact
-→ validation/quality report
-```
+The next scope is release packaging and consumer-facing query access. The raw archive, normalized artifact, and SQLite product are already separate, verified trust boundaries.

@@ -20,3 +20,7 @@ class IntegrityError(PlatformError):
 
 class ParseError(PlatformError):
     """The admitted raw payload cannot be normalized safely."""
+
+
+class ProductError(PlatformError):
+    """The normalized artifact cannot be built into a product safely."""

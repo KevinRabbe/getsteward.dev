@@ -7,7 +7,8 @@ from pathlib import Path
 
 from .errors import PlatformError
 from .ingest import ingest_latest
-from .parser import parse_snapshot
+from .parser import parse_snapshot, verify_normalized_artifact
+from .product import build_product, verify_product
 from .verify import verify_snapshot
 
 
@@ -30,6 +31,22 @@ def build_parser() -> argparse.ArgumentParser:
     parse.add_argument("--data-root", type=Path, default=Path("data"))
     parse.add_argument("--output-root", type=Path, default=None)
 
+    normalized_verify = sub.add_parser("verify-normalized", help="Verify a normalized GLEIF artifact and every JSONL record")
+    normalized_verify.add_argument("snapshot_id")
+    normalized_verify.add_argument("--data-root", type=Path, default=Path("data"))
+    normalized_verify.add_argument("--output-root", type=Path, default=None)
+
+    build = sub.add_parser("build-gleif", help="Build a verified GLEIF normalized artifact into SQLite")
+    build.add_argument("snapshot_id")
+    build.add_argument("--data-root", type=Path, default=Path("data"))
+    build.add_argument("--normalized-root", type=Path, default=None)
+    build.add_argument("--output-root", type=Path, default=None)
+
+    product_verify = sub.add_parser("verify-product", help="Verify one built GLEIF SQLite product")
+    product_verify.add_argument("snapshot_id")
+    product_verify.add_argument("--data-root", type=Path, default=Path("data"))
+    product_verify.add_argument("--output-root", type=Path, default=None)
+
     return parser
 
 
@@ -51,6 +68,26 @@ def main() -> None:
                 args.snapshot_id,
                 output_root=args.output_root,
                 event_log=args.data_root / "events" / "events.jsonl",
+            )
+        elif args.command == "verify-normalized":
+            result = verify_normalized_artifact(
+                args.data_root,
+                args.snapshot_id,
+                output_root=args.output_root,
+            )
+        elif args.command == "build-gleif":
+            result = build_product(
+                args.data_root,
+                args.snapshot_id,
+                normalized_root=args.normalized_root,
+                output_root=args.output_root,
+                event_log=args.data_root / "events" / "events.jsonl",
+            )
+        elif args.command == "verify-product":
+            result = verify_product(
+                args.data_root,
+                args.snapshot_id,
+                output_root=args.output_root,
             )
         else:
             raise RuntimeError("unreachable")

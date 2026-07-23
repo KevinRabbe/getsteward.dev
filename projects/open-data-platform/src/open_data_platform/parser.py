@@ -19,6 +19,14 @@ from .verify import verify_snapshot
 _XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
 _LEI_RE = re.compile(r"^[A-Z0-9]{18}[0-9]{2}$")
 _PARSER_VERSION = "0.2.0"
+_REQUIRED_NORMALIZED_FIELDS = {
+    "lei",
+    "legal_name",
+    "legal_address",
+    "headquarters_address",
+    "entity_status",
+    "registration",
+}
 
 
 def normalized_path(
@@ -213,6 +221,24 @@ def _parse_record(element: ET.Element, ordinal: int) -> dict[str, Any]:
     return normalized
 
 
+def validate_normalized_record(record: Any, ordinal: int) -> dict[str, Any]:
+    if not isinstance(record, dict):
+        raise ParseError(f"Normalized record #{ordinal} must be a JSON object")
+    missing = sorted(_REQUIRED_NORMALIZED_FIELDS - record.keys())
+    if missing:
+        raise ParseError(f"Normalized record #{ordinal} is missing fields: {', '.join(missing)}")
+    lei = record["lei"]
+    if not isinstance(lei, str) or _LEI_RE.fullmatch(lei) is None:
+        raise ParseError(f"Normalized record #{ordinal} contains an invalid LEI: {lei!r}")
+    if not isinstance(record["legal_name"], str) or not record["legal_name"].strip():
+        raise ParseError(f"Normalized record #{ordinal} has an empty legal_name")
+    if not isinstance(record["legal_address"], dict) or not isinstance(record["headquarters_address"], dict):
+        raise ParseError(f"Normalized record #{ordinal} has invalid address objects")
+    if not isinstance(record["registration"], dict):
+        raise ParseError(f"Normalized record #{ordinal} has an invalid registration object")
+    return record
+
+
 def _parse_xml_member(xml_stream: BinaryIO, records_path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     record_count = 0
     status_counts: Counter[str] = Counter()
@@ -327,6 +353,60 @@ def _load_existing_artifact(output_dir: Path, snapshot_id: str) -> dict[str, Any
         raise ParseError(f"Normalized quality report failed integrity verification: {quality_path}")
     _verify_checksum(quality_path)
     return {**artifact, "artifact_sha256": artifact_hash}
+
+
+def verify_normalized_artifact(
+    data_root: Path,
+    snapshot_id: str,
+    *,
+    output_root: Path | None = None,
+) -> dict[str, Any]:
+    """Verify normalized sidecars and every JSONL record after publication."""
+    snapshot_dir = data_root / "archive" / "snapshots" / snapshot_id
+    snapshot_manifest = load_json(snapshot_dir / "manifest.json")
+    artifact_dir = normalized_path(
+        data_root,
+        snapshot_id,
+        str(snapshot_manifest["source_dataset_id"]),
+        output_root,
+    )
+    artifact = _load_existing_artifact(artifact_dir, snapshot_id)
+    records_path = artifact_dir / str(artifact["records_file"])
+    quality = load_json(artifact_dir / str(artifact["quality_report_file"]))
+
+    records_seen = 0
+    with records_path.open("r", encoding="utf-8") as records_file:
+        for ordinal, line in enumerate(records_file, start=1):
+            if not line.strip():
+                raise ParseError(f"Normalized records contain an empty line at #{ordinal}")
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ParseError(f"Normalized record #{ordinal} is not valid JSON") from exc
+            validate_normalized_record(record, ordinal)
+            records_seen += 1
+
+    expected_count = artifact.get("record_count")
+    if expected_count != records_seen:
+        raise ParseError(
+            "Normalized artifact record count mismatch: "
+            f"manifest declares {expected_count}, file contains {records_seen}"
+        )
+    if quality.get("records_written") != records_seen:
+        raise ParseError(
+            "Quality report record count mismatch: "
+            f"report declares {quality.get('records_written')}, file contains {records_seen}"
+        )
+
+    return {
+        "status": "VERIFIED",
+        "snapshot_id": snapshot_id,
+        "artifact_dir": str(artifact_dir),
+        "records_path": str(records_path),
+        "record_count": records_seen,
+        "artifact": artifact,
+        "quality": quality,
+    }
 
 
 def parse_snapshot(

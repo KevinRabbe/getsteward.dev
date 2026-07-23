@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import sqlite3
+import stat
 import tempfile
 import unittest
 import zipfile
@@ -10,7 +13,8 @@ from pathlib import Path
 from open_data_platform.archive import archive_staged_file
 from open_data_platform.errors import ParseError
 from open_data_platform.http_client import find_download_url, find_publication_date
-from open_data_platform.parser import parse_snapshot
+from open_data_platform.parser import parse_snapshot, verify_normalized_artifact
+from open_data_platform.product import build_product, verify_product
 from open_data_platform.verify import verify_snapshot
 
 
@@ -236,6 +240,9 @@ class ParserTests(unittest.TestCase):
             self.assertEqual(result["quality"]["records_written"], 2)
             self.assertTrue((artifact_dir / "records.jsonl.sha256").exists())
             self.assertTrue((artifact_dir / "artifact.json.sha256").exists())
+            verified = verify_normalized_artifact(root, manifest["snapshot_id"])
+            self.assertEqual(verified["status"], "VERIFIED")
+            self.assertEqual(verified["record_count"], 2)
 
             no_change = parse_snapshot(root, manifest["snapshot_id"])
             self.assertEqual(no_change["status"], "NO_CHANGE")
@@ -250,6 +257,57 @@ class ParserTests(unittest.TestCase):
 
             artifact_dir = root / "normalized" / manifest["source_dataset_id"] / manifest["snapshot_id"]
             self.assertFalse(artifact_dir.exists())
+
+
+class ProductTests(unittest.TestCase):
+    def test_builds_and_verifies_sqlite_product(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _archive_cdf(root, record_count=2, include_second_record=True)
+            parse_snapshot(root, manifest["snapshot_id"])
+
+            result = build_product(root, manifest["snapshot_id"])
+
+            self.assertEqual(result["status"], "BUILT")
+            self.assertEqual(result["record_count"], 2)
+            self.assertTrue((Path(result["product_dir"]) / "lei.sqlite.sha256").exists())
+            connection = sqlite3.connect(result["database_path"])
+            try:
+                rows = connection.execute(
+                    "SELECT lei, legal_name, entity_status FROM lei ORDER BY lei"
+                ).fetchall()
+            finally:
+                connection.close()
+            self.assertEqual(rows, [
+                ("529900T8BM49AURSDO55", "Example Trading AG", "ACTIVE"),
+                ("5493001KJTIIGC8Y1R12", "Example Holdings GmbH", "ACTIVE"),
+            ])
+
+            verified = verify_product(root, manifest["snapshot_id"])
+            self.assertEqual(verified["status"], "VERIFIED")
+            self.assertEqual(verified["record_count"], 2)
+            self.assertEqual(
+                build_product(root, manifest["snapshot_id"])["status"],
+                "NO_CHANGE",
+            )
+
+    def test_rejects_tampered_normalized_checksum_before_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _archive_cdf(root)
+            parse_snapshot(root, manifest["snapshot_id"])
+            checksum_path = (
+                root
+                / "normalized"
+                / manifest["source_dataset_id"]
+                / manifest["snapshot_id"]
+                / "records.jsonl.sha256"
+            )
+            os.chmod(checksum_path, stat.S_IRUSR | stat.S_IWUSR)
+            checksum_path.write_text("0" * 64 + "  records.jsonl\n", encoding="ascii")
+
+            with self.assertRaises(ParseError):
+                build_product(root, manifest["snapshot_id"])
 
 
 if __name__ == "__main__":

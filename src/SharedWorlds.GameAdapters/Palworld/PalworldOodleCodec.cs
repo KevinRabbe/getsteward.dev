@@ -10,8 +10,8 @@ internal interface IPalworldOodleCodec
 }
 
 /// <summary>
-/// Loads an Oodle 9 runtime already present on the host and exposes only the two operations
-/// required for Palworld's current PlM save container. Steward never redistributes Oodle.
+/// Loads an Oodle 9 runtime already present on the host and exposes only the operations required by
+/// Palworld save-container tooling. Steward never redistributes, copies, or downloads Oodle.
 /// </summary>
 internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
 {
@@ -44,17 +44,18 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
 
     public string LibraryPath { get; }
 
+    /// <summary>
+    /// Acceptance loader. It preserves the explicit operator override used by real-machine probes,
+    /// then falls back to the same Palworld-installation-only lookup used by production code.
+    /// </summary>
     public static PalworldOodleCodec LoadFromPalworldRoots(params string[] roots)
     {
         if (!OperatingSystem.IsWindows())
         {
             throw new PlatformNotSupportedException(
-                "The Palworld WorldOption Oodle acceptance path currently supports Windows only.");
+                "The Palworld WorldOption Oodle path currently supports Windows only.");
         }
 
-        // Acceptance-only escape hatch: an operator may explicitly name a locally installed
-        // Oodle 9 DLL. Steward never searches unrelated games, copies this DLL, downloads it,
-        // or persists its path. The exact required exports are still validated by the loader.
         var explicitLibrary = Environment.GetEnvironmentVariable(AcceptanceLibraryEnvironmentVariable);
         if (!string.IsNullOrWhiteSpace(explicitLibrary))
         {
@@ -74,6 +75,21 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
             }
 
             return new PalworldOodleCodec(fullExplicitPath);
+        }
+
+        return LoadInstalledFromPalworldRoots(roots);
+    }
+
+    /// <summary>
+    /// Production lookup. Only already-installed files beneath the discovered Palworld client/server
+    /// roots are eligible. The acceptance environment-variable override is intentionally ignored.
+    /// </summary>
+    public static PalworldOodleCodec LoadInstalledFromPalworldRoots(params string[] roots)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException(
+                "The Palworld WorldOption Oodle path currently supports Windows only.");
         }
 
         ArgumentNullException.ThrowIfNull(roots);
@@ -105,7 +121,7 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
                 UnauthorizedAccessException or
                 DirectoryNotFoundException)
             {
-                // A partially inaccessible subtree must not prevent checking other known roots.
+                // A partially inaccessible subtree must not prevent checking other known Palworld roots.
             }
         }
 
@@ -125,7 +141,7 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
         }
 
         throw new FileNotFoundException(
-            $"Palworld's current PlM save format requires {LibraryFileName}, but no usable installed copy was found under the discovered Palworld client/server roots. For acceptance only, an operator may set {AcceptanceLibraryEnvironmentVariable} to an absolute path for a locally installed Oodle 9 runtime.");
+            $"Palworld's current PlM save format requires {LibraryFileName}, but no usable installed copy was found under the discovered Palworld client/server roots. Steward will not search unrelated games, download, copy, or redistribute this runtime.");
     }
 
     public byte[] Decompress(ReadOnlySpan<byte> compressed, int uncompressedLength)
@@ -186,8 +202,8 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
             throw new InvalidDataException("Palworld GVAS payload is empty.");
         }
 
-        // Oodle wrappers conventionally reserve twice the raw size for compression output.
-        // This is acceptance-only and bounded by the already-loaded WorldOption payload.
+        // Rejected/acceptance overlay tooling still exercises compression. Production runtime-input
+        // management never calls this method and never writes WorldOption.sav.
         var outputCapacity = checked(payload.Length * 2);
         var source = payload.ToArray();
         var destination = new byte[outputCapacity];

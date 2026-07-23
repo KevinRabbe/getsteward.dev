@@ -70,7 +70,9 @@ internal sealed class PalworldManagedHostSession : IDisposable
     public GameSessionHandle Handle
         => _launcher is null
             ? throw new InvalidOperationException("Palworld managed host has not started.")
-            : new GameSessionHandle(_launcher.Id, _launcher.StartTime.ToUniversalTime());
+            : new GameSessionHandle(
+                _launcher.Id,
+                new DateTimeOffset(_launcher.StartTime.ToUniversalTime()));
 
     public static async Task<PalworldManagedHostSession> StartAsync(
         PreparedWorld world,
@@ -137,10 +139,30 @@ internal sealed class PalworldManagedHostSession : IDisposable
             await session.StartCoreAsync(snapshot, mirror.ManagementOverrides, cancellationToken);
             return session;
         }
-        catch
+        catch (Exception startupFailure)
         {
-            await session.CleanupFailedStartAsync();
-            session.Dispose();
+            Exception? cleanupFailure = null;
+            try
+            {
+                await session.CleanupFailedStartAsync();
+            }
+            catch (Exception exception)
+            {
+                cleanupFailure = exception;
+            }
+            finally
+            {
+                session.Dispose();
+            }
+
+            if (cleanupFailure is not null)
+            {
+                throw new AggregateException(
+                    "Palworld managed-host startup failed and Steward could not restore its runtime inputs cleanly.",
+                    startupFailure,
+                    cleanupFailure);
+            }
+
             throw;
         }
     }
@@ -183,6 +205,11 @@ internal sealed class PalworldManagedHostSession : IDisposable
     public Task WaitForCompletionAsync()
     {
         ThrowIfDisposed();
+        if (_exitMonitorTask is null)
+        {
+            throw new InvalidOperationException("Palworld managed host exit monitoring was not started.");
+        }
+
         // A started Palworld host remains Steward responsibility until the adapter reaches a proven
         // end boundary. Caller cancellation must not release Core's reservation while PalServer lives.
         return _completion.Task;
@@ -406,28 +433,50 @@ internal sealed class PalworldManagedHostSession : IDisposable
             }
 
             string? unexpectedWorldOptionPath = null;
-            if (File.Exists(_worldOptionPath))
+            var parkingMissing = false;
+            if (_worldOptionParked)
             {
-                unexpectedWorldOptionPath = _worldOptionPath + $".sharedworlds-unexpected-{Guid.NewGuid():N}";
-                File.Move(_worldOptionPath, unexpectedWorldOptionPath);
-            }
+                if (File.Exists(_worldOptionPath))
+                {
+                    unexpectedWorldOptionPath = _worldOptionPath + $".sharedworlds-unexpected-{Guid.NewGuid():N}";
+                    File.Move(_worldOptionPath, unexpectedWorldOptionPath);
+                }
 
-            var parkingMissing = !File.Exists(_parkingPath);
-            if (!parkingMissing)
-            {
-                File.Move(_parkingPath, _worldOptionPath);
+                parkingMissing = !File.Exists(_parkingPath);
+                if (!parkingMissing)
+                {
+                    File.Move(_parkingPath, _worldOptionPath);
+                }
+                else
+                {
+                    // Restore availability first, then fail the invariant. The in-memory bytes are
+                    // the exact bytes read before the session, but a missing parked file is abnormal.
+                    await WriteAtomicallyAsync(
+                        _worldOptionPath,
+                        _originalWorldOptionBytes,
+                        CancellationToken.None);
+                }
+
                 _worldOptionParked = false;
             }
-            else
+
+            if (_temporaryIniInstalled)
             {
-                // Restore availability first, then fail the invariant. The in-memory bytes are the
-                // exact bytes read before the session, but a missing parked file is still abnormal.
-                await WriteAtomicallyAsync(_worldOptionPath, _originalWorldOptionBytes, CancellationToken.None);
-                _worldOptionParked = false;
+                await WriteAtomicallyAsync(_iniPath, _originalIniBytes, CancellationToken.None);
+                _temporaryIniInstalled = false;
             }
 
-            await WriteAtomicallyAsync(_iniPath, _originalIniBytes, CancellationToken.None);
-            _temporaryIniInstalled = false;
+            if (!File.Exists(_worldOptionPath))
+            {
+                await WriteAtomicallyAsync(
+                    _worldOptionPath,
+                    _originalWorldOptionBytes,
+                    CancellationToken.None);
+            }
+            if (!File.Exists(_iniPath))
+            {
+                await WriteAtomicallyAsync(_iniPath, _originalIniBytes, CancellationToken.None);
+            }
 
             var worldOptionHash = await Sha256FileAsync(_worldOptionPath);
             var iniHash = await Sha256FileAsync(_iniPath);
@@ -475,41 +524,39 @@ internal sealed class PalworldManagedHostSession : IDisposable
 
     private async Task CleanupFailedStartAsync()
     {
-        try
+        if (IsAnyPalworldProcessRunning())
         {
-            if (IsAnyPalworldProcessRunning())
+            if (_restClient is not null)
             {
-                if (_restClient is not null)
+                try
                 {
-                    try
-                    {
-                        await _restClient.ShutdownAsync(
-                            0,
-                            "Steward aborted Palworld startup before the managed session became ready.",
-                            CancellationToken.None);
-                    }
-                    catch
-                    {
-                        // Readiness may have failed before REST became usable. Forced cleanup below is
-                        // allowed here because Core has not accepted this as a started user session.
-                    }
+                    await _restClient.ShutdownAsync(
+                        0,
+                        "Steward aborted Palworld startup before the managed session became ready.",
+                        CancellationToken.None);
                 }
-
-                if (!await WaitForPalworldExitAsync(TimeSpan.FromSeconds(10), CancellationToken.None))
+                catch
                 {
-                    await ForceCleanupPalworldProcessesAsync();
+                    // Readiness may have failed before REST became usable. Forced cleanup below is
+                    // allowed here because Core has not accepted this as a started user session.
                 }
             }
 
-            if (!IsAnyPalworldProcessRunning() && (_worldOptionParked || _temporaryIniInstalled))
+            if (!await WaitForPalworldExitAsync(TimeSpan.FromSeconds(10), CancellationToken.None))
             {
-                await RestoreRuntimeInputsAfterExitAsync();
+                await ForceCleanupPalworldProcessesAsync();
             }
         }
-        catch
+
+        if (IsAnyPalworldProcessRunning())
         {
-            // The original startup exception remains primary. The adapter's normal finalization and
-            // recovery path will still see any remaining files; never mask the launch failure here.
+            throw new InvalidOperationException(
+                "Palworld startup failed and Steward could not stop the partially started server, so canonical runtime inputs were deliberately left untouched until process ownership is resolved.");
+        }
+
+        if (_worldOptionParked || _temporaryIniInstalled)
+        {
+            await RestoreRuntimeInputsAfterExitAsync();
         }
     }
 

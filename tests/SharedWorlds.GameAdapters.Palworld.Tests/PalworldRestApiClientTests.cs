@@ -77,7 +77,7 @@ public sealed class PalworldRestApiClientTests
     }
 
     [Fact]
-    public async Task ShutdownSendsLengthDelimitedJsonWaitTimeAndMessage()
+    public async Task ShutdownSendsExplicitLengthDelimitedJsonBody()
     {
         var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
         using var http = CreateHttpClient(handler);

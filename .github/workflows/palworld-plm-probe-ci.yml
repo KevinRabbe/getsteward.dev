@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - "agent/palworld-runtime-overlay"
+  pull_request:
   workflow_dispatch:
 
 permissions:

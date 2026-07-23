@@ -23,7 +23,6 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
     private readonly nint _libraryHandle;
     private readonly OodleCompress _compress;
     private readonly OodleDecompress _decompress;
-    private readonly OodleGetCompressedBufferSizeNeeded _getCompressedBufferSizeNeeded;
     private bool _disposed;
 
     private PalworldOodleCodec(string libraryPath)
@@ -34,8 +33,6 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
         {
             _compress = LoadExport<OodleCompress>("OodleLZ_Compress");
             _decompress = LoadExport<OodleDecompress>("OodleLZ_Decompress");
-            _getCompressedBufferSizeNeeded = LoadExport<OodleGetCompressedBufferSizeNeeded>(
-                "OodleLZ_GetCompressedBufferSizeNeeded");
         }
         catch
         {
@@ -98,7 +95,7 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
                 BadImageFormatException or
                 EntryPointNotFoundException)
             {
-                // Keep looking. We only accept a library exposing the exact Oodle 9 surface.
+                // Keep looking. We only accept a library exposing the exact Oodle surface needed here.
             }
         }
 
@@ -164,15 +161,11 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
             throw new InvalidDataException("Palworld GVAS payload is empty.");
         }
 
-        var required = _getCompressedBufferSizeNeeded(MermaidCompressor, payload.Length);
-        if (required <= 0 || required > int.MaxValue)
-        {
-            throw new InvalidOperationException(
-                $"Oodle returned an invalid compression buffer size: {required}.");
-        }
-
+        // Oodle wrappers conventionally reserve twice the raw size for compression output.
+        // This is acceptance-only and bounded by the already-loaded WorldOption payload.
+        var outputCapacity = checked(payload.Length * 2);
         var source = payload.ToArray();
-        var destination = new byte[(int)required];
+        var destination = new byte[outputCapacity];
         var sourceHandle = GCHandle.Alloc(source, GCHandleType.Pinned);
         var destinationHandle = GCHandle.Alloc(destination, GCHandleType.Pinned);
         try
@@ -234,9 +227,6 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
     }
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate nint OodleGetCompressedBufferSizeNeeded(int compressor, nint rawSize);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate nint OodleCompress(

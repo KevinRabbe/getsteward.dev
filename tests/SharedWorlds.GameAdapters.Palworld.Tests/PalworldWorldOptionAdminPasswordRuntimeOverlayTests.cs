@@ -7,11 +7,12 @@ namespace SharedWorlds.GameAdapters.Palworld.Tests;
 public sealed class PalworldWorldOptionAdminPasswordRuntimeOverlayTests
 {
     [Fact]
-    public void CurrentPlMContainerUsesOodleCodecAndPatchesOnlyAdminPassword()
+    public void CurrentPlMContainerDecodesWithOodleAndEmitsLegacyPlZ()
     {
         var codec = new TestOodleCodec();
         var originalPayload = BuildGvasPayload(string.Empty);
         var original = WrapPlM(originalPayload, codec);
+        var compressCallsBeforeOverlay = codec.CompressCalls;
 
         var result = PalworldWorldOptionAdminPasswordRuntimeOverlay.Create(
             original,
@@ -20,10 +21,12 @@ public sealed class PalworldWorldOptionAdminPasswordRuntimeOverlayTests
 
         Assert.True(PalworldWorldOptionAdminPasswordRuntimeOverlay.RequiresOodle(original));
         Assert.Equal("PlM/0x31", PalworldWorldOptionAdminPasswordRuntimeOverlay.DescribeContainer(original));
-        var patchedPayload = UnwrapPlM(result.PatchedSave, codec);
-        Assert.Equal("temporary-steward-password", ReadAdminPassword(patchedPayload));
+        Assert.Equal("PlZ/0x31", PalworldWorldOptionAdminPasswordRuntimeOverlay.DescribeContainer(result.PatchedSave));
+        Assert.Equal("temporary-steward-password", ReadAdminPassword(UnwrapPlZ(result.PatchedSave)));
         Assert.Equal(originalPayload.Length, result.OriginalPayloadLength);
         Assert.NotEqual(result.OriginalSaveSha256, result.PatchedSaveSha256);
+        Assert.Equal(compressCallsBeforeOverlay, codec.CompressCalls);
+        Assert.True(codec.DecompressCalls > 0);
     }
 
     [Fact]
@@ -117,12 +120,6 @@ public sealed class PalworldWorldOptionAdminPasswordRuntimeOverlayTests
         return result;
     }
 
-    private static byte[] UnwrapPlM(ReadOnlySpan<byte> save, IPalworldOodleCodec codec)
-    {
-        var length = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(save[..4]));
-        return codec.Decompress(save[12..], length);
-    }
-
     private static byte[] UnwrapPlZ(ReadOnlySpan<byte> save)
         => Decompress(save[12..]);
 
@@ -177,14 +174,22 @@ public sealed class PalworldWorldOptionAdminPasswordRuntimeOverlayTests
 
     private sealed class TestOodleCodec : IPalworldOodleCodec
     {
+        public int CompressCalls { get; private set; }
+
+        public int DecompressCalls { get; private set; }
+
         public byte[] Decompress(ReadOnlySpan<byte> compressed, int uncompressedLength)
         {
+            DecompressCalls++;
             var result = PalworldWorldOptionAdminPasswordRuntimeOverlayTests.Decompress(compressed);
             Assert.Equal(uncompressedLength, result.Length);
             return result;
         }
 
         public byte[] CompressMermaid(ReadOnlySpan<byte> payload)
-            => Compress(payload);
+        {
+            CompressCalls++;
+            return Compress(payload);
+        }
     }
 }

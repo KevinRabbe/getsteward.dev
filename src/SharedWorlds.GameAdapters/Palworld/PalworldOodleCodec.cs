@@ -16,6 +16,7 @@ internal interface IPalworldOodleCodec
 internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
 {
     private const string LibraryFileName = "oo2core_9_win64.dll";
+    private const string AcceptanceLibraryEnvironmentVariable = "STEWARD_ACCEPTANCE_OODLE_LIB";
     private const int MermaidCompressor = 9;
     private const int CompressionLevelNormal = 4;
     private const int DecodeThreadPhaseAll = 3;
@@ -49,6 +50,30 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
         {
             throw new PlatformNotSupportedException(
                 "The Palworld WorldOption Oodle acceptance path currently supports Windows only.");
+        }
+
+        // Acceptance-only escape hatch: an operator may explicitly name a locally installed
+        // Oodle 9 DLL. Steward never searches unrelated games, copies this DLL, downloads it,
+        // or persists its path. The exact required exports are still validated by the loader.
+        var explicitLibrary = Environment.GetEnvironmentVariable(AcceptanceLibraryEnvironmentVariable);
+        if (!string.IsNullOrWhiteSpace(explicitLibrary))
+        {
+            if (!Path.IsPathFullyQualified(explicitLibrary))
+            {
+                throw new FileNotFoundException(
+                    $"{AcceptanceLibraryEnvironmentVariable} must be an absolute path.");
+            }
+
+            var fullExplicitPath = Path.GetFullPath(explicitLibrary);
+            var explicitFile = new FileInfo(fullExplicitPath);
+            if (!explicitFile.Exists || (explicitFile.Attributes & FileAttributes.Directory) != 0)
+            {
+                throw new FileNotFoundException(
+                    $"{AcceptanceLibraryEnvironmentVariable} does not reference an existing regular file.",
+                    fullExplicitPath);
+            }
+
+            return new PalworldOodleCodec(fullExplicitPath);
         }
 
         ArgumentNullException.ThrowIfNull(roots);
@@ -100,7 +125,7 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
         }
 
         throw new FileNotFoundException(
-            $"Palworld's current PlM save format requires {LibraryFileName}, but no usable installed copy was found under the discovered Palworld client/server roots.");
+            $"Palworld's current PlM save format requires {LibraryFileName}, but no usable installed copy was found under the discovered Palworld client/server roots. For acceptance only, an operator may set {AcceptanceLibraryEnvironmentVariable} to an absolute path for a locally installed Oodle 9 runtime.");
     }
 
     public byte[] Decompress(ReadOnlySpan<byte> compressed, int uncompressedLength)

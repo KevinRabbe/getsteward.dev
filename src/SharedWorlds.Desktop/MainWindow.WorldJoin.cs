@@ -48,7 +48,7 @@ public partial class MainWindow
             TextWrapping = TextWrapping.Wrap,
             Visibility = Visibility.Collapsed
         };
-        joinReadinessText.SetResourceReference(Control.ForegroundProperty, "MutedTextBrush");
+        joinReadinessText.SetResourceReference(TextBlock.ForegroundProperty, "MutedTextBrush");
         AutomationProperties.SetName(joinReadinessText, "Join status");
         AutomationProperties.SetLiveSetting(joinReadinessText, AutomationLiveSetting.Polite);
         RegisterLiveRegion(joinReadinessText);

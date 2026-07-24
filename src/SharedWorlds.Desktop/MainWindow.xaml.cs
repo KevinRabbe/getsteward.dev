@@ -184,7 +184,7 @@ public partial class MainWindow : Window
 
     private static void ShowError(string title, Exception exception)
         => MessageBox.Show(
-            exception.Message,
+            DesktopErrorMessage.Safe(exception),
             title,
             MessageBoxButton.OK,
             MessageBoxImage.Error);

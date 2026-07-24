@@ -11,6 +11,8 @@ public static class DesktopText
 
     public static string Import => Get(nameof(Import));
     public static string Refresh => Get(nameof(Refresh));
+    public static string Invites => Get(nameof(Invites));
+    public static string SharedWorldInvitations => Get(nameof(SharedWorldInvitations));
     public static string BackToWorlds => Get(nameof(BackToWorlds));
     public static string StartWorld => Get(nameof(StartWorld));
     public static string HostWorld => Get(nameof(HostWorld));
@@ -26,6 +28,13 @@ public static class DesktopText
     public static string RecoverChanges => Get(nameof(RecoverChanges));
     public static string DiscardInterruptedSession => Get(nameof(DiscardInterruptedSession));
     public static string RetryCleanup => Get(nameof(RetryCleanup));
+    public static string Accept => Get(nameof(Accept));
+    public static string Decline => Get(nameof(Decline));
+    public static string Invite => Get(nameof(Invite));
+    public static string RemoveAccess => Get(nameof(RemoveAccess));
+    public static string MakeAccessManager => Get(nameof(MakeAccessManager));
+    public static string LeaveWorld => Get(nameof(LeaveWorld));
+    public static string Close => Get(nameof(Close));
     public static string VerifyEnvironment => Get(nameof(VerifyEnvironment));
     public static string Repair => Get(nameof(Repair));
     public static string OpenSteward => Get(nameof(OpenSteward));

@@ -76,6 +76,9 @@ internal sealed class PendingInvitationsDialog : Window
         invitationItemStyle.Setters.Add(new Setter(
             AutomationProperties.NameProperty,
             new Binding(nameof(InvitationRow.DisplayText))));
+        invitationItemStyle.Setters.Add(new Setter(
+            FrameworkElement.FocusVisualStyleProperty,
+            FindResource("StewardFocusVisualStyle")));
         _invitations.ItemContainerStyle = invitationItemStyle;
         Grid.SetRow(_invitations, 1);
         root.Children.Add(_invitations);

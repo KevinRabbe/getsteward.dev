@@ -102,19 +102,16 @@ public static class StewardHostPresenceApi
                 Retryable: false));
         }
 
+        // Readers only need joinability evidence. Reservation/session/installation identity remains
+        // internal authority state and is deliberately not disclosed through this read endpoint.
         return Results.Ok(new HostPresenceResponse(
             "HostPresence",
             Retryable: false,
             Data: new HostPresenceData(
-                presence.WorldId.Value,
-                presence.SessionId,
-                presence.Generation,
-                presence.InstallationId,
                 presence.State,
                 presence.Address,
                 presence.Port,
-                presence.JoinToken,
-                presence.UpdatedAt)));
+                presence.JoinToken)));
     }
 
     private static async Task<IResult> ClearAsync(
@@ -141,6 +138,7 @@ public static class StewardHostPresenceApi
 
         var deleted = await hostPresence.ClearAsync(
             caller.Identity,
+            caller.InstallationId,
             new WorldId(worldId),
             sessionId,
             generation,
@@ -180,15 +178,10 @@ public static class StewardHostPresenceApi
         string? JoinToken);
 
     public sealed record HostPresenceData(
-        Guid WorldId,
-        Guid ReservationSessionId,
-        long ReservationGeneration,
-        string HostInstallationId,
         SharedWorldHostPresenceState State,
         string? Address,
         int? Port,
-        string? JoinToken,
-        DateTimeOffset UpdatedAt);
+        string? JoinToken);
 
     public sealed record HostPresenceResponse(
         string Code,

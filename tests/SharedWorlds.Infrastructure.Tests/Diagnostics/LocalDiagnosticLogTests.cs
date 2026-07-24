@@ -57,6 +57,22 @@ public sealed class LocalDiagnosticLogTests
         Assert.Equal(64, files.Length);
     }
 
+    [Fact]
+    public void FirstSafeWriteDeletesLegacyUnredactedDailyLogs()
+    {
+        using var temp = new TemporaryDirectory();
+        var legacy = System.IO.Path.Combine(temp.Path, "errors-2026-07-24.log");
+        File.WriteAllText(legacy, "Bearer legacy-secret");
+
+        var incident = LocalDiagnosticLog.TryWriteException(
+            new InvalidOperationException("safe replacement"),
+            temp.Path);
+
+        Assert.NotNull(incident.LogPath);
+        Assert.False(File.Exists(legacy));
+        Assert.Single(Directory.GetFiles(temp.Path, "error-*.log", SearchOption.TopDirectoryOnly));
+    }
+
     private sealed class TemporaryDirectory : IDisposable
     {
         public TemporaryDirectory()

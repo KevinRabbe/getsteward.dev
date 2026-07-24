@@ -1,4 +1,4 @@
-name: Palworld acceptance CI
+name: Palworld read-only CI
 
 on:
   push:
@@ -17,7 +17,7 @@ env:
 
 jobs:
   probe:
-    name: Build Palworld read-only probes and tests
+    name: Build Palworld read-only settings probe and tests
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -29,35 +29,11 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Restore startup precedence probe
-        run: dotnet restore tools/SharedWorlds.PalworldWorldOptionStartupProbe/SharedWorlds.PalworldWorldOptionStartupProbe.csproj
-
-      - name: Build startup precedence probe
-        run: dotnet build tools/SharedWorlds.PalworldWorldOptionStartupProbe/SharedWorlds.PalworldWorldOptionStartupProbe.csproj --configuration Release --no-restore --nologo --verbosity minimal
-
       - name: Restore read-only settings probe
         run: dotnet restore tools/SharedWorlds.PalworldWorldOptionSettingsProbe/SharedWorlds.PalworldWorldOptionSettingsProbe.csproj
 
       - name: Build read-only settings probe
         run: dotnet build tools/SharedWorlds.PalworldWorldOptionSettingsProbe/SharedWorlds.PalworldWorldOptionSettingsProbe.csproj --configuration Release --no-restore --nologo --verbosity minimal
-
-      - name: Restore INI mirror probe
-        run: dotnet restore tools/SharedWorlds.PalworldWorldOptionIniMirrorProbe/SharedWorlds.PalworldWorldOptionIniMirrorProbe.csproj
-
-      - name: Build INI mirror probe
-        run: dotnet build tools/SharedWorlds.PalworldWorldOptionIniMirrorProbe/SharedWorlds.PalworldWorldOptionIniMirrorProbe.csproj --configuration Release --no-restore --nologo --verbosity minimal
-
-      - name: Restore array REST diagnostic probe
-        run: dotnet restore tools/SharedWorlds.PalworldWorldOptionArrayRestProbe/SharedWorlds.PalworldWorldOptionArrayRestProbe.csproj
-
-      - name: Build array REST diagnostic probe
-        run: dotnet build tools/SharedWorlds.PalworldWorldOptionArrayRestProbe/SharedWorlds.PalworldWorldOptionArrayRestProbe.csproj --configuration Release --no-restore --nologo --verbosity minimal
-
-      - name: Restore runtime input lifecycle probe
-        run: dotnet restore tools/SharedWorlds.PalworldRuntimeInputLifecycleProbe/SharedWorlds.PalworldRuntimeInputLifecycleProbe.csproj
-
-      - name: Build runtime input lifecycle probe
-        run: dotnet build tools/SharedWorlds.PalworldRuntimeInputLifecycleProbe/SharedWorlds.PalworldRuntimeInputLifecycleProbe.csproj --configuration Release --no-restore --nologo --verbosity minimal
 
       - name: Test Palworld adapter
         run: dotnet test tests/SharedWorlds.GameAdapters.Palworld.Tests/SharedWorlds.GameAdapters.Palworld.Tests.csproj --configuration Release --nologo --verbosity minimal

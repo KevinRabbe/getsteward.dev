@@ -228,9 +228,33 @@ internal static partial class SevenDaysToDieEnvironment
                 $"Required environment component '{component.Kind}:{component.Id}' is not understood by the 7 Days to Die adapter."));
         }
 
-        var requiredMods = requiredComponents
+        var declaredRequiredMods = requiredComponents
             .Where(component => string.Equals(component.Kind, "mod", StringComparison.Ordinal))
-            .ToDictionary(component => component.Id, StringComparer.Ordinal);
+            .ToArray();
+        foreach (var invalid in declaredRequiredMods.Where(component => string.IsNullOrWhiteSpace(component.Id)))
+        {
+            issues.Add(new EnvironmentVerificationIssue(
+                "7dtd-mod-id-invalid",
+                "Required 7 Days to Die server environment contains a mod with no usable identity."));
+        }
+
+        var validRequiredMods = declaredRequiredMods
+            .Where(component => !string.IsNullOrWhiteSpace(component.Id))
+            .ToArray();
+        var requiredGroups = validRequiredMods
+            .GroupBy(component => component.Id, StringComparer.Ordinal)
+            .ToArray();
+        foreach (var duplicate in requiredGroups.Where(group => group.Count() > 1))
+        {
+            issues.Add(new EnvironmentVerificationIssue(
+                "7dtd-required-mod-duplicate",
+                $"Required 7 Days to Die server environment declares mod '{duplicate.Key}' more than once."));
+        }
+
+        var requiredMods = requiredGroups.ToDictionary(
+            group => group.Key,
+            group => group.First(),
+            StringComparer.Ordinal);
         var installedById = installedMods.ToDictionary(component => component.Id, StringComparer.Ordinal);
 
         foreach (var required in requiredMods.Values)
@@ -292,6 +316,6 @@ internal static partial class SevenDaysToDieEnvironment
         return fullRoot;
     }
 
-    [GeneratedRegex("\\\"buildid\\\"\\s+\\\"([^\\\"]+)\\\"", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex("\"buildid\"\s+\"([^\"]+)\"", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex SteamBuildIdRegex();
 }

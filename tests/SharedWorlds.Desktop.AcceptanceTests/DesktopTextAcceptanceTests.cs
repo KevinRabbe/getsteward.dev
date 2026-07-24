@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Reflection;
+using Xunit;
 
 namespace SharedWorlds.Desktop.AcceptanceTests;
 

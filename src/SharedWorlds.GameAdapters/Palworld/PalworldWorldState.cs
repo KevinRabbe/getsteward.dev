@@ -149,16 +149,11 @@ internal static class PalworldWorldState
             useAsync: true);
         using var archive = new ZipArchive(packageStream, ZipArchiveMode.Create, leaveOpen: true);
 
-        foreach (var filePath in Directory.EnumerateFiles(sourcePath, "*", SearchOption.AllDirectories))
+        foreach (var filePath in EnumerateCaptureFiles(sourcePath))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
             var relativePath = Path.GetRelativePath(sourcePath, filePath);
-            if (ShouldExclude(relativePath))
-            {
-                continue;
-            }
-
             var entryName = relativePath.Replace(Path.DirectorySeparatorChar, '/');
             if (Path.AltDirectorySeparatorChar != Path.DirectorySeparatorChar)
             {
@@ -175,6 +170,70 @@ internal static class PalworldWorldState
                 useAsync: true);
             await using var entryStream = entry.Open();
             await sourceStream.CopyToAsync(entryStream, cancellationToken);
+        }
+    }
+
+    private static IEnumerable<string> EnumerateCaptureFiles(string sourceRoot)
+    {
+        var fullSourceRoot = Path.GetFullPath(sourceRoot);
+        RejectLinkedCapturePath(fullSourceRoot);
+
+        var pending = new Stack<string>();
+        pending.Push(fullSourceRoot);
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            foreach (var directory in Directory.EnumerateDirectories(
+                         current,
+                         "*",
+                         SearchOption.TopDirectoryOnly))
+            {
+                var relativePath = Path.GetRelativePath(fullSourceRoot, directory);
+                if (ShouldExclude(relativePath))
+                {
+                    continue;
+                }
+
+                RejectLinkedCapturePath(directory);
+                pending.Push(directory);
+            }
+
+            foreach (var filePath in Directory.EnumerateFiles(
+                         current,
+                         "*",
+                         SearchOption.TopDirectoryOnly))
+            {
+                var relativePath = Path.GetRelativePath(fullSourceRoot, filePath);
+                if (ShouldExclude(relativePath))
+                {
+                    continue;
+                }
+
+                RejectLinkedCapturePath(filePath);
+                yield return filePath;
+            }
+        }
+    }
+
+    private static void RejectLinkedCapturePath(string path)
+    {
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"Steward could not inspect Palworld capture path '{path}'.",
+                exception);
+        }
+
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new InvalidOperationException(
+                $"Palworld World capture contains a linked or reparse-point path that Steward will not follow: '{path}'.");
         }
     }
 

@@ -40,17 +40,38 @@ public sealed class SevenDaysToDieAdapter : IGameAdapter
         return Task.FromResult(SevenDaysToDieEnvironment.Verify(installation, requiredEnvironment));
     }
 
-    public Task<CapturedState> CaptureDetectedWorldAsync(GameInstallation installation, DetectedWorld world, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    public async Task<CapturedState> CaptureDetectedWorldAsync(
+        GameInstallation installation,
+        DetectedWorld world,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(installation);
+        var captured = await SevenDaysToDieWorldState.CaptureDetectedWorldAsync(world, cancellationToken);
+        return captured with { DeletePackageAfterStore = true };
+    }
 
-    public Task<PreparedWorld> PrepareEnvironmentAsync(GameInstallation installation, EnvironmentManifest requiredEnvironment, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    public Task<PreparedWorld> PrepareEnvironmentAsync(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(SevenDaysToDieWorldState.PrepareEnvironment(installation, requiredEnvironment));
+    }
 
-    public Task<CapturedState> CaptureStateAsync(PreparedWorld world, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    public async Task<CapturedState> CaptureStateAsync(
+        PreparedWorld world,
+        CancellationToken cancellationToken = default)
+    {
+        var captured = await SevenDaysToDieWorldState.CapturePreparedWorldAsync(world, cancellationToken);
+        return captured with { DeletePackageAfterStore = true };
+    }
 
-    public Task RestoreStateAsync(PreparedWorld world, StatePackage state, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    public Task RestoreStateAsync(
+        PreparedWorld world,
+        StatePackage state,
+        CancellationToken cancellationToken = default)
+        => SevenDaysToDieWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
 
     public Task<GameSessionHandle> LaunchLocalAsync(PreparedWorld world, CancellationToken cancellationToken = default)
         => throw new NotImplementedException();
@@ -68,5 +89,5 @@ public sealed class SevenDaysToDieAdapter : IGameAdapter
         PreparedWorld world,
         PreparedWorldDisposition disposition,
         CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+        => SevenDaysToDieWorldState.FinalizePreparedWorldAsync(world, disposition, cancellationToken);
 }

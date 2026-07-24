@@ -10,10 +10,16 @@ public sealed class ProjectZomboidAdapter : IGameAdapter
     public GameAdapterCapabilities Capabilities => GameAdapterCapabilities.None;
 
     public Task<IReadOnlyList<GameInstallation>> DiscoverInstallationsAsync(CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<GameInstallation>>([]);
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(ProjectZomboidInstallationDiscovery.Discover());
+    }
 
     public Task<IReadOnlyList<DetectedWorld>> DiscoverWorldsAsync(GameInstallation installation, CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<DetectedWorld>>([]);
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(ProjectZomboidWorldDiscovery.Discover(installation));
+    }
 
     public Task<EnvironmentManifest> InspectEnvironmentAsync(GameInstallation installation, DetectedWorld world, CancellationToken cancellationToken = default)
         => throw new NotImplementedException();

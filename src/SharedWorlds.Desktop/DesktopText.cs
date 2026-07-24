@@ -25,8 +25,6 @@ public static class DesktopText
     public static string RetryRecovery => Get(nameof(RetryRecovery));
     public static string ExportRecoveryCopy => Get(nameof(ExportRecoveryCopy));
     public static string ContinueFromLastSafeState => Get(nameof(ContinueFromLastSafeState));
-    public static string RecoverChanges => Get(nameof(RecoverChanges));
-    public static string DiscardInterruptedSession => Get(nameof(DiscardInterruptedSession));
     public static string RetryCleanup => Get(nameof(RetryCleanup));
     public static string Accept => Get(nameof(Accept));
     public static string Decline => Get(nameof(Decline));

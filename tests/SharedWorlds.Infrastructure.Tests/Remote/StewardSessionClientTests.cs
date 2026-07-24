@@ -158,6 +158,23 @@ public sealed class StewardSessionClientTests
         Assert.False(exception.Retryable);
     }
 
+    [Fact]
+    public async Task OversizedChunkedControlResponseIsRejectedBeforeJsonDeserialization()
+    {
+        const long oversizedBytes = (4L * 1024 * 1024) + 1;
+        var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(new NonSeekableZeroStream(oversizedBytes))
+        });
+        using var http = CreateHttpClient(handler);
+        var client = new StewardSessionClient(http);
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            client.AuthenticateSteamAsync("AABBCC", "device-a"));
+
+        Assert.Contains("control-response safety ceiling", exception.Message, StringComparison.Ordinal);
+    }
+
     private static HttpClient CreateHttpClient(HttpMessageHandler handler)
         => new(handler)
         {
@@ -191,6 +208,60 @@ public sealed class StewardSessionClientTests
             Requests.Add(new RequestSnapshot(request.RequestUri?.AbsoluteUri, body));
             return _responseFactory(request);
         }
+    }
+
+    private sealed class NonSeekableZeroStream : Stream
+    {
+        private long _remaining;
+
+        public NonSeekableZeroStream(long length)
+        {
+            _remaining = length;
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var read = (int)Math.Min(count, _remaining);
+            if (read <= 0)
+            {
+                return 0;
+            }
+
+            Array.Clear(buffer, offset, read);
+            _remaining -= read;
+            return read;
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var read = (int)Math.Min(buffer.Length, _remaining);
+            if (read <= 0)
+            {
+                return ValueTask.FromResult(0);
+            }
+
+            buffer.Span[..read].Clear();
+            _remaining -= read;
+            return ValueTask.FromResult(read);
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private sealed record RequestSnapshot(

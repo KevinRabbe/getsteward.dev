@@ -33,11 +33,11 @@ public partial class MainWindow
 
         var joinButton = new Button
         {
-            Content = "Join",
+            Content = DesktopText.Join,
             Margin = new Thickness(0, 0, 10, 10),
             IsEnabled = false
         };
-        AutomationProperties.SetName(joinButton, "Join");
+        AutomationProperties.SetName(joinButton, DesktopText.Join);
         SetJoinAvailability(joinButton, false, "Select a shared World with a ready host.");
 
         var hostIndex = playActions.Children.IndexOf(HostButton);

@@ -56,7 +56,13 @@ public sealed class PostgreSqlSharedWorldHostPresenceStore : ISharedWorldHostPre
                 address = EXCLUDED.address,
                 port = EXCLUDED.port,
                 join_token = EXCLUDED.join_token,
-                updated_at = EXCLUDED.updated_at;
+                updated_at = EXCLUDED.updated_at
+            WHERE steward_world_host_presence.generation < EXCLUDED.generation
+               OR (
+                    steward_world_host_presence.generation = EXCLUDED.generation
+                    AND steward_world_host_presence.session_id = EXCLUDED.session_id
+                    AND steward_world_host_presence.updated_at <= EXCLUDED.updated_at
+               );
             """;
 
         await using var command = _dataSource.CreateCommand(sql);

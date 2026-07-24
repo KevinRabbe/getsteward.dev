@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Worlds;
 

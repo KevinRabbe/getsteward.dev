@@ -1,8 +1,8 @@
 # E8 Release Hardening Status
 
-Status: **ACTIVE — DETERMINISTIC STORAGE/CONTROL INTEGRITY, PROVIDER-NATIVE DATABASE RESTORE, LARGE-TRANSFER STRESS, LONG-AUTHORITY STRESS, AND BOUNDED LOCAL SUPPORT DIAGNOSTICS ARE CI-PROVEN; RELEASE EMPIRICAL ACCEPTANCE AND ONE LOCAL DOWNLOAD-CACHE BOUNDARY REMAIN OPEN.**
+Status: **ACTIVE — DETERMINISTIC E8 HARDENING IS CI-PROVEN THROUGH PR #24; RELEASE/PROVIDER/REAL-MACHINE EMPIRICAL ACCEPTANCE REMAINS OPEN.**
 
-This checkpoint records executable truth after the isolated E8 hardening stack through PR #16. It does **not** promote E8 to release-complete and it does not replace any deferred real-machine/game/provider evidence.
+This checkpoint records executable truth after the isolated E8 hardening stack through PR #24. It does **not** promote E8 to release-complete and it does not replace any deferred real-machine, real-game, real-Steam, or real-provider evidence.
 
 ## Checkpoint discipline
 
@@ -12,12 +12,12 @@ The last repository checkpoint known to have all five workflows green together r
 
 The current E8 stack is intentionally based on an older remote branch that still contains two Factorio Windows tests already fixed in the newer unpushed workspace. Therefore the E8 slices are qualified by their own CI evidence, but this document does not relabel the stacked remote head as a new global all-workflows-green checkpoint.
 
-On the current E8 head, Windows proves Core, Infrastructure, Backend, Backend API, Palworld, 7 Days to Die, Project Zomboid, Architecture, Desktop acceptance packaging, and the new E8 tests. The only inherited Windows failures are:
+On the PR #24 head, Windows proves Core, Infrastructure, Backend, Backend API, Palworld, 7 Days to Die, Project Zomboid, Architecture, Desktop acceptance packaging, and all new E8 tests. The only inherited Windows failures are:
 
 - `FactorioModCatalogLinkedPathTests.DiscoverRejectsLinkedStartupSettings`;
 - `FactorioModInputSafetyTests.ReproductionRejectsLinkedStartupSettingsBeforeVersionWork`.
 
-Do not reimplement those fixes in this E8 stack. Reconcile/cherry-pick the E8 commits onto the newer Factorio tree later.
+Do not reimplement those fixes in this E8 stack. Reconcile/cherry-pick the E8 commits onto the newer Factorio tree later, then obtain a new true all-workflows-green checkpoint there.
 
 ## E8 deterministic hardening completed in this stack
 
@@ -27,7 +27,7 @@ New persisted metadata writes carry an integrity proof. Current-format documents
 
 ### Storage-key identity binding — PR #7
 
-A valid, correctly checksummed document is still rejected when stored under the wrong World/revision/workspace identity. Path identity is now part of the read contract rather than merely a locator.
+A valid, correctly checksummed document is still rejected when stored under the wrong World/revision/workspace identity. Path identity is part of the read contract rather than merely a locator.
 
 ### Recovery candidate package verification — PR #8
 
@@ -59,7 +59,7 @@ Large package bytes remain on the separate direct object-storage transfer path.
 
 ### Bounded persistent control inputs — PR #12
 
-Application/value-object boundaries now bound caller-controlled metadata before PostgreSQL persistence:
+Application/value-object boundaries bound caller-controlled metadata before PostgreSQL persistence:
 
 - World adapter ID: 256 characters;
 - World display name: 512 characters;
@@ -70,11 +70,11 @@ Application/value-object boundaries now bound caller-controlled metadata before 
 
 Idempotency keys were audited and already had their own explicit 128-visible-ASCII bound.
 
-## E8 provider and endurance proofs
+## Provider and endurance proofs
 
 ### PostgreSQL native backup/restore — PR #13
 
-The PostgreSQL integration suite now proves the actual provider boundary:
+The PostgreSQL integration suite proves the actual provider boundary:
 
 ```text
 seed real Steward records through production services/stores
@@ -90,7 +90,7 @@ This is not an in-memory or serializer round trip. It proves PostgreSQL-native s
 
 ### Large resumable S3-compatible transfer — PR #14
 
-The provider integration suite now includes one synthetic 256 MiB immutable package:
+The provider integration suite includes one synthetic 256 MiB immutable package:
 
 ```text
 4 x 64 MiB parts
@@ -110,7 +110,7 @@ This is synthetic provider stress evidence. It is **not** a claim about measured
 
 ### Accelerated 24-hour writable authority — PR #15
 
-The PostgreSQL authority integration suite now executes 2,880 real heartbeat updates at 30-second logical intervals, representing 24 hours of writable responsibility without wall-clock sleeping.
+The PostgreSQL authority integration suite executes 2,880 real heartbeat updates at 30-second logical intervals, representing 24 hours of writable responsibility without wall-clock sleeping.
 
 After the full logical day it proves:
 
@@ -121,13 +121,13 @@ After the full logical day it proves:
 - no `BecameUncertainAt` value;
 - exactly one reservation row for the World.
 
-The endurance proof added approximately one second to the PostgreSQL suite and is therefore suitable as a permanent gate.
+The endurance proof adds approximately one second to the PostgreSQL suite and is therefore suitable as a permanent gate.
 
 This proves backend authority endurance, not a 24-hour real game-process run.
 
-## E8 diagnostics/support boundary — PR #16
+## Diagnostics/support boundary — PR #16
 
-Local support diagnostics now use one shared Infrastructure boundary for CLI and Desktop.
+Local support diagnostics use one shared Infrastructure boundary for CLI and Desktop.
 
 Properties:
 
@@ -144,9 +144,122 @@ Properties:
 
 Recovery workspace exports remain a separate user action containing gameplay recovery material. They are **not** support diagnostic bundles and are never subject to diagnostic-log retention.
 
+## Bounded package transfer/cache behavior
+
+### Download write ceiling — PR #18
+
+`VerifiedPackageCache` now enforces the authorized immutable package byte size while the response is streaming.
+
+For both fresh and resumed downloads:
+
+```text
+authorized remaining bytes
+-> write at most that many bytes to .partial
+-> read at most one additional byte to detect an oversized body
+-> reject immediately
+-> remove the invalid partial
+```
+
+A malformed multi-gigabyte response can therefore no longer become a multi-gigabyte disk write before Steward notices the mismatch.
+
+### Disposable verified-cache retention — PR #19
+
+The content-addressed download cache now has a configurable total byte ceiling.
+
+First-release default:
+
+> 40 GiB = one maximum 20 GiB State package + one maximum 20 GiB hosted Environment package.
+
+Properties:
+
+- cache mutation is serialized inside one cache instance;
+- only `packages/sha256/**/*.package` and `.partial` are eviction candidates;
+- oldest disposable entries are evicted first;
+- successful cache hits refresh recency;
+- deletion failures continue to count as occupied bytes and can make the operation fail closed;
+- `OpenVerifiedReadAsync` keeps the cache mutation lease until the verified file stream is actually open;
+- recovery candidates/workspaces are outside the cache scan by construction and are never evicted for cache pressure.
+
+The 40 GiB value is a configurable safety capacity, not a measured target for real game Worlds.
+
+### Download inactivity — PR #20
+
+Large downloads retain no fixed total-duration timeout. Instead Steward applies a configurable no-progress boundary, first-release default five minutes:
+
+- time to initial response headers is bounded;
+- time between successful body reads is bounded;
+- every successful body read resets the inactivity window;
+- a slow-but-progressing 20 GiB transfer may therefore take arbitrarily long;
+- bytes already received before a stall remain as the size-bounded resumable `.partial`;
+- caller cancellation remains caller cancellation rather than being relabeled as a transfer timeout.
+
+### Multipart upload part duration — PR #21
+
+Multipart upload has no automatic retry loop and no fixed whole-package deadline.
+
+Each authorized finite PUT part has a configurable completion deadline, first-release default 30 minutes. A timed-out part is not finalized; re-invoking the existing upload operation resumes from backend-observed completed parts.
+
+This uses the existing finite multipart protocol as the bound instead of adding a second retry/watchdog subsystem.
+
+## Transport/security hardening
+
+### Steward API credential transport — PR #22
+
+Remote Steward API endpoints now obey one explicit rule:
+
+```text
+HTTPS remote endpoint     -> allowed
+HTTP loopback endpoint    -> allowed for local development
+HTTP non-loopback endpoint-> rejected
+```
+
+The policy is applied:
+
+- when Desktop reads `STEWARD_API_BASE_URL`, before Steam authentication starts;
+- again when the authenticated remote runtime is composed.
+
+Automatic redirects are disabled on both:
+
+- the initial Steam-ticket authentication client;
+- the authenticated Steward API client.
+
+Therefore Steam tickets and Steward bearer credentials terminate at the configured API origin instead of being silently replayed to a redirect target.
+
+### Direct object-storage transport — PR #23
+
+The same secure-remote rule applies to private World package transfers and backend S3 configuration.
+
+Client:
+
+- immutable package download authorization rejects plaintext non-loopback URLs before network I/O;
+- one direct-transfer handler rejects plaintext remote GET/PUT requests;
+- the production direct-transfer handler does not follow redirects.
+
+Backend:
+
+- S3-compatible service URL must use HTTPS remotely;
+- loopback HTTP remains available for disposable local MinIO/CI.
+
+This matches the current production-provider candidate, whose S3 endpoint is HTTPS, without creating an insecure-production override.
+
+### Steam identity provider boundary — PR #24
+
+Steam Web API verification remains semantically unchanged, but its external transport/resource boundary is now explicit:
+
+- named Steam identity HTTP client has a 30-second timeout;
+- automatic redirects are disabled;
+- response body is capped at 1 MiB before JSON parsing;
+- declared oversize is rejected through `Content-Length`;
+- unknown-length/chunked oversize is rejected while streaming after at most one detection byte beyond the ceiling;
+- response stream acquisition/body reads/JSON parsing have their own configurable read deadline, default 30 seconds;
+- caller cancellation is not relabeled as a provider timeout;
+- publisher credentials remain absent from provider exceptions.
+
+Session-token design was audited and remains unchanged: access/refresh credentials use 256-bit random opaque secrets, the server stores only SHA-256 hashes, access credentials expire after 15 minutes by default, refresh credentials after 30 days, and refresh rotates credentials.
+
 ## Installer/update ownership is eliminated, not implemented
 
-`PRODUCT_BOUNDARY.md` already assigns Steward distribution and updates to Steam. `DEFERRED_EMPIRICAL_TESTS.md` likewise requires release/depot/update validation through Steam and explicitly rejects a second self-updater.
+`PRODUCT_BOUNDARY.md` assigns Steward distribution and updates to Steam. `DEFERRED_EMPIRICAL_TESTS.md` likewise requires release/depot/update validation through Steam and explicitly rejects a second self-updater.
 
 Therefore E8 does **not** add:
 
@@ -156,36 +269,18 @@ Therefore E8 does **not** add:
 
 The Windows acceptance package remains a CI/release-acceptance artifact. Its manifest verifies every declared file by size/SHA-256, rejects missing/changed/duplicate/escaping entries, and rejects undeclared files before launching the selected Desktop executable. Production distribution/update authenticity remains Steam's responsibility.
 
-## Open deterministic E8 issue: local verified package cache
+## Deterministic E8 hardening checkpoint
 
-`VerifiedPackageCache` still has one concrete hardening gap and one related retention gap.
+The deterministic E8 categories currently have concrete treatment:
 
-### Streaming oversize gap
+- security review: persisted integrity, input/output bounds, credential/direct-transfer transport, identity-provider bounds;
+- backup/restore: PostgreSQL-native dump/restore proof;
+- long-session/large-transfer stress: accelerated authority endurance + resumable 256 MiB provider transfer;
+- installer/update behavior: ownership eliminated in favor of Steam rather than duplicated;
+- bounded retries/cache/retention: no automatic unbounded transfer retry loop, bounded transfer stalls/parts, bounded cache writes and retention;
+- diagnostics/support workflow: bounded redacted local incidents with fatal unknown-state behavior preserved.
 
-The current download path streams the HTTP response to the `.partial` file and only checks `downloadedBytes > ExpectedByteSize` after `CopyToAsync` returns.
-
-Therefore a malformed/misbehaving object-storage response can write beyond the authorized immutable package size before Steward rejects and deletes it. The read is not unbounded in product intent, but the enforcement occurs too late to protect disk consumption.
-
-Required fix:
-
-```text
-expected immutable byte size
--> enforce remaining-byte ceiling while streaming
--> stop/reject as soon as response exceeds authorization
--> never write bytes beyond the authorized package size
-```
-
-### Cache retention gap
-
-Verified content-addressed package files currently have no total cache-size/eviction policy. Unique downloaded revisions can therefore accumulate indefinitely.
-
-Any fix must preserve the existing data-class distinction:
-
-- package cache: disposable/re-downloadable;
-- diagnostics: disposable/bounded support data;
-- unresolved recovery candidate/workspace: durable gameplay evidence and **never** silently evicted for cache pressure.
-
-This issue remains open in this checkpoint. Do not describe local download cache as fully bounded yet.
+This is a **deterministic hardening checkpoint**, not E8 completion. Do not keep inventing generic security/retry/cache frameworks merely because more abstraction is possible. Reopen deterministic hardening only when CI, code review, or a product contract identifies a concrete unowned/unbounded defect.
 
 ## Deferred empirical E8 boundaries
 
@@ -195,18 +290,19 @@ CI does not replace the following evidence:
 - measured representative large-World capture/package/restore/transfer behavior;
 - actual EU production deployment/residency evidence;
 - E4-B real Steam production identity + two-installation host/Join/save/commit handoff;
-- real Windows assistive-technology/mixed-DPI UI acceptance.
+- real Windows assistive-technology/mixed-DPI UI acceptance;
+- real Steam release/depot/update acceptance.
 
-These remain in `DEFERRED_EMPIRICAL_TESTS.md` and must not be promoted from synthetic/deterministic evidence.
+These remain recorded in `DEFERRED_EMPIRICAL_TESTS.md` and must not be promoted from synthetic/deterministic evidence.
 
 ## Remaining E8 direction
 
 Highest-value remaining work, in order:
 
-1. fix the local verified-package streaming byte ceiling and define bounded disposable-cache retention;
-2. continue deterministic security/operations review only where it finds concrete unowned/unbounded boundaries;
-3. execute E4-A/live EU infrastructure acceptance when a real disposable deployment is available;
-4. batch the recorded real-game/Windows/Steam empirical tests when the required machines/credentials are available;
-5. only then decide whether E8 release acceptance can be called complete.
+1. reconcile/cherry-pick the E8 stack onto the newer Factorio tree and obtain a new true all-workflows-green checkpoint;
+2. execute E4-A against a real disposable EU deployment using real PostgreSQL, S3-compatible storage, HTTPS, restart/readiness, backup/restore, and transfer probes — no Steam publisher credentials are required for this infrastructure portion;
+3. batch the recorded real-game, real-Windows, and real-Steam/two-installation empirical tests when the required machines/credentials are available;
+4. record measured real package sizes, capture/restore/transfer durations, long-session behavior, provider residency configuration, and release/depot evidence;
+5. only then decide whether E8/release acceptance can be called complete.
 
-Do not start E9 performance optimization while these correctness/release boundaries remain open.
+Do not start E9 performance optimization while these release-correctness/evidence boundaries remain open.

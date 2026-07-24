@@ -143,19 +143,6 @@ public sealed class WorldLifecycleService
         }
     }
 
-    public async Task<World> SetSharingModeAsync(
-        WorldId worldId,
-        WorldSharingMode sharingMode,
-        CancellationToken cancellationToken = default)
-    {
-        var world = await _storage.LoadWorldAsync(worldId, cancellationToken)
-            ?? throw new WorldNotFoundException(worldId);
-
-        var updated = world with { SharingMode = sharingMode };
-        await _storage.SaveWorldAsync(updated, cancellationToken);
-        return updated;
-    }
-
     public Task<PreparedWorldContext> PrepareAsync(
         WorldId worldId,
         IGameAdapter adapter,

@@ -236,7 +236,7 @@ public sealed class PostgreSqlBackupRestoreProbeTests
         Assert.Equal("mod", component.Kind);
         Assert.Equal("base", component.Id);
         Assert.Equal("2.1.11", component.Version);
-        Assert.Equal(Hash, component.Hash);
+        Assert.Equal(Hash, component.Source);
         Assert.Equal(Hash, manifest.Configuration["startupSettingsSha256"]);
 
         var state = Assert.IsType<SharedStateRevisionMetadata>(

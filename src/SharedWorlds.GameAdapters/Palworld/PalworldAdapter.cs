@@ -90,11 +90,6 @@ public sealed partial class PalworldAdapter : IGameAdapter
         CancellationToken cancellationToken = default)
         => PalworldWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
 
-    public Task<GameSessionHandle> LaunchLocalAsync(
-        PreparedWorld world,
-        CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
-
     public async Task<GameSessionHandle> LaunchHostAsync(
         PreparedWorld world,
         CancellationToken cancellationToken = default)
@@ -132,12 +127,6 @@ public sealed partial class PalworldAdapter : IGameAdapter
 
         await managed.RequestStopAsync(cancellationToken);
     }
-
-    public Task<GameSessionHandle> LaunchClientAsync(
-        PreparedWorld world,
-        HostConnection host,
-        CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
 
     public async Task WaitForSessionEndAsync(
         GameSessionHandle session,

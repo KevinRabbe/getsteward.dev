@@ -99,6 +99,28 @@ jobs:
           user="$(docker image inspect steward-backend-ci:${{ github.sha }} --format '{{.Config.User}}')"
           test "$user" = "app"
 
+      - name: Start disposable S3-compatible readiness dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --rm \
+            --name steward-backend-smoke-s3 \
+            --network host \
+            --env MINIO_ROOT_USER=ci-test-only \
+            --env MINIO_ROOT_PASSWORD=ci-test-only \
+            quay.io/minio/minio:RELEASE.2025-07-18T21-56-31Z \
+            server /data --address :9000
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:9000/minio/health/live >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker logs steward-backend-smoke-s3
+          exit 1
+
       - name: Smoke test container startup and health
         shell: bash
         run: |
@@ -138,6 +160,10 @@ jobs:
 
           docker logs "$container"
           exit 1
+
+      - name: Stop disposable S3-compatible readiness dependency
+        if: always()
+        run: docker rm --force steward-backend-smoke-s3 || true
 
   build-test:
     name: Build and test (${{ matrix.os }})

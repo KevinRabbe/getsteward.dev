@@ -112,15 +112,22 @@ if ($apiUri.Scheme -ne 'https') {
     Fail 'Live E4 acceptance requires an HTTPS Steward API endpoint.'
 }
 
-[UInt32]$parsedAppId = 0
-if (-not [UInt32]::TryParse($SteamAppId, [ref]$parsedAppId) -or $parsedAppId -eq 0) {
-    Fail 'STEWARD_STEAM_APP_ID must be a positive Steam AppID.'
+$hasSteamAppId = -not [string]::IsNullOrWhiteSpace($SteamAppId)
+$hasSteamIdentity = -not [string]::IsNullOrWhiteSpace($SteamWebApiIdentity)
+if ($hasSteamAppId -xor $hasSteamIdentity) {
+    Fail 'Steam production acceptance requires STEWARD_STEAM_APP_ID and STEWARD_STEAM_WEB_API_IDENTITY together. Omit both for E4-A infrastructure-only acceptance.'
 }
 
-if ([string]::IsNullOrWhiteSpace($SteamWebApiIdentity) -or
-    $SteamWebApiIdentity -match '\s' -or
-    $SteamWebApiIdentity.Length -gt 128) {
-    Fail 'STEWARD_STEAM_WEB_API_IDENTITY must be a non-empty identity without whitespace.'
+$steamProductionAcceptance = $hasSteamAppId -and $hasSteamIdentity
+[UInt32]$parsedAppId = 0
+if ($steamProductionAcceptance) {
+    if (-not [UInt32]::TryParse($SteamAppId, [ref]$parsedAppId) -or $parsedAppId -eq 0) {
+        Fail 'STEWARD_STEAM_APP_ID must be a positive Steam AppID.'
+    }
+
+    if ($SteamWebApiIdentity -match '\s' -or $SteamWebApiIdentity.Length -gt 128) {
+        Fail 'STEWARD_STEAM_WEB_API_IDENTITY must be a non-empty identity without whitespace.'
+    }
 }
 
 $base = $apiUri.AbsoluteUri
@@ -130,8 +137,14 @@ if (-not $base.EndsWith('/')) {
 
 Write-Host 'Steward E4 live acceptance preflight'
 Write-Host "  API: $base"
-Write-Host "  Steam AppID: $parsedAppId"
-Write-Host "  Web API identity: $SteamWebApiIdentity"
+if ($steamProductionAcceptance) {
+    Write-Host '  Mode: E4-B Steam production acceptance'
+    Write-Host "  Steam AppID: $parsedAppId"
+    Write-Host "  Web API identity: $SteamWebApiIdentity"
+}
+else {
+    Write-Host '  Mode: E4-A infrastructure-only acceptance (Steam credentials intentionally absent)'
+}
 Write-Host
 
 foreach ($probe in @('health/live', 'health/ready')) {
@@ -151,8 +164,14 @@ foreach ($probe in @('health/live', 'health/ready')) {
 }
 
 Write-Host
-Write-Host 'Backend preflight passed.'
-Write-Host 'The remaining proof is intentionally real: Steam ticket verification, Share/Invite, exact Factorio Verify, authority, transfer, host/save/commit, and the second installation handoff.'
+if ($steamProductionAcceptance) {
+    Write-Host 'Backend preflight passed.'
+    Write-Host 'The remaining E4-B proof is intentionally real: Steam ticket verification, Share/Invite, exact Factorio Verify, authority, transfer, host/save/commit, and the second installation handoff.'
+}
+else {
+    Write-Host 'E4-A backend preflight passed without Steam publisher credentials.'
+    Write-Host 'Steam ticket verification and the two-account production handoff remain explicitly deferred to E4-B.'
+}
 
 if (-not [string]::IsNullOrWhiteSpace($DesktopExecutable)) {
     $desktopPath = [IO.Path]::GetFullPath($DesktopExecutable)
@@ -163,8 +182,14 @@ if (-not [string]::IsNullOrWhiteSpace($DesktopExecutable)) {
     Verify-AcceptancePackage $desktopPath
 
     $env:STEWARD_API_BASE_URL = $base
-    $env:STEWARD_STEAM_APP_ID = $parsedAppId.ToString([Globalization.CultureInfo]::InvariantCulture)
-    $env:STEWARD_STEAM_WEB_API_IDENTITY = $SteamWebApiIdentity
+    if ($steamProductionAcceptance) {
+        $env:STEWARD_STEAM_APP_ID = $parsedAppId.ToString([Globalization.CultureInfo]::InvariantCulture)
+        $env:STEWARD_STEAM_WEB_API_IDENTITY = $SteamWebApiIdentity
+    }
+    else {
+        Remove-Item Env:STEWARD_STEAM_APP_ID -ErrorAction SilentlyContinue
+        Remove-Item Env:STEWARD_STEAM_WEB_API_IDENTITY -ErrorAction SilentlyContinue
+    }
 
     Write-Host "Launching verified Steward package: $desktopPath"
     Start-Process -FilePath $desktopPath

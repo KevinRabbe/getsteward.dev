@@ -114,37 +114,26 @@ public sealed class StewardPackageDownloadClient
         if (!string.Equals(authorization.Method, "GET", StringComparison.OrdinalIgnoreCase) ||
             data.ExpectedByteSize <= 0 ||
             authorization.ExpectedByteSize != data.ExpectedByteSize ||
-            !IsSha256(data.ExpectedSha256))
+            !Uri.TryCreate(authorization.Uri, UriKind.Absolute, out var objectUri))
         {
             throw new InvalidDataException("Steward returned inconsistent immutable package metadata.");
         }
 
-        return new AuthorizedPackageDownload(
-            new Uri(authorization.Uri, UriKind.Absolute),
-            authorization.RequiredHeaders ?? new Dictionary<string, string>(),
-            authorization.ExpiresAt,
-            data.ExpectedByteSize,
-            data.ExpectedSha256.ToUpperInvariant());
-    }
-
-    private static bool IsSha256(string? value)
-    {
-        if (value is null || value.Length != 64)
+        try
         {
-            return false;
+            return new AuthorizedPackageDownload(
+                objectUri,
+                authorization.RequiredHeaders ?? new Dictionary<string, string>(),
+                authorization.ExpiresAt,
+                data.ExpectedByteSize,
+                data.ExpectedSha256);
         }
-
-        foreach (var character in value)
+        catch (ArgumentException exception)
         {
-            if (!((character >= '0' && character <= '9') ||
-                  (character >= 'a' && character <= 'f') ||
-                  (character >= 'A' && character <= 'F')))
-            {
-                return false;
-            }
+            throw new InvalidDataException(
+                "Steward returned inconsistent immutable package metadata.",
+                exception);
         }
-
-        return true;
     }
 
     private static bool IsTransientStatus(HttpStatusCode statusCode)

@@ -134,17 +134,13 @@ public partial class MainWindow
                         }
 
                         // Initial sharing must prove that the canonical environment is reproducible before
-                        // any remote side effect or local authority lock is written. This keeps a failed
-                        // preflight genuinely local while still using the same adapter verification contract
-                        // that later gates shared writable play.
-                        var installation = await GetGameInstallationAsync(adapter);
-                        var verification = await new WorldEnvironmentService(_storage).VerifyAsync(
-                            localShadow.Id,
-                            adapter,
-                            installation);
-                        RememberEnvironmentVerification(localShadow, verification);
+                        // any remote side effect or local authority lock is written. Evaluate every discovered
+                        // installation so Steam library ordering can never decide which environment is shared.
+                        var selection = await SelectInstallationForWorldAsync(localShadow, adapter);
+                        RememberEnvironmentVerification(localShadow, selection.Verification);
+                        RememberVerifiedInstallation(localShadow, selection.Installation);
                         UpdateEnvironmentReadinessUi();
-                        if (!verification.IsReady)
+                        if (!selection.Verification.IsReady)
                         {
                             throw new InvalidOperationException(
                                 $"Steward will not share '{localShadow.Name}' until this device can reproduce its exact canonical environment. Run Verify Environment and resolve the reported issue first.");

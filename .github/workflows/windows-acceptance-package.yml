@@ -31,12 +31,33 @@ jobs:
 
       - name: Test Windows Desktop resource boundary
         shell: pwsh
-        run: >-
-          dotnet test
-          tests/SharedWorlds.Desktop.AcceptanceTests/SharedWorlds.Desktop.AcceptanceTests.csproj
-          --configuration Release
-          --nologo
-          --verbosity minimal
+        run: |
+          $results = "$env:RUNNER_TEMP/desktop-resource-test-results"
+          $log = "$env:RUNNER_TEMP/desktop-resource-test.log"
+          New-Item -ItemType Directory -Force -Path $results | Out-Null
+          & dotnet test `
+            tests/SharedWorlds.Desktop.AcceptanceTests/SharedWorlds.Desktop.AcceptanceTests.csproj `
+            --configuration Release `
+            --nologo `
+            --verbosity minimal `
+            --logger "trx;LogFileName=desktop-resource-test.trx" `
+            --results-directory $results *> $log
+          $exitCode = $LASTEXITCODE
+          Get-Content $log
+          if ($exitCode -ne 0) {
+            exit $exitCode
+          }
+
+      - name: Upload Desktop resource test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: steward-desktop-resource-test-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/desktop-resource-test.log
+            ${{ runner.temp }}/desktop-resource-test-results
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Build byte-verifiable package
         shell: pwsh

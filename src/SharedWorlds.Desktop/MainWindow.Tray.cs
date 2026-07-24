@@ -36,11 +36,23 @@ public partial class MainWindow
 
     private Forms.ContextMenuStrip CreateTrayMenu()
     {
-        var menu = new Forms.ContextMenuStrip();
-        var open = new Forms.ToolStripMenuItem("Open Steward");
+        var menu = new Forms.ContextMenuStrip
+        {
+            AccessibleName = "Steward tray menu",
+            AccessibleDescription = "Open Steward or quit when Steward has no active World responsibility."
+        };
+        var open = new Forms.ToolStripMenuItem("Open Steward")
+        {
+            AccessibleName = "Open Steward",
+            AccessibleDescription = "Open the Steward window."
+        };
         open.Click += (_, _) => OpenStewardWindow();
 
-        var quit = new Forms.ToolStripMenuItem("Quit Steward");
+        var quit = new Forms.ToolStripMenuItem("Quit Steward")
+        {
+            AccessibleName = "Quit Steward",
+            AccessibleDescription = "Quit Steward when no active or unresolved World responsibility remains."
+        };
         quit.Click += (_, _) => RequestQuitSteward();
 
         menu.Items.Add(open);

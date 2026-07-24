@@ -30,10 +30,7 @@ public sealed class ProjectZomboidAdapter : IGameAdapter
         DetectedWorld world,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(installation);
-        ArgumentNullException.ThrowIfNull(world);
         cancellationToken.ThrowIfCancellationRequested();
-        ProjectZomboidWorkshopPathGuard.ValidateConfiguredWorkshopItems(installation, world);
         return Task.FromResult(ProjectZomboidEnvironment.Inspect(installation, world));
     }
 
@@ -42,12 +39,7 @@ public sealed class ProjectZomboidAdapter : IGameAdapter
         EnvironmentManifest requiredEnvironment,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(installation);
-        ArgumentNullException.ThrowIfNull(requiredEnvironment);
         cancellationToken.ThrowIfCancellationRequested();
-        ProjectZomboidWorkshopPathGuard.ValidateRequiredWorkshopItems(
-            installation,
-            requiredEnvironment);
         return Task.FromResult(ProjectZomboidEnvironment.Verify(installation, requiredEnvironment));
     }
 

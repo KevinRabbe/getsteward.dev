@@ -88,6 +88,40 @@ public sealed class SevenDaysToDieWorldStateTests : IDisposable
     }
 
     [Fact]
+    public async Task CaptureRejectsLinkedDirectoryInsteadOfFollowingOutsideWorld()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var userData = Path.Combine(_root, "linked-user-data");
+        var source = Path.Combine(userData, "Saves", "Navezgane", "LinkedGame");
+        var outside = Path.Combine(_root, "outside-linked-world");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(outside);
+        await File.WriteAllBytesAsync(Path.Combine(source, "main.ttp"), [1, 2]);
+        await File.WriteAllBytesAsync(Path.Combine(outside, "outside.bin"), [9, 9, 9]);
+
+        var linkedDirectory = Path.Combine(source, "LinkedOutside");
+        Directory.CreateSymbolicLink(linkedDirectory, outside);
+        try
+        {
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                SevenDaysToDieWorldState.CaptureDetectedWorldAsync(
+                    Installation(userData),
+                    new DetectedWorld(source, "LinkedGame (Navezgane)", source),
+                    CancellationToken.None));
+
+            Assert.Contains("linked or reparse-point", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(linkedDirectory);
+        }
+    }
+
+    [Fact]
     public async Task RestoreRejectsPathTraversalAndLeavesPreparedWorkspaceUntouched()
     {
         var package = Path.Combine(_root, "malicious.zip");

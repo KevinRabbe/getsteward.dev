@@ -21,7 +21,7 @@ public sealed class PersistedDocumentIntegrityTests : IDisposable
         $"sharedworlds-metadata-integrity-{Guid.NewGuid():N}");
 
     [Fact]
-    public async Task NewWorldMetadataCarriesInEnvelopeIntegrityProof()
+    public async Task NewWorldMetadataCarriesRequiredInEnvelopeIntegrityProof()
     {
         var storage = new LocalWorldStorage(_root);
         var world = CreateWorld();
@@ -32,6 +32,7 @@ public sealed class PersistedDocumentIntegrityTests : IDisposable
         using var document = await JsonDocument.ParseAsync(stream);
         var root = document.RootElement;
 
+        Assert.Equal(2, root.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(1, root.GetProperty("integrityVersion").GetInt32());
         var digest = root.GetProperty("contentSha256").GetString();
         Assert.NotNull(digest);
@@ -67,7 +68,7 @@ public sealed class PersistedDocumentIntegrityTests : IDisposable
         var path = GetWorldMetadataPath(world.Id);
 
         var root = JsonNode.Parse(await File.ReadAllTextAsync(path))!.AsObject();
-        root["schemaVersion"] = 0;
+        root["schemaVersion"] = 1;
         await File.WriteAllTextAsync(path, root.ToJsonString(CamelCaseJson));
 
         var exception = await Assert.ThrowsAsync<InvalidDataException>(
@@ -92,6 +93,25 @@ public sealed class PersistedDocumentIntegrityTests : IDisposable
             () => storage.LoadWorldAsync(world.Id));
 
         Assert.Contains("integrity proof is incomplete", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ProtectedEnvelopeWithEntireIntegrityProofRemovedFailsClosed()
+    {
+        var storage = new LocalWorldStorage(_root);
+        var world = CreateWorld();
+        await storage.SaveWorldAsync(world);
+        var path = GetWorldMetadataPath(world.Id);
+
+        var root = JsonNode.Parse(await File.ReadAllTextAsync(path))!.AsObject();
+        Assert.True(root.Remove("integrityVersion"));
+        Assert.True(root.Remove("contentSha256"));
+        await File.WriteAllTextAsync(path, root.ToJsonString(CamelCaseJson));
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(
+            () => storage.LoadWorldAsync(world.Id));
+
+        Assert.Contains("missing its required integrity proof", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

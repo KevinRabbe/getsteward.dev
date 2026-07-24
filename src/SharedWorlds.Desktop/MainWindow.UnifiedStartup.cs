@@ -27,6 +27,7 @@ public partial class MainWindow
         await InitializeWorldJoinUiAsync();
 
         InitializeUnifiedImportBrowser();
+        InitializeImportAccessibility();
         InitializeResponsibilityPresentation();
         await InitializeWorldInvitationsUiAsync();
         InitializeResponsiveWorkspace();

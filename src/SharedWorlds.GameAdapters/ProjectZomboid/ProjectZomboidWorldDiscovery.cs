@@ -17,7 +17,8 @@ internal static class ProjectZomboidWorldDiscovery
         }
 
         var multiplayerRoot = Path.Combine(userDataPath, "Saves", "Multiplayer");
-        if (!Directory.Exists(multiplayerRoot))
+        var serverConfigRoot = Path.Combine(userDataPath, "Server");
+        if (!Directory.Exists(multiplayerRoot) || !Directory.Exists(serverConfigRoot))
         {
             return [];
         }
@@ -33,6 +34,16 @@ internal static class ProjectZomboidWorldDiscovery
 
             var serverName = Path.GetFileName(Path.TrimEndingDirectorySeparator(directory));
             if (string.IsNullOrWhiteSpace(serverName))
+            {
+                continue;
+            }
+
+            // Saves/Multiplayer also contains client-side caches downloaded from remote servers.
+            // A World is authoritative on this device only when the same server instance has a
+            // local server definition. Steward ignores remote caches instead of guessing from their
+            // internal save contents.
+            var serverConfigPath = Path.Combine(serverConfigRoot, serverName + ".ini");
+            if (!File.Exists(serverConfigPath))
             {
                 continue;
             }

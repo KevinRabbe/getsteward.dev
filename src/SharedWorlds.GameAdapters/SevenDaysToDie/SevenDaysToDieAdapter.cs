@@ -45,8 +45,10 @@ public sealed class SevenDaysToDieAdapter : IGameAdapter
         DetectedWorld world,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(installation);
-        var captured = await SevenDaysToDieWorldState.CaptureDetectedWorldAsync(world, cancellationToken);
+        var captured = await SevenDaysToDieWorldState.CaptureDetectedWorldAsync(
+            installation,
+            world,
+            cancellationToken);
         return captured with { DeletePackageAfterStore = true };
     }
 

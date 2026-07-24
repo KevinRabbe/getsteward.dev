@@ -186,6 +186,31 @@ public sealed class SharedWorldHostPresenceServiceTests
             joinToken: null));
     }
 
+    [Fact]
+    public async Task UndefinedPresenceStateIsRejectedBeforePersistence()
+    {
+        var caller = Identity("76561198000000001");
+        var reservation = Reservation(caller.Subject, "device-a");
+        var presenceStore = new PresenceStore();
+        var service = CreateService(
+            new AuthorityStore { Reservation = reservation },
+            presenceStore,
+            () => DateTimeOffset.UtcNow);
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => service.PublishAsync(
+            caller,
+            "device-a",
+            reservation.WorldId,
+            reservation.SessionId,
+            reservation.Generation,
+            (SharedWorldHostPresenceState)999,
+            address: null,
+            port: null,
+            joinToken: null));
+
+        Assert.Null(presenceStore.Presence);
+    }
+
     private static SharedWorldHostPresenceService CreateService(
         ISharedWorldAuthorityStore authorityStore,
         ISharedWorldHostPresenceStore presenceStore,

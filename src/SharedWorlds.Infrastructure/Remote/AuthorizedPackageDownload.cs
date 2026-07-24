@@ -11,9 +11,11 @@ public sealed record AuthorizedPackageDownload
     {
         ArgumentNullException.ThrowIfNull(uri);
         ArgumentNullException.ThrowIfNull(requiredHeaders);
-        if (!uri.IsAbsoluteUri || uri.Scheme is not ("https" or "http"))
+        if (!StewardRemoteEndpointPolicy.IsAllowedHttpEndpoint(uri))
         {
-            throw new ArgumentException("Package download URI must be an absolute HTTP(S) URI.", nameof(uri));
+            throw new ArgumentException(
+                "Package download URI must use HTTPS. Plain HTTP is allowed only for loopback development endpoints.",
+                nameof(uri));
         }
 
         if (expiresAt <= DateTimeOffset.UtcNow)

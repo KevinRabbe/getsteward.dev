@@ -296,8 +296,8 @@ public sealed class WorldLifecycleService
         };
 
         // Writable sessions register cleanup ownership immediately after the adapter creates a
-        // workspace. Until the session is actually launchable this is cleanup-only responsibility;
-        // a restore/download failure must never leave an untracked prepared workspace behind.
+        // workspace. This durable bookkeeping is intentionally not a separate visible lifecycle
+        // phase; RegisteringRecovery remains the later promotion to active session responsibility.
         if (registerPreparedWorkspace is not null)
         {
             await registerPreparedWorkspace(world, prepared, CancellationToken.None);
@@ -441,7 +441,6 @@ public sealed class WorldLifecycleService
                         Reason: "Prepared workspace exists before session launch; cleanup is the only safe recovery action until launch begins.",
                         EnvironmentRevisionId: environmentRevisionId);
 
-                    Notify(worldId, mode, WorldLifecyclePhase.RegisteringRecovery);
                     await _workspaceRecoveryStore.SaveAsync(workspaceRecord, CancellationToken.None);
                 });
 
@@ -454,6 +453,7 @@ public sealed class WorldLifecycleService
                     UpdatedAt = DateTimeOffset.UtcNow,
                     Reason = null
                 };
+            Notify(worldId, mode, WorldLifecyclePhase.RegisteringRecovery);
             await _workspaceRecoveryStore.SaveAsync(workspaceRecord, cancellationToken);
 
             Notify(worldId, mode, WorldLifecyclePhase.StartingSession);

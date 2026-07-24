@@ -75,6 +75,10 @@ builder.Services.AddSingleton<PostgreSqlSharedWorldReservationAbandonStore>();
 builder.Services.AddSingleton<ISharedWorldReservationAbandonStore>(services =>
     services.GetRequiredService<PostgreSqlSharedWorldReservationAbandonStore>());
 
+builder.Services.AddSingleton<PostgreSqlSharedWorldHostPresenceStore>();
+builder.Services.AddSingleton<ISharedWorldHostPresenceStore>(services =>
+    services.GetRequiredService<PostgreSqlSharedWorldHostPresenceStore>());
+
 builder.Services.AddSingleton<PostgreSqlStewardSessionStore>();
 builder.Services.AddSingleton<IStewardSessionStore>(services =>
     services.GetRequiredService<PostgreSqlStewardSessionStore>());
@@ -113,6 +117,10 @@ builder.Services.AddSingleton(services => new SharedWorldAuthorityService(
     services.GetRequiredService<ISharedWorldAuthorityStore>(),
     () => DateTimeOffset.UtcNow));
 builder.Services.AddSingleton<SharedWorldReservationAbandonService>();
+builder.Services.AddSingleton(services => new SharedWorldHostPresenceService(
+    services.GetRequiredService<SharedWorldAuthorityService>(),
+    services.GetRequiredService<ISharedWorldHostPresenceStore>(),
+    () => DateTimeOffset.UtcNow));
 builder.Services.AddSingleton(services => new SharedWorldAccessService(
     services.GetRequiredService<ISharedWorldMetadataStore>(),
     services.GetRequiredService<ISharedWorldAccessStore>(),
@@ -161,6 +169,7 @@ app.MapStewardAccessApiV1();
 app.MapStewardRevisionMetadataApiV1();
 app.MapStewardAuthorityApiV1();
 app.MapStewardReservationAbandonApiV1();
+app.MapStewardHostPresenceApiV1();
 
 await app.RunAsync();
 
@@ -199,8 +208,6 @@ static async Task<IResult> CheckReadinessAsync(
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
 
-        // Inspect is non-mutating. A null result means the reserved key does not exist, which is the
-        // expected state; successful completion proves service reachability, credentials, and bucket access.
         _ = await objectStore.InspectObjectAsync(readinessObjectKey, cancellationToken);
         return Results.Ok(new { status = "ready" });
     }
@@ -210,8 +217,6 @@ static async Task<IResult> CheckReadinessAsync(
     }
     catch
     {
-        // Readiness is intentionally non-diagnostic on the public surface. Deployment logs own the
-        // concrete dependency error; clients and load balancers only need a safe ready/not-ready signal.
         return Results.Json(
             new { status = "not-ready" },
             statusCode: StatusCodes.Status503ServiceUnavailable);

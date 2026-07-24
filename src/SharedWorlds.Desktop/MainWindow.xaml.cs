@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Worlds;
+using SharedWorlds.Infrastructure.Diagnostics;
 using SharedWorlds.Infrastructure.Sessions;
 using SharedWorlds.Infrastructure.Storage;
 
@@ -212,9 +213,16 @@ public partial class MainWindow : Window
     }
 
     private static void ShowError(string title, Exception exception)
-        => MessageBox.Show(
-            DesktopErrorMessage.Safe(exception),
+    {
+        var diagnosticsRoot = Path.Combine(GetLocalDataRoot(), "SharedWorlds", "logs");
+        var incident = LocalDiagnosticLog.TryWriteException(exception, diagnosticsRoot);
+        var diagnosticReference = incident.LogPath is null
+            ? $"Incident ID: {incident.Id}"
+            : $"Incident ID: {incident.Id}{Environment.NewLine}Diagnostic log: {incident.LogPath}";
+        MessageBox.Show(
+            $"{DesktopErrorMessage.Safe(exception)}{Environment.NewLine}{Environment.NewLine}{diagnosticReference}",
             title,
             MessageBoxButton.OK,
             MessageBoxImage.Error);
+    }
 }

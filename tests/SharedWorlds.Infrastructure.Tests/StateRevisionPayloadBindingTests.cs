@@ -47,7 +47,7 @@ public sealed class StateRevisionPayloadBindingTests : IDisposable
         Assert.Equal(
             ["payload.bin", "revision.json"],
             Directory.EnumerateFiles(directory)
-                .Select(Path.GetFileName)
+                .Select(path => Path.GetFileName(path)!)
                 .OrderBy(name => name, StringComparer.Ordinal)
                 .ToArray());
     }

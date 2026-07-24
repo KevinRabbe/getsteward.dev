@@ -56,17 +56,13 @@ public partial class MainWindow
 
     private void ImportWorkspace_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if (e.NewValue is true)
+        if (e.NewValue is true || _isBusy)
         {
             return;
         }
 
-        if (KeyboardFocusIsInsideImportWorkspace())
-        {
-            OpenImportButton.Focus();
-        }
+        // Manual close returns keyboard users to the action that opened the workspace. Successful
+        // import closes while busy and deliberately leaves focus to the refreshed World surface.
+        OpenImportButton.Focus();
     }
-
-    private bool KeyboardFocusIsInsideImportWorkspace()
-        => _importWorkspace?.IsKeyboardFocusWithin == true;
 }

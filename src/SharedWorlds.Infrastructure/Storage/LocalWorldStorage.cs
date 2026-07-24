@@ -37,10 +37,12 @@ public sealed class LocalWorldStorage : IWorldStorage
         }
 
         await using var stream = OpenRead(path);
-        return await PersistedDocumentCodec.ReadAsync(
+        var world = await PersistedDocumentCodec.ReadAsync(
             stream,
             StorageDocumentSchemas.World,
             cancellationToken);
+        EnsureWorldStorageIdentity(world, worldId, path);
+        return world;
     }
 
     public async Task<IReadOnlyList<World>> ListWorldsAsync(
@@ -68,6 +70,13 @@ public sealed class LocalWorldStorage : IWorldStorage
                 stream,
                 StorageDocumentSchemas.World,
                 cancellationToken);
+            var storageKey = Path.GetFileName(directory);
+            if (!string.Equals(storageKey, world.Id.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    $"Persisted World '{world.Id}' is stored under mismatched World key '{storageKey}'.");
+            }
+
             worlds.Add(world);
         }
 
@@ -99,10 +108,18 @@ public sealed class LocalWorldStorage : IWorldStorage
         }
 
         await using var stream = OpenRead(path);
-        return await PersistedDocumentCodec.ReadAsync(
+        var revision = await PersistedDocumentCodec.ReadAsync(
             stream,
             StorageDocumentSchemas.EnvironmentRevision,
             cancellationToken);
+        EnsureRevisionStorageIdentity(
+            revision.WorldId,
+            revision.Id,
+            worldId,
+            revisionId,
+            "environment revision",
+            path);
+        return revision;
     }
 
     public async Task StoreRevisionAsync(
@@ -168,10 +185,18 @@ public sealed class LocalWorldStorage : IWorldStorage
         }
 
         await using var stream = OpenRead(path);
-        return await PersistedDocumentCodec.ReadAsync(
+        var revision = await PersistedDocumentCodec.ReadAsync(
             stream,
             StorageDocumentSchemas.StateRevision,
             cancellationToken);
+        EnsureRevisionStorageIdentity(
+            revision.WorldId,
+            revision.Id,
+            worldId,
+            revisionId,
+            "state revision",
+            path);
+        return revision;
     }
 
     public async Task<Stream> OpenRevisionAsync(
@@ -188,6 +213,13 @@ public sealed class LocalWorldStorage : IWorldStorage
             throw new FileNotFoundException(
                 $"State revision '{revisionId}' for World '{worldId}' does not exist.",
                 path);
+        }
+
+        var revision = await LoadStateRevisionAsync(worldId, revisionId, cancellationToken);
+        if (revision is null)
+        {
+            throw new InvalidDataException(
+                $"State revision '{revisionId}' for World '{worldId}' has payload bytes but no revision metadata.");
         }
 
         var checksumPath = Path.Combine(revisionDirectory, PayloadSha256FileName);
@@ -302,6 +334,34 @@ public sealed class LocalWorldStorage : IWorldStorage
 
         await output.FlushAsync(cancellationToken);
         return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    private static void EnsureWorldStorageIdentity(
+        World world,
+        WorldId expectedWorldId,
+        string path)
+    {
+        if (world.Id != expectedWorldId)
+        {
+            throw new InvalidDataException(
+                $"Persisted World '{world.Id}' does not match storage key '{expectedWorldId}' at '{path}'.");
+        }
+    }
+
+    private static void EnsureRevisionStorageIdentity(
+        WorldId actualWorldId,
+        RevisionId actualRevisionId,
+        WorldId expectedWorldId,
+        RevisionId expectedRevisionId,
+        string kind,
+        string path)
+    {
+        if (actualWorldId != expectedWorldId || actualRevisionId != expectedRevisionId)
+        {
+            throw new InvalidDataException(
+                $"Persisted {kind} '{actualRevisionId}' for World '{actualWorldId}' does not match storage key " +
+                $"'{expectedRevisionId}' for World '{expectedWorldId}' at '{path}'.");
+        }
     }
 
     private async Task WriteDocumentAtomicAsync<T>(

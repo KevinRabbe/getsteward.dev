@@ -234,6 +234,11 @@ public sealed class SharedWorldHostPresenceService
         int? port,
         string? joinToken)
     {
+        if (!Enum.IsDefined(state))
+        {
+            throw new ArgumentOutOfRangeException(nameof(state));
+        }
+
         if (state == SharedWorldHostPresenceState.Ready && string.IsNullOrWhiteSpace(address))
         {
             throw new ArgumentException("Ready host presence requires a connection address.", nameof(address));

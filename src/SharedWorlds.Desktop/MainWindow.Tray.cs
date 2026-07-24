@@ -89,6 +89,7 @@ public partial class MainWindow
         _trayIcon.Text = snapshot.Kind switch
         {
             WorldLifecycleResponsibilityKind.None => "Steward",
+            WorldLifecycleResponsibilityKind.InterruptedSession => "Steward - Interrupted session",
             WorldLifecycleResponsibilityKind.RecoveryNeeded => "Steward - Recovery needed",
             WorldLifecycleResponsibilityKind.CleanupPending => "Steward - Action required",
             _ => snapshot.Phase switch

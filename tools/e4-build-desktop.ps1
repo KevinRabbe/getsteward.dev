@@ -66,45 +66,35 @@ if ($publishExitCode -ne 0) {
     Fail "dotnet publish failed with exit code $publishExitCode."
 }
 
+$requiredFiles = @(
+    'SharedWorlds.Desktop.exe',
+    'steam_api64.dll',
+    'SharedWorlds.GameAdapters.Factorio.dll',
+    'SharedWorlds.GameAdapters.Palworld.dll',
+    'SharedWorlds.GameAdapters.SevenDaysToDie.dll',
+    'SharedWorlds.GameAdapters.ProjectZomboid.dll'
+)
+
+foreach ($requiredFile in $requiredFiles) {
+    $requiredPath = Join-Path $output $requiredFile
+    if ([IO.File]::Exists($requiredPath)) {
+        continue
+    }
+
+    $files = @(Get-ChildItem -LiteralPath $output -Recurse -File | Sort-Object FullName)
+    Write-Host "Required published file is missing: $requiredFile"
+    Write-Host 'Published files:'
+    $files | ForEach-Object {
+        Write-Host "  $([IO.Path]::GetRelativePath($output, $_.FullName))"
+    }
+    if ($env:GITHUB_ACTIONS -eq 'true') {
+        Add-Content -LiteralPath (Join-Path $repoRoot 'build.log') -Value "Missing E4 package file: $requiredFile"
+    }
+    Fail "Published acceptance package is incomplete: $requiredFile"
+}
+
 $desktopExecutable = Join-Path $output 'SharedWorlds.Desktop.exe'
 $steamNative = Join-Path $output 'steam_api64.dll'
-
-if (-not [IO.File]::Exists($desktopExecutable)) {
-    $files = Get-ChildItem -LiteralPath $output -File | Sort-Object Name
-    Write-Host 'Published top-level files:'
-    $files | ForEach-Object { Write-Host "  $($_.Name)" }
-    if ($env:GITHUB_ACTIONS -eq 'true') {
-        Add-Content -LiteralPath (Join-Path $repoRoot 'build.log') -Value 'E4 package top-level files:'
-        $files.Name | Add-Content -LiteralPath (Join-Path $repoRoot 'build.log')
-    }
-    Fail "Published desktop executable is missing: $desktopExecutable"
-}
-
-if (-not [IO.File]::Exists($steamNative)) {
-    Write-Host 'Steam-related files found in the publish tree:'
-    $steamFiles = @(Get-ChildItem -LiteralPath $output -Recurse -File |
-        Where-Object { $_.Name -match 'steam' } |
-        Sort-Object FullName)
-    $relativeSteamFiles = @($steamFiles | ForEach-Object {
-        [IO.Path]::GetRelativePath($output, $_.FullName)
-    })
-    if ($relativeSteamFiles.Count -eq 0) {
-        Write-Host '  (none)'
-    }
-    else {
-        $relativeSteamFiles | ForEach-Object { Write-Host "  $_" }
-    }
-    if ($env:GITHUB_ACTIONS -eq 'true') {
-        Add-Content -LiteralPath (Join-Path $repoRoot 'build.log') -Value 'E4 package Steam-related files:'
-        if ($relativeSteamFiles.Count -eq 0) {
-            Add-Content -LiteralPath (Join-Path $repoRoot 'build.log') -Value '(none)'
-        }
-        else {
-            $relativeSteamFiles | Add-Content -LiteralPath (Join-Path $repoRoot 'build.log')
-        }
-    }
-    Fail "Published Steam native runtime is missing: $steamNative"
-}
 
 $commit = $null
 try {
@@ -117,9 +107,23 @@ if ([string]::IsNullOrWhiteSpace($commit)) {
     $commit = 'unknown'
 }
 
+$packageFiles = @(Get-ChildItem -LiteralPath $output -Recurse -File |
+    Sort-Object FullName |
+    ForEach-Object {
+        [ordered]@{
+            path = [IO.Path]::GetRelativePath($output, $_.FullName).Replace('\', '/')
+            byteSize = $_.Length
+            sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+        }
+    })
+
+if ($packageFiles.Count -eq 0) {
+    Fail 'Published acceptance package contains no files.'
+}
+
 $metadata = [ordered]@{
     documentType = 'steward.e4-desktop-acceptance-build'
-    schemaVersion = 1
+    schemaVersion = 2
     commitSha = $commit
     builtAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
     runtime = $Runtime
@@ -127,15 +131,18 @@ $metadata = [ordered]@{
     selfContained = $selfContained
     executable = [IO.Path]::GetFileName($desktopExecutable)
     steamNativeRuntime = [IO.Path]::GetFileName($steamNative)
+    files = $packageFiles
 }
 $metadataPath = Join-Path $output 'acceptance-build.json'
-$metadata | ConvertTo-Json | Set-Content -LiteralPath $metadataPath -Encoding utf8
+$metadata | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $metadataPath -Encoding utf8
 
 Write-Host
-Write-Host '[OK] Steward desktop acceptance build is structurally complete.'
+Write-Host '[OK] Steward desktop acceptance build is structurally complete and byte-verifiable.'
 Write-Host "  Executable: $desktopExecutable"
 Write-Host "  Steam runtime: $steamNative"
+Write-Host "  Production adapters: Factorio, Palworld, 7 Days to Die, Project Zomboid"
+Write-Host "  Hashed package files: $($packageFiles.Count)"
 Write-Host "  Metadata: $metadataPath"
 Write-Host
 Write-Host 'No Steam AppID, API URL, Web API identity, tickets, or backend secrets are embedded by this script.'
-Write-Host 'Use tools/e4-live-acceptance.ps1 to supply the non-secret runtime coordinates and launch the build.'
+Write-Host 'Use tools/e4-live-acceptance.ps1 to verify this exact package and supply the non-secret runtime coordinates.'

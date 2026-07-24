@@ -1,0 +1,76 @@
+name: Windows acceptance package
+
+on:
+  push:
+    branches:
+      - main
+      - "agent/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  package:
+    name: Build Windows acceptance package
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Test Windows Desktop resource boundary
+        shell: pwsh
+        run: |
+          $results = "$env:RUNNER_TEMP/desktop-resource-test-results"
+          $log = "$env:RUNNER_TEMP/desktop-resource-test.log"
+          New-Item -ItemType Directory -Force -Path $results | Out-Null
+          & dotnet test `
+            tests/SharedWorlds.Desktop.AcceptanceTests/SharedWorlds.Desktop.AcceptanceTests.csproj `
+            --configuration Release `
+            --nologo `
+            --verbosity minimal `
+            --logger "trx;LogFileName=desktop-resource-test.trx" `
+            --results-directory $results *> $log
+          $exitCode = $LASTEXITCODE
+          Get-Content $log
+          if ($exitCode -ne 0) {
+            exit $exitCode
+          }
+
+      - name: Upload Desktop resource test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: steward-desktop-resource-test-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/desktop-resource-test.log
+            ${{ runner.temp }}/desktop-resource-test-results
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Build byte-verifiable package
+        shell: pwsh
+        run: |
+          ./tools/e4-build-desktop.ps1 `
+            -FrameworkDependent `
+            -OutputDirectory "$env:RUNNER_TEMP/steward-windows-acceptance"
+          Get-Content "$env:RUNNER_TEMP/steward-windows-acceptance/acceptance-build.json"
+
+      - name: Upload exact acceptance package
+        uses: actions/upload-artifact@v6
+        with:
+          name: steward-windows-acceptance-${{ github.sha }}
+          path: ${{ runner.temp }}/steward-windows-acceptance
+          if-no-files-found: error
+          retention-days: 14

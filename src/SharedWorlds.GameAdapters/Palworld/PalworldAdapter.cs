@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using System.Collections.Concurrent;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Environment;
 
@@ -6,11 +6,14 @@ namespace SharedWorlds.GameAdapters.Palworld;
 
 public sealed partial class PalworldAdapter : IGameAdapter
 {
+    private readonly ConcurrentDictionary<int, PalworldManagedHostSession> _managedHosts = new();
+
     public string Id => "palworld";
     public string DisplayName => "Palworld";
 
     public GameAdapterCapabilities Capabilities =>
         GameAdapterCapabilities.AutomaticHostLaunch |
+        GameAdapterCapabilities.AutomaticHostStop |
         GameAdapterCapabilities.ExactGameVersion;
 
     public Task<IReadOnlyList<GameInstallation>> DiscoverInstallationsAsync(
@@ -53,14 +56,13 @@ public sealed partial class PalworldAdapter : IGameAdapter
         return Task.FromResult(PalworldDedicatedServerHosting.InspectEnvironment(installation, world));
     }
 
-    public async Task<CapturedState> CaptureDetectedWorldAsync(
+    public Task<CapturedState> CaptureDetectedWorldAsync(
         GameInstallation installation,
         DetectedWorld world,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(installation);
-        var captured = await PalworldWorldState.CaptureDetectedWorldAsync(world, cancellationToken);
-        return captured with { DeletePackageAfterStore = true };
+        return PalworldWorldState.CaptureDetectedWorldAsync(world, cancellationToken);
     }
 
     public Task<PreparedWorld> PrepareEnvironmentAsync(
@@ -73,58 +75,91 @@ public sealed partial class PalworldAdapter : IGameAdapter
             PalworldDedicatedServerHosting.PrepareEnvironment(installation, requiredEnvironment));
     }
 
-    public async Task<CapturedState> CaptureStateAsync(
+    public Task<CapturedState> CaptureStateAsync(
         PreparedWorld world,
         CancellationToken cancellationToken = default)
     {
-        var captured = await PalworldWorldState.CapturePreparedWorldAsync(world, cancellationToken);
-        return captured with { DeletePackageAfterStore = true };
+        ArgumentNullException.ThrowIfNull(world);
+        PalworldWorkspaceOwnership.RequireOwned(world);
+        return PalworldWorldState.CapturePreparedWorldAsync(world, cancellationToken);
     }
 
     public Task RestoreStateAsync(
         PreparedWorld world,
         StatePackage state,
         CancellationToken cancellationToken = default)
-        => PalworldWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(state);
+        PalworldWorkspaceOwnership.RequireOwned(world);
+        PalworldStatePackagePreflight.Validate(
+            state.Path,
+            world.WorkingDirectory,
+            cancellationToken);
+        return PalworldWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
+    }
 
-    public Task<GameSessionHandle> LaunchLocalAsync(
-        PreparedWorld world,
-        CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
-
-    public Task<GameSessionHandle> LaunchHostAsync(
+    public async Task<GameSessionHandle> LaunchHostAsync(
         PreparedWorld world,
         CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(PalworldDedicatedServerHosting.Launch(world));
+        var managed = await PalworldManagedHostSession.StartAsync(world, cancellationToken);
+        var handle = managed.Handle;
+        if (!_managedHosts.TryAdd(handle.ProcessId, managed))
+        {
+            try
+            {
+                await managed.RequestStopAsync(CancellationToken.None);
+            }
+            finally
+            {
+                managed.Dispose();
+            }
+
+            throw new InvalidOperationException(
+                $"Palworld process {handle.ProcessId} is already registered as a managed host.");
+        }
+
+        return handle;
     }
 
-    public Task<GameSessionHandle> LaunchClientAsync(
-        PreparedWorld world,
-        HostConnection host,
+    public async Task RequestHostStopAsync(
+        GameSessionHandle session,
         CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        if (!_managedHosts.TryGetValue(session.ProcessId, out var managed))
+        {
+            throw new InvalidOperationException(
+                "The Palworld host session is no longer registered with this Steward adapter instance.");
+        }
+
+        await managed.RequestStopAsync(cancellationToken);
+    }
 
     public async Task WaitForSessionEndAsync(
         GameSessionHandle session,
         CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(session);
+        if (!_managedHosts.TryGetValue(session.ProcessId, out var managed))
+        {
+            throw new InvalidOperationException(
+                "The Palworld session is not a Steward-managed host, so its end cannot be accepted as a safe capture boundary.");
+        }
 
-        Process process;
         try
         {
-            process = Process.GetProcessById(session.ProcessId);
+            // Deliberately do not allow caller cancellation to release Core's responsibility while
+            // PalServer may still own writable state. The user can request the adapter's safe stop.
+            await managed.WaitForCompletionAsync();
         }
-        catch (ArgumentException)
+        finally
         {
-            return;
-        }
-
-        using (process)
-        {
-            await process.WaitForExitAsync(cancellationToken);
+            if (_managedHosts.TryRemove(session.ProcessId, out var removed))
+            {
+                removed.Dispose();
+            }
         }
     }
 

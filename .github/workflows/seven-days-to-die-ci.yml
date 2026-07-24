@@ -1,0 +1,45 @@
+name: 7 Days to Die adapter CI
+
+on:
+  push:
+    branches:
+      - "agent/steward-unblocked-work"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  test:
+    name: Test 7 Days to Die adapter
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore tests/SharedWorlds.GameAdapters.SevenDaysToDie.Tests/SharedWorlds.GameAdapters.SevenDaysToDie.Tests.csproj
+
+      - name: Test
+        shell: pwsh
+        run: |
+          dotnet test tests/SharedWorlds.GameAdapters.SevenDaysToDie.Tests/SharedWorlds.GameAdapters.SevenDaysToDie.Tests.csproj --configuration Release --no-restore --nologo --verbosity minimal 2>&1 | Tee-Object -FilePath seven-days-to-die-test.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seven-days-to-die-test-log
+          path: seven-days-to-die-test.log

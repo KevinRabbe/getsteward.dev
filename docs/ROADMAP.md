@@ -14,9 +14,9 @@ They deliver one product model. No workstream may invent a competing definition 
 
 ## Current mode: implementation unlocked
 
-Status: **P0 COMPLETE. E1 COMPLETE AND GREEN. BACKEND BE-2 THROUGH BE-5 DEVELOPMENT ACCEPTANCE COMPLETE AND GREEN. E4 WINDOWS DESKTOP PRODUCT COMPOSITION COMPLETE AT THE CODE/CI BOUNDARY; LIVE DEPLOYMENT ACCEPTANCE ACTIVE.**
+Status: **P0 COMPLETE. E1 COMPLETE AND GREEN. BACKEND BE-2 THROUGH BE-5 DEVELOPMENT ACCEPTANCE COMPLETE AND GREEN. E4 WINDOWS DESKTOP PRODUCT COMPOSITION COMPLETE AT THE CODE/CI BOUNDARY; E4-A LIVE INFRASTRUCTURE ACCEPTANCE IS INDEPENDENT OF STEAM PRODUCTION CREDENTIALS; E4-B STEAM/HOST HANDOFF REMAINS EMPIRICAL ACCEPTANCE.**
 
-The planning contracts remain the first-release implementation baseline. Changes remain possible, but any deliberate product-boundary or contract change must be documented before implementation changes follow it.
+The planning contracts remain the first-release implementation baseline. Changes remain possible, but any deliberate product-boundary or contract change must be documented with the implementation that establishes the new boundary.
 
 Implementation is allowed only when it maps to:
 
@@ -24,7 +24,7 @@ Implementation is allowed only when it maps to:
 - one numbered milestone;
 - one acceptance criterion.
 
-The active phase remains **E4: Background runtime integration**, but its remaining work is now acceptance rather than structural Desktop composition. The Windows Desktop already composes the authenticated remote stack, preserves the local-only path, enforces exact-environment Verify/Repair, and exposes deterministic pending/cleanup/interrupted recovery. E4 closes only after that code survives the real Steam + deployed-backend + two-installation Factorio handoff.
+E4 no longer acts as one serial gate. E4-A proves the real HTTPS/PostgreSQL/S3 deployment boundary without private Steam publisher credentials. E4-B later proves production Steam identity and the real two-installation host/Join handoff. Deferred empirical evidence in E4-B does not block independent Core, backend, UI, storage, recovery, or adapter work.
 
 ## Product boundaries
 
@@ -43,13 +43,14 @@ UI never invents backend authority or game-specific lifecycle behavior.
 
 ### Backend owns
 
-- verified Steam identity for shared operations;
+- verified Steam identity for shared operations when production Steam authentication is configured;
 - flat World membership + one Access Manager;
 - immutable package publication/transfer authorization;
 - canonical state/environment heads;
 - one-writer reservation/generation;
 - uncertainty/reclaim;
 - expected-head commit;
+- short-lived host-presence evidence bound to current authority;
 - remote recovery/retention/security/operations boundaries.
 
 Backend never interprets game saves or runs permanent game servers.
@@ -158,15 +159,40 @@ Status: **complete — product owner explicitly approved continuing into impleme
 
 Every production change must map to one workstream, one numbered milestone, and one acceptance criterion.
 
-## Finish before expanding
+## Empirical uncertainty is accumulated, not serialized
 
-Do not jump to later features to avoid a difficult current requirement.
+A real-machine/manual experiment does not block unrelated development merely because it is unresolved.
+
+```text
+reach empirical uncertainty
+-> record the exact deferred test
+-> freeze the assumption / do not fake evidence
+-> move to another independent code path
+-> continue deterministic CI/build/test work
+-> later execute several empirical tests as one batch
+```
+
+A deferred uncertainty still blocks any claim or capability that depends on its result. It does **not** block work that does not depend on that claim.
+
+## Eliminate ownership before solving it
+
+This rule has higher priority than solving a difficult implementation problem:
+
+```text
+need to solve X
+-> discover Steward does not need to own X
+-> DELETE X
+-> delete obsolete tests/probes/interfaces that existed only for X
+-> stop caring about X
+```
+
+Do not preserve abstractions, codecs, experiments, launch stubs, or compatibility paths merely because work was previously invested in them. The smallest truthful product boundary wins.
 
 ## Parking lot new ideas
 
-Ideas that do not unblock the active milestone are recorded/deferred. They do not enter implementation merely because they sound useful.
+Ideas that do not unblock or strengthen an active product path are recorded/deferred. They do not enter implementation merely because they sound useful.
 
-## Boundary changes update documentation first
+## Boundary changes update documentation
 
 A deliberate product-boundary change updates, where applicable:
 
@@ -174,11 +200,13 @@ A deliberate product-boundary change updates, where applicable:
 2. `PRODUCT_BOUNDARY.md`;
 3. `DECISIONS.md`;
 4. affected roadmap/cross-workstream contracts;
-5. implementation.
+5. implementation and acceptance evidence.
+
+Documentation must describe executable truth. Existing prose is not authority when code/evidence proves it stale.
 
 ## Evidence over assumption
 
-Claims about Factorio, Palworld, Steam, package behavior, process ownership, safe capture, or recovery remain conditional until controlled evidence proves them.
+Claims about Factorio, Palworld, 7DTD, Project Zomboid, Steam, package behavior, process ownership, host reachability, safe capture, or recovery remain conditional until controlled evidence proves them. Unknown evidence is recorded and deferred rather than replaced with guessed behavior.
 
 # Validated implementation foundation
 
@@ -247,7 +275,7 @@ BE-4 provides and proves:
 - parallel race protection;
 - stale/late writer rejection.
 
-## E4: Background runtime integration — CODE/CI COMPLETE, LIVE ACCEPTANCE ACTIVE
+## E4: Background runtime integration — CODE/CI COMPOSED, LIVE ACCEPTANCE SPLIT
 
 Implemented and CI-proven:
 
@@ -270,7 +298,11 @@ Implemented and CI-proven:
 - distinct crash-found `InterruptedSession` responsibility;
 - explicit **Recover changes** and confirmed **Discard interrupted session** paths;
 - tray/Quit/update/writable-action guards tied to durable responsibility;
-- fail-closed state-head, environment-head, candidate-parent, and adapter checks.
+- fail-closed state-head, environment-head, candidate-parent, and adapter checks;
+- short-lived host-presence service/API/PostgreSQL/client boundary tied to exact active reservation;
+- read-only Join lifecycle that does not download/restore canonical state or acquire writable authority;
+- capability-driven Desktop Join consumption;
+- backend infrastructure-only startup mode with Steam authentication explicitly unavailable/fail-closed.
 
 Current code-level recovery rule:
 
@@ -291,31 +323,51 @@ state or environment diverged
     -> preserve evidence
 ```
 
-Factorio hosted play already uses the real dedicated-server/RCON lifecycle at the adapter layer. E4 still requires the complete product path to be exercised on the real Windows Steam/deployed-backend boundary.
+Current Factorio adapter truth is simpler than older roadmap text claimed: `LaunchHostAsync` uses the direct `factorio --host <save>` path. Richer dedicated-server/RCON primitives exist in the repository but are not the active adapter host path and therefore are not counted as implemented product behavior.
 
 Canonical status: `E4_DESKTOP_STATUS.md`.
 
-Latest code checkpoint covering interrupted-session decisions, local recovery, and exact-environment remote recovery: commit `4ec21efec9a6542938fa4f32b2a5c3ecb2c2b424`, CI run `29941402902`, full five-gate matrix green.
+### E4-A — live infrastructure readiness
 
-### E4 live acceptance sequence
+E4-A must prove the real deployment boundary that does **not** require private Steam publisher credentials:
+
+```text
+real HTTPS Steward API
+-> real PostgreSQL
+-> real S3-compatible storage
+-> schema initialization
+-> health/live
+-> health/ready
+-> transfer/network behaviour
+-> deployment/restart/logging checks
+```
+
+The backend now supports exactly this mode: omit all server Steam credentials and Steam authentication is unavailable/fail-closed while infrastructure can boot and be exercised. Partial Steam configuration is rejected.
+
+`tools/e4-live-acceptance.ps1` selects E4-A when client Steam values are absent.
+
+### E4-B — Steam production + two-installation host/Join acceptance
+
+E4-B begins when the real Steward Steam AppID and publisher credentials exist. It remains intentionally empirical:
 
 ```text
 real Windows Steward build under Steward Steam AppID
 -> real Steam Web API ticket
 -> deployed Steward API verifies same AppID/identity
--> shared Factorio World appears
+-> PC A shares Factorio World and invites PC B
+-> PC B accepts and sees same canonical World
 -> exact environment reaches Ready
--> remote Continue/Host
--> exact reservation + verified canonical download
--> dedicated Factorio server reaches authenticated RCON readiness
--> host gameplay
--> RCON server-save + observed save refresh
+-> PC A acquires exact writable reservation and hosts
+-> game host becomes genuinely reachable
+-> PC A publishes truthful Ready host presence
+-> PC B consumes host presence and joins read-only
+-> gameplay ends + proven safe host stop/save boundary
 -> capture + multipart upload
 -> expected-head commit
--> second Steward installation observes and continues new canonical revision
+-> second Steward installation observes the new canonical revision
 ```
 
-E4 is not product-complete until this real boundary is proven.
+The unresolved external host-address/reachability mechanism and exact Windows graceful Factorio managed-stop signal stay in the deferred empirical batch. They block claiming E4-B complete, not independent implementation elsewhere.
 
 ## E5: Development two-device proof / BE-5 — COMPLETE AND GREEN
 
@@ -349,13 +401,13 @@ Canonical evidence: `BE5_STATUS.md`.
 - recovery/action-required/interrupted-session flows;
 - accessibility/commercial polish.
 
-E6 may proceed alongside E4 live acceptance only when UI work consumes real runtime/backend states instead of inventing substitute behavior.
+E6 may proceed alongside E4 live acceptance when UI work consumes real runtime/backend states instead of inventing substitute behavior.
 
 ## E7: Second-adapter handoff proof
 
-Repeat the production-composed two-device flow with the other initial adapter. Keep game-specific issues inside its adapter.
+Repeat the production-composed two-device flow with another adapter only when that adapter truthfully advertises the required host/join capabilities. Keep game-specific issues inside its adapter.
 
-Palworld shared play remains fail-closed until its real exact-environment verifier is implemented and proven.
+Palworld shared play remains fail-closed until its remaining exact-environment/runtime acceptance evidence is proven. 7 Days to Die and Project Zomboid continue to advertise only the capabilities they actually implement.
 
 ## E8: Release hardening
 
@@ -378,39 +430,3 @@ Only after correctness:
 - background prefetch;
 - compression tuning;
 - retention compaction/delta/chunk reuse where measurements justify it.
-
-# Initial commercial release boundary
-
-Required:
-
-- Windows desktop/tray product;
-- Steam identity/platform integration;
-- Factorio and Palworld as reliable initial adapters;
-- import existing Worlds;
-- local Start and temporary Host;
-- background session observation;
-- safe capture/commit;
-- durable shared latest state;
-- distributed one-writer protection;
-- explicit sharing/access;
-- cross-device continuation;
-- interrupted-handoff recovery;
-- clear environment/adapter/identity limitations;
-- concise game-first UI.
-
-Not required:
-
-- generic save merging;
-- Fork/branch workflows;
-- parties/chat/public discovery/community feeds;
-- gameplay role hierarchy;
-- permanent hosted game-server fleet;
-- live host migration;
-- every mod ecosystem;
-- broad game catalog;
-- active-active global authority;
-- premature delta/P2P optimization.
-
-# Immediate next step
-
-Execute **E4 live deployment acceptance** rather than building another abstraction layer. Use the real Windows Steward build, real Steam AppID/Web API ticket, deployed backend, and two Steward installations to prove the Factorio shared-World handoff end to end. Any failure found there becomes the next concrete engineering task. Do not redesign backend authority, transfer, or adapter boundaries unless that evidence requires it.

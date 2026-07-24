@@ -1,5 +1,5 @@
 using System.Windows;
-using System.Windows.Threading;
+using System.Windows.Automation;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Worlds;
 
@@ -17,18 +17,12 @@ public partial class MainWindow
         }
 
         _worldSharingUiInitialized = true;
-
-        // Replace the old honest placeholder only after the authenticated runtime had a chance to
-        // initialize. UnifiedGames continues to own the common button location/layout; this partial
-        // owns the real sharing transaction and its fail-closed state.
-        ShareButton.Click -= UnifiedShareButton_Click;
         ShareButton.Click += ShareWorldButton_Click;
 
-        // UnifiedGames still computes common action state after some list/busy events. Queue this
-        // sharing-specific refinement at the end of the dispatcher turn so Share/Finish/Manage cannot
-        // be overwritten by the older generic Shared/LocalOnly label immediately afterwards.
-        WorldList.SelectionChanged += (_, _) => QueueWorldSharingActionStateUpdate();
-        WorldList.IsEnabledChanged += (_, _) => QueueWorldSharingActionStateUpdate();
+        // UnifiedGames updates the selected World first because its handlers were registered first.
+        // WorldSharing then projects the one authoritative Share/Retry/Manage action from that state.
+        WorldList.SelectionChanged += (_, _) => UpdateWorldSharingActionState();
+        WorldList.IsEnabledChanged += (_, _) => UpdateWorldSharingActionState();
 
         UpdateWorldSharingActionState();
     }
@@ -83,7 +77,7 @@ public partial class MainWindow
         if (remoteRuntime is null)
         {
             StatusText.Text = world.SharingMode == WorldSharingMode.Shared
-                ? "Sharing is incomplete. Reconnect authenticated Steward and use Finish sharing."
+                ? "Sharing is incomplete. Reconnect authenticated Steward and use Retry sharing."
                 : "Connect authenticated Steward before sharing this World.";
             return;
         }
@@ -97,7 +91,7 @@ public partial class MainWindow
 
         await RunOperationAsync(
             world.SharingMode == WorldSharingMode.Shared
-                ? $"Finishing sharing for {world.Name}..."
+                ? $"Retrying sharing for {world.Name}..."
                 : $"Sharing {world.Name}...",
             async () =>
             {
@@ -134,17 +128,13 @@ public partial class MainWindow
                         }
 
                         // Initial sharing must prove that the canonical environment is reproducible before
-                        // any remote side effect or local authority lock is written. This keeps a failed
-                        // preflight genuinely local while still using the same adapter verification contract
-                        // that later gates shared writable play.
-                        var installation = await GetGameInstallationAsync(adapter);
-                        var verification = await new WorldEnvironmentService(_storage).VerifyAsync(
-                            localShadow.Id,
-                            adapter,
-                            installation);
-                        RememberEnvironmentVerification(localShadow, verification);
+                        // any remote side effect or local authority lock is written. Evaluate every discovered
+                        // installation so Steam library ordering can never decide which environment is shared.
+                        var selection = await SelectInstallationForWorldAsync(localShadow, adapter);
+                        RememberEnvironmentVerification(localShadow, selection.Verification);
+                        RememberVerifiedInstallation(localShadow, selection.Installation);
                         UpdateEnvironmentReadinessUi();
-                        if (!verification.IsReady)
+                        if (!selection.Verification.IsReady)
                         {
                             throw new InvalidOperationException(
                                 $"Steward will not share '{localShadow.Name}' until this device can reproduce its exact canonical environment. Run Verify Environment and resolve the reported issue first.");
@@ -152,7 +142,7 @@ public partial class MainWindow
 
                         // Write-ahead authority intent: once any remote side effect can happen this
                         // local copy must never silently become a writable fallback. A crash after
-                        // this write therefore resumes as Finish sharing instead of forking history.
+                        // this write therefore resumes as Retry sharing instead of forking history.
                         localShadow = localShadow with { SharingMode = WorldSharingMode.Shared };
                         await _storage.SaveWorldAsync(localShadow);
                         _selectedWorld = localShadow;
@@ -192,7 +182,7 @@ public partial class MainWindow
                         }
 
                         throw new InvalidOperationException(
-                            "Sharing did not finish. Steward kept this local World locked to remote authority so it cannot diverge. Reconnect and use Finish sharing to resume the same immutable publication.",
+                            "Sharing did not finish. Steward kept this local World locked to remote authority so it cannot diverge. Reconnect and use Retry sharing to resume the same immutable publication.",
                             exception);
                     }
 
@@ -201,18 +191,6 @@ public partial class MainWindow
             });
 
         UpdateWorldSharingActionState();
-    }
-
-    private void QueueWorldSharingActionStateUpdate()
-    {
-        if (!_worldSharingUiInitialized)
-        {
-            return;
-        }
-
-        _ = Dispatcher.BeginInvoke(
-            DispatcherPriority.Background,
-            new Action(UpdateWorldSharingActionState));
     }
 
     private void UpdateWorldSharingActionState()
@@ -225,9 +203,7 @@ public partial class MainWindow
         var world = _selectedWorld;
         if (world is null)
         {
-            ShareButton.Content = "Share World";
-            ShareButton.IsEnabled = false;
-            ShareButton.ToolTip = "Select a World.";
+            SetShareActionState(DesktopText.ShareWorld, false, "Select a World.");
             return;
         }
 
@@ -235,40 +211,57 @@ public partial class MainWindow
             _responsibilityTracker.Current.Kind != WorldLifecycleResponsibilityKind.None;
         if (_remoteWorldIds.Contains(world.Id))
         {
-            ShareButton.Content = "Manage access";
-            ShareButton.IsEnabled = !_isBusy && _remoteRuntime is not null;
-            ShareButton.ToolTip =
-                "Invite players, remove access, transfer Access Manager responsibility, or leave this shared World.";
+            SetShareActionState(
+                DesktopText.ManageAccess,
+                !_isBusy && _remoteRuntime is not null,
+                "Invite players, remove access, transfer Access Manager responsibility, or leave this shared World.");
             return;
         }
 
-        var finishing = world.SharingMode == WorldSharingMode.Shared ||
-                        _remoteIncompleteWorldIds.Contains(world.Id);
-        ShareButton.Content = finishing ? "Finish sharing" : "Share World";
-        ShareButton.IsEnabled = !_isBusy &&
-                                _remoteRuntime is not null &&
-                                !unresolvedResponsibility;
+        var retrying = world.SharingMode == WorldSharingMode.Shared ||
+                       _remoteIncompleteWorldIds.Contains(world.Id);
+        var content = retrying ? DesktopText.RetrySharing : DesktopText.ShareWorld;
+        var isEnabled = !_isBusy &&
+                        _remoteRuntime is not null &&
+                        !unresolvedResponsibility;
 
         if (unresolvedResponsibility)
         {
-            ShareButton.ToolTip =
-                "Resolve this PC's active or recovery responsibility before publishing a World for sharing.";
+            SetShareActionState(
+                content,
+                isEnabled,
+                "Resolve this PC's active or recovery responsibility before publishing a World for sharing.");
         }
         else if (_remoteRuntime is null)
         {
-            ShareButton.ToolTip = finishing
-                ? "Reconnect authenticated Steward to resume this incomplete sharing transaction."
-                : "Connect authenticated Steward before sharing this World.";
+            SetShareActionState(
+                content,
+                isEnabled,
+                retrying
+                    ? "Reconnect authenticated Steward to retry this incomplete sharing transaction."
+                    : "Connect authenticated Steward before sharing this World.");
         }
-        else if (finishing)
+        else if (retrying)
         {
-            ShareButton.ToolTip =
-                "Resume the same immutable World/environment/state publication. Local writable fallback remains locked until this finishes.";
+            SetShareActionState(
+                content,
+                isEnabled,
+                "Retry the same immutable World/environment/state publication. Local writable fallback remains locked until this finishes.");
         }
         else
         {
-            ShareButton.ToolTip =
-                "Verify the exact canonical environment, then publish this World's immutable state to Steward and make remote authority canonical.";
+            SetShareActionState(
+                content,
+                isEnabled,
+                "Verify the exact canonical environment, then publish this World's immutable state to Steward and make remote authority canonical.");
         }
+    }
+
+    private void SetShareActionState(string content, bool isEnabled, string helpText)
+    {
+        ShareButton.Content = content;
+        ShareButton.IsEnabled = isEnabled;
+        ShareButton.ToolTip = helpText;
+        AutomationProperties.SetHelpText(ShareButton, helpText);
     }
 }

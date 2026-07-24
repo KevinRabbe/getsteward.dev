@@ -1,5 +1,9 @@
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Media;
 using SharedWorlds.Infrastructure.Remote;
 
 namespace SharedWorlds.Desktop;
@@ -8,8 +12,8 @@ internal sealed class PendingInvitationsDialog : Window
 {
     private readonly StewardWorldAccessClient _access;
     private readonly ListBox _invitations = new();
-    private readonly Button _acceptButton = new() { Content = "Accept", Padding = new Thickness(12, 6, 12, 6) };
-    private readonly Button _declineButton = new() { Content = "Decline", Padding = new Thickness(12, 6, 12, 6) };
+    private readonly Button _acceptButton = new() { Content = DesktopText.Accept, Padding = new Thickness(12, 6, 12, 6) };
+    private readonly Button _declineButton = new() { Content = DesktopText.Decline, Padding = new Thickness(12, 6, 12, 6) };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.82 };
     private bool _busy;
 
@@ -18,12 +22,16 @@ internal sealed class PendingInvitationsDialog : Window
         ArgumentNullException.ThrowIfNull(access);
         _access = access;
 
-        Title = "Shared World invitations";
+        Title = DesktopText.SharedWorldInvitations;
         Width = 560;
         Height = 420;
         MinWidth = 460;
         MinHeight = 340;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        UseLayoutRounding = true;
+        SnapsToDevicePixels = true;
+        Background = (Brush)Application.Current.FindResource("AppBackgroundBrush");
+        Foreground = (Brush)Application.Current.FindResource("TextBrush");
         Content = BuildContent();
 
         _invitations.SelectionChanged += (_, _) => UpdateActions();
@@ -45,7 +53,7 @@ internal sealed class PendingInvitationsDialog : Window
         var heading = new StackPanel();
         heading.Children.Add(new TextBlock
         {
-            Text = "Shared World invitations",
+            Text = DesktopText.SharedWorldInvitations,
             FontSize = 22,
             FontWeight = FontWeights.SemiBold
         });
@@ -60,6 +68,18 @@ internal sealed class PendingInvitationsDialog : Window
         root.Children.Add(heading);
 
         _invitations.DisplayMemberPath = nameof(InvitationRow.DisplayText);
+        _invitations.Background = (Brush)FindResource("PanelBrush");
+        _invitations.Foreground = (Brush)FindResource("TextBrush");
+        _invitations.BorderBrush = (Brush)FindResource("BorderBrush");
+        AutomationProperties.SetName(_invitations, "Pending shared World invitations");
+        var invitationItemStyle = new Style(typeof(ListBoxItem));
+        invitationItemStyle.Setters.Add(new Setter(
+            AutomationProperties.NameProperty,
+            new Binding(nameof(InvitationRow.DisplayText))));
+        invitationItemStyle.Setters.Add(new Setter(
+            FrameworkElement.FocusVisualStyleProperty,
+            FindResource("StewardFocusVisualStyle")));
+        _invitations.ItemContainerStyle = invitationItemStyle;
         Grid.SetRow(_invitations, 1);
         root.Children.Add(_invitations);
 
@@ -77,10 +97,11 @@ internal sealed class PendingInvitationsDialog : Window
         var footer = new Grid { Margin = new Thickness(0, 18, 0, 0) };
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        AutomationProperties.SetLiveSetting(_status, AutomationLiveSetting.Polite);
         footer.Children.Add(_status);
         var close = new Button
         {
-            Content = "Close",
+            Content = DesktopText.Close,
             Padding = new Thickness(16, 6, 16, 6),
             Margin = new Thickness(12, 0, 0, 0)
         };
@@ -104,7 +125,7 @@ internal sealed class PendingInvitationsDialog : Window
         {
             await _access.AcceptInvitationAsync(row.Invitation.InvitationId);
             MembershipChanged = true;
-            _status.Text = "Invitation accepted. The shared World is now available to this account.";
+            SetStatus("Invitation accepted. The shared World is now available to this account.");
             await ReloadAsync(preserveStatus: true);
         });
     }
@@ -119,7 +140,7 @@ internal sealed class PendingInvitationsDialog : Window
         await RunAsync(async () =>
         {
             await _access.DeclineInvitationAsync(row.Invitation.InvitationId);
-            _status.Text = "Invitation declined.";
+            SetStatus("Invitation declined.");
             await ReloadAsync(preserveStatus: true);
         });
     }
@@ -135,9 +156,14 @@ internal sealed class PendingInvitationsDialog : Window
 
         if (!preserveStatus)
         {
-            _status.Text = rows.Length == 0
-                ? "No pending invitations."
-                : string.Empty;
+            if (rows.Length == 0)
+            {
+                SetStatus("No pending invitations.");
+            }
+            else
+            {
+                _status.Text = string.Empty;
+            }
         }
 
         UpdateActions();
@@ -158,13 +184,21 @@ internal sealed class PendingInvitationsDialog : Window
         }
         catch (Exception exception)
         {
-            _status.Text = exception.Message;
+            SetStatus(exception.Message);
         }
         finally
         {
             _busy = false;
             UpdateActions();
         }
+    }
+
+    private void SetStatus(string text)
+    {
+        _status.Text = text;
+        var peer = UIElementAutomationPeer.FromElement(_status) ??
+                   UIElementAutomationPeer.CreatePeerForElement(_status);
+        peer?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
     }
 
     private void UpdateActions()

@@ -49,14 +49,11 @@ public sealed partial class FactorioAdapter : IGameAdapter
         CancellationToken cancellationToken = default)
         => FactorioEnvironmentInspector.InspectAsync(installation, cancellationToken);
 
-    public async Task<CapturedState> CaptureDetectedWorldAsync(
+    public Task<CapturedState> CaptureDetectedWorldAsync(
         GameInstallation installation,
         DetectedWorld world,
         CancellationToken cancellationToken = default)
-    {
-        var captured = await FactorioWorldOperations.CaptureDetectedWorldAsync(world, cancellationToken);
-        return captured with { DeletePackageAfterStore = true };
-    }
+        => FactorioWorldOperations.CaptureDetectedWorldAsync(world, cancellationToken);
 
     public async Task<PreparedWorld> PrepareEnvironmentAsync(
         GameInstallation installation,
@@ -86,19 +83,24 @@ public sealed partial class FactorioAdapter : IGameAdapter
             cancellationToken);
     }
 
-    public async Task<CapturedState> CaptureStateAsync(
+    public Task<CapturedState> CaptureStateAsync(
         PreparedWorld world,
         CancellationToken cancellationToken = default)
     {
-        var captured = await FactorioWorldOperations.CaptureStateAsync(world, cancellationToken);
-        return captured with { DeletePackageAfterStore = true };
+        ArgumentNullException.ThrowIfNull(world);
+        FactorioWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        return FactorioWorldOperations.CaptureStateAsync(world, cancellationToken);
     }
 
     public Task RestoreStateAsync(
         PreparedWorld world,
         StatePackage state,
         CancellationToken cancellationToken = default)
-        => FactorioWorldOperations.RestoreStateAsync(world, state, cancellationToken);
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        FactorioWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        return FactorioWorldOperations.RestoreStateAsync(world, state, cancellationToken);
+    }
 
     public Task<GameSessionHandle> LaunchLocalAsync(
         PreparedWorld world,
@@ -183,7 +185,9 @@ public sealed partial class FactorioAdapter : IGameAdapter
         PreparedWorldDisposition disposition,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(world);
         cancellationToken.ThrowIfCancellationRequested();
+        FactorioWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
 
         await TryPersistPlayerPreferencesAsync(world, cancellationToken);
 
@@ -200,6 +204,9 @@ public sealed partial class FactorioAdapter : IGameAdapter
         Func<PreparedWorld, CancellationToken, Task<GameSessionHandle>> launch,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(world);
+        FactorioWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+
         var executable = FactorioWorldOperations.GetExecutablePath(world.Installation);
         var processName = Path.GetFileNameWithoutExtension(executable);
         var baselineProcessIds = GetProcessIds(processName);
@@ -459,18 +466,8 @@ public sealed partial class FactorioAdapter : IGameAdapter
 
     private static void DeleteOwnedWorkspace(string workingDirectory)
     {
+        FactorioWorkspaceOwnership.RequireOwned(workingDirectory);
         var fullPath = Path.GetFullPath(workingDirectory);
-        var parent = Directory.GetParent(fullPath)
-            ?? throw new InvalidOperationException(
-                $"Cannot determine parent directory for Factorio workspace '{workingDirectory}'.");
-        if (!Guid.TryParseExact(Path.GetFileName(fullPath), "N", out _) ||
-            !string.Equals(parent.Name, "factorio", StringComparison.OrdinalIgnoreCase) ||
-            !string.Equals(parent.Parent?.Name, "SharedWorlds", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException(
-                $"Refusing to recursively delete unrecognized Factorio workspace '{workingDirectory}'.");
-        }
-
         if (Directory.Exists(fullPath))
         {
             Directory.Delete(fullPath, recursive: true);

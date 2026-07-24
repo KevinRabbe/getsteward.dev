@@ -49,6 +49,11 @@ internal static class FactorioModCatalog
 
     private static FactorioModArtifact? TryReadDirectory(string directory)
     {
+        if (!IsLinkFreeDirectoryArtifact(directory))
+        {
+            return null;
+        }
+
         var infoPath = Path.Combine(directory, "info.json");
         if (!File.Exists(infoPath))
         {
@@ -79,6 +84,11 @@ internal static class FactorioModCatalog
 
     private static FactorioModArtifact? TryReadArchive(string archivePath)
     {
+        if (!IsLinkFreePath(archivePath))
+        {
+            return null;
+        }
+
         try
         {
             using var archive = ZipFile.OpenRead(archivePath);
@@ -111,6 +121,73 @@ internal static class FactorioModCatalog
         catch (JsonException)
         {
             return null;
+        }
+    }
+
+    private static bool IsLinkFreeDirectoryArtifact(string root)
+    {
+        if (!IsLinkFreePath(root))
+        {
+            return false;
+        }
+
+        try
+        {
+            var pending = new Stack<string>();
+            pending.Push(root);
+            while (pending.Count > 0)
+            {
+                var current = pending.Pop();
+                foreach (var directory in Directory.EnumerateDirectories(
+                             current,
+                             "*",
+                             SearchOption.TopDirectoryOnly))
+                {
+                    if (!IsLinkFreePath(directory))
+                    {
+                        return false;
+                    }
+
+                    pending.Push(directory);
+                }
+
+                foreach (var filePath in Directory.EnumerateFiles(
+                             current,
+                             "*",
+                             SearchOption.TopDirectoryOnly))
+                {
+                    if (!IsLinkFreePath(filePath))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsLinkFreePath(string path)
+    {
+        try
+        {
+            return (File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 

@@ -30,15 +30,19 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Core.Tests", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Infrastructure.Tests", "tests\SharedWorlds.Infrastructure.Tests\SharedWorlds.Infrastructure.Tests.csproj", "{88888888-8888-8888-8888-888888888888}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04ECF79EFBC}") = "SharedWorlds.Backend.Tests", "tests\SharedWorlds.Backend.Tests\SharedWorlds.Backend.Tests.csproj", "{EEEEEEEE-EEEE-EEEE-EEEE-EEEEEEEEEEEE}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Backend.Tests", "tests\SharedWorlds.Backend.Tests\SharedWorlds.Backend.Tests.csproj", "{EEEEEEEE-EEEE-EEEE-EEEE-EEEEEEEEEEEE}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Backend.Api.Tests", "tests\SharedWorlds.Backend.Api.Tests\SharedWorlds.Backend.Api.Tests.csproj", "{F3F3F3F3-F3F3-F3F3-F3F3-F3F3F3F3F3F3}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04ECF79EFBC}") = "SharedWorlds.GameAdapters.Factorio.Tests", "tests\SharedWorlds.GameAdapters.Factorio.Tests\SharedWorlds.GameAdapters.Factorio.Tests.csproj", "{99999999-9999-9999-9999-999999999999}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.Factorio.Tests", "tests\SharedWorlds.GameAdapters.Factorio.Tests\SharedWorlds.GameAdapters.Factorio.Tests.csproj", "{99999999-9999-9999-9999-999999999999}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04ECF79EFBC}") = "SharedWorlds.GameAdapters.Palworld.Tests", "tests\SharedWorlds.GameAdapters.Palworld.Tests\SharedWorlds.GameAdapters.Palworld.Tests.csproj", "{ABABABAB-ABAB-ABAB-ABAB-ABABABABABAB}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.Palworld.Tests", "tests\SharedWorlds.GameAdapters.Palworld.Tests\SharedWorlds.GameAdapters.Palworld.Tests.csproj", "{ABABABAB-ABAB-ABAB-ABAB-ABABABABABAB}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04ECF79EFBC}") = "SharedWorlds.Architecture.Tests", "tests\SharedWorlds.Architecture.Tests\SharedWorlds.Architecture.Tests.csproj", "{AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.SevenDaysToDie.Tests", "tests\SharedWorlds.GameAdapters.SevenDaysToDie.Tests\SharedWorlds.GameAdapters.SevenDaysToDie.Tests.csproj", "{B7B7B7B7-B7B7-B7B7-B7B7-B7B7B7B7B7B7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.ProjectZomboid.Tests", "tests\SharedWorlds.GameAdapters.ProjectZomboid.Tests\SharedWorlds.GameAdapters.ProjectZomboid.Tests.csproj", "{C8C8C8C8-C8C8-C8C8-C8C8-C8C8C8C8C8C8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Architecture.Tests", "tests\SharedWorlds.Architecture.Tests\SharedWorlds.Architecture.Tests.csproj", "{AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}"
 EndProject
 Global
     GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -118,6 +122,14 @@ Global
         {ABABABAB-ABAB-ABAB-ABAB-ABABABABABAB}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {ABABABAB-ABAB-ABAB-ABAB-ABABABABABAB}.Release|Any CPU.ActiveCfg = Release|Any CPU
         {ABABABAB-ABAB-ABAB-ABAB-ABABABABABAB}.Release|Any CPU.Build.0 = Release|Any CPU
+        {B7B7B7B7-B7B7-B7B7-B7B7-B7B7B7B7B7B7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {B7B7B7B7-B7B7-B7B7-B7B7-B7B7B7B7B7B7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {B7B7B7B7-B7B7-B7B7-B7B7-B7B7B7B7B7B7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {B7B7B7B7-B7B7-B7B7-B7B7-B7B7B7B7B7B7}.Release|Any CPU.Build.0 = Release|Any CPU
+        {C8C8C8C8-C8C8-C8C8-C8C8-C8C8C8C8C8C8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {C8C8C8C8-C8C8-C8C8-C8C8-C8C8C8C8C8C8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {C8C8C8C8-C8C8-C8C8-C8C8-C8C8C8C8C8C8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {C8C8C8C8-C8C8-C8C8-C8C8-C8C8C8C8C8C8}.Release|Any CPU.Build.0 = Release|Any CPU
         {AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
         {AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}.Release|Any CPU.ActiveCfg = Release|Any CPU

@@ -1,5 +1,4 @@
 using System.IO;
-using System.IO.Compression;
 using System.Windows;
 using Microsoft.Win32;
 using SharedWorlds.Core.Domain;
@@ -28,14 +27,24 @@ public partial class MainWindow
             return;
         }
 
+        var requiredStatus = snapshot.Kind switch
+        {
+            WorldLifecycleResponsibilityKind.InterruptedSession => WorkspaceRecoveryStatus.Active,
+            WorldLifecycleResponsibilityKind.RecoveryNeeded => WorkspaceRecoveryStatus.RecoveryPending,
+            WorldLifecycleResponsibilityKind.CleanupPending => WorkspaceRecoveryStatus.CleanupPending,
+            _ => throw new InvalidOperationException("The selected responsibility is not exportable.")
+        };
         var record = (await _workspaceRecoveryStore.ListAsync())
-            .Where(candidate => candidate.WorldId == world.Id)
+            .Where(candidate =>
+                candidate.WorldId == world.Id &&
+                candidate.Status == requiredStatus)
             .OrderBy(candidate => candidate.CreatedAt)
             .ThenBy(candidate => candidate.Id.ToString(), StringComparer.Ordinal)
             .FirstOrDefault();
         if (record is null)
         {
-            StatusText.Text = "Steward could not find the durable recovery record for this World.";
+            StatusText.Text =
+                "Steward could not find the durable recovery record matching this World responsibility.";
             return;
         }
 
@@ -84,11 +93,7 @@ public partial class MainWindow
                 {
                     await Task.Run(() =>
                     {
-                        ZipFile.CreateFromDirectory(
-                            sourceDirectory,
-                            temporaryPath,
-                            CompressionLevel.Optimal,
-                            includeBaseDirectory: false);
+                        RecoveryWorkspaceArchive.Create(sourceDirectory, temporaryPath);
                         File.Move(temporaryPath, destinationPath, overwrite: true);
                     });
                 }

@@ -7,47 +7,91 @@ public sealed class ProjectZomboidAdapter : IGameAdapter
 {
     public string Id => "project-zomboid";
     public string DisplayName => "Project Zomboid";
+
     public GameAdapterCapabilities Capabilities =>
         GameAdapterCapabilities.Mods |
-        GameAdapterCapabilities.AutomaticHostLaunch |
-        GameAdapterCapabilities.EnvironmentIsolation;
+        GameAdapterCapabilities.ExactGameVersion |
+        GameAdapterCapabilities.ExactModVersions;
 
     public Task<IReadOnlyList<GameInstallation>> DiscoverInstallationsAsync(CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<GameInstallation>>([]);
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(ProjectZomboidInstallationDiscovery.Discover());
+    }
 
     public Task<IReadOnlyList<DetectedWorld>> DiscoverWorldsAsync(GameInstallation installation, CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<DetectedWorld>>([]);
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(ProjectZomboidWorldDiscovery.Discover(installation));
+    }
 
-    public Task<EnvironmentManifest> InspectEnvironmentAsync(GameInstallation installation, DetectedWorld world, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    public Task<EnvironmentManifest> InspectEnvironmentAsync(
+        GameInstallation installation,
+        DetectedWorld world,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(ProjectZomboidEnvironment.Inspect(installation, world));
+    }
 
-    public Task<CapturedState> CaptureDetectedWorldAsync(GameInstallation installation, DetectedWorld world, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    public Task<EnvironmentVerificationReport> VerifyEnvironmentAsync(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(ProjectZomboidEnvironment.Verify(installation, requiredEnvironment));
+    }
 
-    public Task<PreparedWorld> PrepareEnvironmentAsync(GameInstallation installation, EnvironmentManifest requiredEnvironment, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    public Task<CapturedState> CaptureDetectedWorldAsync(
+        GameInstallation installation,
+        DetectedWorld world,
+        CancellationToken cancellationToken = default)
+        => ProjectZomboidWorldState.CaptureDetectedWorldAsync(
+            installation,
+            world,
+            cancellationToken);
 
-    public Task<CapturedState> CaptureStateAsync(PreparedWorld world, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    public Task<PreparedWorld> PrepareEnvironmentAsync(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(ProjectZomboidWorldState.PrepareEnvironment(installation, requiredEnvironment));
+    }
 
-    public Task RestoreStateAsync(PreparedWorld world, StatePackage state, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    public Task<CapturedState> CaptureStateAsync(
+        PreparedWorld world,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        ProjectZomboidWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        return ProjectZomboidWorldState.CapturePreparedWorldAsync(world, cancellationToken);
+    }
 
-    public Task<GameSessionHandle> LaunchLocalAsync(PreparedWorld world, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
-
-    public Task<GameSessionHandle> LaunchHostAsync(PreparedWorld world, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
-
-    public Task<GameSessionHandle> LaunchClientAsync(PreparedWorld world, HostConnection host, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
-
-    public Task WaitForSessionEndAsync(GameSessionHandle session, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    public Task RestoreStateAsync(
+        PreparedWorld world,
+        StatePackage state,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(state);
+        ProjectZomboidWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        ProjectZomboidStatePackagePreflight.Validate(
+            state.Path,
+            world.WorkingDirectory,
+            cancellationToken);
+        return ProjectZomboidWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
+    }
 
     public Task FinalizePreparedWorldAsync(
         PreparedWorld world,
         PreparedWorldDisposition disposition,
         CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        ProjectZomboidWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        return ProjectZomboidWorldState.FinalizePreparedWorldAsync(world, disposition, cancellationToken);
+    }
 }

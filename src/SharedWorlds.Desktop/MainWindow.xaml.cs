@@ -1,6 +1,9 @@
+using System.ComponentModel;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Automation.Peers;
+using System.Windows.Controls;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Worlds;
@@ -25,6 +28,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        InitializeLiveRegionAnnouncements();
 
         // Keep the existing local data root for persistence compatibility while the product shell
         // moves from the old SharedWorlds working name to Steward.
@@ -45,6 +49,29 @@ public partial class MainWindow : Window
 
         Closed += (_, _) => DisposeRemoteRuntime();
         InitializeTray();
+    }
+
+    private void InitializeLiveRegionAnnouncements()
+    {
+        RegisterLiveRegion(StatusText);
+        RegisterLiveRegion(EnvironmentReadinessText);
+    }
+
+    private static void RegisterLiveRegion(TextBlock textBlock)
+    {
+        var textDescriptor = DependencyPropertyDescriptor.FromProperty(
+            TextBlock.TextProperty,
+            typeof(TextBlock));
+        textDescriptor?.AddValueChanged(
+            textBlock,
+            (_, _) => RaiseLiveRegionChanged(textBlock));
+    }
+
+    private static void RaiseLiveRegionChanged(TextBlock textBlock)
+    {
+        var peer = UIElementAutomationPeer.FromElement(textBlock) ??
+                   UIElementAutomationPeer.CreatePeerForElement(textBlock);
+        peer?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
     }
 
     private async Task LoadDeviceSettingsAsync()
@@ -164,11 +191,13 @@ public partial class MainWindow : Window
 
     private void UpdateHostingPreferenceText()
         => HostingPreferenceText.Text = _deviceSettings.AllowHosting
-            ? "This device may host Worlds."
-            : "Hosting is disabled on this device.";
+            ? DesktopText.HostingAllowedOnDevice
+            : DesktopText.HostingDisabledOnDevice;
 
     private static string FormatSharingMode(WorldSharingMode sharingMode)
-        => sharingMode == WorldSharingMode.LocalOnly ? "Only on this PC" : "Shared";
+        => sharingMode == WorldSharingMode.LocalOnly
+            ? DesktopText.OnlyOnThisPc
+            : DesktopText.Shared;
 
     private static UserIdentity GetLocalUser()
         => new(
@@ -184,7 +213,7 @@ public partial class MainWindow : Window
 
     private static void ShowError(string title, Exception exception)
         => MessageBox.Show(
-            exception.Message,
+            DesktopErrorMessage.Safe(exception),
             title,
             MessageBoxButton.OK,
             MessageBoxImage.Error);

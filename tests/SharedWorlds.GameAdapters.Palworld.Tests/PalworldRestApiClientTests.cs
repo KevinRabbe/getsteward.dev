@@ -35,6 +35,33 @@ public sealed class PalworldRestApiClientTests
     }
 
     [Fact]
+    public async Task SettingsUsesAuthenticatedDocumentedEndpoint()
+    {
+        var handler = new RecordingHandler(_ => Json(
+            HttpStatusCode.OK,
+            """
+            {
+              "ServerName": "Steward acceptance host",
+              "RESTAPIEnabled": true,
+              "RESTAPIPort": 8212,
+              "BaseCampWorkerMaxNum": 20
+            }
+            """));
+        using var http = CreateHttpClient(handler);
+        var client = new PalworldRestApiClient(http, "admin", "secret-value");
+
+        using var settings = await client.GetSettingsAsync();
+
+        Assert.Equal("Steward acceptance host", settings.RootElement.GetProperty("ServerName").GetString());
+        Assert.True(settings.RootElement.GetProperty("RESTAPIEnabled").GetBoolean());
+        Assert.Equal(8212, settings.RootElement.GetProperty("RESTAPIPort").GetInt32());
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal(HttpMethod.Get, request.Method);
+        Assert.Equal("/v1/api/settings", request.Path);
+        Assert.Equal("Basic YWRtaW46c2VjcmV0LXZhbHVl", request.Authorization);
+    }
+
+    [Fact]
     public async Task SaveUsesDocumentedPostEndpoint()
     {
         var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
@@ -50,7 +77,7 @@ public sealed class PalworldRestApiClientTests
     }
 
     [Fact]
-    public async Task ShutdownSendsWaitTimeAndMessage()
+    public async Task ShutdownSendsExplicitLengthDelimitedJsonBody()
     {
         var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
         using var http = CreateHttpClient(handler);
@@ -63,6 +90,9 @@ public sealed class PalworldRestApiClientTests
         Assert.Equal("/v1/api/shutdown", request.Path);
         Assert.Contains("\"waittime\":5", request.Body, StringComparison.Ordinal);
         Assert.Contains("\"message\":\"Steward is saving this World.\"", request.Body, StringComparison.Ordinal);
+        Assert.Equal("application/json", request.ContentType);
+        Assert.NotNull(request.ContentLength);
+        Assert.Equal(Encoding.UTF8.GetByteCount(request.Body!), request.ContentLength);
     }
 
     [Fact]
@@ -111,7 +141,9 @@ public sealed class PalworldRestApiClientTests
                 request.Headers.Authorization?.ToString(),
                 request.Content is null
                     ? null
-                    : await request.Content.ReadAsStringAsync(cancellationToken)));
+                    : await request.Content.ReadAsStringAsync(cancellationToken),
+                request.Content?.Headers.ContentType?.MediaType,
+                request.Content?.Headers.ContentLength));
             return _responseFactory(request);
         }
     }
@@ -120,5 +152,7 @@ public sealed class PalworldRestApiClientTests
         HttpMethod Method,
         string Path,
         string? Authorization,
-        string? Body);
+        string? Body,
+        string? ContentType,
+        long? ContentLength);
 }

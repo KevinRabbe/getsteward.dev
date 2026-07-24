@@ -139,6 +139,25 @@ public sealed class StewardSessionClientTests
         Assert.True(exception.Retryable);
     }
 
+    [Fact]
+    public async Task UnconfiguredIdentityProviderRemainsNonRetryableDespiteHttp503()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(
+            HttpStatusCode.ServiceUnavailable,
+            """
+            { "code": "IdentityProviderUnavailable", "retryable": false }
+            """));
+        using var http = CreateHttpClient(handler);
+        var client = new StewardSessionClient(http);
+
+        var exception = await Assert.ThrowsAsync<StewardRemoteApiException>(() =>
+            client.AuthenticateSteamAsync("AABBCC", "device-a"));
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, exception.StatusCode);
+        Assert.Equal("IdentityProviderUnavailable", exception.Code);
+        Assert.False(exception.Retryable);
+    }
+
     private static HttpClient CreateHttpClient(HttpMessageHandler handler)
         => new(handler)
         {

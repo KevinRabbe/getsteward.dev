@@ -16,7 +16,8 @@ public sealed record WorldLifecycleResponsibilitySnapshot(
     WorldId? WorldId,
     WorldLifecyclePhase? Phase,
     bool CanQuitWithoutGuard,
-    bool CanSelfUpdate);
+    bool CanSelfUpdate,
+    ManagedWorldSessionMode? Mode = null);
 
 /// <summary>
 /// Converts lifecycle phases and durable startup-recovery records into one conservative runtime
@@ -28,6 +29,7 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
     private WorldLifecycleResponsibilityKind _kind;
     private WorldId? _worldId;
     private WorldLifecyclePhase? _phase;
+    private ManagedWorldSessionMode? _mode;
 
     public WorldLifecycleResponsibilitySnapshot Current
     {
@@ -56,12 +58,14 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
                     _kind = WorldLifecycleResponsibilityKind.RecoveryNeeded;
                     _worldId = change.WorldId;
                     _phase = change.Phase;
+                    _mode = change.Mode;
                     break;
 
                 case WorldLifecyclePhase.CleanupPending:
                     _kind = WorldLifecycleResponsibilityKind.CleanupPending;
                     _worldId = change.WorldId;
                     _phase = change.Phase;
+                    _mode = change.Mode;
                     break;
 
                 default:
@@ -71,6 +75,7 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
                     _kind = WorldLifecycleResponsibilityKind.ActiveLifecycle;
                     _worldId = change.WorldId;
                     _phase = change.Phase;
+                    _mode = change.Mode;
                     break;
             }
         }
@@ -99,6 +104,7 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
             }
 
             _worldId = selected.WorldId;
+            _mode = null;
             switch (selected.Status)
             {
                 case WorkspaceRecoveryStatus.RecoveryPending:
@@ -128,6 +134,7 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
         _kind = WorldLifecycleResponsibilityKind.None;
         _worldId = null;
         _phase = null;
+        _mode = null;
     }
 
     private WorldLifecycleResponsibilitySnapshot CreateSnapshot()
@@ -138,7 +145,8 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
             _worldId,
             _phase,
             CanQuitWithoutGuard: idle,
-            CanSelfUpdate: idle);
+            CanSelfUpdate: idle,
+            Mode: _mode);
     }
 
     private static int Priority(WorkspaceRecoveryStatus status)

@@ -107,8 +107,9 @@ public sealed class VerifiedPackageCache
     {
         ArgumentNullException.ThrowIfNull(authorization);
 
-        using var gate = await AcquireAsync(authorization.ExpectedSha256, cancellationToken);
-        var finalPath = GetFinalPath(authorization.ExpectedSha256);
+        var sha256 = authorization.ExpectedSha256;
+        using var gate = await AcquireAsync(sha256, cancellationToken);
+        var finalPath = GetFinalPath(sha256);
         var partialPath = finalPath + ".partial";
         Directory.CreateDirectory(Path.GetDirectoryName(finalPath)!);
 
@@ -117,13 +118,13 @@ public sealed class VerifiedPackageCache
             if (await VerifyFileAsync(
                     finalPath,
                     authorization.ExpectedByteSize,
-                    authorization.ExpectedSha256,
+                    sha256,
                     cancellationToken))
             {
                 return new VerifiedCachedPackage(
                     finalPath,
                     authorization.ExpectedByteSize,
-                    authorization.ExpectedSha256);
+                    sha256);
             }
 
             File.Delete(finalPath);
@@ -141,18 +142,19 @@ public sealed class VerifiedPackageCache
                 if (await VerifyFileAsync(
                         partialPath,
                         authorization.ExpectedByteSize,
-                        authorization.ExpectedSha256,
+                        sha256,
                         cancellationToken))
                 {
                     PublishVerifiedPartial(partialPath, finalPath);
                     await EnsurePublishedFinalIsVerifiedAsync(
                         finalPath,
-                        authorization,
+                        authorization.ExpectedByteSize,
+                        sha256,
                         cancellationToken);
                     return new VerifiedCachedPackage(
                         finalPath,
                         authorization.ExpectedByteSize,
-                        authorization.ExpectedSha256);
+                        sha256);
                 }
 
                 File.Delete(partialPath);
@@ -191,7 +193,7 @@ public sealed class VerifiedPackageCache
         if (!await VerifyFileAsync(
                 partialPath,
                 authorization.ExpectedByteSize,
-                authorization.ExpectedSha256,
+                sha256,
                 cancellationToken))
         {
             File.Delete(partialPath);
@@ -201,12 +203,13 @@ public sealed class VerifiedPackageCache
         PublishVerifiedPartial(partialPath, finalPath);
         await EnsurePublishedFinalIsVerifiedAsync(
             finalPath,
-            authorization,
+            authorization.ExpectedByteSize,
+            sha256,
             cancellationToken);
         return new VerifiedCachedPackage(
             finalPath,
             authorization.ExpectedByteSize,
-            authorization.ExpectedSha256);
+            sha256);
     }
 
     public async Task<Stream> OpenVerifiedReadAsync(
@@ -321,18 +324,19 @@ public sealed class VerifiedPackageCache
         return string.Equals(
             Convert.ToHexString(hash.GetHashAndReset()),
             expectedSha256,
-            StringComparison.OrdinalIgnoreCase);
+            StringComparison.Ordinal);
     }
 
     private async Task EnsurePublishedFinalIsVerifiedAsync(
         string finalPath,
-        AuthorizedPackageDownload authorization,
+        long expectedByteSize,
+        string expectedSha256,
         CancellationToken cancellationToken)
     {
         if (await VerifyFileAsync(
                 finalPath,
-                authorization.ExpectedByteSize,
-                authorization.ExpectedSha256,
+                expectedByteSize,
+                expectedSha256,
                 cancellationToken))
         {
             return;

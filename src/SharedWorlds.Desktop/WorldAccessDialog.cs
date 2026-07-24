@@ -1,5 +1,9 @@
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Media;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Infrastructure.Remote;
 
@@ -13,10 +17,10 @@ internal sealed class WorldAccessDialog : Window
     private StewardRemoteIdentity _accessManager;
     private readonly ListBox _members = new();
     private readonly TextBox _inviteSteamId = new();
-    private readonly Button _inviteButton = new() { Content = "Invite", Padding = new Thickness(12, 6, 12, 6) };
-    private readonly Button _revokeButton = new() { Content = "Remove access", Padding = new Thickness(12, 6, 12, 6) };
-    private readonly Button _transferButton = new() { Content = "Make Access Manager", Padding = new Thickness(12, 6, 12, 6) };
-    private readonly Button _leaveButton = new() { Content = "Leave World", Padding = new Thickness(12, 6, 12, 6) };
+    private readonly Button _inviteButton = new() { Content = DesktopText.Invite, Padding = new Thickness(12, 6, 12, 6) };
+    private readonly Button _revokeButton = new() { Content = DesktopText.RemoveAccess, Padding = new Thickness(12, 6, 12, 6) };
+    private readonly Button _transferButton = new() { Content = DesktopText.MakeAccessManager, Padding = new Thickness(12, 6, 12, 6) };
+    private readonly Button _leaveButton = new() { Content = DesktopText.LeaveWorld, Padding = new Thickness(12, 6, 12, 6) };
     private readonly TextBlock _summary = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.78 };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.82 };
     private bool _busy;
@@ -37,12 +41,16 @@ internal sealed class WorldAccessDialog : Window
         _currentUser = currentUser;
         _accessManager = accessManager;
 
-        Title = $"Manage access — {world.Name}";
+        Title = $"{DesktopText.ManageAccess} — {world.Name}";
         Width = 560;
         Height = 500;
         MinWidth = 480;
         MinHeight = 420;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        UseLayoutRounding = true;
+        SnapsToDevicePixels = true;
+        Background = (Brush)Application.Current.FindResource("AppBackgroundBrush");
+        Foreground = (Brush)Application.Current.FindResource("TextBrush");
         Content = BuildContent();
 
         _members.SelectionChanged += (_, _) => UpdateActions();
@@ -82,6 +90,8 @@ internal sealed class WorldAccessDialog : Window
         _inviteSteamId.MinHeight = 32;
         _inviteSteamId.VerticalContentAlignment = VerticalAlignment.Center;
         _inviteSteamId.ToolTip = "Steam ID64 of the player to invite";
+        AutomationProperties.SetName(_inviteSteamId, "Steam ID64 to invite");
+        AutomationProperties.SetHelpText(_inviteSteamId, "Enter the numeric Steam ID64 of the player to invite to this World.");
         inviteRow.Children.Add(_inviteSteamId);
         _inviteButton.Margin = new Thickness(10, 0, 0, 0);
         Grid.SetColumn(_inviteButton, 1);
@@ -90,6 +100,18 @@ internal sealed class WorldAccessDialog : Window
         root.Children.Add(inviteRow);
 
         _members.DisplayMemberPath = nameof(MemberRow.DisplayText);
+        _members.Background = (Brush)FindResource("PanelBrush");
+        _members.Foreground = (Brush)FindResource("TextBrush");
+        _members.BorderBrush = (Brush)FindResource("BorderBrush");
+        AutomationProperties.SetName(_members, "People with access");
+        var memberItemStyle = new Style(typeof(ListBoxItem));
+        memberItemStyle.Setters.Add(new Setter(
+            AutomationProperties.NameProperty,
+            new Binding(nameof(MemberRow.DisplayText))));
+        memberItemStyle.Setters.Add(new Setter(
+            FrameworkElement.FocusVisualStyleProperty,
+            FindResource("StewardFocusVisualStyle")));
+        _members.ItemContainerStyle = memberItemStyle;
         Grid.SetRow(_members, 2);
         root.Children.Add(_members);
 
@@ -109,10 +131,11 @@ internal sealed class WorldAccessDialog : Window
         var footer = new Grid { Margin = new Thickness(0, 18, 0, 0) };
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        AutomationProperties.SetLiveSetting(_status, AutomationLiveSetting.Polite);
         footer.Children.Add(_status);
         var close = new Button
         {
-            Content = "Close",
+            Content = DesktopText.Close,
             Padding = new Thickness(16, 6, 16, 6),
             Margin = new Thickness(12, 0, 0, 0)
         };
@@ -130,7 +153,7 @@ internal sealed class WorldAccessDialog : Window
         var value = _inviteSteamId.Text.Trim();
         if (!ulong.TryParse(value, out var steamId) || steamId == 0)
         {
-            _status.Text = "Enter the player's numeric Steam ID64.";
+            SetStatus("Enter the player's numeric Steam ID64.");
             return;
         }
 
@@ -138,7 +161,7 @@ internal sealed class WorldAccessDialog : Window
         {
             await _access.InviteAsync(_world.Id, "steam", value);
             _inviteSteamId.Clear();
-            _status.Text = $"Invitation sent to Steam ID {value}.";
+            SetStatus($"Invitation sent to Steam ID {value}.");
             await ReloadAsync(preserveStatus: true);
         });
     }
@@ -168,9 +191,9 @@ internal sealed class WorldAccessDialog : Window
                 _world.Id,
                 row.Member.Identity.Provider,
                 row.Member.Identity.ExternalId);
-            _status.Text = result == RemoteMemberRevocationStatus.Revoked
+            SetStatus(result == RemoteMemberRevocationStatus.Revoked
                 ? "Access removed."
-                : "Access will be removed after the player's current writable responsibility resolves.";
+                : "Access will be removed after the player's current writable responsibility resolves.");
             await ReloadAsync(preserveStatus: true);
         });
     }
@@ -201,7 +224,7 @@ internal sealed class WorldAccessDialog : Window
                 row.Member.Identity.Provider,
                 row.Member.Identity.ExternalId);
             _accessManager = row.Member.Identity;
-            _status.Text = "Access Manager transferred.";
+            SetStatus("Access Manager transferred.");
             await ReloadAsync(preserveStatus: true);
         });
     }
@@ -266,13 +289,21 @@ internal sealed class WorldAccessDialog : Window
         }
         catch (Exception exception)
         {
-            _status.Text = exception.Message;
+            SetStatus(exception.Message);
         }
         finally
         {
             _busy = false;
             UpdateActions();
         }
+    }
+
+    private void SetStatus(string text)
+    {
+        _status.Text = text;
+        var peer = UIElementAutomationPeer.FromElement(_status) ??
+                   UIElementAutomationPeer.CreatePeerForElement(_status);
+        peer?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
     }
 
     private void UpdateActions()

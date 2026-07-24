@@ -5,6 +5,8 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <NeutralLanguage>en</NeutralLanguage>
     <AssemblyName>SharedWorlds.Desktop</AssemblyName>
     <RootNamespace>SharedWorlds.Desktop</RootNamespace>
   </PropertyGroup>
@@ -22,5 +24,7 @@
     <ProjectReference Include="../SharedWorlds.Infrastructure/SharedWorlds.Infrastructure.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/Factorio/SharedWorlds.GameAdapters.Factorio.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/Palworld/SharedWorlds.GameAdapters.Palworld.csproj" />
+    <ProjectReference Include="../SharedWorlds.GameAdapters/SevenDaysToDie/SharedWorlds.GameAdapters.SevenDaysToDie.csproj" />
+    <ProjectReference Include="../SharedWorlds.GameAdapters/ProjectZomboid/SharedWorlds.GameAdapters.ProjectZomboid.csproj" />
   </ItemGroup>
 </Project>

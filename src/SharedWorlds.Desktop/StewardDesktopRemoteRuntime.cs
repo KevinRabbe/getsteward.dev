@@ -10,8 +10,8 @@ namespace SharedWorlds.Desktop;
 /// <summary>
 /// Owns the authenticated shared-World runtime used by the Windows desktop after Steam identity has
 /// already been verified. Steam ticket acquisition is intentionally outside this composition root;
-/// once authenticated, all shared World metadata, transfer, authority, commit, recovery, and flat
-/// access-management traffic flows through the production remote Infrastructure implementations.
+/// once authenticated, all shared World metadata, transfer, authority, commit, recovery, flat
+/// access-management, and host-presence traffic flows through production remote Infrastructure.
 /// </summary>
 internal sealed class StewardDesktopRemoteRuntime : IDisposable
 {
@@ -20,6 +20,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
     private readonly StewardWritableReservationRegistry _reservations;
     private readonly StewardAccessSession _accessSession;
     private readonly StewardWorldMetadataClient _metadata;
+    private readonly StewardHostPresenceClient _hostPresence;
     private bool _disposed;
 
     private StewardDesktopRemoteRuntime(
@@ -28,8 +29,10 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         StewardWritableReservationRegistry reservations,
         StewardAccessSession accessSession,
         StewardWorldMetadataClient metadata,
+        StewardHostPresenceClient hostPresence,
         StewardWorldStorage storage,
         WorldLifecycleService lifecycle,
+        WorldJoinService join,
         StewardPendingSyncRecoveryService pendingSyncRecovery,
         StewardInitialWorldPublisher initialWorldPublisher,
         StewardWorldAccessClient access,
@@ -40,8 +43,10 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         _reservations = reservations;
         _accessSession = accessSession;
         _metadata = metadata;
+        _hostPresence = hostPresence;
         Storage = storage;
         Lifecycle = lifecycle;
+        Join = join;
         PendingSyncRecovery = pendingSyncRecovery;
         InitialWorldPublisher = initialWorldPublisher;
         Access = access;
@@ -50,6 +55,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
 
     public StewardWorldStorage Storage { get; }
     public WorldLifecycleService Lifecycle { get; }
+    public WorldJoinService Join { get; }
     public StewardPendingSyncRecoveryService PendingSyncRecovery { get; }
     public StewardInitialWorldPublisher InitialWorldPublisher { get; }
     public StewardWorldAccessClient Access { get; }
@@ -61,6 +67,14 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
     {
         var accessToken = await _accessSession.GetAccessTokenAsync(cancellationToken);
         return await _metadata.GetWorldAsync(worldId, accessToken, cancellationToken);
+    }
+
+    public async Task<StewardRemoteHostPresence?> GetHostPresenceAsync(
+        WorldId worldId,
+        CancellationToken cancellationToken = default)
+    {
+        var accessToken = await _accessSession.GetAccessTokenAsync(cancellationToken);
+        return await _hostPresence.GetAsync(worldId, accessToken, cancellationToken);
     }
 
     public static StewardDesktopRemoteRuntime Create(
@@ -102,6 +116,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 initialTokens);
 
             var metadata = new StewardWorldMetadataClient(apiClient);
+            var hostPresence = new StewardHostPresenceClient(apiClient);
             var worldCreation = new StewardWorldCreationClient(apiClient);
             var access = new StewardWorldAccessClient(apiClient, accessSession);
             var authority = new StewardAuthorityClient(apiClient);
@@ -142,6 +157,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 recoveryStore,
                 managedSessionGate,
                 lifecycleObserver);
+            var join = new WorldJoinService(storage);
             var pendingSyncRecovery = new StewardPendingSyncRecoveryService(
                 storage,
                 coordinator,
@@ -157,8 +173,10 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 reservations,
                 accessSession,
                 metadata,
+                hostPresence,
                 storage,
                 lifecycle,
+                join,
                 pendingSyncRecovery,
                 initialWorldPublisher,
                 access,

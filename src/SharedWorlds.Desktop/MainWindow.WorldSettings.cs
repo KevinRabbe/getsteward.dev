@@ -96,7 +96,7 @@ public partial class MainWindow
         KeepExactGameVersionCheckBox.IsChecked = keepExact;
         KeepExactGameVersionCheckBox.IsEnabled = !_isBusy;
         GameVersionPolicyText.Text = keepExact
-            ? "SharedWorlds treats the current exact environment as known-good and ignores newer game versions for this World."
+            ? "Steward treats the current exact environment as known-good and ignores newer game versions for this World."
             : "Newer versions may be offered only as explicit update candidates. The current environment stays known-good until a tested candidate is accepted.";
     }
 }

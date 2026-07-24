@@ -17,9 +17,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 var connectionString = RequireConfiguration(builder.Configuration, "ConnectionStrings:Steward");
-var steamAppId = ParseRequiredUInt32(builder.Configuration, "Steam:AppId");
-var steamPublisherApiKey = RequireConfiguration(builder.Configuration, "Steam:PublisherApiKey");
-var steamIdentity = RequireConfiguration(builder.Configuration, "Steam:Identity");
+var steamVerifierOptions = ReadOptionalSteamVerifierOptions(builder.Configuration);
 var objectStorageServiceUrl = new Uri(
     RequireConfiguration(builder.Configuration, "ObjectStorage:ServiceUrl"),
     UriKind.Absolute);
@@ -75,6 +73,10 @@ builder.Services.AddSingleton<PostgreSqlSharedWorldReservationAbandonStore>();
 builder.Services.AddSingleton<ISharedWorldReservationAbandonStore>(services =>
     services.GetRequiredService<PostgreSqlSharedWorldReservationAbandonStore>());
 
+builder.Services.AddSingleton<PostgreSqlSharedWorldHostPresenceStore>();
+builder.Services.AddSingleton<ISharedWorldHostPresenceStore>(services =>
+    services.GetRequiredService<PostgreSqlSharedWorldHostPresenceStore>());
+
 builder.Services.AddSingleton<PostgreSqlStewardSessionStore>();
 builder.Services.AddSingleton<IStewardSessionStore>(services =>
     services.GetRequiredService<PostgreSqlStewardSessionStore>());
@@ -96,12 +98,13 @@ builder.Services.AddSingleton<IPrivateImmutableObjectStore>(_ =>
         objectStorageSecretKey,
         objectStorageForcePathStyle)));
 
-builder.Services.AddSingleton(services => new SteamWebApiTicketVerifier(
-    services.GetRequiredService<IHttpClientFactory>().CreateClient("steam-identity"),
-    new SteamWebApiTicketVerifierOptions(
-        steamAppId,
-        steamPublisherApiKey,
-        steamIdentity)));
+builder.Services.AddSingleton(services =>
+{
+    var httpClient = services.GetRequiredService<IHttpClientFactory>().CreateClient("steam-identity");
+    return steamVerifierOptions is null
+        ? SteamWebApiTicketVerifier.CreateUnavailable(httpClient)
+        : new SteamWebApiTicketVerifier(httpClient, steamVerifierOptions);
+});
 builder.Services.AddSingleton(services => new StewardSessionService(
     services.GetRequiredService<IStewardSessionStore>(),
     () => DateTimeOffset.UtcNow));
@@ -113,6 +116,10 @@ builder.Services.AddSingleton(services => new SharedWorldAuthorityService(
     services.GetRequiredService<ISharedWorldAuthorityStore>(),
     () => DateTimeOffset.UtcNow));
 builder.Services.AddSingleton<SharedWorldReservationAbandonService>();
+builder.Services.AddSingleton(services => new SharedWorldHostPresenceService(
+    services.GetRequiredService<SharedWorldAuthorityService>(),
+    services.GetRequiredService<ISharedWorldHostPresenceStore>(),
+    () => DateTimeOffset.UtcNow));
 builder.Services.AddSingleton(services => new SharedWorldAccessService(
     services.GetRequiredService<ISharedWorldMetadataStore>(),
     services.GetRequiredService<ISharedWorldAccessStore>(),
@@ -151,7 +158,9 @@ builder.Services.AddHostedService<SharedRevisionRetentionCleanupWorker>();
 
 var app = builder.Build();
 
-await PostgreSqlBackendSchema.InitializeAsync(app.Services.GetRequiredService<NpgsqlDataSource>());
+var dataSource = app.Services.GetRequiredService<NpgsqlDataSource>();
+await PostgreSqlBackendSchema.InitializeAsync(dataSource);
+await PostgreSqlSharedWorldHostPresenceSchema.InitializeAsync(dataSource);
 
 app.UseStewardApiProblemHandling();
 app.MapGet("/health/live", () => Results.Ok(new { status = "live" }));
@@ -161,6 +170,7 @@ app.MapStewardAccessApiV1();
 app.MapStewardRevisionMetadataApiV1();
 app.MapStewardAuthorityApiV1();
 app.MapStewardReservationAbandonApiV1();
+app.MapStewardHostPresenceApiV1();
 
 await app.RunAsync();
 
@@ -183,15 +193,24 @@ static void ConfigureListenPort(WebApplicationBuilder builder)
 
 static async Task<IResult> CheckReadinessAsync(
     NpgsqlDataSource dataSource,
+    IPrivateImmutableObjectStore objectStore,
     CancellationToken cancellationToken)
 {
+    const string readinessObjectKey = "health/readiness/never-written-probe";
+
     try
     {
         await using var command = dataSource.CreateCommand("SELECT 1;");
-        var result = await command.ExecuteScalarAsync(cancellationToken);
-        return result is not null
-            ? Results.Ok(new { status = "ready" })
-            : Results.Json(new { status = "not-ready" }, statusCode: StatusCodes.Status503ServiceUnavailable);
+        var databaseResult = await command.ExecuteScalarAsync(cancellationToken);
+        if (databaseResult is null)
+        {
+            return Results.Json(
+                new { status = "not-ready" },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+
+        _ = await objectStore.InspectObjectAsync(readinessObjectKey, cancellationToken);
+        return Results.Ok(new { status = "ready" });
     }
     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
     {
@@ -199,12 +218,40 @@ static async Task<IResult> CheckReadinessAsync(
     }
     catch
     {
-        // Readiness is intentionally non-diagnostic on the public surface. Deployment logs own the
-        // concrete database error; clients and load balancers only need a safe ready/not-ready signal.
         return Results.Json(
             new { status = "not-ready" },
             statusCode: StatusCodes.Status503ServiceUnavailable);
     }
+}
+
+static SteamWebApiTicketVerifierOptions? ReadOptionalSteamVerifierOptions(IConfiguration configuration)
+{
+    var appId = configuration["Steam:AppId"];
+    var publisherApiKey = configuration["Steam:PublisherApiKey"];
+    var identity = configuration["Steam:Identity"];
+
+    if (string.IsNullOrWhiteSpace(appId) &&
+        string.IsNullOrWhiteSpace(publisherApiKey) &&
+        string.IsNullOrWhiteSpace(identity))
+    {
+        return null;
+    }
+
+    if (string.IsNullOrWhiteSpace(appId) ||
+        string.IsNullOrWhiteSpace(publisherApiKey) ||
+        string.IsNullOrWhiteSpace(identity))
+    {
+        throw new InvalidOperationException(
+            "Steam authentication is partially configured. Provide Steam:AppId, Steam:PublisherApiKey, and Steam:Identity together, or omit all three to disable Steam authentication for infrastructure-only deployment.");
+    }
+
+    if (!uint.TryParse(appId, NumberStyles.None, CultureInfo.InvariantCulture, out var parsedAppId) ||
+        parsedAppId == 0)
+    {
+        throw new InvalidOperationException("Configuration 'Steam:AppId' must be a positive UInt32.");
+    }
+
+    return new SteamWebApiTicketVerifierOptions(parsedAppId, publisherApiKey, identity);
 }
 
 static string RequireConfiguration(IConfiguration configuration, string key)
@@ -216,17 +263,6 @@ static string RequireConfiguration(IConfiguration configuration, string key)
     }
 
     return value;
-}
-
-static uint ParseRequiredUInt32(IConfiguration configuration, string key)
-{
-    var value = RequireConfiguration(configuration, key);
-    if (!uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) || parsed == 0)
-    {
-        throw new InvalidOperationException($"Required configuration '{key}' must be a positive UInt32.");
-    }
-
-    return parsed;
 }
 
 static int ParseBoundedInt32(

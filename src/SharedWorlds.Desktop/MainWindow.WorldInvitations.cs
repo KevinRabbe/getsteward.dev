@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 
 namespace SharedWorlds.Desktop;
@@ -7,7 +8,7 @@ public partial class MainWindow
 {
     private readonly Button _invitationsButton = new()
     {
-        Content = "Invites",
+        Content = DesktopText.Invites,
         Padding = new Thickness(12, 6, 12, 6),
         MinHeight = 32,
         Margin = new Thickness(0, 0, 8, 0)
@@ -22,6 +23,7 @@ public partial class MainWindow
         }
 
         _worldInvitationsUiInitialized = true;
+        AutomationProperties.SetName(_invitationsButton, DesktopText.SharedWorldInvitations);
         _invitationsButton.Click += InvitationsButton_Click;
 
         if (RefreshButton.Parent is Grid header)
@@ -70,28 +72,38 @@ public partial class MainWindow
         var remote = _remoteRuntime;
         if (remote is null)
         {
-            _invitationsButton.Content = "Invites";
-            _invitationsButton.IsEnabled = false;
-            _invitationsButton.ToolTip = "Connect authenticated Steward to view invitations.";
+            SetInvitationsActionState(
+                DesktopText.Invites,
+                false,
+                "Connect authenticated Steward to view invitations.");
             return;
         }
 
         try
         {
             var invitations = await remote.Access.ListPendingInvitationsAsync(cancellationToken);
-            _invitationsButton.Content = invitations.Count == 0
-                ? "Invites"
-                : $"Invites ({invitations.Count})";
-            _invitationsButton.IsEnabled = !_isBusy;
-            _invitationsButton.ToolTip = invitations.Count == 0
+            var content = invitations.Count == 0
+                ? DesktopText.Invites
+                : $"{DesktopText.Invites} ({invitations.Count})";
+            var helpText = invitations.Count == 0
                 ? "No pending shared World invitations."
                 : $"{invitations.Count} pending shared World invitation{(invitations.Count == 1 ? string.Empty : "s")}.";
+            SetInvitationsActionState(content, !_isBusy, helpText);
         }
         catch (Exception exception) when (IsRemoteAvailabilityFailure(exception))
         {
-            _invitationsButton.Content = "Invites";
-            _invitationsButton.IsEnabled = false;
-            _invitationsButton.ToolTip = "Steward could not load invitations. Reconnect the shared service and try again.";
+            SetInvitationsActionState(
+                DesktopText.Invites,
+                false,
+                "Steward could not load invitations. Reconnect the shared service and try again.");
         }
+    }
+
+    private void SetInvitationsActionState(string content, bool isEnabled, string helpText)
+    {
+        _invitationsButton.Content = content;
+        _invitationsButton.IsEnabled = isEnabled;
+        _invitationsButton.ToolTip = helpText;
+        AutomationProperties.SetHelpText(_invitationsButton, helpText);
     }
 }

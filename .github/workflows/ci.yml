@@ -99,7 +99,29 @@ jobs:
           user="$(docker image inspect steward-backend-ci:${{ github.sha }} --format '{{.Config.User}}')"
           test "$user" = "app"
 
-      - name: Smoke test container startup and health
+      - name: Start disposable S3-compatible readiness dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --rm \
+            --name steward-backend-smoke-s3 \
+            --network host \
+            --env MINIO_ROOT_USER=ci-test-only \
+            --env MINIO_ROOT_PASSWORD=ci-test-only \
+            quay.io/minio/minio:RELEASE.2025-07-18T21-56-31Z \
+            server /data --address :9000
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:9000/minio/health/live >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker logs steward-backend-smoke-s3
+          exit 1
+
+      - name: Smoke test E4-A container startup, readiness, and fail-closed Steam auth
         shell: bash
         run: |
           set -euo pipefail
@@ -111,9 +133,6 @@ jobs:
             --network host \
             --env PORT=18080 \
             --env 'ConnectionStrings__Steward=Host=127.0.0.1;Port=5432;Username=steward;Password=steward;Database=steward_container_smoke' \
-            --env Steam__AppId=480 \
-            --env Steam__PublisherApiKey=ci-test-only \
-            --env Steam__Identity=steward-ci \
             --env ObjectStorage__ServiceUrl=http://127.0.0.1:9000 \
             --env ObjectStorage__AuthenticationRegion=us-east-1 \
             --env ObjectStorage__BucketName=steward-ci \
@@ -122,10 +141,12 @@ jobs:
             --env ObjectStorage__ForcePathStyle=true \
             steward-backend-ci:${{ github.sha }}
 
+          ready=false
           for attempt in $(seq 1 60); do
             if curl --fail --silent http://127.0.0.1:18080/health/live >/dev/null && \
                curl --fail --silent http://127.0.0.1:18080/health/ready >/dev/null; then
-              exit 0
+              ready=true
+              break
             fi
 
             if ! docker inspect "$container" --format '{{.State.Running}}' | grep -qx true; then
@@ -136,8 +157,24 @@ jobs:
             sleep 1
           done
 
-          docker logs "$container"
-          exit 1
+          if [ "$ready" != true ]; then
+            docker logs "$container"
+            exit 1
+          fi
+
+          auth_status="$(curl --silent --show-error \
+            --output /tmp/steward-e4a-auth.json \
+            --write-out '%{http_code}' \
+            --header 'Content-Type: application/json' \
+            --data '{"ticketHex":"AABBCC","installationId":"ci-e4a"}' \
+            http://127.0.0.1:18080/api/v1/auth/steam/session)"
+          test "$auth_status" = "503"
+          grep -q '"code":"IdentityProviderUnavailable"' /tmp/steward-e4a-auth.json
+          grep -q '"retryable":false' /tmp/steward-e4a-auth.json
+
+      - name: Stop disposable S3-compatible readiness dependency
+        if: always()
+        run: docker rm --force steward-backend-smoke-s3 || true
 
   build-test:
     name: Build and test (${{ matrix.os }})

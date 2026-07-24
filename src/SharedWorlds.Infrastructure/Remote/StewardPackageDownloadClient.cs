@@ -113,17 +113,27 @@ public sealed class StewardPackageDownloadClient
         var authorization = data.Authorization;
         if (!string.Equals(authorization.Method, "GET", StringComparison.OrdinalIgnoreCase) ||
             data.ExpectedByteSize <= 0 ||
-            authorization.ExpectedByteSize != data.ExpectedByteSize)
+            authorization.ExpectedByteSize != data.ExpectedByteSize ||
+            !Uri.TryCreate(authorization.Uri, UriKind.Absolute, out var objectUri))
         {
             throw new InvalidDataException("Steward returned inconsistent immutable package metadata.");
         }
 
-        return new AuthorizedPackageDownload(
-            new Uri(authorization.Uri, UriKind.Absolute),
-            authorization.RequiredHeaders ?? new Dictionary<string, string>(),
-            authorization.ExpiresAt,
-            data.ExpectedByteSize,
-            data.ExpectedSha256);
+        try
+        {
+            return new AuthorizedPackageDownload(
+                objectUri,
+                authorization.RequiredHeaders ?? new Dictionary<string, string>(),
+                authorization.ExpiresAt,
+                data.ExpectedByteSize,
+                data.ExpectedSha256);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new InvalidDataException(
+                "Steward returned inconsistent immutable package metadata.",
+                exception);
+        }
     }
 
     private static bool IsTransientStatus(HttpStatusCode statusCode)

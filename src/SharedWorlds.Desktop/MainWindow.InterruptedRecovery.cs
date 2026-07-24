@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Worlds;
 
@@ -28,9 +29,15 @@ public partial class MainWindow
             {
                 try
                 {
-                    // Preflight the installation before changing the durable recovery status. If the
-                    // game is unavailable, the original Active evidence remains untouched.
-                    var installation = await GetGameInstallationAsync(adapter);
+                    var active = await GetInterruptedWorkspaceRecordAsync(world.Id);
+
+                    // Verify a concrete installation against the exact environment that created the
+                    // preserved workspace before changing Active -> RecoveryPending. Discovery order
+                    // must never decide which installation is trusted for interrupted recovery.
+                    var installation = await GetReadyInstallationForRecoveryRecordAsync(
+                        world,
+                        adapter,
+                        active);
                     var decision = new InterruptedWorkspaceRecoveryDecisionService(
                         _workspaceRecoveryStore);
                     await decision.PrepareRecoveryAsync(world.Id, adapter.Id);
@@ -86,21 +93,14 @@ public partial class MainWindow
             {
                 try
                 {
-                    var active = (await _workspaceRecoveryStore.ListAsync())
-                        .Where(record =>
-                            record.WorldId == world.Id &&
-                            record.Status == WorkspaceRecoveryStatus.Active)
-                        .OrderBy(record => record.CreatedAt)
-                        .ThenBy(record => record.Id.ToString(), StringComparer.Ordinal)
-                        .FirstOrDefault()
-                        ?? throw new InvalidOperationException(
-                            "No interrupted Active workspace exists for this World.");
-
-                    var installation = (await adapter.DiscoverInstallationsAsync()).FirstOrDefault();
-                    if (Directory.Exists(active.WorkingDirectory) && installation is null)
+                    var active = await GetInterruptedWorkspaceRecordAsync(world.Id);
+                    GameInstallation? installation = null;
+                    if (Directory.Exists(active.WorkingDirectory))
                     {
-                        throw new InvalidOperationException(
-                            $"{adapter.DisplayName} is not installed, so Steward cannot ask the adapter to remove the preserved workspace safely.");
+                        installation = await GetReadyInstallationForRecoveryRecordAsync(
+                            world,
+                            adapter,
+                            active);
                     }
 
                     var decision = new InterruptedWorkspaceRecoveryDecisionService(
@@ -123,4 +123,15 @@ public partial class MainWindow
                 }
             });
     }
+
+    private async Task<WorkspaceRecoveryRecord> GetInterruptedWorkspaceRecordAsync(WorldId worldId)
+        => (await _workspaceRecoveryStore.ListAsync())
+               .Where(record =>
+                   record.WorldId == worldId &&
+                   record.Status == WorkspaceRecoveryStatus.Active)
+               .OrderBy(record => record.CreatedAt)
+               .ThenBy(record => record.Id.ToString(), StringComparer.Ordinal)
+               .FirstOrDefault()
+           ?? throw new InvalidOperationException(
+               "No interrupted Active workspace exists for this World.");
 }

@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text.Json;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
 
@@ -5,6 +7,8 @@ namespace SharedWorlds.Infrastructure.Storage;
 
 public sealed class LocalWorldStorage : IWorldStorage
 {
+    private const string PayloadFileName = "payload.bin";
+    private const string PayloadSha256FileName = "payload.sha256";
     private readonly string _rootPath;
 
     public LocalWorldStorage(string rootPath)
@@ -130,19 +134,20 @@ public sealed class LocalWorldStorage : IWorldStorage
                 StorageDocumentSchemas.StateRevision,
                 revision,
                 cancellationToken);
-            await using (var output = new FileStream(
-                             Path.Combine(temporaryDirectory, "payload.bin"),
-                             FileMode.CreateNew,
-                             FileAccess.Write,
-                             FileShare.None,
-                             bufferSize: 1024 * 128,
-                             useAsync: true))
-            {
-                await package.CopyToAsync(output, cancellationToken);
-                await output.FlushAsync(cancellationToken);
-            }
 
-            // Publish metadata and payload together only after both are fully written.
+            var payloadPath = Path.Combine(temporaryDirectory, PayloadFileName);
+            var payloadSha256 = await CopyPayloadWithSha256Async(
+                package,
+                payloadPath,
+                cancellationToken);
+            await File.WriteAllTextAsync(
+                Path.Combine(temporaryDirectory, PayloadSha256FileName),
+                payloadSha256,
+                cancellationToken);
+
+            // Publish metadata, payload, and its integrity digest together only after all three are
+            // fully written. A revision directory therefore never advertises a checksum for bytes
+            // that were not durably staged with it.
             Directory.Move(temporaryDirectory, finalDirectory);
         }
         finally
@@ -169,14 +174,15 @@ public sealed class LocalWorldStorage : IWorldStorage
             cancellationToken);
     }
 
-    public Task<Stream> OpenRevisionAsync(
+    public async Task<Stream> OpenRevisionAsync(
         WorldId worldId,
         RevisionId revisionId,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var path = Path.Combine(GetStateRevisionDirectory(worldId, revisionId), "payload.bin");
+        var revisionDirectory = GetStateRevisionDirectory(worldId, revisionId);
+        var path = Path.Combine(revisionDirectory, PayloadFileName);
         if (!File.Exists(path))
         {
             throw new FileNotFoundException(
@@ -184,8 +190,118 @@ public sealed class LocalWorldStorage : IWorldStorage
                 path);
         }
 
-        Stream stream = OpenRead(path);
-        return Task.FromResult(stream);
+        var checksumPath = Path.Combine(revisionDirectory, PayloadSha256FileName);
+        if (!File.Exists(checksumPath))
+        {
+            var persistedSchemaVersion = await ReadStateRevisionSchemaVersionAsync(
+                revisionDirectory,
+                cancellationToken);
+            if (persistedSchemaVersion is >= 2)
+            {
+                throw new InvalidDataException(
+                    $"State revision '{revisionId}' for World '{worldId}' is missing its required SHA-256 integrity digest.");
+            }
+
+            // Pre-checksum schema 0/1 revisions remain readable for persistence compatibility.
+            return OpenRead(path);
+        }
+
+        var checksumText = (await File.ReadAllTextAsync(checksumPath, cancellationToken)).Trim();
+        byte[] expectedHash;
+        try
+        {
+            expectedHash = Convert.FromHexString(checksumText);
+        }
+        catch (FormatException exception)
+        {
+            throw new InvalidDataException(
+                $"State revision '{revisionId}' for World '{worldId}' has an invalid SHA-256 integrity digest.",
+                exception);
+        }
+
+        if (expectedHash.Length != SHA256.HashSizeInBytes)
+        {
+            throw new InvalidDataException(
+                $"State revision '{revisionId}' for World '{worldId}' has an invalid SHA-256 integrity digest length.");
+        }
+
+        return new Sha256VerifyingReadStream(
+            OpenRead(path),
+            expectedHash,
+            $"State revision '{revisionId}' for World '{worldId}' payload");
+    }
+
+    private static async Task<int?> ReadStateRevisionSchemaVersionAsync(
+        string revisionDirectory,
+        CancellationToken cancellationToken)
+    {
+        var metadataPath = Path.Combine(revisionDirectory, "revision.json");
+        if (!File.Exists(metadataPath))
+        {
+            return null;
+        }
+
+        await using var stream = OpenRead(metadataPath);
+        using var document = await JsonDocument.ParseAsync(
+            stream,
+            cancellationToken: cancellationToken);
+        var root = document.RootElement;
+        var looksLikeEnvelope = root.ValueKind == JsonValueKind.Object &&
+                                (root.TryGetProperty("documentType", out _) ||
+                                 root.TryGetProperty("schemaVersion", out _) ||
+                                 root.TryGetProperty("payload", out _));
+        if (!looksLikeEnvelope)
+        {
+            return 0;
+        }
+
+        if (!root.TryGetProperty("documentType", out var documentTypeElement) ||
+            documentTypeElement.ValueKind != JsonValueKind.String ||
+            !string.Equals(
+                documentTypeElement.GetString(),
+                StorageDocumentSchemas.StateRevision.DocumentType,
+                StringComparison.Ordinal) ||
+            !root.TryGetProperty("schemaVersion", out var schemaVersionElement) ||
+            schemaVersionElement.ValueKind != JsonValueKind.Number ||
+            !schemaVersionElement.TryGetInt32(out var schemaVersion) ||
+            !root.TryGetProperty("payload", out _))
+        {
+            throw new InvalidDataException(
+                "Persisted state revision envelope is incomplete, malformed, or has the wrong document type.");
+        }
+
+        return schemaVersion;
+    }
+
+    private static async Task<string> CopyPayloadWithSha256Async(
+        Stream source,
+        string destination,
+        CancellationToken cancellationToken)
+    {
+        await using var output = new FileStream(
+            destination,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 1024 * 128,
+            useAsync: true);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var buffer = new byte[1024 * 128];
+
+        while (true)
+        {
+            var read = await source.ReadAsync(buffer, cancellationToken);
+            if (read == 0)
+            {
+                break;
+            }
+
+            hash.AppendData(buffer, 0, read);
+            await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+        }
+
+        await output.FlushAsync(cancellationToken);
+        return Convert.ToHexString(hash.GetHashAndReset());
     }
 
     private async Task WriteDocumentAtomicAsync<T>(

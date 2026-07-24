@@ -36,11 +36,23 @@ public partial class MainWindow
 
     private Forms.ContextMenuStrip CreateTrayMenu()
     {
-        var menu = new Forms.ContextMenuStrip();
-        var open = new Forms.ToolStripMenuItem("Open Steward");
+        var menu = new Forms.ContextMenuStrip
+        {
+            AccessibleName = "Steward tray menu",
+            AccessibleDescription = "Open Steward or quit when Steward has no active World responsibility."
+        };
+        var open = new Forms.ToolStripMenuItem(DesktopText.OpenSteward)
+        {
+            AccessibleName = DesktopText.OpenSteward,
+            AccessibleDescription = "Open the Steward window."
+        };
         open.Click += (_, _) => OpenStewardWindow();
 
-        var quit = new Forms.ToolStripMenuItem("Quit Steward");
+        var quit = new Forms.ToolStripMenuItem(DesktopText.QuitSteward)
+        {
+            AccessibleName = DesktopText.QuitSteward,
+            AccessibleDescription = "Quit Steward when no active or unresolved World responsibility remains."
+        };
         quit.Click += (_, _) => RequestQuitSteward();
 
         menu.Items.Add(open);
@@ -73,6 +85,8 @@ public partial class MainWindow
     {
         UpdateTrayStatus();
         UpdateUnifiedActionState();
+        UpdateWorldSharingActionState();
+        UpdateManagedHostStopUi();
         UpdateResponsibilityPresentation();
         RebuildManagedGameTiles();
     }
@@ -88,6 +102,7 @@ public partial class MainWindow
         _trayIcon.Text = snapshot.Kind switch
         {
             WorldLifecycleResponsibilityKind.None => "Steward",
+            WorldLifecycleResponsibilityKind.InterruptedSession => "Steward - Interrupted session",
             WorldLifecycleResponsibilityKind.RecoveryNeeded => "Steward - Recovery needed",
             WorldLifecycleResponsibilityKind.CleanupPending => "Steward - Action required",
             _ => snapshot.Phase switch

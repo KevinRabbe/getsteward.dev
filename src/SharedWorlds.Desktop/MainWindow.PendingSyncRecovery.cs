@@ -46,16 +46,20 @@ public partial class MainWindow
         IGameAdapter adapter,
         GameInstallation? knownInstallation = null)
     {
-        var records = await _workspaceRecoveryStore.ListAsync();
-        if (!records.Any(record =>
-                record.WorldId == world.Id &&
-                record.Status == WorkspaceRecoveryStatus.RecoveryPending))
-        {
-            throw new InvalidOperationException(
+        var record = (await _workspaceRecoveryStore.ListAsync())
+            .Where(candidate =>
+                candidate.WorldId == world.Id &&
+                candidate.Status == WorkspaceRecoveryStatus.RecoveryPending)
+            .OrderBy(candidate => candidate.CreatedAt)
+            .ThenBy(candidate => candidate.Id.ToString(), StringComparer.Ordinal)
+            .FirstOrDefault()
+            ?? throw new InvalidOperationException(
                 "This responsibility is not a pending recovery. Steward left its evidence untouched for the appropriate recovery path.");
-        }
 
-        var installation = knownInstallation ?? await GetGameInstallationAsync(adapter);
+        var installation = knownInstallation ?? await GetReadyInstallationForRecoveryRecordAsync(
+            world,
+            adapter,
+            record);
         if (_remoteWorldIds.Contains(world.Id))
         {
             var remote = _remoteRuntime

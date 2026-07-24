@@ -69,7 +69,7 @@ public sealed class LocalPendingWorkspaceRecoveryServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ExistingCandidateMetadataIsReusedWithoutRecapture()
+    public async Task ExistingCandidateMetadataAndPackageAreReusedWithoutRecapture()
     {
         var fixture = CreateFixture();
         var candidateId = fixture.Record.CandidateStateRevisionId!.Value;
@@ -81,6 +81,7 @@ public sealed class LocalPendingWorkspaceRecoveryServiceTests : IDisposable
             fixture.User,
             fixture.Adapter.Id,
             "existing-package");
+        fixture.Storage.Payloads[candidateId] = [1, 2, 3, 4];
         var service = CreateService(fixture);
 
         var recovered = await service.RetryAsync(
@@ -92,6 +93,70 @@ public sealed class LocalPendingWorkspaceRecoveryServiceTests : IDisposable
         Assert.Equal(candidateId, recovered.CurrentStateRevisionId);
         Assert.Equal(0, fixture.Adapter.CaptureCount);
         Assert.Empty(fixture.Recovery.Records);
+    }
+
+    [Fact]
+    public async Task ExistingCandidateWithoutPackageIsNeverPromoted()
+    {
+        var fixture = CreateFixture();
+        var candidateId = fixture.Record.CandidateStateRevisionId!.Value;
+        fixture.Storage.Revisions[candidateId] = new StateRevision(
+            candidateId,
+            fixture.World.Id,
+            fixture.Record.BaseStateRevisionId,
+            DateTimeOffset.UtcNow,
+            fixture.User,
+            fixture.Adapter.Id,
+            "missing-package");
+        var originalHead = fixture.Storage.World.CurrentStateRevisionId;
+        var service = CreateService(fixture);
+
+        var exception = await Assert.ThrowsAsync<LocalPendingWorkspaceRecoveryException>(() =>
+            service.RetryAsync(
+                fixture.World.Id,
+                fixture.Adapter,
+                fixture.Adapter.Installation,
+                fixture.User));
+
+        Assert.Equal("CandidatePackageInvalid", exception.Code);
+        Assert.Equal(originalHead, fixture.Storage.World.CurrentStateRevisionId);
+        Assert.Equal(0, fixture.Adapter.CaptureCount);
+        Assert.Equal(0, fixture.Adapter.FinalizeCount);
+        Assert.Single(fixture.Recovery.Records);
+        Assert.True(Directory.Exists(fixture.Record.WorkingDirectory));
+    }
+
+    [Fact]
+    public async Task CanonicalCandidateWithoutPackageKeepsRecoveryEvidence()
+    {
+        var fixture = CreateFixture();
+        var candidateId = fixture.Record.CandidateStateRevisionId!.Value;
+        fixture.Storage.World = fixture.Storage.World with
+        {
+            CurrentStateRevisionId = candidateId
+        };
+        fixture.Storage.Revisions[candidateId] = new StateRevision(
+            candidateId,
+            fixture.World.Id,
+            fixture.Record.BaseStateRevisionId,
+            DateTimeOffset.UtcNow,
+            fixture.User,
+            fixture.Adapter.Id,
+            "missing-canonical-package");
+        var service = CreateService(fixture);
+
+        var exception = await Assert.ThrowsAsync<LocalPendingWorkspaceRecoveryException>(() =>
+            service.RetryAsync(
+                fixture.World.Id,
+                fixture.Adapter,
+                fixture.Adapter.Installation,
+                fixture.User));
+
+        Assert.Equal("CandidatePackageInvalid", exception.Code);
+        Assert.Equal(candidateId, fixture.Storage.World.CurrentStateRevisionId);
+        Assert.Equal(0, fixture.Adapter.FinalizeCount);
+        Assert.Single(fixture.Recovery.Records);
+        Assert.True(Directory.Exists(fixture.Record.WorkingDirectory));
     }
 
     [Fact]
@@ -222,6 +287,7 @@ public sealed class LocalPendingWorkspaceRecoveryServiceTests : IDisposable
 
         public World World { get; set; }
         public Dictionary<RevisionId, StateRevision> Revisions { get; } = [];
+        public Dictionary<RevisionId, byte[]> Payloads { get; } = [];
         public bool ThrowAfterNextWorldSave { get; set; }
 
         public Task SaveWorldAsync(World world, CancellationToken cancellationToken = default)
@@ -263,6 +329,7 @@ public sealed class LocalPendingWorkspaceRecoveryServiceTests : IDisposable
             using var sink = new MemoryStream();
             await package.CopyToAsync(sink, cancellationToken);
             Revisions[revision.Id] = revision;
+            Payloads[revision.Id] = sink.ToArray();
         }
 
         public Task<StateRevision?> LoadStateRevisionAsync(
@@ -278,7 +345,20 @@ public sealed class LocalPendingWorkspaceRecoveryServiceTests : IDisposable
             WorldId worldId,
             RevisionId revisionId,
             CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+        {
+            if (!Revisions.TryGetValue(revisionId, out var revision) || revision.WorldId != worldId)
+            {
+                throw new FileNotFoundException("Test state revision does not exist.");
+            }
+
+            if (!Payloads.TryGetValue(revisionId, out var payload))
+            {
+                throw new FileNotFoundException("Test state payload does not exist.");
+            }
+
+            Stream stream = new MemoryStream(payload, writable: false);
+            return Task.FromResult(stream);
+        }
     }
 
     private sealed class RecoveryStore : IWorkspaceRecoveryStore

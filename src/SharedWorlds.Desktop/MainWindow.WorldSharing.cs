@@ -1,6 +1,5 @@
 using System.Windows;
 using System.Windows.Automation;
-using System.Windows.Threading;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Worlds;
 
@@ -18,18 +17,12 @@ public partial class MainWindow
         }
 
         _worldSharingUiInitialized = true;
-
-        // Replace the old honest placeholder only after the authenticated runtime had a chance to
-        // initialize. UnifiedGames continues to own the common button location/layout; this partial
-        // owns the real sharing transaction and its fail-closed state.
-        ShareButton.Click -= UnifiedShareButton_Click;
         ShareButton.Click += ShareWorldButton_Click;
 
-        // UnifiedGames still computes common action state after some list/busy events. Queue this
-        // sharing-specific refinement at the end of the dispatcher turn so Share/Retry/Manage cannot
-        // be overwritten by the older generic Shared/LocalOnly label immediately afterwards.
-        WorldList.SelectionChanged += (_, _) => QueueWorldSharingActionStateUpdate();
-        WorldList.IsEnabledChanged += (_, _) => QueueWorldSharingActionStateUpdate();
+        // UnifiedGames updates the selected World first because its handlers were registered first.
+        // WorldSharing then projects the one authoritative Share/Retry/Manage action from that state.
+        WorldList.SelectionChanged += (_, _) => UpdateWorldSharingActionState();
+        WorldList.IsEnabledChanged += (_, _) => UpdateWorldSharingActionState();
 
         UpdateWorldSharingActionState();
     }
@@ -198,18 +191,6 @@ public partial class MainWindow
             });
 
         UpdateWorldSharingActionState();
-    }
-
-    private void QueueWorldSharingActionStateUpdate()
-    {
-        if (!_worldSharingUiInitialized)
-        {
-            return;
-        }
-
-        _ = Dispatcher.BeginInvoke(
-            DispatcherPriority.Background,
-            new Action(UpdateWorldSharingActionState));
     }
 
     private void UpdateWorldSharingActionState()

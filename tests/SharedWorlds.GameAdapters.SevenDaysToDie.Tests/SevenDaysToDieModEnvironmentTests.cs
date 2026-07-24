@@ -65,6 +65,30 @@ public sealed class SevenDaysToDieModEnvironmentTests : IDisposable
     }
 
     [Fact]
+    public void VerificationBlocksMalformedRequiredModIdentitiesWithoutThrowing()
+    {
+        var installation = CreateInstallation("1000");
+        WriteV2Mod("Duplicate", "1.0");
+
+        var required = new EnvironmentManifest(
+            1,
+            "7-days-to-die",
+            "1000",
+            [
+                new EnvironmentComponent("mod", "Duplicate", "1.0", "dedicated-server"),
+                new EnvironmentComponent("mod", "Duplicate", "1.0", "dedicated-server"),
+                new EnvironmentComponent("mod", string.Empty, "1.0", "dedicated-server")
+            ],
+            new Dictionary<string, string>(StringComparer.Ordinal));
+
+        var verification = SevenDaysToDieEnvironment.Verify(installation, required);
+
+        Assert.False(verification.IsReady);
+        Assert.Contains(verification.Issues, issue => issue.Code == "7dtd-required-mod-duplicate");
+        Assert.Contains(verification.Issues, issue => issue.Code == "7dtd-mod-id-invalid");
+    }
+
+    [Fact]
     public void LegacyModWithoutDeclaredVersionCanBeInspectedButNotClaimedExactOnAnotherHost()
     {
         var installation = CreateInstallation("1000");

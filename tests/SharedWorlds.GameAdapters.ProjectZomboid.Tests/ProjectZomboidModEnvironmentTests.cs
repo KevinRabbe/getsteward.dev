@@ -61,12 +61,12 @@ public sealed class ProjectZomboidModEnvironmentTests : IDisposable
     public void VerificationBlocksStaleWorkshopManifest()
     {
         var installation = CreateInstallation("9000");
-        InstallWorkshopItem("123456", "new-manifest", "FirstMod");
+        InstallWorkshopItem("123456", "222222222222", "FirstMod");
         var required = new EnvironmentManifest(
             1,
             "project-zomboid",
             "9000",
-            [new EnvironmentComponent("steam-workshop", "123456", "old-manifest", "steam-workshop")],
+            [new EnvironmentComponent("steam-workshop", "123456", "111111111111", "steam-workshop")],
             new Dictionary<string, string>(StringComparer.Ordinal));
 
         var verification = ProjectZomboidEnvironment.Verify(installation, required);

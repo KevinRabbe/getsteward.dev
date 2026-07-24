@@ -257,13 +257,14 @@ public sealed record PreparedWorld(
     string? DisplayName = null);
 
 /// <summary>
-/// A captured adapter state package. When <see cref="DeletePackageAfterStore"/> is true,
-/// the package path is temporary and Core may delete it after durable storage succeeds or fails.
+/// A captured adapter state package. Captured packages are adapter-owned disposable artifacts by
+/// default, so Core deletes them after durable storage succeeds or fails. An adapter that deliberately
+/// returns a borrowed or persistent path must opt out with <see cref="DeletePackageAfterStore"/> false.
 /// </summary>
 public sealed record CapturedState(
     StatePackage Package,
     DateTimeOffset CapturedAt,
-    bool DeletePackageAfterStore = false);
+    bool DeletePackageAfterStore = true);
 
 public sealed record StatePackage(string Id, string Path);
 public sealed record GameSessionHandle(int ProcessId, DateTimeOffset StartedAt);

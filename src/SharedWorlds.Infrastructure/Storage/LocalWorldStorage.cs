@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.Json;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
 
@@ -192,8 +193,16 @@ public sealed class LocalWorldStorage : IWorldStorage
         var checksumPath = Path.Combine(revisionDirectory, PayloadSha256FileName);
         if (!File.Exists(checksumPath))
         {
-            // Pre-checksum revisions remain readable for persistence compatibility. Every revision
-            // written by the current storage format receives a checksum before publication.
+            var persistedSchemaVersion = await ReadStateRevisionSchemaVersionAsync(
+                revisionDirectory,
+                cancellationToken);
+            if (persistedSchemaVersion is >= 2)
+            {
+                throw new InvalidDataException(
+                    $"State revision '{revisionId}' for World '{worldId}' is missing its required SHA-256 integrity digest.");
+            }
+
+            // Pre-checksum schema 0/1 revisions remain readable for persistence compatibility.
             return OpenRead(path);
         }
 
@@ -220,6 +229,48 @@ public sealed class LocalWorldStorage : IWorldStorage
             OpenRead(path),
             expectedHash,
             $"State revision '{revisionId}' for World '{worldId}' payload");
+    }
+
+    private static async Task<int?> ReadStateRevisionSchemaVersionAsync(
+        string revisionDirectory,
+        CancellationToken cancellationToken)
+    {
+        var metadataPath = Path.Combine(revisionDirectory, "revision.json");
+        if (!File.Exists(metadataPath))
+        {
+            return null;
+        }
+
+        await using var stream = OpenRead(metadataPath);
+        using var document = await JsonDocument.ParseAsync(
+            stream,
+            cancellationToken: cancellationToken);
+        var root = document.RootElement;
+        var looksLikeEnvelope = root.ValueKind == JsonValueKind.Object &&
+                                (root.TryGetProperty("documentType", out _) ||
+                                 root.TryGetProperty("schemaVersion", out _) ||
+                                 root.TryGetProperty("payload", out _));
+        if (!looksLikeEnvelope)
+        {
+            return 0;
+        }
+
+        if (!root.TryGetProperty("documentType", out var documentTypeElement) ||
+            documentTypeElement.ValueKind != JsonValueKind.String ||
+            !string.Equals(
+                documentTypeElement.GetString(),
+                StorageDocumentSchemas.StateRevision.DocumentType,
+                StringComparison.Ordinal) ||
+            !root.TryGetProperty("schemaVersion", out var schemaVersionElement) ||
+            schemaVersionElement.ValueKind != JsonValueKind.Number ||
+            !schemaVersionElement.TryGetInt32(out var schemaVersion) ||
+            !root.TryGetProperty("payload", out _))
+        {
+            throw new InvalidDataException(
+                "Persisted state revision envelope is incomplete, malformed, or has the wrong document type.");
+        }
+
+        return schemaVersion;
     }
 
     private static async Task<string> CopyPayloadWithSha256Async(

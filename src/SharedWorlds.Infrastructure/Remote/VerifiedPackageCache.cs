@@ -106,20 +106,10 @@ public sealed class VerifiedPackageCache
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(authorization);
-        if (authorization.ExpectedByteSize <= 0)
-        {
-            throw new PackageIntegrityException("Authorized immutable package has an invalid byte size.");
-        }
 
-        if (!authorization.Uri.IsAbsoluteUri ||
-            authorization.Uri.Scheme is not ("http" or "https"))
-        {
-            throw new PackageIntegrityException("Authorized immutable package has an invalid object-storage URI.");
-        }
-
-        var normalizedSha256 = NormalizeSha256(authorization.ExpectedSha256);
-        using var gate = await AcquireAsync(normalizedSha256, cancellationToken);
-        var finalPath = GetFinalPath(normalizedSha256);
+        var sha256 = authorization.ExpectedSha256;
+        using var gate = await AcquireAsync(sha256, cancellationToken);
+        var finalPath = GetFinalPath(sha256);
         var partialPath = finalPath + ".partial";
         Directory.CreateDirectory(Path.GetDirectoryName(finalPath)!);
 
@@ -128,13 +118,13 @@ public sealed class VerifiedPackageCache
             if (await VerifyFileAsync(
                     finalPath,
                     authorization.ExpectedByteSize,
-                    normalizedSha256,
+                    sha256,
                     cancellationToken))
             {
                 return new VerifiedCachedPackage(
                     finalPath,
                     authorization.ExpectedByteSize,
-                    normalizedSha256);
+                    sha256);
             }
 
             File.Delete(finalPath);
@@ -152,19 +142,19 @@ public sealed class VerifiedPackageCache
                 if (await VerifyFileAsync(
                         partialPath,
                         authorization.ExpectedByteSize,
-                        normalizedSha256,
+                        sha256,
                         cancellationToken))
                 {
                     PublishVerifiedPartial(partialPath, finalPath);
                     await EnsurePublishedFinalIsVerifiedAsync(
                         finalPath,
                         authorization.ExpectedByteSize,
-                        normalizedSha256,
+                        sha256,
                         cancellationToken);
                     return new VerifiedCachedPackage(
                         finalPath,
                         authorization.ExpectedByteSize,
-                        normalizedSha256);
+                        sha256);
                 }
 
                 File.Delete(partialPath);
@@ -203,7 +193,7 @@ public sealed class VerifiedPackageCache
         if (!await VerifyFileAsync(
                 partialPath,
                 authorization.ExpectedByteSize,
-                normalizedSha256,
+                sha256,
                 cancellationToken))
         {
             File.Delete(partialPath);
@@ -214,12 +204,12 @@ public sealed class VerifiedPackageCache
         await EnsurePublishedFinalIsVerifiedAsync(
             finalPath,
             authorization.ExpectedByteSize,
-            normalizedSha256,
+            sha256,
             cancellationToken);
         return new VerifiedCachedPackage(
             finalPath,
             authorization.ExpectedByteSize,
-            normalizedSha256);
+            sha256);
     }
 
     public async Task<Stream> OpenVerifiedReadAsync(
@@ -398,26 +388,6 @@ public sealed class VerifiedPackageCache
             // Some network/virtual filesystems do not expose DriveInfo. Integrity verification still
             // protects the cache; free-space preflight is best-effort on those filesystems.
         }
-    }
-
-    private static string NormalizeSha256(string? sha256)
-    {
-        if (sha256 is null || sha256.Length != 64)
-        {
-            throw new PackageIntegrityException("Authorized immutable package has an invalid SHA-256 digest.");
-        }
-
-        foreach (var character in sha256)
-        {
-            if (!((character >= '0' && character <= '9') ||
-                  (character >= 'a' && character <= 'f') ||
-                  (character >= 'A' && character <= 'F')))
-            {
-                throw new PackageIntegrityException("Authorized immutable package has an invalid SHA-256 digest.");
-            }
-        }
-
-        return sha256.ToUpperInvariant();
     }
 
     private string GetFinalPath(string sha256)

@@ -88,10 +88,10 @@ public sealed class StewardPackageDownloadClient
             request,
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken);
-        await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        var envelope = await JsonSerializer.DeserializeAsync<ApiEnvelope>(
-            responseStream,
+        var envelope = await RemoteApiJson.DeserializeAsync<ApiEnvelope>(
+            response.Content,
             _jsonOptions,
+            "download-authorization",
             cancellationToken);
 
         if (!response.IsSuccessStatusCode)

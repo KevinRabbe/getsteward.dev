@@ -126,16 +126,11 @@ public sealed class StewardSessionClient
             request,
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken);
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        ApiResponse? envelope;
-        try
-        {
-            envelope = await JsonSerializer.DeserializeAsync<ApiResponse>(stream, _jsonOptions, cancellationToken);
-        }
-        catch (JsonException exception)
-        {
-            throw new InvalidDataException("Steward returned malformed session JSON.", exception);
-        }
+        var envelope = await RemoteApiJson.DeserializeAsync<ApiResponse>(
+            response.Content,
+            _jsonOptions,
+            "session",
+            cancellationToken);
 
         if (envelope is null || string.IsNullOrWhiteSpace(envelope.Code))
         {

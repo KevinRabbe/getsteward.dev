@@ -308,16 +308,11 @@ public sealed class StewardPackageUploadClient
             request,
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken);
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        ApiResponse? envelope;
-        try
-        {
-            envelope = await JsonSerializer.DeserializeAsync<ApiResponse>(stream, _jsonOptions, cancellationToken);
-        }
-        catch (JsonException exception)
-        {
-            throw new InvalidDataException("Steward returned malformed upload JSON.", exception);
-        }
+        var envelope = await RemoteApiJson.DeserializeAsync<ApiResponse>(
+            response.Content,
+            _jsonOptions,
+            "upload",
+            cancellationToken);
 
         if (envelope is null || string.IsNullOrWhiteSpace(envelope.Code))
         {

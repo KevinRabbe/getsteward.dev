@@ -50,7 +50,7 @@ public partial class MainWindow
 
         _recoverInterruptedButton = new Button
         {
-            Content = DesktopText.RecoverChanges,
+            Content = DesktopText.RetryRecovery,
             Visibility = Visibility.Collapsed,
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(0, 8, 0, 0)
@@ -62,7 +62,7 @@ public partial class MainWindow
 
         _discardInterruptedButton = new Button
         {
-            Content = DesktopText.DiscardInterruptedSession,
+            Content = DesktopText.ContinueFromLastSafeState,
             Visibility = Visibility.Collapsed,
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(0, 8, 0, 0)
@@ -196,7 +196,7 @@ public partial class MainWindow
         SetResponsibilityActionHelp(
             _discardInterruptedButton,
             hasAuthority
-                ? "Explicitly keep the last canonical World unchanged and remove only the preserved interrupted workspace after confirmation."
+                ? "Explicitly continue from the last canonical safe state and remove only the preserved interrupted workspace after confirmation."
                 : "Reconnect authenticated Steward authority before resolving this interrupted shared World.");
 
         var exportableRecovery = selectedOwnsResponsibility &&
@@ -269,7 +269,7 @@ public partial class MainWindow
         => snapshot.Kind switch
         {
             WorldLifecycleResponsibilityKind.InterruptedSession =>
-                "Interrupted session — choose whether to recover its preserved changes or explicitly discard them.",
+                "Interrupted session — choose Retry recovery or Continue from last safe state.",
             WorldLifecycleResponsibilityKind.RecoveryNeeded => "Recovery needed",
             WorldLifecycleResponsibilityKind.CleanupPending => "Action required",
             WorldLifecycleResponsibilityKind.ActiveLifecycle => snapshot.Phase switch

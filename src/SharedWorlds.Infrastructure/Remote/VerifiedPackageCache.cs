@@ -8,11 +8,13 @@ namespace SharedWorlds.Infrastructure.Remote;
 public sealed record VerifiedPackageCacheOptions
 {
     private const long DefaultMaximumCacheBytes = 40L * 1024 * 1024 * 1024;
+    private static readonly TimeSpan DefaultTransferInactivityTimeout = TimeSpan.FromMinutes(5);
 
     public VerifiedPackageCacheOptions(
         long minimumFreeSpaceReserveBytes,
         int copyBufferBytes,
-        long maximumCacheBytes = DefaultMaximumCacheBytes)
+        long maximumCacheBytes = DefaultMaximumCacheBytes,
+        TimeSpan? transferInactivityTimeout = null)
     {
         if (minimumFreeSpaceReserveBytes < 0)
         {
@@ -29,20 +31,29 @@ public sealed record VerifiedPackageCacheOptions
             throw new ArgumentOutOfRangeException(nameof(maximumCacheBytes));
         }
 
+        var resolvedInactivityTimeout = transferInactivityTimeout ?? DefaultTransferInactivityTimeout;
+        if (resolvedInactivityTimeout <= TimeSpan.Zero || resolvedInactivityTimeout == Timeout.InfiniteTimeSpan)
+        {
+            throw new ArgumentOutOfRangeException(nameof(transferInactivityTimeout));
+        }
+
         MinimumFreeSpaceReserveBytes = minimumFreeSpaceReserveBytes;
         CopyBufferBytes = copyBufferBytes;
         MaximumCacheBytes = maximumCacheBytes;
+        TransferInactivityTimeout = resolvedInactivityTimeout;
     }
 
     public long MinimumFreeSpaceReserveBytes { get; }
     public int CopyBufferBytes { get; }
     public long MaximumCacheBytes { get; }
+    public TimeSpan TransferInactivityTimeout { get; }
 
     public static VerifiedPackageCacheOptions FirstReleaseDefaults { get; } = new(
         minimumFreeSpaceReserveBytes: 256L * 1024 * 1024,
         copyBufferBytes: 1024 * 1024,
         // First release permits up to one 20 GiB State package plus one 20 GiB hosted Environment.
-        maximumCacheBytes: DefaultMaximumCacheBytes);
+        maximumCacheBytes: DefaultMaximumCacheBytes,
+        transferInactivityTimeout: DefaultTransferInactivityTimeout);
 }
 
 public sealed class PackageDownloadAuthorizationExpiredException : IOException
@@ -107,6 +118,8 @@ public sealed class PackageCacheCapacityException : IOException
 /// file and may resume using a fresh authorization. The final cache path appears only after exact
 /// byte-size and SHA-256 verification. Cache files are disposable/re-downloadable and are bounded
 /// independently from durable recovery workspaces, which are never scanned or evicted here.
+/// Large transfers have no fixed total-duration timeout; instead each header/body progress boundary
+/// has a bounded inactivity window so slow-but-progressing downloads remain valid.
 /// </summary>
 public sealed class VerifiedPackageCache
 {
@@ -294,9 +307,11 @@ public sealed class VerifiedPackageCache
             request.Headers.Range = new RangeHeaderValue(resumeOffset, null);
         }
 
-        using var response = await _transferClient.SendAsync(
+        using var response = await TransferInactivity.SendForHeadersAsync(
+            _transferClient,
             request,
             HttpCompletionOption.ResponseHeadersRead,
+            _options.TransferInactivityTimeout,
             cancellationToken);
 
         var append = false;
@@ -337,6 +352,7 @@ public sealed class VerifiedPackageCache
                 destination,
                 remainingAuthorizedBytes,
                 _options.CopyBufferBytes,
+                _options.TransferInactivityTimeout,
                 cancellationToken);
             await destination.FlushAsync(cancellationToken);
         }
@@ -354,6 +370,7 @@ public sealed class VerifiedPackageCache
         Stream destination,
         long maximumBytes,
         int bufferBytes,
+        TimeSpan inactivityTimeout,
         CancellationToken cancellationToken)
     {
         if (maximumBytes < 0)
@@ -368,8 +385,10 @@ public sealed class VerifiedPackageCache
             var requested = remaining < buffer.Length
                 ? checked((int)remaining + 1)
                 : buffer.Length;
-            var read = await source.ReadAsync(
+            var read = await TransferInactivity.ReadAsync(
+                source,
                 buffer.AsMemory(0, requested),
+                inactivityTimeout,
                 cancellationToken);
             if (read == 0)
             {

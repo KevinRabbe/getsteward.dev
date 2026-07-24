@@ -203,7 +203,7 @@ public partial class MainWindow
         var world = _selectedWorld;
         if (world is null)
         {
-            SetShareActionState("Share World", false, "Select a World.");
+            SetShareActionState(DesktopText.ShareWorld, false, "Select a World.");
             return;
         }
 
@@ -212,7 +212,7 @@ public partial class MainWindow
         if (_remoteWorldIds.Contains(world.Id))
         {
             SetShareActionState(
-                "Manage access",
+                DesktopText.ManageAccess,
                 !_isBusy && _remoteRuntime is not null,
                 "Invite players, remove access, transfer Access Manager responsibility, or leave this shared World.");
             return;
@@ -220,7 +220,7 @@ public partial class MainWindow
 
         var retrying = world.SharingMode == WorldSharingMode.Shared ||
                        _remoteIncompleteWorldIds.Contains(world.Id);
-        var content = retrying ? "Retry sharing" : "Share World";
+        var content = retrying ? DesktopText.RetrySharing : DesktopText.ShareWorld;
         var isEnabled = !_isBusy &&
                         _remoteRuntime is not null &&
                         !unresolvedResponsibility;

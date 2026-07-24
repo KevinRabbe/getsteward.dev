@@ -3,6 +3,10 @@ using SharedWorlds.Core.Domain;
 
 namespace SharedWorlds.Infrastructure.Storage;
 
+internal sealed record PersistedStateRevision(
+    StateRevision Revision,
+    string? PayloadSha256);
+
 internal static class StorageDocumentSchemas
 {
     public static readonly PersistedDocumentSchema<World> World = CreateProtected<World>(
@@ -11,30 +15,34 @@ internal static class StorageDocumentSchemas
     public static readonly PersistedDocumentSchema<EnvironmentRevision> EnvironmentRevision =
         CreateProtected<EnvironmentRevision>("sharedworlds.environment-revision");
 
-    public static readonly PersistedDocumentSchema<StateRevision> StateRevision = new(
+    public static readonly PersistedDocumentSchema<PersistedStateRevision> StateRevision = new(
         "sharedworlds.state-revision",
-        CurrentVersion: 3,
+        CurrentVersion: 4,
         IntegrityRequiredFromVersion: 3,
-        new Dictionary<int, Func<JsonElement, StateRevision>>
+        new Dictionary<int, Func<JsonElement, PersistedStateRevision>>
         {
             // Schema 0 is the pre-envelope format used by the initial foundation.
-            [0] = payload => PersistedDocumentCodec.DeserializePayload<StateRevision>(
-                payload,
-                "sharedworlds.state-revision"),
+            [0] = payload => LegacyStateRevision(payload),
             // Schema 1 used the same logical StateRevision payload, before local payload
             // integrity became a required companion artifact for newly written revisions.
-            [1] = payload => PersistedDocumentCodec.DeserializePayload<StateRevision>(
-                payload,
-                "sharedworlds.state-revision"),
+            [1] = payload => LegacyStateRevision(payload),
             // Schema 2 requires payload.sha256 for payload.bin but predates integrity protection
             // for revision.json itself.
-            [2] = payload => PersistedDocumentCodec.DeserializePayload<StateRevision>(
-                payload,
-                "sharedworlds.state-revision")
+            [2] = payload => LegacyStateRevision(payload),
+            // Schema 3 protects revision.json itself but still stores payload integrity in the
+            // separate payload.sha256 companion file.
+            [3] = payload => LegacyStateRevision(payload)
         });
 
     public static readonly PersistedDocumentSchema<WorkspaceRecoveryRecord> WorkspaceRecovery =
         CreateProtected<WorkspaceRecoveryRecord>("sharedworlds.workspace-recovery");
+
+    private static PersistedStateRevision LegacyStateRevision(JsonElement payload)
+        => new(
+            PersistedDocumentCodec.DeserializePayload<StateRevision>(
+                payload,
+                "sharedworlds.state-revision"),
+            PayloadSha256: null);
 
     private static PersistedDocumentSchema<T> CreateProtected<T>(string documentType)
         => new(

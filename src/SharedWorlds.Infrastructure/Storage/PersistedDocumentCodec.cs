@@ -14,6 +14,7 @@ internal sealed record PersistedDocumentEnvelope(
 internal sealed record PersistedDocumentSchema<T>(
     string DocumentType,
     int CurrentVersion,
+    int IntegrityRequiredFromVersion,
     IReadOnlyDictionary<int, Func<JsonElement, T>> Migrations);
 
 internal static class PersistedDocumentCodec
@@ -90,7 +91,14 @@ internal static class PersistedDocumentCodec
             throw new InvalidDataException("Persisted document schema version is not a valid 32-bit integer.");
         }
 
-        VerifyIntegrityIfPresent(root, documentType!, sourceVersion, payloadElement);
+        // A newer payload schema may also introduce a newer integrity mechanism. Preserve the
+        // compatibility error instead of misclassifying an unknown future document as corrupt.
+        if (sourceVersion > schema.CurrentVersion)
+        {
+            return Migrate(schema, sourceVersion, payloadElement);
+        }
+
+        VerifyIntegrity(root, schema, sourceVersion, documentType!, payloadElement);
 
         if (sourceVersion == schema.CurrentVersion)
         {
@@ -100,18 +108,25 @@ internal static class PersistedDocumentCodec
         return Migrate(schema, sourceVersion, payloadElement);
     }
 
-    private static void VerifyIntegrityIfPresent(
+    private static void VerifyIntegrity<T>(
         JsonElement root,
-        string documentType,
+        PersistedDocumentSchema<T> schema,
         int schemaVersion,
+        string documentType,
         JsonElement payload)
     {
         var hasIntegrityVersion = root.TryGetProperty("integrityVersion", out var integrityVersionElement);
         var hasContentSha256 = root.TryGetProperty("contentSha256", out var contentSha256Element);
 
-        // Existing persisted envelopes predate in-envelope integrity metadata and remain readable.
         if (!hasIntegrityVersion && !hasContentSha256)
         {
+            if (schemaVersion >= schema.IntegrityRequiredFromVersion)
+            {
+                throw new InvalidDataException(
+                    $"Persisted document schema version {schemaVersion} is missing its required integrity proof.");
+            }
+
+            // Older persisted schema versions predate in-envelope integrity metadata.
             return;
         }
 

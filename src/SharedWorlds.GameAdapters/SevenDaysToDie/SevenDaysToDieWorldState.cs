@@ -7,14 +7,20 @@ namespace SharedWorlds.GameAdapters.SevenDaysToDie;
 
 internal static class SevenDaysToDieWorldState
 {
-    private const string MainWorldFileName = "main.ttw";
-
     public static Task<CapturedState> CaptureDetectedWorldAsync(
+        GameInstallation installation,
         DetectedWorld world,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(installation);
         ArgumentNullException.ThrowIfNull(world);
-        return CaptureDirectoryAsync(world.SourcePath, cancellationToken);
+        var userDataRoot = GetRequiredUserDataRoot(installation);
+        var identity = GetDetectedWorldIdentity(userDataRoot, world.SourcePath);
+        return CaptureWorldBundleAsync(
+            userDataRoot,
+            identity.WorldName,
+            identity.GameName,
+            cancellationToken);
     }
 
     public static Task<CapturedState> CapturePreparedWorldAsync(
@@ -22,7 +28,13 @@ internal static class SevenDaysToDieWorldState
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(world);
-        return CaptureDirectoryAsync(world.WorkingDirectory, cancellationToken);
+        var userDataRoot = Path.GetFullPath(world.WorkingDirectory);
+        var identity = ValidateSingleWorldBundle(userDataRoot);
+        return CaptureWorldBundleAsync(
+            userDataRoot,
+            identity.WorldName,
+            identity.GameName,
+            cancellationToken);
     }
 
     public static PreparedWorld PrepareEnvironment(
@@ -31,7 +43,6 @@ internal static class SevenDaysToDieWorldState
     {
         ArgumentNullException.ThrowIfNull(installation);
         ArgumentNullException.ThrowIfNull(requiredEnvironment);
-
         var verification = SevenDaysToDieEnvironment.Verify(installation, requiredEnvironment);
         if (!verification.IsReady)
         {
@@ -40,14 +51,14 @@ internal static class SevenDaysToDieWorldState
                 string.Join("; ", verification.Issues.Select(issue => issue.Message)));
         }
 
-        var workingDirectory = Path.Combine(
+        var operationRoot = Path.Combine(
             GetLocalWorkRoot(),
-            Guid.NewGuid().ToString("N"),
-            "world");
-        Directory.CreateDirectory(Path.GetDirectoryName(workingDirectory)!);
+            Guid.NewGuid().ToString("N"));
+        var userDataRoot = Path.Combine(operationRoot, "user-data");
+        Directory.CreateDirectory(operationRoot);
         return new PreparedWorld(
             installation,
-            workingDirectory,
+            userDataRoot,
             requiredEnvironment);
     }
 
@@ -68,48 +79,44 @@ internal static class SevenDaysToDieWorldState
                 packagePath);
         }
 
-        var destinationPath = Path.GetFullPath(world.WorkingDirectory);
-        var parentPath = Path.GetDirectoryName(destinationPath)
+        var destinationRoot = Path.GetFullPath(world.WorkingDirectory);
+        var parentRoot = Path.GetDirectoryName(destinationRoot)
             ?? throw new InvalidOperationException(
-                $"Could not determine the parent directory for 7 Days to Die World '{destinationPath}'.");
-        Directory.CreateDirectory(parentPath);
+                $"Could not determine the parent directory for 7 Days to Die workspace '{destinationRoot}'.");
+        Directory.CreateDirectory(parentRoot);
 
         var operationId = Guid.NewGuid().ToString("N");
-        var stagingPath = destinationPath + ".sharedworlds-staging-" + operationId;
-        var rollbackPath = destinationPath + ".sharedworlds-rollback-" + operationId;
-        var movedExistingWorld = false;
+        var stagingRoot = destinationRoot + ".sharedworlds-staging-" + operationId;
+        var rollbackRoot = destinationRoot + ".sharedworlds-rollback-" + operationId;
+        var movedExisting = false;
 
         try
         {
-            await ExtractPackageAsync(packagePath, stagingPath, cancellationToken);
-            if (!File.Exists(Path.Combine(stagingPath, MainWorldFileName)))
+            await ExtractPackageAsync(packagePath, stagingRoot, cancellationToken);
+            ValidateSingleWorldBundle(stagingRoot);
+
+            if (Directory.Exists(destinationRoot))
             {
-                throw new InvalidOperationException(
-                    $"The 7 Days to Die state package has no root {MainWorldFileName}.");
+                Directory.Move(destinationRoot, rollbackRoot);
+                movedExisting = true;
             }
 
-            if (Directory.Exists(destinationPath))
+            Directory.Move(stagingRoot, destinationRoot);
+            if (movedExisting)
             {
-                Directory.Move(destinationPath, rollbackPath);
-                movedExistingWorld = true;
-            }
-
-            Directory.Move(stagingPath, destinationPath);
-            if (movedExistingWorld)
-            {
-                TryDeleteDirectory(rollbackPath);
+                TryDeleteDirectory(rollbackRoot);
             }
         }
         catch (Exception restoreException)
         {
-            TryDeleteDirectory(stagingPath);
-            if (movedExistingWorld &&
-                !Directory.Exists(destinationPath) &&
-                Directory.Exists(rollbackPath))
+            TryDeleteDirectory(stagingRoot);
+            if (movedExisting &&
+                !Directory.Exists(destinationRoot) &&
+                Directory.Exists(rollbackRoot))
             {
                 try
                 {
-                    Directory.Move(rollbackPath, destinationPath);
+                    Directory.Move(rollbackRoot, destinationRoot);
                 }
                 catch (Exception rollbackException)
                 {
@@ -136,8 +143,8 @@ internal static class SevenDaysToDieWorldState
             return Task.CompletedTask;
         }
 
-        var workingDirectory = Path.GetFullPath(world.WorkingDirectory);
-        var operationRoot = Directory.GetParent(workingDirectory)?.FullName;
+        var userDataRoot = Path.GetFullPath(world.WorkingDirectory);
+        var operationRoot = Directory.GetParent(userDataRoot)?.FullName;
         if (operationRoot is not null)
         {
             TryDeleteDirectory(operationRoot);
@@ -146,25 +153,51 @@ internal static class SevenDaysToDieWorldState
         return Task.CompletedTask;
     }
 
-    private static async Task<CapturedState> CaptureDirectoryAsync(
-        string sourceWorldPath,
+    private static async Task<CapturedState> CaptureWorldBundleAsync(
+        string userDataRoot,
+        string worldName,
+        string gameName,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var sourcePath = Path.GetFullPath(sourceWorldPath);
-        if (!Directory.Exists(sourcePath) ||
-            !File.Exists(Path.Combine(sourcePath, MainWorldFileName)))
-        {
-            throw new InvalidOperationException(
-                $"The 7 Days to Die World is unavailable or has no root {MainWorldFileName}: {sourcePath}");
-        }
+        var fullUserDataRoot = Path.GetFullPath(userDataRoot);
+        ValidateWorldBundle(
+            fullUserDataRoot,
+            worldName,
+            gameName,
+            requireExclusiveBundle: false);
 
         var packagePath = Path.Combine(
             Path.GetTempPath(),
             $"sharedworlds-7dtd-{Guid.NewGuid():N}.zip");
         try
         {
-            await CreatePackageAsync(sourcePath, packagePath, cancellationToken);
+            await using var packageStream = new FileStream(
+                packagePath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 128 * 1024,
+                useAsync: true);
+            using var archive = new ZipArchive(packageStream, ZipArchiveMode.Create, leaveOpen: true);
+
+            var saveRoot = Path.Combine(fullUserDataRoot, "Saves", worldName, gameName);
+            await AddDirectoryAsync(
+                archive,
+                saveRoot,
+                Path.Combine("Saves", worldName, gameName),
+                cancellationToken);
+
+            var generatedWorldRoot = Path.Combine(fullUserDataRoot, "GeneratedWorlds", worldName);
+            if (Directory.Exists(generatedWorldRoot))
+            {
+                await AddDirectoryAsync(
+                    archive,
+                    generatedWorldRoot,
+                    Path.Combine("GeneratedWorlds", worldName),
+                    cancellationToken);
+            }
+
             return new CapturedState(
                 new StatePackage(Path.GetFileNameWithoutExtension(packagePath), packagePath),
                 DateTimeOffset.UtcNow);
@@ -176,25 +209,18 @@ internal static class SevenDaysToDieWorldState
         }
     }
 
-    private static async Task CreatePackageAsync(
-        string sourcePath,
-        string packagePath,
+    private static async Task AddDirectoryAsync(
+        ZipArchive archive,
+        string sourceRoot,
+        string entryRoot,
         CancellationToken cancellationToken)
     {
-        await using var packageStream = new FileStream(
-            packagePath,
-            FileMode.CreateNew,
-            FileAccess.Write,
-            FileShare.None,
-            bufferSize: 128 * 1024,
-            useAsync: true);
-        using var archive = new ZipArchive(packageStream, ZipArchiveMode.Create, leaveOpen: true);
-
-        foreach (var filePath in Directory.EnumerateFiles(sourcePath, "*", SearchOption.AllDirectories))
+        foreach (var filePath in Directory.EnumerateFiles(sourceRoot, "*", SearchOption.AllDirectories))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var relativePath = Path.GetRelativePath(sourcePath, filePath);
-            var entryName = relativePath.Replace(Path.DirectorySeparatorChar, '/');
+            var relativePath = Path.GetRelativePath(sourceRoot, filePath);
+            var entryPath = Path.Combine(entryRoot, relativePath);
+            var entryName = entryPath.Replace(Path.DirectorySeparatorChar, '/');
             if (Path.AltDirectorySeparatorChar != Path.DirectorySeparatorChar)
             {
                 entryName = entryName.Replace(Path.AltDirectorySeparatorChar, '/');
@@ -215,19 +241,19 @@ internal static class SevenDaysToDieWorldState
 
     private static async Task ExtractPackageAsync(
         string packagePath,
-        string stagingPath,
+        string stagingRoot,
         CancellationToken cancellationToken)
     {
-        Directory.CreateDirectory(stagingPath);
-        var stagingRoot = Path.GetFullPath(stagingPath);
-        var stagingPrefix = stagingRoot + Path.DirectorySeparatorChar;
-        var comparison = OperatingSystem.IsWindows()
+        Directory.CreateDirectory(stagingRoot);
+        var fullStagingRoot = Path.GetFullPath(stagingRoot);
+        var stagingPrefix = fullStagingRoot + Path.DirectorySeparatorChar;
+        var pathComparison = OperatingSystem.IsWindows()
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;
-        var comparer = OperatingSystem.IsWindows()
+        var pathComparer = OperatingSystem.IsWindows()
             ? StringComparer.OrdinalIgnoreCase
             : StringComparer.Ordinal;
-        var extractedFiles = new HashSet<string>(comparer);
+        var extractedFiles = new HashSet<string>(pathComparer);
 
         using var archive = ZipFile.OpenRead(packagePath);
         foreach (var entry in archive.Entries)
@@ -247,11 +273,11 @@ internal static class SevenDaysToDieWorldState
                     $"7 Days to Die state package contains an absolute path: '{entry.FullName}'.");
             }
 
-            var destinationPath = Path.GetFullPath(Path.Combine(stagingRoot, relativePath));
-            if (!destinationPath.StartsWith(stagingPrefix, comparison))
+            var destinationPath = Path.GetFullPath(Path.Combine(fullStagingRoot, relativePath));
+            if (!destinationPath.StartsWith(stagingPrefix, pathComparison))
             {
                 throw new InvalidOperationException(
-                    $"7 Days to Die state package contains a path outside the World root: '{entry.FullName}'.");
+                    $"7 Days to Die state package contains a path outside the workspace root: '{entry.FullName}'.");
             }
 
             if (string.IsNullOrEmpty(entry.Name))
@@ -278,6 +304,170 @@ internal static class SevenDaysToDieWorldState
             await sourceStream.CopyToAsync(destinationStream, cancellationToken);
             await destinationStream.FlushAsync(cancellationToken);
         }
+    }
+
+    private static WorldIdentity ValidateSingleWorldBundle(string userDataRoot)
+    {
+        var fullRoot = Path.GetFullPath(userDataRoot);
+        var savesRoot = Path.Combine(fullRoot, "Saves");
+        if (!Directory.Exists(savesRoot))
+        {
+            throw new InvalidOperationException(
+                "7 Days to Die state package has no Saves directory.");
+        }
+
+        var candidates = new List<WorldIdentity>();
+        foreach (var worldDirectory in Directory.EnumerateDirectories(savesRoot, "*", SearchOption.TopDirectoryOnly))
+        {
+            var worldName = Path.GetFileName(Path.TrimEndingDirectorySeparator(worldDirectory));
+            if (string.IsNullOrWhiteSpace(worldName))
+            {
+                continue;
+            }
+
+            foreach (var saveDirectory in Directory.EnumerateDirectories(worldDirectory, "*", SearchOption.TopDirectoryOnly))
+            {
+                if (!SevenDaysToDieWorldDiscovery.HasKnownWorldMarker(saveDirectory))
+                {
+                    continue;
+                }
+
+                var gameName = Path.GetFileName(Path.TrimEndingDirectorySeparator(saveDirectory));
+                if (!string.IsNullOrWhiteSpace(gameName))
+                {
+                    candidates.Add(new WorldIdentity(worldName, gameName));
+                }
+            }
+        }
+
+        if (candidates.Count != 1)
+        {
+            throw new InvalidOperationException(
+                $"7 Days to Die state package must contain exactly one World save; found {candidates.Count}.");
+        }
+
+        var identity = candidates[0];
+        ValidateWorldBundle(
+            fullRoot,
+            identity.WorldName,
+            identity.GameName,
+            requireExclusiveBundle: true);
+        return identity;
+    }
+
+    private static void ValidateWorldBundle(
+        string userDataRoot,
+        string worldName,
+        string gameName,
+        bool requireExclusiveBundle)
+    {
+        var saveRoot = Path.Combine(userDataRoot, "Saves", worldName, gameName);
+        if (!Directory.Exists(saveRoot) ||
+            !SevenDaysToDieWorldDiscovery.HasKnownWorldMarker(saveRoot))
+        {
+            throw new InvalidOperationException(
+                $"7 Days to Die save '{gameName}' in World '{worldName}' has no recognized root World marker.");
+        }
+
+        if (!requireExclusiveBundle)
+        {
+            return;
+        }
+
+        var allowedTopLevelDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Saves",
+            "GeneratedWorlds"
+        };
+        foreach (var directory in Directory.EnumerateDirectories(userDataRoot, "*", SearchOption.TopDirectoryOnly))
+        {
+            if (!allowedTopLevelDirectories.Contains(Path.GetFileName(directory)))
+            {
+                throw new InvalidOperationException(
+                    $"7 Days to Die state package contains unexpected top-level directory '{Path.GetFileName(directory)}'.");
+            }
+        }
+
+        if (Directory.EnumerateFiles(userDataRoot, "*", SearchOption.TopDirectoryOnly).Any())
+        {
+            throw new InvalidOperationException(
+                "7 Days to Die state package contains unexpected files at the workspace root.");
+        }
+
+        var savesRoot = Path.Combine(userDataRoot, "Saves");
+        var worldDirectories = Directory.EnumerateDirectories(savesRoot, "*", SearchOption.TopDirectoryOnly).ToArray();
+        if (worldDirectories.Length != 1 ||
+            !string.Equals(Path.GetFileName(worldDirectories[0]), worldName, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "7 Days to Die state package contains saves for more than one GameWorld.");
+        }
+
+        var saveDirectories = Directory.EnumerateDirectories(worldDirectories[0], "*", SearchOption.TopDirectoryOnly).ToArray();
+        if (saveDirectories.Length != 1 ||
+            !string.Equals(Path.GetFileName(saveDirectories[0]), gameName, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "7 Days to Die state package contains more than one GameName save.");
+        }
+
+        var generatedWorldsRoot = Path.Combine(userDataRoot, "GeneratedWorlds");
+        if (Directory.Exists(generatedWorldsRoot))
+        {
+            if (Directory.EnumerateFiles(generatedWorldsRoot, "*", SearchOption.TopDirectoryOnly).Any())
+            {
+                throw new InvalidOperationException(
+                    "7 Days to Die state package contains unexpected files directly under GeneratedWorlds.");
+            }
+
+            var generatedWorldDirectories = Directory
+                .EnumerateDirectories(generatedWorldsRoot, "*", SearchOption.TopDirectoryOnly)
+                .ToArray();
+            if (generatedWorldDirectories.Length != 1 ||
+                !string.Equals(
+                    Path.GetFileName(generatedWorldDirectories[0]),
+                    worldName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "7 Days to Die state package contains generated terrain for a different or additional GameWorld.");
+            }
+        }
+    }
+
+    private static WorldIdentity GetDetectedWorldIdentity(
+        string userDataRoot,
+        string sourcePath)
+    {
+        var fullRoot = Path.GetFullPath(userDataRoot);
+        var fullSource = Path.GetFullPath(sourcePath);
+        var relativePath = Path.GetRelativePath(fullRoot, fullSource);
+        var segments = relativePath.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length != 3 ||
+            !string.Equals(segments[0], "Saves", StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(segments[1]) ||
+            string.IsNullOrWhiteSpace(segments[2]))
+        {
+            throw new InvalidOperationException(
+                "The detected 7 Days to Die World is not beneath the installation's Saves/<GameWorld>/<GameName> root.");
+        }
+
+        return new WorldIdentity(segments[1], segments[2]);
+    }
+
+    private static string GetRequiredUserDataRoot(GameInstallation installation)
+    {
+        if (installation.Metadata is null ||
+            !installation.Metadata.TryGetValue(SevenDaysToDieInstallationDiscovery.UserDataPathKey, out var userDataPath) ||
+            string.IsNullOrWhiteSpace(userDataPath))
+        {
+            throw new InvalidOperationException(
+                "7 Days to Die installation is missing its user-data path.");
+        }
+
+        return Path.GetFullPath(userDataPath);
     }
 
     private static string GetLocalWorkRoot()
@@ -326,4 +516,6 @@ internal static class SevenDaysToDieWorldState
         {
         }
     }
+
+    private sealed record WorldIdentity(string WorldName, string GameName);
 }

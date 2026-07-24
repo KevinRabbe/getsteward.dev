@@ -62,19 +62,16 @@ public sealed class PostgreSqlSharedWorldHostPresenceStoreTests : IAsyncLifetime
         await SetReservationAsync(sessionId, 3, "device-a", SharedWorldReservationState.Active);
         var presence = Presence(
             sessionId,
-            generation: 3,
-            installationId: "device-a",
-            state: SharedWorldHostPresenceState.Ready,
-            address: "203.0.113.20",
-            port: 34197,
-            joinToken: "join-token",
-            updatedAt: Now);
+            3,
+            "device-a",
+            SharedWorldHostPresenceState.Ready,
+            "203.0.113.20",
+            34197,
+            "join-token",
+            Now);
 
         Assert.True(await _store.TryUpsertAsync(presence));
-
-        var loaded = Assert.IsType<SharedWorldHostPresence>(
-            await _store.GetAsync(_world.WorldId));
-        Assert.Equal(presence, loaded);
+        Assert.Equal(presence, await _store.GetAsync(_world.WorldId));
     }
 
     [Fact]
@@ -84,30 +81,16 @@ public sealed class PostgreSqlSharedWorldHostPresenceStoreTests : IAsyncLifetime
         var currentSession = Guid.NewGuid();
         await SetReservationAsync(oldSession, 4, "device-a", SharedWorldReservationState.Active);
         var old = Presence(
-            oldSession,
-            generation: 4,
-            installationId: "device-a",
-            state: SharedWorldHostPresenceState.Starting,
-            address: null,
-            port: null,
-            joinToken: null,
-            updatedAt: Now);
+            oldSession, 4, "device-a", SharedWorldHostPresenceState.Starting,
+            null, null, null, Now);
         Assert.True(await _store.TryUpsertAsync(old));
 
         await SetReservationAsync(currentSession, 5, "device-b", SharedWorldReservationState.Active);
         var current = Presence(
-            currentSession,
-            generation: 5,
-            installationId: "device-b",
-            state: SharedWorldHostPresenceState.Ready,
-            address: "198.51.100.42",
-            port: 34197,
-            joinToken: "new-token",
-            updatedAt: Now.AddMinutes(1));
+            currentSession, 5, "device-b", SharedWorldHostPresenceState.Ready,
+            "198.51.100.42", 34197, "new-token", Now.AddMinutes(1));
         Assert.True(await _store.TryUpsertAsync(current));
 
-        // Simulate a delayed request that passed the earlier service-level check before generation 4
-        // was reclaimed, but reaches PostgreSQL only after generation 5 became authoritative.
         Assert.False(await _store.TryUpsertAsync(old with
         {
             State = SharedWorldHostPresenceState.Ready,
@@ -115,12 +98,8 @@ public sealed class PostgreSqlSharedWorldHostPresenceStoreTests : IAsyncLifetime
             Port = 34197,
             UpdatedAt = Now.AddMinutes(2)
         }));
-
         Assert.False(await _store.DeleteAsync(
-            _world.WorldId,
-            _manager.Subject,
-            oldSession,
-            generation: 4));
+            _world.WorldId, _manager.Subject, "device-a", oldSession, 4));
         Assert.Equal(current, await _store.GetAsync(_world.WorldId));
     }
 
@@ -130,26 +109,13 @@ public sealed class PostgreSqlSharedWorldHostPresenceStoreTests : IAsyncLifetime
         var currentSession = Guid.NewGuid();
         await SetReservationAsync(currentSession, 6, "device-a", SharedWorldReservationState.Active);
         var current = Presence(
-            currentSession,
-            generation: 6,
-            installationId: "device-a",
-            state: SharedWorldHostPresenceState.Ready,
-            address: "203.0.113.20",
-            port: 34197,
-            joinToken: "current",
-            updatedAt: Now);
+            currentSession, 6, "device-a", SharedWorldHostPresenceState.Ready,
+            "203.0.113.20", 34197, "current", Now);
         Assert.True(await _store.TryUpsertAsync(current));
 
         Assert.False(await _store.TryUpsertAsync(Presence(
-            Guid.NewGuid(),
-            generation: 6,
-            installationId: "device-b",
-            state: SharedWorldHostPresenceState.Ready,
-            address: "198.51.100.77",
-            port: 34197,
-            joinToken: "wrong-session",
-            updatedAt: Now.AddMinutes(1))));
-
+            Guid.NewGuid(), 6, "device-b", SharedWorldHostPresenceState.Ready,
+            "198.51.100.77", 34197, "wrong-session", Now.AddMinutes(1))));
         Assert.Equal(current, await _store.GetAsync(_world.WorldId));
     }
 
@@ -160,43 +126,29 @@ public sealed class PostgreSqlSharedWorldHostPresenceStoreTests : IAsyncLifetime
         await SetReservationAsync(sessionId, 7, "device-a", SharedWorldReservationState.Uncertain);
 
         Assert.False(await _store.TryUpsertAsync(Presence(
-            sessionId,
-            generation: 7,
-            installationId: "device-a",
-            state: SharedWorldHostPresenceState.Starting,
-            address: null,
-            port: null,
-            joinToken: null,
-            updatedAt: Now)));
+            sessionId, 7, "device-a", SharedWorldHostPresenceState.Starting,
+            null, null, null, Now)));
         Assert.Null(await _store.GetAsync(_world.WorldId));
     }
 
     [Fact]
-    public async Task ExactClearRemovesPresence()
+    public async Task ExactClearRequiresInstallationIdentity()
     {
         var sessionId = Guid.NewGuid();
         await SetReservationAsync(sessionId, 8, "device-a", SharedWorldReservationState.Active);
         Assert.True(await _store.TryUpsertAsync(Presence(
-            sessionId,
-            generation: 8,
-            installationId: "device-a",
-            state: SharedWorldHostPresenceState.Ready,
-            address: "203.0.113.20",
-            port: 34197,
-            joinToken: null,
-            updatedAt: Now)));
+            sessionId, 8, "device-a", SharedWorldHostPresenceState.Ready,
+            "203.0.113.20", 34197, null, Now)));
+
+        Assert.False(await _store.DeleteAsync(
+            _world.WorldId, _manager.Subject, "device-b", sessionId, 8));
+        Assert.NotNull(await _store.GetAsync(_world.WorldId));
 
         Assert.True(await _store.DeleteAsync(
-            _world.WorldId,
-            _manager.Subject,
-            sessionId,
-            generation: 8));
+            _world.WorldId, _manager.Subject, "device-a", sessionId, 8));
         Assert.Null(await _store.GetAsync(_world.WorldId));
         Assert.False(await _store.DeleteAsync(
-            _world.WorldId,
-            _manager.Subject,
-            sessionId,
-            generation: 8));
+            _world.WorldId, _manager.Subject, "device-a", sessionId, 8));
     }
 
     [Fact]

@@ -1,12 +1,15 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using SharedWorlds.Core.Errors;
 
 namespace SharedWorlds.Infrastructure.Storage;
 
-internal sealed record PersistedDocumentEnvelope<T>(
+internal sealed record PersistedDocumentEnvelope(
     string DocumentType,
     int SchemaVersion,
-    T Payload);
+    int IntegrityVersion,
+    string ContentSha256,
+    JsonElement Payload);
 
 internal sealed record PersistedDocumentSchema<T>(
     string DocumentType,
@@ -15,6 +18,8 @@ internal sealed record PersistedDocumentSchema<T>(
 
 internal static class PersistedDocumentCodec
 {
+    private const int CurrentIntegrityVersion = 1;
+
     internal static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -31,10 +36,13 @@ internal static class PersistedDocumentCodec
         ArgumentNullException.ThrowIfNull(destination);
         ArgumentNullException.ThrowIfNull(schema);
 
-        var envelope = new PersistedDocumentEnvelope<T>(
+        var payloadElement = JsonSerializer.SerializeToElement(payload, JsonOptions);
+        var envelope = new PersistedDocumentEnvelope(
             schema.DocumentType,
             schema.CurrentVersion,
-            payload);
+            CurrentIntegrityVersion,
+            ComputeContentSha256(schema.DocumentType, schema.CurrentVersion, payloadElement),
+            payloadElement);
 
         return JsonSerializer.SerializeAsync(
             destination,
@@ -82,12 +90,102 @@ internal static class PersistedDocumentCodec
             throw new InvalidDataException("Persisted document schema version is not a valid 32-bit integer.");
         }
 
+        VerifyIntegrityIfPresent(root, documentType!, sourceVersion, payloadElement);
+
         if (sourceVersion == schema.CurrentVersion)
         {
             return DeserializePayload<T>(payloadElement, schema.DocumentType);
         }
 
         return Migrate(schema, sourceVersion, payloadElement);
+    }
+
+    private static void VerifyIntegrityIfPresent(
+        JsonElement root,
+        string documentType,
+        int schemaVersion,
+        JsonElement payload)
+    {
+        var hasIntegrityVersion = root.TryGetProperty("integrityVersion", out var integrityVersionElement);
+        var hasContentSha256 = root.TryGetProperty("contentSha256", out var contentSha256Element);
+
+        // Existing persisted envelopes predate in-envelope integrity metadata and remain readable.
+        if (!hasIntegrityVersion && !hasContentSha256)
+        {
+            return;
+        }
+
+        if (!hasIntegrityVersion || !hasContentSha256)
+        {
+            throw new InvalidDataException(
+                "Persisted document integrity proof is incomplete or malformed.");
+        }
+
+        if (integrityVersionElement.ValueKind != JsonValueKind.Number ||
+            !integrityVersionElement.TryGetInt32(out var integrityVersion) ||
+            integrityVersion != CurrentIntegrityVersion)
+        {
+            throw new InvalidDataException(
+                $"Persisted document integrity version is unsupported. Expected {CurrentIntegrityVersion}.");
+        }
+
+        if (contentSha256Element.ValueKind != JsonValueKind.String)
+        {
+            throw new InvalidDataException(
+                "Persisted document content SHA-256 digest is missing or malformed.");
+        }
+
+        var digestText = contentSha256Element.GetString();
+        byte[] expectedHash;
+        try
+        {
+            expectedHash = Convert.FromHexString(digestText ?? string.Empty);
+        }
+        catch (FormatException exception)
+        {
+            throw new InvalidDataException(
+                "Persisted document content SHA-256 digest is malformed.",
+                exception);
+        }
+
+        if (expectedHash.Length != SHA256.HashSizeInBytes)
+        {
+            throw new InvalidDataException(
+                "Persisted document content SHA-256 digest has an invalid length.");
+        }
+
+        var actualHash = ComputeContentSha256Bytes(documentType, schemaVersion, payload);
+        if (!CryptographicOperations.FixedTimeEquals(expectedHash, actualHash))
+        {
+            throw new InvalidDataException(
+                "Persisted document content SHA-256 integrity verification failed.");
+        }
+    }
+
+    private static string ComputeContentSha256(
+        string documentType,
+        int schemaVersion,
+        JsonElement payload)
+        => Convert.ToHexString(ComputeContentSha256Bytes(documentType, schemaVersion, payload));
+
+    private static byte[] ComputeContentSha256Bytes(
+        string documentType,
+        int schemaVersion,
+        JsonElement payload)
+    {
+        using var buffer = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("documentType", documentType);
+            writer.WriteNumber("schemaVersion", schemaVersion);
+            writer.WritePropertyName("payload");
+            payload.WriteTo(writer);
+            writer.WriteEndObject();
+            writer.Flush();
+        }
+
+        return SHA256.HashData(buffer.ToArray());
     }
 
     private static bool LooksLikeEnvelope(JsonElement root)

@@ -27,11 +27,41 @@
   <data name="HostWorld" xml:space="preserve">
     <value>Host World</value>
   </data>
-  <data name="StopAndSave" xml:space="preserve">
-    <value>Stop and Save</value>
+  <data name="Join" xml:space="preserve">
+    <value>Join</value>
   </data>
   <data name="ShareWorld" xml:space="preserve">
     <value>Share World</value>
+  </data>
+  <data name="ManageAccess" xml:space="preserve">
+    <value>Manage access</value>
+  </data>
+  <data name="StopAndSave" xml:space="preserve">
+    <value>Stop and Save</value>
+  </data>
+  <data name="RetryConnection" xml:space="preserve">
+    <value>Retry connection</value>
+  </data>
+  <data name="RetrySharing" xml:space="preserve">
+    <value>Retry sharing</value>
+  </data>
+  <data name="RetryRecovery" xml:space="preserve">
+    <value>Retry recovery</value>
+  </data>
+  <data name="ExportRecoveryCopy" xml:space="preserve">
+    <value>Export recovery copy</value>
+  </data>
+  <data name="ContinueFromLastSafeState" xml:space="preserve">
+    <value>Continue from last safe state</value>
+  </data>
+  <data name="RecoverChanges" xml:space="preserve">
+    <value>Recover changes</value>
+  </data>
+  <data name="DiscardInterruptedSession" xml:space="preserve">
+    <value>Discard interrupted session</value>
+  </data>
+  <data name="RetryCleanup" xml:space="preserve">
+    <value>Retry cleanup</value>
   </data>
   <data name="VerifyEnvironment" xml:space="preserve">
     <value>Verify Environment</value>

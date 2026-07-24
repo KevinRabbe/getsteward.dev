@@ -39,12 +39,17 @@ public sealed record RemotePackageUploadResult(
 public sealed class StewardPackageUploadClient
 {
     private const int HashBufferBytes = 1024 * 1024;
+    private static readonly TimeSpan DefaultPartUploadTimeout = TimeSpan.FromMinutes(30);
 
     private readonly HttpClient _apiClient;
     private readonly HttpClient _transferClient;
+    private readonly TimeSpan _partUploadTimeout;
     private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
 
-    public StewardPackageUploadClient(HttpClient apiClient, HttpClient transferClient)
+    public StewardPackageUploadClient(
+        HttpClient apiClient,
+        HttpClient transferClient,
+        TimeSpan? partUploadTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(apiClient);
         ArgumentNullException.ThrowIfNull(transferClient);
@@ -53,8 +58,15 @@ public sealed class StewardPackageUploadClient
             throw new ArgumentException("Steward API HttpClient requires a BaseAddress.", nameof(apiClient));
         }
 
+        var resolvedPartUploadTimeout = partUploadTimeout ?? DefaultPartUploadTimeout;
+        if (resolvedPartUploadTimeout <= TimeSpan.Zero || resolvedPartUploadTimeout == Timeout.InfiniteTimeSpan)
+        {
+            throw new ArgumentOutOfRangeException(nameof(partUploadTimeout));
+        }
+
         _apiClient = apiClient;
         _transferClient = transferClient;
+        _partUploadTimeout = resolvedPartUploadTimeout;
     }
 
     public async Task<RemotePackageUploadResult> UploadAsync(
@@ -283,14 +295,30 @@ public sealed class StewardPackageUploadClient
             }
         }
 
-        using var response = await _transferClient.SendAsync(
-            request,
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken);
-        if (!response.IsSuccessStatusCode)
+        using var partCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        partCancellation.CancelAfter(_partUploadTimeout);
+        HttpResponseMessage response;
+        try
         {
-            throw new IOException(
-                $"Object-storage part upload failed with HTTP {(int)response.StatusCode} ({response.StatusCode}).");
+            response = await _transferClient.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                partCancellation.Token);
+        }
+        catch (OperationCanceledException) when (
+            !cancellationToken.IsCancellationRequested &&
+            partCancellation.IsCancellationRequested)
+        {
+            throw new RemotePackagePartUploadTimeoutException(_partUploadTimeout);
+        }
+
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new IOException(
+                    $"Object-storage part upload failed with HTTP {(int)response.StatusCode} ({response.StatusCode}).");
+            }
         }
 
         if (segment.Remaining != 0)
@@ -659,4 +687,15 @@ public sealed class StewardPackageUploadStateException : IOException
     }
 
     public RemotePackageUploadStatus Status { get; }
+}
+
+public sealed class RemotePackagePartUploadTimeoutException : IOException
+{
+    public RemotePackagePartUploadTimeoutException(TimeSpan partUploadTimeout)
+        : base($"Object-storage package part did not complete within {partUploadTimeout}.")
+    {
+        PartUploadTimeout = partUploadTimeout;
+    }
+
+    public TimeSpan PartUploadTimeout { get; }
 }

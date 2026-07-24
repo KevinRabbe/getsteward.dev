@@ -190,7 +190,7 @@ internal static class ProjectZomboidWorldState
             using var archive = new ZipArchive(packageStream, ZipArchiveMode.Create, leaveOpen: true);
 
             var worldRoot = Path.Combine(fullUserDataRoot, "Saves", "Multiplayer", serverName);
-            foreach (var filePath in Directory.EnumerateFiles(worldRoot, "*", SearchOption.AllDirectories))
+            foreach (var filePath in EnumerateCaptureFiles(worldRoot))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var relativeToWorld = Path.GetRelativePath(worldRoot, filePath);
@@ -202,6 +202,11 @@ internal static class ProjectZomboidWorldState
             }
 
             var serverRoot = Path.Combine(fullUserDataRoot, "Server");
+            if (Directory.Exists(serverRoot))
+            {
+                RejectLinkedCapturePath(serverRoot);
+            }
+
             foreach (var suffix in ServerConfigSuffixes)
             {
                 var configPath = Path.Combine(serverRoot, serverName + suffix);
@@ -215,7 +220,13 @@ internal static class ProjectZomboidWorldState
                 }
             }
 
-            var databasePath = Path.Combine(fullUserDataRoot, "db", serverName + ".db");
+            var databaseRoot = Path.Combine(fullUserDataRoot, "db");
+            var databasePath = Path.Combine(databaseRoot, serverName + ".db");
+            if (Directory.Exists(databaseRoot))
+            {
+                RejectLinkedCapturePath(databaseRoot);
+            }
+
             if (File.Exists(databasePath))
             {
                 await AddFileAsync(
@@ -242,6 +253,8 @@ internal static class ProjectZomboidWorldState
         string entryPath,
         CancellationToken cancellationToken)
     {
+        RejectLinkedCapturePath(sourcePath);
+
         var entryName = entryPath.Replace(Path.DirectorySeparatorChar, '/');
         if (Path.AltDirectorySeparatorChar != Path.DirectorySeparatorChar)
         {
@@ -258,6 +271,58 @@ internal static class ProjectZomboidWorldState
             useAsync: true);
         await using var destinationStream = entry.Open();
         await sourceStream.CopyToAsync(destinationStream, cancellationToken);
+    }
+
+    private static IEnumerable<string> EnumerateCaptureFiles(string sourceRoot)
+    {
+        var fullSourceRoot = Path.GetFullPath(sourceRoot);
+        RejectLinkedCapturePath(fullSourceRoot);
+
+        var pending = new Stack<string>();
+        pending.Push(fullSourceRoot);
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            foreach (var directory in Directory.EnumerateDirectories(
+                         current,
+                         "*",
+                         SearchOption.TopDirectoryOnly))
+            {
+                RejectLinkedCapturePath(directory);
+                pending.Push(directory);
+            }
+
+            foreach (var filePath in Directory.EnumerateFiles(
+                         current,
+                         "*",
+                         SearchOption.TopDirectoryOnly))
+            {
+                RejectLinkedCapturePath(filePath);
+                yield return filePath;
+            }
+        }
+    }
+
+    private static void RejectLinkedCapturePath(string path)
+    {
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"Steward could not inspect Project Zomboid capture path '{path}'.",
+                exception);
+        }
+
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new InvalidOperationException(
+                $"Project Zomboid World capture contains a linked or reparse-point path that Steward will not follow: '{path}'.");
+        }
     }
 
     private static async Task ExtractPackageAsync(

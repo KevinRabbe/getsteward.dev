@@ -9,6 +9,7 @@ public sealed class LocalWorldStorage : IWorldStorage
 {
     private const string PayloadFileName = "payload.bin";
     private const string PayloadSha256FileName = "payload.sha256";
+    private const long MaximumLegacyChecksumBytes = 4096;
     private readonly string _rootPath;
 
     public LocalWorldStorage(string rootPath)
@@ -238,7 +239,7 @@ public sealed class LocalWorldStorage : IWorldStorage
                 $"State revision '{revisionId}' for World '{worldId}' is missing its required legacy SHA-256 integrity digest.");
         }
 
-        var checksumText = (await File.ReadAllTextAsync(checksumPath, cancellationToken)).Trim();
+        var checksumText = await ReadLegacyChecksumTextAsync(checksumPath, cancellationToken);
         var legacyExpectedHash = ParseSha256(
             checksumText,
             $"State revision '{revisionId}' for World '{worldId}' has an invalid legacy SHA-256 integrity digest");
@@ -345,6 +346,21 @@ public sealed class LocalWorldStorage : IWorldStorage
 
         await output.FlushAsync(cancellationToken);
         return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    private static async Task<string> ReadLegacyChecksumTextAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        await using var stream = OpenRead(path);
+        if (stream.Length > MaximumLegacyChecksumBytes)
+        {
+            throw new InvalidDataException(
+                $"Legacy state payload SHA-256 file '{path}' is {stream.Length} bytes and exceeds Steward's {MaximumLegacyChecksumBytes}-byte safety ceiling.");
+        }
+
+        using var reader = new StreamReader(stream);
+        return (await reader.ReadToEndAsync(cancellationToken)).Trim();
     }
 
     private static byte[] ParseSha256(string text, string errorPrefix)

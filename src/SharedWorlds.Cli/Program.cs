@@ -63,18 +63,6 @@ static async Task<int> RunAsync(
         "import-factorio" => await ImportFactorioAsync(arguments, lifecycle, cancellationToken),
         "continue-factorio" => await ContinueFactorioAsync(arguments, lifecycle, storage, cancellationToken),
         "host-factorio" => await HostFactorioAsync(arguments, lifecycle, storage, cancellationToken),
-        "share-world" => await SetWorldSharingAsync(
-            arguments,
-            lifecycle,
-            storage,
-            WorldSharingMode.Shared,
-            cancellationToken),
-        "unshare-world" => await SetWorldSharingAsync(
-            arguments,
-            lifecycle,
-            storage,
-            WorldSharingMode.LocalOnly,
-            cancellationToken),
         "recovery" => await ShowRecoveryAsync(recovery, cancellationToken),
         _ => PrintUsageAndReturnError()
     };
@@ -84,7 +72,7 @@ static async Task DiscoverAsync(
     IEnumerable<IGameAdapter> adapters,
     CancellationToken cancellationToken)
 {
-    Console.WriteLine("SharedWorlds discovery");
+    Console.WriteLine("Steward discovery");
     Console.WriteLine();
 
     foreach (var adapter in adapters)
@@ -237,16 +225,16 @@ static async Task<int> ShowWorldDetailsAsync(
     }
 
     Console.WriteLine();
-    Console.WriteLine("Available actions:");
-    Console.WriteLine($"  continue-factorio {ShortId(world.Id)}");
-    if (world.SharingMode == WorldSharingMode.LocalOnly)
+    Console.WriteLine("Available CLI actions:");
+    if (string.Equals(world.GameAdapterId, "factorio", StringComparison.Ordinal))
     {
-        Console.WriteLine($"  share-world {ShortId(world.Id)}");
+        Console.WriteLine($"  continue-factorio {ShortId(world.Id)}");
+        Console.WriteLine($"  host-factorio {ShortId(world.Id)}");
+        Console.WriteLine("  Persistent Share / Manage access is owned by the authenticated Steward product flow, not this local CLI.");
     }
     else
     {
-        Console.WriteLine($"  host-factorio {ShortId(world.Id)}");
-        Console.WriteLine($"  unshare-world {ShortId(world.Id)}");
+        Console.WriteLine("  No writable CLI action is exposed for this adapter.");
     }
 
     return ApplicationExitCodes.Success;
@@ -294,7 +282,7 @@ static async Task<int> ImportFactorioAsync(
 
     Console.WriteLine($"Imported '{world.Name}' as World {world.Id}.");
     Console.WriteLine("The original save was not modified.");
-    Console.WriteLine("Sharing: LocalOnly (default). Nothing is shared or hosted until you explicitly enable sharing.");
+    Console.WriteLine("Sharing: LocalOnly (default). Nothing is shared automatically; temporary hosting is a separate action.");
     Console.WriteLine($"You can now use the World name directly: continue-factorio {world.Name}");
     return ApplicationExitCodes.Success;
 }
@@ -370,39 +358,6 @@ static async Task<int> HostFactorioAsync(
 
     Console.WriteLine();
     Console.WriteLine($"Hosted session ended. World '{updated.Name}' committed as revision {updated.CurrentStateRevisionId}.");
-    return ApplicationExitCodes.Success;
-}
-
-static async Task<int> SetWorldSharingAsync(
-    string[] arguments,
-    WorldLifecycleService lifecycle,
-    IWorldStorage storage,
-    WorldSharingMode sharingMode,
-    CancellationToken cancellationToken)
-{
-    var command = sharingMode == WorldSharingMode.Shared ? "share-world" : "unshare-world";
-    if (!TryGetWorldSelector(arguments, command, out var selector))
-    {
-        return ApplicationExitCodes.UsageError;
-    }
-
-    var world = await ResolveWorldAsync(selector, storage, cancellationToken);
-    if (world is null)
-    {
-        return ApplicationExitCodes.ProductFailure;
-    }
-
-    var updated = await lifecycle.SetSharingModeAsync(world.Id, sharingMode, cancellationToken);
-    Console.WriteLine($"World '{updated.Name}' sharing mode: {updated.SharingMode}.");
-    if (sharingMode == WorldSharingMode.Shared)
-    {
-        Console.WriteLine("This World is now explicitly eligible for Share / Host / Join workflows.");
-    }
-    else
-    {
-        Console.WriteLine("This World is local-only. Host / Join workflows are blocked.");
-    }
-
     return ApplicationExitCodes.Success;
 }
 
@@ -532,7 +487,7 @@ static string GetAdapterDisplayName(
         ?? adapterId;
 
 static string FormatSharingMode(WorldSharingMode sharingMode)
-    => sharingMode == WorldSharingMode.LocalOnly ? "LocalOnly (private)" : "Shared (explicit opt-in)";
+    => sharingMode == WorldSharingMode.LocalOnly ? "LocalOnly (private)" : "Shared (remote authority)";
 
 static string FormatRevision(RevisionId? revisionId)
     => revisionId is { } value ? value.ToString() : "none";
@@ -573,18 +528,17 @@ static int PrintUsageAndReturnError()
 
 static void PrintUsage()
 {
-    Console.WriteLine("SharedWorlds");
+    Console.WriteLine("Steward");
     Console.WriteLine();
     Console.WriteLine("Commands:");
     Console.WriteLine("  discover");
     Console.WriteLine("  worlds                              # list managed Worlds");
     Console.WriteLine("  world <world>                       # show World details");
     Console.WriteLine("  import-factorio <save-name>");
-    Console.WriteLine("  continue-factorio <world>           # local/private single-player");
-    Console.WriteLine("  share-world <world>                 # explicit opt-in for Share / Host / Join");
-    Console.WriteLine("  unshare-world <world>               # return to local-only");
-    Console.WriteLine("  host-factorio <world>               # requires sharing enabled");
+    Console.WriteLine("  continue-factorio <world>           # local writable play");
+    Console.WriteLine("  host-factorio <world>               # temporary hosting; persistent sharing is separate");
     Console.WriteLine("  recovery");
     Console.WriteLine();
+    Console.WriteLine("Persistent Share / Manage access is available only through the authenticated Steward product flow.");
     Console.WriteLine("<world> may be a full ID, a unique World name, or a unique ID prefix of at least 8 characters.");
 }

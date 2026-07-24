@@ -11,6 +11,7 @@ namespace SharedWorlds.Desktop;
 public partial class MainWindow
 {
     private Button? _joinButton;
+    private TextBlock? _joinReadinessText;
     private DispatcherTimer? _joinPresenceTimer;
     private StewardRemoteHostPresence? _selectedHostPresence;
     private Exception? _selectedHostPresenceError;
@@ -25,7 +26,8 @@ public partial class MainWindow
             return;
         }
 
-        if (HostButton.Parent is not Panel playActions)
+        if (HostButton.Parent is not Panel playActions ||
+            playActions.Parent is not Panel playSection)
         {
             throw new InvalidOperationException(
                 "Steward could not attach Join to the common World play actions.");
@@ -38,12 +40,29 @@ public partial class MainWindow
             IsEnabled = false
         };
         AutomationProperties.SetName(joinButton, DesktopText.Join);
-        SetJoinAvailability(joinButton, false, "Select a shared World with a ready host.");
+
+        var joinReadinessText = new TextBlock
+        {
+            Margin = new Thickness(0, 2, 0, 0),
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Visibility = Visibility.Collapsed
+        };
+        joinReadinessText.SetResourceReference(TextBlock.ForegroundProperty, "MutedTextBrush");
+        AutomationProperties.SetName(joinReadinessText, "Join status");
+        AutomationProperties.SetLiveSetting(joinReadinessText, AutomationLiveSetting.Polite);
+        RegisterLiveRegion(joinReadinessText);
 
         var hostIndex = playActions.Children.IndexOf(HostButton);
         playActions.Children.Insert(hostIndex < 0 ? playActions.Children.Count : hostIndex + 1, joinButton);
+        var playActionsIndex = playSection.Children.IndexOf(playActions);
+        playSection.Children.Insert(
+            playActionsIndex < 0 ? playSection.Children.Count : playActionsIndex + 1,
+            joinReadinessText);
         _joinButton = joinButton;
+        _joinReadinessText = joinReadinessText;
 
+        SetJoinAvailability(joinButton, false, "Select a shared World to check Join readiness.");
         joinButton.Click += WorldJoinButton_Click;
         WorldList.SelectionChanged += async (_, _) => await RefreshSelectedWorldHostPresenceAsync();
         WorldList.IsEnabledChanged += (_, _) => UpdateWorldJoinActionState();
@@ -182,7 +201,7 @@ public partial class MainWindow
         var world = _selectedWorld;
         if (world is null)
         {
-            SetJoinAvailability(button, false, "Select a World.");
+            SetJoinAvailability(button, false, "Select a shared World to check Join readiness.");
             return;
         }
 
@@ -191,7 +210,9 @@ public partial class MainWindow
             SetJoinAvailability(
                 button,
                 false,
-                "Join becomes available for shared Worlds when another device is hosting.");
+                world.SharingMode == WorldSharingMode.Shared
+                    ? "Reconnect Steward to check whether this shared World has a ready host."
+                    : "Join is available for shared Worlds when another device is hosting.");
             return;
         }
 
@@ -201,7 +222,7 @@ public partial class MainWindow
             SetJoinAvailability(
                 button,
                 false,
-                $"{adapter?.DisplayName ?? world.GameAdapterId} does not expose a validated automatic Join path yet.");
+                $"{adapter?.DisplayName ?? world.GameAdapterId} does not support one-click Join yet.");
             return;
         }
 
@@ -210,7 +231,7 @@ public partial class MainWindow
             SetJoinAvailability(
                 button,
                 false,
-                "Reconnect authenticated Steward before joining this shared World.");
+                "Reconnect Steward to check whether a host is ready.");
             return;
         }
 
@@ -219,13 +240,13 @@ public partial class MainWindow
             SetJoinAvailability(
                 button,
                 false,
-                "Verify the exact World environment on this device before Join.");
+                "Verify this World's exact environment before joining.");
             return;
         }
 
         if (_selectedHostPresenceError is not null)
         {
-            SetJoinAvailability(button, false, "Steward could not verify host readiness right now.");
+            SetJoinAvailability(button, false, "Steward cannot check host readiness right now.");
             return;
         }
 
@@ -234,19 +255,22 @@ public partial class MainWindow
             : null;
         if (presence is null)
         {
-            SetJoinAvailability(button, false, "No ready host is currently advertised for this World.");
+            SetJoinAvailability(button, false, "No one is hosting this World right now.");
             return;
         }
 
         if (presence.State == StewardRemoteHostPresenceState.Starting)
         {
-            SetJoinAvailability(button, false, "Host is starting.");
+            SetJoinAvailability(
+                button,
+                false,
+                "A host is starting. Join will become available when it is ready.");
             return;
         }
 
         if (string.IsNullOrWhiteSpace(presence.Address))
         {
-            SetJoinAvailability(button, false, "The host is not advertising a usable connection yet.");
+            SetJoinAvailability(button, false, "The host is not ready to accept connections yet.");
             return;
         }
 
@@ -255,13 +279,31 @@ public partial class MainWindow
             !_isBusy,
             _isBusy
                 ? "Another Steward operation is in progress."
-                : $"Join the active {adapter.DisplayName} host without acquiring writable World authority.");
+                : "A host is ready. You can join now.");
     }
 
-    private static void SetJoinAvailability(Button button, bool isEnabled, string helpText)
+    private void SetJoinAvailability(Button button, bool isEnabled, string helpText)
     {
         button.IsEnabled = isEnabled;
         button.ToolTip = helpText;
         AutomationProperties.SetHelpText(button, helpText);
+
+        var status = _joinReadinessText;
+        var world = _selectedWorld;
+        if (status is null ||
+            world is null ||
+            world.SharingMode != WorldSharingMode.Shared)
+        {
+            if (status is not null)
+            {
+                status.Text = string.Empty;
+                status.Visibility = Visibility.Collapsed;
+            }
+
+            return;
+        }
+
+        status.Text = helpText;
+        status.Visibility = Visibility.Visible;
     }
 }

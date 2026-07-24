@@ -118,8 +118,7 @@ public partial class MainWindow
                     installation,
                     GetUserForWorld(world));
 
-                StatusText.Text =
-                    $"World '{updated.Name}' committed as revision {updated.CurrentStateRevisionId}.";
+                StatusText.Text = $"Saved '{updated.Name}'.";
                 await RefreshUnifiedWorldsAsync(updated.Id, preserveStatus: true);
             });
     }
@@ -157,7 +156,7 @@ public partial class MainWindow
             {
                 var installation = await GetGameInstallationAsync(adapter);
                 StatusText.Text =
-                    $"{adapter.DisplayName} is running. End the game/server session normally; Steward will then capture and commit the new canonical revision.";
+                    $"{adapter.DisplayName} is running. When the hosted session ends, Steward will save the updated World.";
 
                 var lifecycle = GetLifecycleForWorld(world);
                 var updated = await lifecycle.ContinueAsHostAsync(
@@ -166,8 +165,7 @@ public partial class MainWindow
                     installation,
                     GetUserForWorld(world));
 
-                StatusText.Text =
-                    $"Hosted World '{updated.Name}' committed as revision {updated.CurrentStateRevisionId}.";
+                StatusText.Text = $"Hosted session finished. Saved '{updated.Name}'.";
                 await RefreshUnifiedWorldsAsync(updated.Id, preserveStatus: true);
             });
     }

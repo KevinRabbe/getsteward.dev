@@ -41,6 +41,20 @@ public sealed class ProjectZomboidWorkshopPathGuardTests : IDisposable
     }
 
     [Fact]
+    public void ValidateWorkshopItemRejectsNonNumericIdBeforePathConstruction()
+    {
+        var contentRoot = Path.Combine(_root, "invalid-id", "content", "108600");
+        Directory.CreateDirectory(contentRoot);
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            ProjectZomboidWorkshopPathGuard.ValidateWorkshopItem(
+                contentRoot,
+                "../outside"));
+
+        Assert.Contains("numeric Steam Workshop id", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void ConfiguredGuardDoesNotInspectUnreferencedWorkshopItem()
     {
         if (!OperatingSystem.IsWindows())

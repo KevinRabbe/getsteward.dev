@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
@@ -36,7 +37,6 @@ public partial class MainWindow
         RefreshButton.Click += UnifiedRefreshButton_Click;
         ContinueButton.Click += UnifiedContinueButton_Click;
         HostButton.Click += UnifiedHostButton_Click;
-        ShareButton.Click += UnifiedShareButton_Click;
 
         WorldList.SelectionChanged += UnifiedWorldList_SelectionChanged;
         WorldList.IsEnabledChanged += (_, _) => UpdateUnifiedActionState();
@@ -48,6 +48,10 @@ public partial class MainWindow
 
         ContinueButton.Visibility = Visibility.Visible;
         HostButton.Visibility = Visibility.Visible;
+
+        // WorldSharing owns this action. Keep it inert until that controller initializes rather than
+        // maintaining a second placeholder state machine here.
+        ShareButton.IsEnabled = false;
 
         await RefreshUnifiedWorldsAsync();
     }
@@ -166,22 +170,6 @@ public partial class MainWindow
                     $"Hosted World '{updated.Name}' committed as revision {updated.CurrentStateRevisionId}.";
                 await RefreshUnifiedWorldsAsync(updated.Id, preserveStatus: true);
             });
-    }
-
-    private void UnifiedShareButton_Click(object sender, RoutedEventArgs e)
-    {
-        var world = _selectedWorld;
-        if (world is null)
-        {
-            return;
-        }
-
-        // A local enum flip is not persistent Steward sharing. Until the access-management UI can
-        // create or administer real shared authority, keep the World unchanged rather than
-        // manufacturing a false Shared state.
-        StatusText.Text = world.SharingMode == WorldSharingMode.LocalOnly
-            ? "Share World requires the shared backend/access flow, which is not connected to this button yet. The World remains only on this PC."
-            : "Manage access is not connected to this button yet.";
     }
 
     private async Task RefreshUnifiedWorldsAsync(
@@ -374,15 +362,17 @@ public partial class MainWindow
                                _deviceSettings.AllowHosting &&
                                environmentReady;
 
-        ContinueButton.ToolTip = world is null
+        var continueHelp = world is null
             ? "Select a World."
             : !canStart
                 ? $"{adapter?.DisplayName ?? world.GameAdapterId} does not support managed local launch yet."
                 : !environmentReady
                     ? "Run Verify Environment and reach Ready before starting this shared World."
                     : $"Start this {adapter!.DisplayName} World on this device.";
+        ContinueButton.ToolTip = continueHelp;
+        AutomationProperties.SetHelpText(ContinueButton, continueHelp);
 
-        HostButton.ToolTip = world is null
+        var hostHelp = world is null
             ? "Select a World."
             : !canHost
                 ? $"{adapter?.DisplayName ?? world.GameAdapterId} does not support managed hosting yet."
@@ -391,16 +381,8 @@ public partial class MainWindow
                     : !environmentReady
                         ? "Run Verify Environment and reach Ready before hosting this shared World."
                         : $"Host this {adapter!.DisplayName} World temporarily on this device.";
-
-        ShareButton.IsEnabled = !_isBusy && world is not null;
-        ShareButton.Content = world?.SharingMode == WorldSharingMode.Shared
-            ? "Manage access"
-            : "Share World";
-        ShareButton.ToolTip = world is null
-            ? "Select a World."
-            : world.SharingMode == WorldSharingMode.Shared
-                ? "Manage access becomes functional when the shared access UI is connected."
-                : "Share World becomes functional when the shared access UI is connected.";
+        HostButton.ToolTip = hostHelp;
+        AutomationProperties.SetHelpText(HostButton, hostHelp);
     }
 
     private void UpdateUnifiedImportActionState()

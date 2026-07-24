@@ -7,6 +7,8 @@
         MinWidth="680"
         MinHeight="620"
         WindowStartupLocation="CenterScreen"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
         Background="{StaticResource AppBackgroundBrush}">
     <Grid>
         <Grid.RowDefinitions>
@@ -65,18 +67,21 @@
                         <Button x:Name="OpenImportButton"
                                 Grid.Column="1"
                                 Content="Import"
+                                AutomationProperties.HelpText="Import a detected game World into Steward on this PC."
                                 Padding="12,6"
                                 MinHeight="32"
                                 Margin="0,0,8,0" />
                         <Button x:Name="RefreshButton"
                                 Grid.Column="2"
                                 Content="Refresh"
+                                AutomationProperties.HelpText="Refresh installed games, Worlds, and current Steward state."
                                 Padding="12,6"
                                 MinHeight="32" />
                     </Grid>
 
                     <ListBox x:Name="WorldList"
                              Grid.Row="1"
+                             AutomationProperties.Name="Worlds"
                              Background="Transparent"
                              BorderThickness="0"
                              Foreground="{StaticResource TextBrush}"
@@ -133,7 +138,8 @@
                                 CornerRadius="8">
                             <StackPanel>
                                 <CheckBox x:Name="AllowHostingCheckBox"
-                                          Content="Allow this device to host" />
+                                          Content="Allow this device to host"
+                                          AutomationProperties.HelpText="Allow Steward to use this device for temporary World hosting when the selected game supports it." />
                                 <TextBlock x:Name="HostingPreferenceText"
                                            Margin="22,6,0,0"
                                            Foreground="{StaticResource MutedTextBrush}"
@@ -199,18 +205,22 @@
                         <WrapPanel>
                             <Button x:Name="ContinueButton"
                                     Content="Start World"
+                                    AutomationProperties.HelpText="Start a writable local session for this World."
                                     Style="{StaticResource PrimaryButtonStyle}"
                                     Margin="0,0,10,10" />
                             <Button x:Name="HostButton"
                                     Content="Host World"
+                                    AutomationProperties.HelpText="Start temporary multiplayer hosting for this World when supported."
                                     Margin="0,0,10,10" />
                             <Button x:Name="StopHostingButton"
-                                    Content="Stop Hosting"
+                                    Content="Stop and Save"
+                                    AutomationProperties.HelpText="Safely stop the hosted session and save the updated World."
                                     Visibility="Collapsed"
                                     Margin="0,0,10,10"
                                     Click="StopHostingButton_Click" />
                             <Button x:Name="ShareButton"
                                     Content="Share World"
+                                    AutomationProperties.HelpText="Persistently share this Steward-managed World with other Steam identities."
                                     Margin="0,0,10,10" />
                         </WrapPanel>
 
@@ -226,6 +236,7 @@
                             <StackPanel>
                                 <CheckBox x:Name="KeepExactGameVersionCheckBox"
                                           Content="Keep this World on this exact game version"
+                                          AutomationProperties.HelpText="Require Steward to verify this World against its recorded exact game environment before writable play."
                                           IsEnabled="{Binding IsEnabled, ElementName=WorldList}"
                                           Click="KeepExactGameVersionCheckBox_Click" />
                                 <TextBlock x:Name="GameVersionPolicyText"
@@ -247,6 +258,7 @@
                                 Padding="20">
                             <StackPanel>
                                 <TextBlock x:Name="EnvironmentReadinessText"
+                                           AutomationProperties.LiveSetting="Polite"
                                            Foreground="{StaticResource MutedTextBrush}"
                                            FontSize="12"
                                            TextWrapping="Wrap"
@@ -254,10 +266,12 @@
                                 <WrapPanel Margin="0,14,0,0">
                                     <Button x:Name="VerifyEnvironmentButton"
                                             Content="Verify Environment"
+                                            AutomationProperties.HelpText="Check whether this device exactly matches the World environment required for writable play."
                                             Margin="0,0,10,10"
                                             Click="VerifyEnvironmentButton_Click" />
                                     <Button x:Name="RepairEnvironmentButton"
                                             Content="Repair"
+                                            AutomationProperties.HelpText="Repair the local game environment toward the exact World requirement when the adapter supports repair."
                                             IsEnabled="False"
                                             Margin="0,0,10,10"
                                             Click="RepairEnvironmentButton_Click" />
@@ -327,6 +341,7 @@
                 BorderThickness="0,1,0,0"
                 Background="{StaticResource PanelBrush}">
             <TextBlock x:Name="StatusText"
+                       AutomationProperties.LiveSetting="Polite"
                        Text="Ready"
                        Foreground="{StaticResource MutedTextBrush}"
                        FontSize="12" />

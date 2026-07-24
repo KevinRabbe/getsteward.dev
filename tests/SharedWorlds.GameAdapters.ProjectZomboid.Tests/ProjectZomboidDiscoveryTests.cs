@@ -74,19 +74,23 @@ public sealed class ProjectZomboidDiscoveryTests : IDisposable
     }
 
     [Fact]
-    public void WorldDiscoveryOnlyReturnsServerWorldFoldersWithMapTimeState()
+    public void WorldDiscoveryRequiresMatchingLocalServerDefinition()
     {
         var userData = Path.Combine(_root, "Zomboid");
         var multiplayer = Path.Combine(userData, "Saves", "Multiplayer");
+        var serverConfig = Path.Combine(userData, "Server");
         var serverWorld = Path.Combine(multiplayer, "servertest");
         var playerCache = Path.Combine(multiplayer, "servertest_player");
         var remoteCache = Path.Combine(multiplayer, "192.168.1.5_16261_hash");
         Directory.CreateDirectory(serverWorld);
         Directory.CreateDirectory(playerCache);
         Directory.CreateDirectory(remoteCache);
+        Directory.CreateDirectory(serverConfig);
         File.WriteAllBytes(Path.Combine(serverWorld, "map_t.bin"), [1, 2, 3]);
         File.WriteAllBytes(Path.Combine(serverWorld, "players.db"), [4, 5]);
         File.WriteAllBytes(Path.Combine(playerCache, "players.db"), [6]);
+        File.WriteAllBytes(Path.Combine(remoteCache, "map_t.bin"), [7, 8]);
+        File.WriteAllText(Path.Combine(serverConfig, "servertest.ini"), "PublicName=Steward Test");
 
         var installation = new GameInstallation(
             "project-zomboid:test",

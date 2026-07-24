@@ -161,17 +161,28 @@ public sealed class SharedWorldHostPresenceService
         CancellationToken cancellationToken = default)
     {
         ValidateIdentity(caller);
-        var reservation = await _authority.GetReservationAsync(
-            caller,
-            worldId,
-            cancellationToken);
-        if (reservation is null || reservation.State != SharedWorldReservationState.Active)
+
+        // Read ephemeral evidence first, then resolve current authority. This ordering means a reclaim
+        // that happens while presence is being read is observed by the single authority lookup below;
+        // stale join data therefore fails closed without adding a second authority query or a lock.
+        var presence = await _store.GetAsync(worldId, cancellationToken);
+        if (presence is null)
         {
             return null;
         }
 
-        var presence = await _store.GetAsync(worldId, cancellationToken);
-        if (presence is null ||
+        var now = _clock();
+        if (now - presence.UpdatedAt > _options.ExpiresAfter)
+        {
+            return null;
+        }
+
+        var reservation = await _authority.GetReservationAsync(
+            caller,
+            worldId,
+            cancellationToken);
+        if (reservation is null ||
+            reservation.State != SharedWorldReservationState.Active ||
             presence.SessionId != reservation.SessionId ||
             presence.Generation != reservation.Generation ||
             presence.Holder != reservation.Holder ||
@@ -183,10 +194,7 @@ public sealed class SharedWorldHostPresenceService
             return null;
         }
 
-        var now = _clock();
-        return now - presence.UpdatedAt <= _options.ExpiresAfter
-            ? presence
-            : null;
+        return presence;
     }
 
     public Task<bool> ClearAsync(

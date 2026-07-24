@@ -245,7 +245,9 @@ public sealed class StewardPackageUploadClientTests
         string sha256,
         int partSize,
         int partCount)
-        => $$"""
+    {
+        var expiresAt = FutureExpiration();
+        return $$"""
         {
           "code": "TransferStarted",
           "data": {
@@ -258,12 +260,13 @@ public sealed class StewardPackageUploadClientTests
             "requiredEnvironmentRevisionId": {{NullableGuidJson(environmentId)}},
             "partSizeBytes": {{partSize}},
             "partCount": {{partCount}},
-            "expiresAt": "2026-07-23T12:00:00Z",
+            "expiresAt": "{{expiresAt}}",
             "state": "Active"
           },
           "retryable": false
         }
         """;
+    }
 
     private static string ProgressJson(
         Guid transferId,
@@ -281,6 +284,7 @@ public sealed class StewardPackageUploadClientTests
         var parts = completedPartNumber is { } number && completedPartBytes is { } partBytes
             ? $"[{{ \"partNumber\": {number}, \"byteSize\": {partBytes} }}]"
             : "[]";
+        var expiresAt = FutureExpiration();
         return $$"""
         {
           "code": "TransferProgress",
@@ -295,7 +299,7 @@ public sealed class StewardPackageUploadClientTests
               "requiredEnvironmentRevisionId": {{NullableGuidJson(environmentId)}},
               "partSizeBytes": {{partSize}},
               "partCount": {{partCount}},
-              "expiresAt": "2026-07-23T12:00:00Z",
+              "expiresAt": "{{expiresAt}}",
               "state": "Active"
             },
             "completedParts": {{parts}},
@@ -307,19 +311,25 @@ public sealed class StewardPackageUploadClientTests
     }
 
     private static string PartAuthorizationJson(string uri, long bytes, string headerValue)
-        => $$"""
+    {
+        var expiresAt = FutureExpiration();
+        return $$"""
         {
           "code": "PartAuthorized",
           "data": {
             "uri": "{{uri}}",
             "method": "PUT",
             "requiredHeaders": { "x-steward-test": "{{headerValue}}" },
-            "expiresAt": "2026-07-23T12:00:00Z",
+            "expiresAt": "{{expiresAt}}",
             "expectedByteSize": {{bytes}}
           },
           "retryable": false
         }
         """;
+    }
+
+    private static string FutureExpiration()
+        => DateTimeOffset.UtcNow.AddMinutes(30).ToString("O", System.Globalization.CultureInfo.InvariantCulture);
 
     private static string NullableGuidJson(RevisionId? revisionId)
         => revisionId is { } value ? $"\"{value.Value:D}\"" : "null";

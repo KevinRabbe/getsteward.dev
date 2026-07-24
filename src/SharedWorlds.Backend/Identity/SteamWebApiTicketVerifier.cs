@@ -16,10 +16,13 @@ public sealed record ExternalIdentityTicketVerificationResult(
 
 public sealed record SteamWebApiTicketVerifierOptions
 {
+    private static readonly TimeSpan DefaultResponseReadTimeout = TimeSpan.FromSeconds(30);
+
     public SteamWebApiTicketVerifierOptions(
         uint appId,
         string publisherApiKey,
-        string identity)
+        string identity,
+        TimeSpan? responseReadTimeout = null)
     {
         if (appId == 0)
         {
@@ -28,14 +31,23 @@ public sealed record SteamWebApiTicketVerifierOptions
 
         ArgumentException.ThrowIfNullOrWhiteSpace(publisherApiKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(identity);
+        var resolvedResponseReadTimeout = responseReadTimeout ?? DefaultResponseReadTimeout;
+        if (resolvedResponseReadTimeout <= TimeSpan.Zero ||
+            resolvedResponseReadTimeout == Timeout.InfiniteTimeSpan)
+        {
+            throw new ArgumentOutOfRangeException(nameof(responseReadTimeout));
+        }
+
         AppId = appId;
         PublisherApiKey = publisherApiKey;
         Identity = identity;
+        ResponseReadTimeout = resolvedResponseReadTimeout;
     }
 
     public uint AppId { get; }
     public string PublisherApiKey { get; }
     public string Identity { get; }
+    public TimeSpan ResponseReadTimeout { get; }
 }
 
 public sealed class ExternalIdentityProviderException : Exception
@@ -115,7 +127,8 @@ public sealed class SteamWebApiTicketVerifier
         string ticketHex,
         CancellationToken cancellationToken = default)
     {
-        if (_options is null)
+        var options = _options;
+        if (options is null)
         {
             throw new ExternalIdentityProviderException(
                 Provider,
@@ -161,7 +174,10 @@ public sealed class SteamWebApiTicketVerifier
                     $"Steam identity verification returned HTTP {(int)response.StatusCode} ({response.StatusCode}).");
             }
 
-            using var document = await ParseBoundedResponseAsync(response.Content, cancellationToken);
+            using var document = await ParseBoundedResponseAsync(
+                response.Content,
+                options.ResponseReadTimeout,
+                cancellationToken);
             if (!TryReadResult(document.RootElement, out var result, out var steamId))
             {
                 throw new ExternalIdentityProviderException(
@@ -196,6 +212,7 @@ public sealed class SteamWebApiTicketVerifier
 
     private static async Task<JsonDocument> ParseBoundedResponseAsync(
         HttpContent content,
+        TimeSpan responseReadTimeout,
         CancellationToken cancellationToken)
     {
         if (content.Headers.ContentLength is > MaximumResponseBytes)
@@ -205,44 +222,58 @@ public sealed class SteamWebApiTicketVerifier
                 $"Steam identity verification response exceeded the {MaximumResponseBytes}-byte safety limit.");
         }
 
-        await using var source = await content.ReadAsStreamAsync(cancellationToken);
-        using var buffered = new MemoryStream();
-        var buffer = new byte[ResponseBufferBytes];
-        var totalBytes = 0;
-        while (true)
+        using var responseCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        responseCancellation.CancelAfter(responseReadTimeout);
+        var readCancellationToken = responseCancellation.Token;
+        try
         {
-            var remaining = MaximumResponseBytes - totalBytes;
-            var requested = Math.Min(buffer.Length, remaining + 1);
-            var read = await source.ReadAsync(
-                buffer.AsMemory(0, requested),
-                cancellationToken);
-            if (read == 0)
+            await using var source = await content.ReadAsStreamAsync(readCancellationToken);
+            using var buffered = new MemoryStream();
+            var buffer = new byte[ResponseBufferBytes];
+            var totalBytes = 0;
+            while (true)
             {
-                break;
+                var remaining = MaximumResponseBytes - totalBytes;
+                var requested = Math.Min(buffer.Length, remaining + 1);
+                var read = await source.ReadAsync(
+                    buffer.AsMemory(0, requested),
+                    readCancellationToken);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                if (read > remaining)
+                {
+                    throw new ExternalIdentityProviderException(
+                        Provider,
+                        $"Steam identity verification response exceeded the {MaximumResponseBytes}-byte safety limit.");
+                }
+
+                await buffered.WriteAsync(buffer.AsMemory(0, read), readCancellationToken);
+                totalBytes += read;
             }
 
-            if (read > remaining)
+            buffered.Position = 0;
+            try
+            {
+                return await JsonDocument.ParseAsync(buffered, cancellationToken: readCancellationToken);
+            }
+            catch (JsonException exception)
             {
                 throw new ExternalIdentityProviderException(
                     Provider,
-                    $"Steam identity verification response exceeded the {MaximumResponseBytes}-byte safety limit.");
+                    "Steam identity verification returned an invalid response.",
+                    exception);
             }
-
-            await buffered.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-            totalBytes += read;
         }
-
-        buffered.Position = 0;
-        try
-        {
-            return await JsonDocument.ParseAsync(buffered, cancellationToken: cancellationToken);
-        }
-        catch (JsonException exception)
+        catch (OperationCanceledException) when (
+            !cancellationToken.IsCancellationRequested &&
+            responseCancellation.IsCancellationRequested)
         {
             throw new ExternalIdentityProviderException(
                 Provider,
-                "Steam identity verification returned an invalid response.",
-                exception);
+                "Steam identity verification timed out.");
         }
     }
 

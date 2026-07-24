@@ -13,15 +13,10 @@ public enum StewardRemoteHostPresenceState
 }
 
 public sealed record StewardRemoteHostPresence(
-    WorldId WorldId,
-    Guid ReservationSessionId,
-    long ReservationGeneration,
-    string HostInstallationId,
     StewardRemoteHostPresenceState State,
     string? Address,
     int? Port,
-    string? JoinToken,
-    DateTimeOffset UpdatedAt);
+    string? JoinToken);
 
 public enum PublishStewardRemoteHostPresenceStatus
 {
@@ -33,8 +28,8 @@ public enum PublishStewardRemoteHostPresenceStatus
 
 /// <summary>
 /// Transport client for short-lived hosted-session evidence. Host presence is deliberately not
-/// writable World authority: readers may use it to decide whether Join is available, while publishers
-/// must already hold the exact active reservation identified by session and generation.
+/// writable World authority: readers receive only the connection evidence needed by Join, while
+/// publishers must already hold the exact active reservation identified by session and generation.
 /// </summary>
 public sealed class StewardHostPresenceClient
 {
@@ -251,15 +246,10 @@ public sealed class StewardHostPresenceClient
         string? JoinToken);
 
     private sealed record HostPresenceDto(
-        Guid WorldId,
-        Guid ReservationSessionId,
-        long ReservationGeneration,
-        string HostInstallationId,
         string State,
         string? Address,
         int? Port,
-        string? JoinToken,
-        DateTimeOffset UpdatedAt)
+        string? JoinToken)
     {
         public StewardRemoteHostPresence ToDomain()
         {
@@ -269,15 +259,10 @@ public sealed class StewardHostPresenceClient
             }
 
             return new StewardRemoteHostPresence(
-                new WorldId(WorldId),
-                ReservationSessionId,
-                ReservationGeneration,
-                HostInstallationId,
                 state,
                 Address,
                 Port,
-                JoinToken,
-                UpdatedAt);
+                JoinToken);
         }
     }
 }

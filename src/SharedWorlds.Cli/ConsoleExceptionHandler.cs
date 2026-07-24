@@ -1,6 +1,6 @@
-using System.Text;
 using System.Text.Json;
 using SharedWorlds.Core.Errors;
+using SharedWorlds.Infrastructure.Diagnostics;
 
 namespace SharedWorlds.Cli;
 
@@ -152,7 +152,7 @@ internal static class ConsoleExceptionHandler
         return ApplicationExitCodes.UnexpectedFailure;
     }
 
-    private static void WriteDiagnosticReference(DiagnosticIncident incident)
+    private static void WriteDiagnosticReference(LocalDiagnosticIncident incident)
     {
         Console.Error.WriteLine($"Incident ID: {incident.Id}");
         if (incident.LogPath is not null)
@@ -165,42 +165,8 @@ internal static class ConsoleExceptionHandler
         }
     }
 
-    private static async Task<DiagnosticIncident> TryWriteDiagnosticAsync(
+    private static Task<LocalDiagnosticIncident> TryWriteDiagnosticAsync(
         Exception exception,
         string diagnosticsRoot)
-    {
-        var incidentId = Guid.NewGuid().ToString("N")[..12];
-        var timestamp = DateTimeOffset.UtcNow;
-        var logPath = Path.Combine(diagnosticsRoot, $"errors-{timestamp:yyyy-MM-dd}.log");
-
-        try
-        {
-            Directory.CreateDirectory(diagnosticsRoot);
-
-            var entry = new StringBuilder()
-                .AppendLine("================================================================================")
-                .AppendLine($"TimestampUtc: {timestamp:O}")
-                .AppendLine($"IncidentId: {incidentId}")
-                .AppendLine($"ProcessId: {Environment.ProcessId}")
-                .AppendLine($"OS: {Environment.OSVersion}")
-                .AppendLine($"Runtime: {Environment.Version}")
-                .AppendLine(exception.ToString())
-                .AppendLine()
-                .ToString();
-
-            await File.AppendAllTextAsync(
-                logPath,
-                entry,
-                Encoding.UTF8,
-                CancellationToken.None);
-            return new DiagnosticIncident(incidentId, logPath);
-        }
-        catch (Exception loggingFailure) when (
-            loggingFailure is IOException or UnauthorizedAccessException or NotSupportedException)
-        {
-            return new DiagnosticIncident(incidentId, null);
-        }
-    }
-
-    private sealed record DiagnosticIncident(string Id, string? LogPath);
+        => Task.FromResult(LocalDiagnosticLog.TryWriteException(exception, diagnosticsRoot));
 }

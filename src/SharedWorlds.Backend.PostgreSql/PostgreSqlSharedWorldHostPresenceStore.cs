@@ -16,7 +16,7 @@ public sealed class PostgreSqlSharedWorldHostPresenceStore : ISharedWorldHostPre
         _dataSource = dataSource;
     }
 
-    public async Task UpsertAsync(
+    public async Task<bool> TryUpsertAsync(
         SharedWorldHostPresence presence,
         CancellationToken cancellationToken = default)
     {
@@ -34,7 +34,7 @@ public sealed class PostgreSqlSharedWorldHostPresenceStore : ISharedWorldHostPre
                 port,
                 join_token,
                 updated_at)
-            VALUES (
+            SELECT
                 @world_id,
                 @session_id,
                 @generation,
@@ -45,7 +45,17 @@ public sealed class PostgreSqlSharedWorldHostPresenceStore : ISharedWorldHostPre
                 @address,
                 @port,
                 @join_token,
-                @updated_at)
+                @updated_at
+            WHERE EXISTS (
+                SELECT 1
+                FROM steward_world_reservations
+                WHERE world_id = @world_id
+                  AND session_id = @session_id
+                  AND generation = @generation
+                  AND holder_provider = @holder_provider
+                  AND holder_external_id = @holder_external_id
+                  AND installation_id = @installation_id
+                  AND state = @active_reservation_state)
             ON CONFLICT (world_id) DO UPDATE SET
                 session_id = EXCLUDED.session_id,
                 generation = EXCLUDED.generation,
@@ -86,7 +96,10 @@ public sealed class PostgreSqlSharedWorldHostPresenceStore : ISharedWorldHostPre
             NpgsqlDbType.Text,
             presence.JoinToken is null ? DBNull.Value : presence.JoinToken);
         command.Parameters.AddWithValue("updated_at", presence.UpdatedAt);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        command.Parameters.AddWithValue(
+            "active_reservation_state",
+            (short)SharedWorldReservationState.Active);
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
     public async Task<SharedWorldHostPresence?> GetAsync(

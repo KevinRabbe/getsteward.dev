@@ -42,17 +42,14 @@ public sealed class SevenDaysToDieAdapter : IGameAdapter
         return Task.FromResult(SevenDaysToDieEnvironment.Verify(installation, requiredEnvironment));
     }
 
-    public async Task<CapturedState> CaptureDetectedWorldAsync(
+    public Task<CapturedState> CaptureDetectedWorldAsync(
         GameInstallation installation,
         DetectedWorld world,
         CancellationToken cancellationToken = default)
-    {
-        var captured = await SevenDaysToDieWorldState.CaptureDetectedWorldAsync(
+        => SevenDaysToDieWorldState.CaptureDetectedWorldAsync(
             installation,
             world,
             cancellationToken);
-        return captured with { DeletePackageAfterStore = true };
-    }
 
     public Task<PreparedWorld> PrepareEnvironmentAsync(
         GameInstallation installation,
@@ -63,23 +60,32 @@ public sealed class SevenDaysToDieAdapter : IGameAdapter
         return Task.FromResult(SevenDaysToDieWorldState.PrepareEnvironment(installation, requiredEnvironment));
     }
 
-    public async Task<CapturedState> CaptureStateAsync(
+    public Task<CapturedState> CaptureStateAsync(
         PreparedWorld world,
         CancellationToken cancellationToken = default)
     {
-        var captured = await SevenDaysToDieWorldState.CapturePreparedWorldAsync(world, cancellationToken);
-        return captured with { DeletePackageAfterStore = true };
+        ArgumentNullException.ThrowIfNull(world);
+        SevenDaysToDieWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        return SevenDaysToDieWorldState.CapturePreparedWorldAsync(world, cancellationToken);
     }
 
     public Task RestoreStateAsync(
         PreparedWorld world,
         StatePackage state,
         CancellationToken cancellationToken = default)
-        => SevenDaysToDieWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        SevenDaysToDieWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        return SevenDaysToDieWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
+    }
 
     public Task FinalizePreparedWorldAsync(
         PreparedWorld world,
         PreparedWorldDisposition disposition,
         CancellationToken cancellationToken = default)
-        => SevenDaysToDieWorldState.FinalizePreparedWorldAsync(world, disposition, cancellationToken);
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        SevenDaysToDieWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        return SevenDaysToDieWorldState.FinalizePreparedWorldAsync(world, disposition, cancellationToken);
+    }
 }

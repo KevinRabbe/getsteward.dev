@@ -11,6 +11,7 @@ public partial class MainWindow
         InitializeUnifiedHostingPreference();
         await LoadDeviceSettingsAsync();
         await InitializeUnifiedGameUiAsync();
+        InitializeInstallationAwareWorldActions();
         InitializeWorldSearchUi();
 
         // Remote sharing is optional. With no production/development remote configuration Steward

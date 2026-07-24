@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Threading;
 using SharedWorlds.Core.Abstractions;
@@ -36,6 +37,9 @@ public partial class MainWindow
             Margin = new Thickness(0, 0, 10, 10),
             IsEnabled = false
         };
+        AutomationProperties.SetName(joinButton, "Join");
+        SetJoinAvailability(joinButton, false, "Select a shared World with a ready host.");
+
         var hostIndex = playActions.Children.IndexOf(HostButton);
         playActions.Children.Insert(hostIndex < 0 ? playActions.Children.Count : hostIndex + 1, joinButton);
         _joinButton = joinButton;
@@ -92,7 +96,6 @@ public partial class MainWindow
                         presence.Address,
                         presence.Port,
                         presence.JoinToken));
-
                 StatusText.Text = $"Left hosted World '{world.Name}'.";
             });
 
@@ -164,45 +167,50 @@ public partial class MainWindow
         var world = _selectedWorld;
         if (world is null)
         {
-            button.IsEnabled = false;
-            button.ToolTip = "Select a World.";
+            SetJoinAvailability(button, false, "Select a World.");
             return;
         }
 
         if (!_remoteWorldIds.Contains(world.Id))
         {
-            button.IsEnabled = false;
-            button.ToolTip = "Join becomes available for shared Worlds when another device is hosting.";
+            SetJoinAvailability(
+                button,
+                false,
+                "Join becomes available for shared Worlds when another device is hosting.");
             return;
         }
 
         if (!TryGetAdapter(world.GameAdapterId, out var adapter) ||
             !adapter.Capabilities.HasFlag(GameAdapterCapabilities.AutomaticClientJoin))
         {
-            button.IsEnabled = false;
-            button.ToolTip =
-                $"{adapter?.DisplayName ?? world.GameAdapterId} does not expose a validated automatic Join path yet.";
+            SetJoinAvailability(
+                button,
+                false,
+                $"{adapter?.DisplayName ?? world.GameAdapterId} does not expose a validated automatic Join path yet.");
             return;
         }
 
         if (_remoteRuntime is null)
         {
-            button.IsEnabled = false;
-            button.ToolTip = "Reconnect authenticated Steward before joining this shared World.";
+            SetJoinAvailability(
+                button,
+                false,
+                "Reconnect authenticated Steward before joining this shared World.");
             return;
         }
 
         if (!IsSelectedWorldEnvironmentReadyForPlay())
         {
-            button.IsEnabled = false;
-            button.ToolTip = "Verify the exact World environment on this device before Join.";
+            SetJoinAvailability(
+                button,
+                false,
+                "Verify the exact World environment on this device before Join.");
             return;
         }
 
         if (_selectedHostPresenceError is not null)
         {
-            button.IsEnabled = false;
-            button.ToolTip = "Steward could not verify host readiness right now.";
+            SetJoinAvailability(button, false, "Steward could not verify host readiness right now.");
             return;
         }
 
@@ -211,28 +219,34 @@ public partial class MainWindow
             : null;
         if (presence is null)
         {
-            button.IsEnabled = false;
-            button.ToolTip = "No ready host is currently advertised for this World.";
+            SetJoinAvailability(button, false, "No ready host is currently advertised for this World.");
             return;
         }
 
         if (presence.State == StewardRemoteHostPresenceState.Starting)
         {
-            button.IsEnabled = false;
-            button.ToolTip = "Host is starting.";
+            SetJoinAvailability(button, false, "Host is starting.");
             return;
         }
 
         if (string.IsNullOrWhiteSpace(presence.Address))
         {
-            button.IsEnabled = false;
-            button.ToolTip = "The host is not advertising a usable connection yet.";
+            SetJoinAvailability(button, false, "The host is not advertising a usable connection yet.");
             return;
         }
 
-        button.IsEnabled = !_isBusy;
-        button.ToolTip = _isBusy
-            ? "Another Steward operation is in progress."
-            : $"Join the active {adapter.DisplayName} host without acquiring writable World authority.";
+        SetJoinAvailability(
+            button,
+            !_isBusy,
+            _isBusy
+                ? "Another Steward operation is in progress."
+                : $"Join the active {adapter.DisplayName} host without acquiring writable World authority.");
+    }
+
+    private static void SetJoinAvailability(Button button, bool isEnabled, string helpText)
+    {
+        button.IsEnabled = isEnabled;
+        button.ToolTip = helpText;
+        AutomationProperties.SetHelpText(button, helpText);
     }
 }

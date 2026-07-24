@@ -4,6 +4,8 @@ using System.Text.Json;
 using Microsoft.AspNetCore.TestHost;
 using SharedWorlds.Backend.Api;
 using SharedWorlds.Backend.Identity;
+using SharedWorlds.Backend.Transfers;
+using SharedWorlds.Backend.Worlds;
 using Xunit;
 
 namespace SharedWorlds.Backend.Api.Tests;
@@ -13,12 +15,31 @@ public sealed class StewardUnavailableSteamApiTests
     [Fact]
     public async Task UnconfiguredSteamAuthenticationReturnsNonRetryableProviderUnavailable()
     {
+        var now = new DateTimeOffset(2026, 7, 24, 12, 0, 0, TimeSpan.Zero);
+        var worldStore = new ApiTestHarness.InMemoryWorldStore();
+        var transferStore = new ApiTestHarness.InMemoryTransferStore();
+        var objectStore = new ApiTestHarness.InMemoryObjectStore();
+        var revisions = new SharedRevisionMetadataService(worldStore, worldStore);
+
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Services.AddSingleton(new StewardSessionService(
             new ApiTestHarness.InMemorySessionStore(),
-            () => new DateTimeOffset(2026, 7, 24, 12, 0, 0, TimeSpan.Zero),
+            () => now,
             tokenGenerator: new ApiTestHarness.DeterministicTokenGenerator()));
+        builder.Services.AddSingleton(new SharedWorldMetadataService(worldStore, () => now));
+        builder.Services.AddSingleton(revisions);
+        builder.Services.AddSingleton(new SharedPackageTransferService(
+            worldStore,
+            revisions,
+            transferStore,
+            objectStore,
+            () => now,
+            new SharedPackageTransferOptions(
+                maximumPackageBytes: 1024 * 1024,
+                partSizeBytes: 4,
+                transferLifetime: TimeSpan.FromHours(24),
+                authorizationLifetime: TimeSpan.FromMinutes(15))));
         builder.Services.AddSingleton(
             SteamWebApiTicketVerifier.CreateUnavailable(
                 new HttpClient(new ThrowingHandler())));

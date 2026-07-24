@@ -80,14 +80,27 @@ public interface IGameAdapter
     /// <summary>
     /// Launches the prepared World as a local, non-shared session.
     /// This is distinct from hosting and must not expose a World for multiplayer by accident.
+    /// Unsupported launch modes need no adapter stub; capability absence is the product contract.
     /// </summary>
     Task<GameSessionHandle> LaunchLocalAsync(
         PreparedWorld world,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        cancellationToken.ThrowIfCancellationRequested();
+        throw new NotSupportedException(
+            $"{DisplayName} does not expose a validated Steward-managed local launch path.");
+    }
 
     Task<GameSessionHandle> LaunchHostAsync(
         PreparedWorld world,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        cancellationToken.ThrowIfCancellationRequested();
+        throw new NotSupportedException(
+            $"{DisplayName} does not expose a validated Steward-managed host launch path.");
+    }
 
     /// <summary>
     /// Requests the adapter-defined safe end of an already-running managed host session. Core never
@@ -108,7 +121,14 @@ public interface IGameAdapter
     Task<GameSessionHandle> LaunchClientAsync(
         PreparedWorld world,
         HostConnection host,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(host);
+        cancellationToken.ThrowIfCancellationRequested();
+        throw new NotSupportedException(
+            $"{DisplayName} does not expose a validated Steward-managed Join launch path.");
+    }
 
     /// <summary>
     /// Describes how this adapter can join a validated ready host on this device.
@@ -132,11 +152,18 @@ public interface IGameAdapter
 
     /// <summary>
     /// Waits until the game-specific session represented by the handle has actually ended.
-    /// Adapters own this because launchers may spawn or hand off to other processes.
+    /// Adapters own this because launchers may spawn or hand off to other processes. Adapters with
+    /// no launch capability need no unreachable wait stub.
     /// </summary>
     Task WaitForSessionEndAsync(
         GameSessionHandle session,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        cancellationToken.ThrowIfCancellationRequested();
+        throw new NotSupportedException(
+            $"{DisplayName} does not expose a validated managed session observation path.");
+    }
 
     /// <summary>
     /// Finalizes adapter-owned prepared workspace resources.

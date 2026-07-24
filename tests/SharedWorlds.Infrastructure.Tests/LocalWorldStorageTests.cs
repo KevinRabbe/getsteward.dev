@@ -126,14 +126,18 @@ public sealed class LocalWorldStorageTests : IDisposable
         await using (var metadataStream = File.OpenRead(revisionMetadataPath))
         using (var document = await JsonDocument.ParseAsync(metadataStream))
         {
-            Assert.Equal("sharedworlds.state-revision", document.RootElement.GetProperty("documentType").GetString());
-            Assert.Equal(3, document.RootElement.GetProperty("schemaVersion").GetInt32());
+            var root = document.RootElement;
+            Assert.Equal("sharedworlds.state-revision", root.GetProperty("documentType").GetString());
+            Assert.Equal(4, root.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(
+                Convert.ToHexString(SHA256.HashData(expected)),
+                root.GetProperty("payload").GetProperty("payloadSha256").GetString());
+            Assert.Equal(
+                revision.Id.Value,
+                root.GetProperty("payload").GetProperty("revision").GetProperty("id").GetProperty("value").GetGuid());
         }
 
-        var checksumPath = Path.Combine(revisionDirectory, "payload.sha256");
-        Assert.Equal(
-            Convert.ToHexString(SHA256.HashData(expected)),
-            await File.ReadAllTextAsync(checksumPath));
+        Assert.False(File.Exists(Path.Combine(revisionDirectory, "payload.sha256")));
 
         await using var reopened = await storage.OpenRevisionAsync(worldId, revision.Id);
         using var output = new MemoryStream();
@@ -227,46 +231,44 @@ public sealed class LocalWorldStorageTests : IDisposable
     }
 
     [Fact]
-    public async Task NewStateRevision_MissingChecksumFailsClosed()
+    public async Task Schema2StateRevision_MissingLegacyChecksumFailsClosed()
     {
         var storage = new LocalWorldStorage(_root);
         var worldId = WorldId.New();
         var revision = CreateStateRevision(worldId);
-        await using (var input = new MemoryStream(Encoding.UTF8.GetBytes("canonical-state")))
-        {
-            await storage.StoreRevisionAsync(revision, input);
-        }
-
-        File.Delete(Path.Combine(
-            GetStateRevisionDirectory(worldId, revision.Id),
-            "payload.sha256"));
+        var revisionDirectory = GetStateRevisionDirectory(worldId, revision.Id);
+        Directory.CreateDirectory(revisionDirectory);
+        await WriteLegacyStateRevisionAsync(revisionDirectory, revision, schemaVersion: 2);
+        await File.WriteAllBytesAsync(
+            Path.Combine(revisionDirectory, "payload.bin"),
+            Encoding.UTF8.GetBytes("legacy-checksummed-state"));
 
         var exception = await Assert.ThrowsAsync<InvalidDataException>(
             () => storage.OpenRevisionAsync(worldId, revision.Id));
 
-        Assert.Contains("missing its required SHA-256 integrity digest", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("missing its required legacy SHA-256 integrity digest", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task StateRevision_MalformedChecksumFailsBeforePayloadRead()
+    public async Task Schema2StateRevision_MalformedLegacyChecksumFailsBeforePayloadRead()
     {
         var storage = new LocalWorldStorage(_root);
         var worldId = WorldId.New();
         var revision = CreateStateRevision(worldId);
-        await using (var input = new MemoryStream(Encoding.UTF8.GetBytes("canonical-state")))
-        {
-            await storage.StoreRevisionAsync(revision, input);
-        }
-
-        var checksumPath = Path.Combine(
-            GetStateRevisionDirectory(worldId, revision.Id),
-            "payload.sha256");
-        await File.WriteAllTextAsync(checksumPath, "not-a-sha256");
+        var revisionDirectory = GetStateRevisionDirectory(worldId, revision.Id);
+        Directory.CreateDirectory(revisionDirectory);
+        await WriteLegacyStateRevisionAsync(revisionDirectory, revision, schemaVersion: 2);
+        await File.WriteAllBytesAsync(
+            Path.Combine(revisionDirectory, "payload.bin"),
+            Encoding.UTF8.GetBytes("legacy-checksummed-state"));
+        await File.WriteAllTextAsync(
+            Path.Combine(revisionDirectory, "payload.sha256"),
+            "not-a-sha256");
 
         var exception = await Assert.ThrowsAsync<InvalidDataException>(
             () => storage.OpenRevisionAsync(worldId, revision.Id));
 
-        Assert.Contains("invalid SHA-256 integrity digest", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("invalid legacy SHA-256 integrity digest", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -279,15 +281,7 @@ public sealed class LocalWorldStorageTests : IDisposable
         Directory.CreateDirectory(revisionDirectory);
         var expected = Encoding.UTF8.GetBytes("legacy-state");
 
-        var legacyJson = JsonSerializer.Serialize(new
-        {
-            documentType = "sharedworlds.state-revision",
-            schemaVersion = 1,
-            payload = revision
-        });
-        await File.WriteAllTextAsync(
-            Path.Combine(revisionDirectory, "revision.json"),
-            legacyJson);
+        await WriteLegacyStateRevisionAsync(revisionDirectory, revision, schemaVersion: 1);
         await File.WriteAllBytesAsync(
             Path.Combine(revisionDirectory, "payload.bin"),
             expected);
@@ -349,6 +343,19 @@ public sealed class LocalWorldStorageTests : IDisposable
         Assert.NotNull(loaded);
         Assert.Equal("1.0.0", loaded.Manifest.GameVersion);
     }
+
+    private static Task WriteLegacyStateRevisionAsync(
+        string revisionDirectory,
+        StateRevision revision,
+        int schemaVersion)
+        => File.WriteAllTextAsync(
+            Path.Combine(revisionDirectory, "revision.json"),
+            JsonSerializer.Serialize(new
+            {
+                documentType = "sharedworlds.state-revision",
+                schemaVersion,
+                payload = revision
+            }));
 
     private string GetStateRevisionDirectory(WorldId worldId, RevisionId revisionId)
         => Path.Combine(

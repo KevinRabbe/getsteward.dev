@@ -183,15 +183,26 @@ static void ConfigureListenPort(WebApplicationBuilder builder)
 
 static async Task<IResult> CheckReadinessAsync(
     NpgsqlDataSource dataSource,
+    IPrivateImmutableObjectStore objectStore,
     CancellationToken cancellationToken)
 {
+    const string readinessObjectKey = "health/readiness/never-written-probe";
+
     try
     {
         await using var command = dataSource.CreateCommand("SELECT 1;");
-        var result = await command.ExecuteScalarAsync(cancellationToken);
-        return result is not null
-            ? Results.Ok(new { status = "ready" })
-            : Results.Json(new { status = "not-ready" }, statusCode: StatusCodes.Status503ServiceUnavailable);
+        var databaseResult = await command.ExecuteScalarAsync(cancellationToken);
+        if (databaseResult is null)
+        {
+            return Results.Json(
+                new { status = "not-ready" },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+
+        // Inspect is non-mutating. A null result means the reserved key does not exist, which is the
+        // expected state; successful completion proves service reachability, credentials, and bucket access.
+        _ = await objectStore.InspectObjectAsync(readinessObjectKey, cancellationToken);
+        return Results.Ok(new { status = "ready" });
     }
     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
     {
@@ -200,7 +211,7 @@ static async Task<IResult> CheckReadinessAsync(
     catch
     {
         // Readiness is intentionally non-diagnostic on the public surface. Deployment logs own the
-        // concrete database error; clients and load balancers only need a safe ready/not-ready signal.
+        // concrete dependency error; clients and load balancers only need a safe ready/not-ready signal.
         return Results.Json(
             new { status = "not-ready" },
             statusCode: StatusCodes.Status503ServiceUnavailable);

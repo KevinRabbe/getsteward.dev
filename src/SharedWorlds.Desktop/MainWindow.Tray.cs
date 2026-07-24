@@ -73,6 +73,7 @@ public partial class MainWindow
     {
         UpdateTrayStatus();
         UpdateUnifiedActionState();
+        UpdateWorldSharingActionState();
         UpdateManagedHostStopUi();
         UpdateResponsibilityPresentation();
         RebuildManagedGameTiles();

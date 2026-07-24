@@ -76,6 +76,12 @@ public sealed class LocalPendingWorkspaceRecoveryService
 
         if (world.CurrentStateRevisionId == candidateId)
         {
+            await VerifyExistingCandidateAsync(
+                worldId,
+                candidateId,
+                recovery,
+                adapter,
+                cancellationToken);
             await CompleteCanonicalCandidateAsync(
                 world,
                 recovery,
@@ -93,6 +99,12 @@ public sealed class LocalPendingWorkspaceRecoveryService
             world = await LoadWorldAsync(worldId, cancellationToken);
             if (world.CurrentStateRevisionId == candidateId)
             {
+                await VerifyExistingCandidateAsync(
+                    worldId,
+                    candidateId,
+                    recovery,
+                    adapter,
+                    cancellationToken);
                 await CompleteCanonicalCandidateAsync(
                     world,
                     recovery,
@@ -138,6 +150,7 @@ public sealed class LocalPendingWorkspaceRecoveryService
             else
             {
                 EnsureCandidateMatches(candidate, recovery, adapter);
+                await VerifyCandidatePackageAsync(worldId, candidateId, cancellationToken);
             }
 
             var updated = world with { CurrentStateRevisionId = candidateId };
@@ -188,6 +201,50 @@ public sealed class LocalPendingWorkspaceRecoveryService
             {
                 TryDelete(captured.Package.Path);
             }
+        }
+    }
+
+    private async Task VerifyExistingCandidateAsync(
+        WorldId worldId,
+        RevisionId candidateId,
+        WorkspaceRecoveryRecord recovery,
+        IGameAdapter adapter,
+        CancellationToken cancellationToken)
+    {
+        var candidate = await _storage.LoadStateRevisionAsync(
+            worldId,
+            candidateId,
+            cancellationToken)
+            ?? throw new LocalPendingWorkspaceRecoveryException(
+                "CandidateMissing",
+                "The journaled candidate is canonical, but its immutable revision metadata is missing. Steward will preserve the recovery workspace rather than discard its remaining evidence.");
+        EnsureCandidateMatches(candidate, recovery, adapter);
+        await VerifyCandidatePackageAsync(worldId, candidateId, cancellationToken);
+    }
+
+    private async Task VerifyCandidatePackageAsync(
+        WorldId worldId,
+        RevisionId candidateId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var package = await _storage.OpenRevisionAsync(
+                worldId,
+                candidateId,
+                cancellationToken);
+            var buffer = new byte[128 * 1024];
+            while (await package.ReadAsync(buffer, cancellationToken) > 0)
+            {
+                // Drain the entire stream so storage-owned end-to-end integrity verification runs.
+            }
+        }
+        catch (Exception exception) when (
+            exception is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            throw new LocalPendingWorkspaceRecoveryException(
+                "CandidatePackageInvalid",
+                $"The journaled candidate '{candidateId}' cannot be verified from local storage: {exception.Message} Steward will preserve the recovery workspace and canonical head.");
         }
     }
 

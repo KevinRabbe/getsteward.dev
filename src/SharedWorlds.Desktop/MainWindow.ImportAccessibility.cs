@@ -1,5 +1,7 @@
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Controls;
+using System.Windows.Data;
 
 namespace SharedWorlds.Desktop;
 
@@ -27,11 +29,24 @@ public partial class MainWindow
         if (_importBrowserList is not null)
         {
             AutomationProperties.SetName(_importBrowserList, "Detected Worlds");
+
+            var itemStyle = new Style(typeof(ListBoxItem))
+            {
+                BasedOn = _importBrowserList.ItemContainerStyle
+            };
+            itemStyle.Setters.Add(new Setter(
+                AutomationProperties.NameProperty,
+                new Binding(nameof(ImportBrowserCandidate.Name))));
+            itemStyle.Setters.Add(new Setter(
+                AutomationProperties.HelpTextProperty,
+                new Binding(nameof(ImportBrowserCandidate.Subtitle))));
+            _importBrowserList.ItemContainerStyle = itemStyle;
         }
 
         if (_importResultText is not null)
         {
             AutomationProperties.SetLiveSetting(_importResultText, AutomationLiveSetting.Polite);
+            RegisterLiveRegion(_importResultText);
         }
 
         if (_importBrowserImportButton is not null)

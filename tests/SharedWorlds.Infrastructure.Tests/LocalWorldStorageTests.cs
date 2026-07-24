@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using SharedWorlds.Core.Domain;
@@ -120,7 +121,97 @@ public sealed class LocalWorldStorageTests : IDisposable
         var loadedRevision = await storage.LoadStateRevisionAsync(worldId, revision.Id);
         Assert.Equal(revision, loadedRevision);
 
+        var checksumPath = Path.Combine(
+            _root,
+            "worlds",
+            worldId.ToString(),
+            "states",
+            revision.Id.ToString(),
+            "payload.sha256");
+        Assert.Equal(
+            Convert.ToHexString(SHA256.HashData(expected)),
+            await File.ReadAllTextAsync(checksumPath));
+
         await using var reopened = await storage.OpenRevisionAsync(worldId, revision.Id);
+        using var output = new MemoryStream();
+        await reopened.CopyToAsync(output);
+
+        Assert.Equal(expected, output.ToArray());
+    }
+
+    [Fact]
+    public async Task StateRevisionPayload_TamperingFailsIntegrityVerification()
+    {
+        var storage = new LocalWorldStorage(_root);
+        var worldId = WorldId.New();
+        var revision = CreateStateRevision(worldId);
+        await using (var input = new MemoryStream(Encoding.UTF8.GetBytes("canonical-state")))
+        {
+            await storage.StoreRevisionAsync(revision, input);
+        }
+
+        var payloadPath = Path.Combine(
+            _root,
+            "worlds",
+            worldId.ToString(),
+            "states",
+            revision.Id.ToString(),
+            "payload.bin");
+        await File.WriteAllBytesAsync(payloadPath, Encoding.UTF8.GetBytes("corrupted-state"));
+
+        await using var reopened = await storage.OpenRevisionAsync(worldId, revision.Id);
+        using var output = new MemoryStream();
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(
+            () => reopened.CopyToAsync(output));
+
+        Assert.Contains("SHA-256 integrity verification", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task StateRevision_MalformedChecksumFailsBeforePayloadRead()
+    {
+        var storage = new LocalWorldStorage(_root);
+        var worldId = WorldId.New();
+        var revision = CreateStateRevision(worldId);
+        await using (var input = new MemoryStream(Encoding.UTF8.GetBytes("canonical-state")))
+        {
+            await storage.StoreRevisionAsync(revision, input);
+        }
+
+        var checksumPath = Path.Combine(
+            _root,
+            "worlds",
+            worldId.ToString(),
+            "states",
+            revision.Id.ToString(),
+            "payload.sha256");
+        await File.WriteAllTextAsync(checksumPath, "not-a-sha256");
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(
+            () => storage.OpenRevisionAsync(worldId, revision.Id));
+
+        Assert.Contains("invalid SHA-256 integrity digest", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LegacyStateRevisionWithoutChecksum_RemainsReadable()
+    {
+        var storage = new LocalWorldStorage(_root);
+        var worldId = WorldId.New();
+        var revisionId = RevisionId.New();
+        var revisionDirectory = Path.Combine(
+            _root,
+            "worlds",
+            worldId.ToString(),
+            "states",
+            revisionId.ToString());
+        Directory.CreateDirectory(revisionDirectory);
+        var expected = Encoding.UTF8.GetBytes("legacy-state");
+        await File.WriteAllBytesAsync(
+            Path.Combine(revisionDirectory, "payload.bin"),
+            expected);
+
+        await using var reopened = await storage.OpenRevisionAsync(worldId, revisionId);
         using var output = new MemoryStream();
         await reopened.CopyToAsync(output);
 

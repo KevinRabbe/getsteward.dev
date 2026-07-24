@@ -70,5 +70,11 @@ jobs:
       - name: Build REST firewall probe
         run: dotnet build tools/SharedWorlds.PalworldRestFirewallProbe/SharedWorlds.PalworldRestFirewallProbe.csproj --configuration Release --no-restore --nologo --verbosity minimal
 
+      - name: Restore native settings materialization probe
+        run: dotnet restore tools/SharedWorlds.PalworldNativeSettingsMaterializationProbe/SharedWorlds.PalworldNativeSettingsMaterializationProbe.csproj
+
+      - name: Build native settings materialization probe
+        run: dotnet build tools/SharedWorlds.PalworldNativeSettingsMaterializationProbe/SharedWorlds.PalworldNativeSettingsMaterializationProbe.csproj --configuration Release --no-restore --nologo --verbosity minimal
+
       - name: Test Palworld adapter
         run: dotnet test tests/SharedWorlds.GameAdapters.Palworld.Tests/SharedWorlds.GameAdapters.Palworld.Tests.csproj --configuration Release --nologo --verbosity minimal

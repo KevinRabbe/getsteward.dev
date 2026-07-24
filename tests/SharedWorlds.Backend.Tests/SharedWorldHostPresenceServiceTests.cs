@@ -77,6 +77,32 @@ public sealed class SharedWorldHostPresenceServiceTests
     }
 
     [Fact]
+    public async Task PublishReportsReservationMismatchWhenStoreRejectsStaleWrite()
+    {
+        var caller = Identity("76561198000000001");
+        var reservation = Reservation(caller.Subject, "device-a");
+        var presenceStore = new PresenceStore { AcceptUpsert = false };
+        var service = CreateService(
+            new AuthorityStore { Reservation = reservation },
+            presenceStore,
+            () => DateTimeOffset.UtcNow);
+
+        var status = await service.PublishAsync(
+            caller,
+            "device-a",
+            reservation.WorldId,
+            reservation.SessionId,
+            reservation.Generation,
+            SharedWorldHostPresenceState.Starting,
+            address: null,
+            port: null,
+            joinToken: null);
+
+        Assert.Equal(PublishSharedWorldHostPresenceStatus.ReservationMismatch, status);
+        Assert.Null(presenceStore.Presence);
+    }
+
+    [Fact]
     public async Task GetVisibleHidesExpiredPresence()
     {
         var now = new DateTimeOffset(2026, 7, 24, 12, 0, 0, TimeSpan.Zero);
@@ -261,13 +287,19 @@ public sealed class SharedWorldHostPresenceServiceTests
     private sealed class PresenceStore : ISharedWorldHostPresenceStore
     {
         public SharedWorldHostPresence? Presence { get; set; }
+        public bool AcceptUpsert { get; init; } = true;
 
-        public Task UpsertAsync(
+        public Task<bool> TryUpsertAsync(
             SharedWorldHostPresence presence,
             CancellationToken cancellationToken = default)
         {
+            if (!AcceptUpsert)
+            {
+                return Task.FromResult(false);
+            }
+
             Presence = presence;
-            return Task.CompletedTask;
+            return Task.FromResult(true);
         }
 
         public Task<SharedWorldHostPresence?> GetAsync(

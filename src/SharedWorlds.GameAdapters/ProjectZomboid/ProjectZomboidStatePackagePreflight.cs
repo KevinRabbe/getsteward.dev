@@ -7,15 +7,21 @@ internal static class ProjectZomboidStatePackagePreflight
     private const int MaxArchiveEntries = 1_000_000;
     private const long MinimumFreeSpaceReserveBytes = 256L * 1024 * 1024;
 
-    public static void Validate(string packagePath, string workingDirectory)
+    public static void Validate(
+        string packagePath,
+        string workingDirectory,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packagePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
+        cancellationToken.ThrowIfCancellationRequested();
 
         using var archive = ZipFile.OpenRead(Path.GetFullPath(packagePath));
         var declaredBytes = GetDeclaredExtractionBytes(
             archive,
-            MaxArchiveEntries);
+            MaxArchiveEntries,
+            cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         EnsureSufficientFreeSpace(
             workingDirectory,
             declaredBytes,
@@ -24,7 +30,8 @@ internal static class ProjectZomboidStatePackagePreflight
 
     internal static long GetDeclaredExtractionBytes(
         ZipArchive archive,
-        int maxEntries)
+        int maxEntries,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(archive);
         if (maxEntries <= 0)
@@ -32,6 +39,7 @@ internal static class ProjectZomboidStatePackagePreflight
             throw new ArgumentOutOfRangeException(nameof(maxEntries));
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         if (archive.Entries.Count > maxEntries)
         {
             throw new InvalidDataException(
@@ -43,6 +51,7 @@ internal static class ProjectZomboidStatePackagePreflight
         {
             foreach (var entry in archive.Entries)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (string.IsNullOrEmpty(entry.Name))
                 {
                     continue;

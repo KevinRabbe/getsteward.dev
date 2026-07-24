@@ -9,11 +9,8 @@ public sealed class DesktopTextAcceptanceTests
     [Fact]
     public void NeutralActionResourcesResolveThroughDesktopText()
     {
-        var previousCulture = CultureInfo.CurrentUICulture;
-        try
+        WithUiCulture("en-US", () =>
         {
-            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en-US");
-
             var properties = typeof(DesktopText)
                 .GetProperties(BindingFlags.Public | BindingFlags.Static)
                 .Where(property => property.PropertyType == typeof(string))
@@ -34,6 +31,29 @@ public sealed class DesktopTextAcceptanceTests
             Assert.Equal("Retry recovery", DesktopText.RetryRecovery);
             Assert.Equal("Continue from last safe state", DesktopText.ContinueFromLastSafeState);
             Assert.Equal("Quit Steward", DesktopText.QuitSteward);
+        });
+    }
+
+    [Theory]
+    [InlineData("de-DE")]
+    [InlineData("fr-FR")]
+    public void MissingLocalizedCatalogFallsBackToNeutralEnglish(string cultureName)
+    {
+        WithUiCulture(cultureName, () =>
+        {
+            Assert.Equal("Import", DesktopText.Import);
+            Assert.Equal("Retry recovery", DesktopText.RetryRecovery);
+            Assert.Equal("Continue from last safe state", DesktopText.ContinueFromLastSafeState);
+        });
+    }
+
+    private static void WithUiCulture(string cultureName, Action assertion)
+    {
+        var previousCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(cultureName);
+            assertion();
         }
         finally
         {

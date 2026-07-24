@@ -56,14 +56,13 @@ public sealed partial class PalworldAdapter : IGameAdapter
         return Task.FromResult(PalworldDedicatedServerHosting.InspectEnvironment(installation, world));
     }
 
-    public async Task<CapturedState> CaptureDetectedWorldAsync(
+    public Task<CapturedState> CaptureDetectedWorldAsync(
         GameInstallation installation,
         DetectedWorld world,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(installation);
-        var captured = await PalworldWorldState.CaptureDetectedWorldAsync(world, cancellationToken);
-        return captured with { DeletePackageAfterStore = true };
+        return PalworldWorldState.CaptureDetectedWorldAsync(world, cancellationToken);
     }
 
     public Task<PreparedWorld> PrepareEnvironmentAsync(
@@ -76,19 +75,24 @@ public sealed partial class PalworldAdapter : IGameAdapter
             PalworldDedicatedServerHosting.PrepareEnvironment(installation, requiredEnvironment));
     }
 
-    public async Task<CapturedState> CaptureStateAsync(
+    public Task<CapturedState> CaptureStateAsync(
         PreparedWorld world,
         CancellationToken cancellationToken = default)
     {
-        var captured = await PalworldWorldState.CapturePreparedWorldAsync(world, cancellationToken);
-        return captured with { DeletePackageAfterStore = true };
+        ArgumentNullException.ThrowIfNull(world);
+        PalworldWorkspaceOwnership.RequireOwned(world);
+        return PalworldWorldState.CapturePreparedWorldAsync(world, cancellationToken);
     }
 
     public Task RestoreStateAsync(
         PreparedWorld world,
         StatePackage state,
         CancellationToken cancellationToken = default)
-        => PalworldWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        PalworldWorkspaceOwnership.RequireOwned(world);
+        return PalworldWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
+    }
 
     public async Task<GameSessionHandle> LaunchHostAsync(
         PreparedWorld world,

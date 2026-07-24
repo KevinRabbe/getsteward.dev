@@ -63,15 +63,15 @@ public partial class MainWindow
     {
         var world = _selectedWorld;
         var runtime = _remoteRuntime;
-        var presence = _selectedHostPresenceWorldId == world?.Id
+        var displayedPresence = _selectedHostPresenceWorldId == world?.Id
             ? _selectedHostPresence
             : null;
         if (_isBusy ||
             world is null ||
             runtime is null ||
             !_remoteWorldIds.Contains(world.Id) ||
-            presence?.State != StewardRemoteHostPresenceState.Ready ||
-            string.IsNullOrWhiteSpace(presence.Address) ||
+            displayedPresence?.State != StewardRemoteHostPresenceState.Ready ||
+            string.IsNullOrWhiteSpace(displayedPresence.Address) ||
             !TryGetAdapter(world.GameAdapterId, out var adapter))
         {
             return;
@@ -87,7 +87,22 @@ public partial class MainWindow
             $"Joining {world.Name}...",
             async () =>
             {
+                // Local environment selection may take time. Re-read host presence only after that
+                // work, immediately before launch, so the 10-second presentation cache can never be
+                // treated as current multiplayer authority after a reservation reclaim.
                 var installation = await GetReadyInstallationForWorldAsync(world, adapter);
+                var presence = await runtime.GetHostPresenceAsync(world.Id);
+                _selectedHostPresence = presence;
+                _selectedHostPresenceError = null;
+                _selectedHostPresenceWorldId = world.Id;
+
+                if (presence?.State != StewardRemoteHostPresenceState.Ready ||
+                    string.IsNullOrWhiteSpace(presence.Address))
+                {
+                    throw new InvalidOperationException(
+                        "The host is no longer ready to join. Steward did not launch the client against stale host information.");
+                }
+
                 await runtime.Join.JoinAsync(
                     world.Id,
                     adapter,

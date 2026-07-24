@@ -223,6 +223,77 @@ public partial class MainWindow
         return selection.Installation;
     }
 
+    private async Task<GameInstallation> GetReadyInstallationForRecoveryRecordAsync(
+        World world,
+        IGameAdapter adapter,
+        WorkspaceRecoveryRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(adapter);
+        ArgumentNullException.ThrowIfNull(record);
+
+        if (record.WorldId != world.Id)
+        {
+            throw new InvalidOperationException(
+                "The selected recovery record belongs to a different World.");
+        }
+
+        if (!string.Equals(record.AdapterId, adapter.Id, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The selected recovery record belongs to a different game adapter.");
+        }
+
+        var environmentRevisionId = record.EnvironmentRevisionId
+            ?? throw new InvalidOperationException(
+                "This recovery record does not identify the exact environment that created its workspace. Steward will preserve the workspace rather than guess.");
+        var environment = await GetStorageForWorld(world).LoadEnvironmentRevisionAsync(
+            world.Id,
+            environmentRevisionId)
+            ?? throw new InvalidOperationException(
+                "The exact journaled environment required for recovery is unavailable.");
+        if (!string.Equals(environment.Manifest.AdapterId, adapter.Id, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The journaled recovery environment belongs to a different game adapter.");
+        }
+
+        var installations = (await adapter.DiscoverInstallationsAsync())
+            .OrderBy(installation => installation.RootPath, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(installation => installation.Id, StringComparer.Ordinal)
+            .ToArray();
+        if (installations.Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"{adapter.DisplayName} installation not found on this device.");
+        }
+
+        var rejected = new List<InstallationSelection>(installations.Length);
+        foreach (var installation in installations)
+        {
+            var verification = await adapter.VerifyEnvironmentAsync(
+                installation,
+                environment.Manifest);
+            if (verification.IsReady)
+            {
+                return installation;
+            }
+
+            rejected.Add(new InstallationSelection(installation, verification));
+        }
+
+        var best = rejected
+            .OrderByDescending(selection => selection.Verification.CanRepairAutomatically)
+            .ThenBy(selection => selection.Verification.Issues.Count)
+            .ThenBy(selection => selection.Installation.RootPath, StringComparer.OrdinalIgnoreCase)
+            .First();
+        var reason = best.Verification.Issues.Count == 0
+            ? "No discovered installation can reproduce the journaled environment."
+            : string.Join("; ", best.Verification.Issues.Select(issue => issue.Message));
+        throw new InvalidOperationException(
+            $"No discovered {adapter.DisplayName} installation can reproduce recovery environment {environmentRevisionId}: {reason}");
+    }
+
     private async Task<InstallationSelection> SelectInstallationForWorldAsync(
         World world,
         IGameAdapter adapter)

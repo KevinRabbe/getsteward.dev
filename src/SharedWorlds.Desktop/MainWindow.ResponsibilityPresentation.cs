@@ -34,10 +34,11 @@ public partial class MainWindow
             TextWrapping = TextWrapping.Wrap
         };
         AutomationProperties.SetLiveSetting(_worldResponsibilityText, AutomationLiveSetting.Polite);
+        RegisterLiveRegion(_worldResponsibilityText);
 
         _pendingSyncRetryButton = new Button
         {
-            Content = "Retry recovery",
+            Content = DesktopText.RetryRecovery,
             Visibility = Visibility.Collapsed,
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(0, 8, 0, 0)
@@ -49,7 +50,7 @@ public partial class MainWindow
 
         _recoverInterruptedButton = new Button
         {
-            Content = "Recover changes",
+            Content = DesktopText.RecoverChanges,
             Visibility = Visibility.Collapsed,
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(0, 8, 0, 0)
@@ -61,7 +62,7 @@ public partial class MainWindow
 
         _discardInterruptedButton = new Button
         {
-            Content = "Discard interrupted session",
+            Content = DesktopText.DiscardInterruptedSession,
             Visibility = Visibility.Collapsed,
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(0, 8, 0, 0)
@@ -73,7 +74,7 @@ public partial class MainWindow
 
         _exportRecoveryCopyButton = new Button
         {
-            Content = "Export recovery copy",
+            Content = DesktopText.ExportRecoveryCopy,
             Visibility = Visibility.Collapsed,
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(0, 8, 0, 0)
@@ -85,7 +86,7 @@ public partial class MainWindow
 
         _cleanupRetryButton = new Button
         {
-            Content = "Retry cleanup",
+            Content = DesktopText.RetryCleanup,
             Visibility = Visibility.Collapsed,
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(0, 8, 0, 0)

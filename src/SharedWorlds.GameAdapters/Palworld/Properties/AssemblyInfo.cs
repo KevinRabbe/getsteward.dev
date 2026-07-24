@@ -10,3 +10,4 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("SharedWorlds.PalworldWorldOptionArrayRestProbe")]
 [assembly: InternalsVisibleTo("SharedWorlds.PalworldRuntimeInputLifecycleProbe")]
 [assembly: InternalsVisibleTo("SharedWorlds.PalworldRestFirewallProbe")]
+[assembly: InternalsVisibleTo("SharedWorlds.PalworldNativeSettingsMaterializationProbe")]

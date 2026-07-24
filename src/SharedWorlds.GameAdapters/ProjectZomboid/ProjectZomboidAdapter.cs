@@ -64,17 +64,29 @@ public sealed class ProjectZomboidAdapter : IGameAdapter
     public Task<CapturedState> CaptureStateAsync(
         PreparedWorld world,
         CancellationToken cancellationToken = default)
-        => ProjectZomboidWorldState.CapturePreparedWorldAsync(world, cancellationToken);
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        ProjectZomboidWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        return ProjectZomboidWorldState.CapturePreparedWorldAsync(world, cancellationToken);
+    }
 
     public Task RestoreStateAsync(
         PreparedWorld world,
         StatePackage state,
         CancellationToken cancellationToken = default)
-        => ProjectZomboidWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        ProjectZomboidWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        return ProjectZomboidWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
+    }
 
     public Task FinalizePreparedWorldAsync(
         PreparedWorld world,
         PreparedWorldDisposition disposition,
         CancellationToken cancellationToken = default)
-        => ProjectZomboidWorldState.FinalizePreparedWorldAsync(world, disposition, cancellationToken);
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        ProjectZomboidWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        return ProjectZomboidWorldState.FinalizePreparedWorldAsync(world, disposition, cancellationToken);
+    }
 }

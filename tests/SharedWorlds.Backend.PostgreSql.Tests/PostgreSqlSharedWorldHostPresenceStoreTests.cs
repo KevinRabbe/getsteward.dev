@@ -76,11 +76,11 @@ public sealed class PostgreSqlSharedWorldHostPresenceStoreTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task NewReservationReplacesPresenceAndStaleClearCannotDeleteIt()
+    public async Task NewReservationCannotBeOverwrittenOrClearedByStaleGeneration()
     {
         var oldSession = Guid.NewGuid();
         var currentSession = Guid.NewGuid();
-        await _store.UpsertAsync(Presence(
+        var old = Presence(
             oldSession,
             generation: 4,
             installationId: "device-a",
@@ -88,7 +88,9 @@ public sealed class PostgreSqlSharedWorldHostPresenceStoreTests : IAsyncLifetime
             address: null,
             port: null,
             joinToken: null,
-            updatedAt: Now));
+            updatedAt: Now);
+        await _store.UpsertAsync(old);
+
         var current = Presence(
             currentSession,
             generation: 5,
@@ -100,11 +102,48 @@ public sealed class PostgreSqlSharedWorldHostPresenceStoreTests : IAsyncLifetime
             updatedAt: Now.AddMinutes(1));
         await _store.UpsertAsync(current);
 
+        // Simulate a delayed request that passed service-level reservation validation before
+        // generation 4 was reclaimed, but reached PostgreSQL only after generation 5 published.
+        await _store.UpsertAsync(old with
+        {
+            State = SharedWorldHostPresenceState.Ready,
+            Address = "203.0.113.99",
+            Port = 34197,
+            UpdatedAt = Now.AddMinutes(2)
+        });
+
         Assert.False(await _store.DeleteAsync(
             _world.WorldId,
             _manager.Subject,
             oldSession,
             generation: 4));
+        Assert.Equal(current, await _store.GetAsync(_world.WorldId));
+    }
+
+    [Fact]
+    public async Task SameGenerationDifferentSessionCannotReplacePresence()
+    {
+        var currentSession = Guid.NewGuid();
+        var current = Presence(
+            currentSession,
+            generation: 6,
+            installationId: "device-a",
+            state: SharedWorldHostPresenceState.Ready,
+            address: "203.0.113.20",
+            port: 34197,
+            joinToken: "current",
+            updatedAt: Now);
+        await _store.UpsertAsync(current);
+
+        await _store.UpsertAsync(Presence(
+            Guid.NewGuid(),
+            generation: 6,
+            installationId: "device-b",
+            state: SharedWorldHostPresenceState.Ready,
+            address: "198.51.100.77",
+            port: 34197,
+            joinToken: "wrong-session",
+            updatedAt: Now.AddMinutes(1)));
 
         Assert.Equal(current, await _store.GetAsync(_world.WorldId));
     }

@@ -20,6 +20,7 @@ internal sealed record PersistedDocumentSchema<T>(
 internal static class PersistedDocumentCodec
 {
     private const int CurrentIntegrityVersion = 1;
+    private const long MaximumDocumentBytes = 16L * 1024 * 1024;
 
     internal static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -60,9 +61,10 @@ internal static class PersistedDocumentCodec
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(schema);
 
-        using var document = await JsonDocument.ParseAsync(
+        using var document = await ParseBoundedAsync(
             source,
-            cancellationToken: cancellationToken);
+            schema.DocumentType,
+            cancellationToken);
 
         var root = document.RootElement;
         if (!LooksLikeEnvelope(root))
@@ -106,6 +108,59 @@ internal static class PersistedDocumentCodec
         }
 
         return Migrate(schema, sourceVersion, payloadElement);
+    }
+
+    private static async Task<JsonDocument> ParseBoundedAsync(
+        Stream source,
+        string documentType,
+        CancellationToken cancellationToken)
+    {
+        if (source.CanSeek)
+        {
+            var remaining = source.Length - source.Position;
+            if (remaining < 0)
+            {
+                throw new InvalidDataException(
+                    $"Persisted document '{documentType}' has an invalid stream length.");
+            }
+
+            EnsureDocumentSize(documentType, remaining);
+            return await JsonDocument.ParseAsync(
+                source,
+                cancellationToken: cancellationToken);
+        }
+
+        // Persisted storage currently reads seekable files, but keep the codec safe if a future
+        // caller supplies a non-seekable stream rather than silently losing the size boundary.
+        using var buffered = new MemoryStream();
+        var buffer = new byte[64 * 1024];
+        long total = 0;
+        while (true)
+        {
+            var read = await source.ReadAsync(buffer, cancellationToken);
+            if (read == 0)
+            {
+                break;
+            }
+
+            total = checked(total + read);
+            EnsureDocumentSize(documentType, total);
+            await buffered.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+        }
+
+        buffered.Position = 0;
+        return await JsonDocument.ParseAsync(
+            buffered,
+            cancellationToken: cancellationToken);
+    }
+
+    private static void EnsureDocumentSize(string documentType, long byteSize)
+    {
+        if (byteSize > MaximumDocumentBytes)
+        {
+            throw new InvalidDataException(
+                $"Persisted document '{documentType}' is {byteSize} bytes and exceeds Steward's {MaximumDocumentBytes}-byte safety ceiling.");
+        }
     }
 
     private static void VerifyIntegrity<T>(

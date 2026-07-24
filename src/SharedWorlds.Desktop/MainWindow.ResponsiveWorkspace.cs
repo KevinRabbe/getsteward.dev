@@ -48,11 +48,19 @@ public partial class MainWindow
         var worldSelected = _selectedWorld is not null;
         if (worldSelected)
         {
+            var navigationHadKeyboardFocus = WorldSidebar.IsKeyboardFocusWithin;
+
             WorldNavigationColumn.Width = new GridLength(0);
             WorldDetailsColumn.Width = new GridLength(1, GridUnitType.Star);
             WorldSidebar.Visibility = Visibility.Collapsed;
             WorldDetailsScroll.Visibility = Visibility.Visible;
             BackToWorldsButton.Visibility = Visibility.Visible;
+
+            if (navigationHadKeyboardFocus)
+            {
+                BackToWorldsButton.Focus();
+            }
+
             return;
         }
 

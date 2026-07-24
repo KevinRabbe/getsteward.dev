@@ -49,18 +49,16 @@ A deferred test is not evidence that the behavior works. It is an explicit bound
 
 ## Desktop — real Windows UI acceptance
 
-**Frozen product state:** CI proves compilation, packaging, deterministic accessibility metadata, live-region event wiring, and the per-monitor DPI manifest. CI does not claim that a real assistive technology or monitor transition has been observed.
+**Frozen product state:** CI proves compilation, packaging, neutral `DesktopText` resource resolution on Windows, deterministic accessibility metadata, live-region event wiring, and the per-monitor DPI manifest. CI does not claim that a real assistive technology or monitor transition has been observed.
 
 **Empirical questions:**
 
-1. Does a packaged Steward Desktop build instantiate its neutral `DesktopText` resources successfully on a real Windows machine?
-2. Does keyboard focus remain visibly identifiable across the main World list, primary actions, import surface, access dialogs, and tray interaction?
-3. Do Windows UI Automation clients/Narrator receive the intended control names and `LiveRegionChanged` announcements?
-4. Does the `PerMonitorV2` declaration behave correctly while moving Steward between monitors with different scaling factors?
+1. Does keyboard focus remain visibly identifiable across the main World list, primary actions, import surface, access dialogs, and tray interaction?
+2. Do Windows UI Automation clients/Narrator receive the intended control names and `LiveRegionChanged` announcements?
+3. Does the `PerMonitorV2` declaration behave correctly while moving Steward between monitors with different scaling factors?
 
 **Acceptance evidence:**
 
-- Packaged Desktop launches without a `MissingManifestResourceException` and shows the expected neutral English action labels.
 - Tab/Shift+Tab traversal reaches every interactive first-release action in a sensible order with a visible focus indicator.
 - World rows, import rows, invitation rows, access rows, tray actions, and recovery actions expose meaningful accessible names.
 - Status, environment-readiness, import-result, dialog-status, and responsibility changes are announced by a Windows UI Automation client/Narrator.

@@ -17,14 +17,14 @@ public static class PostgreSqlSharedWorldHostPresenceSchema
                 holder_provider text NOT NULL,
                 holder_external_id text NOT NULL,
                 installation_id text NOT NULL,
-                state smallint NOT NULL,
+                state smallint NOT NULL CHECK (state IN (0, 1)),
                 address text NULL,
                 port integer NULL CHECK (port IS NULL OR (port >= 1 AND port <= 65535)),
                 join_token text NULL,
                 updated_at timestamptz NOT NULL,
                 CONSTRAINT fk_steward_world_host_presence_world
                     FOREIGN KEY (world_id)
-                    REFERENCES steward_worlds(world_id)
+                    REFERENCES steward_shared_worlds(world_id)
                     ON DELETE CASCADE
             );
 

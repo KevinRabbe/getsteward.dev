@@ -1,5 +1,7 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Media;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Infrastructure.Remote;
 
@@ -43,6 +45,10 @@ internal sealed class WorldAccessDialog : Window
         MinWidth = 480;
         MinHeight = 420;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        UseLayoutRounding = true;
+        SnapsToDevicePixels = true;
+        Background = (Brush)Application.Current.FindResource("AppBackgroundBrush");
+        Foreground = (Brush)Application.Current.FindResource("TextBrush");
         Content = BuildContent();
 
         _members.SelectionChanged += (_, _) => UpdateActions();
@@ -82,6 +88,8 @@ internal sealed class WorldAccessDialog : Window
         _inviteSteamId.MinHeight = 32;
         _inviteSteamId.VerticalContentAlignment = VerticalAlignment.Center;
         _inviteSteamId.ToolTip = "Steam ID64 of the player to invite";
+        AutomationProperties.SetName(_inviteSteamId, "Steam ID64 to invite");
+        AutomationProperties.SetHelpText(_inviteSteamId, "Enter the numeric Steam ID64 of the player to invite to this World.");
         inviteRow.Children.Add(_inviteSteamId);
         _inviteButton.Margin = new Thickness(10, 0, 0, 0);
         Grid.SetColumn(_inviteButton, 1);
@@ -90,6 +98,10 @@ internal sealed class WorldAccessDialog : Window
         root.Children.Add(inviteRow);
 
         _members.DisplayMemberPath = nameof(MemberRow.DisplayText);
+        _members.Background = (Brush)FindResource("PanelBrush");
+        _members.Foreground = (Brush)FindResource("TextBrush");
+        _members.BorderBrush = (Brush)FindResource("BorderBrush");
+        AutomationProperties.SetName(_members, "People with access");
         Grid.SetRow(_members, 2);
         root.Children.Add(_members);
 
@@ -109,6 +121,7 @@ internal sealed class WorldAccessDialog : Window
         var footer = new Grid { Margin = new Thickness(0, 18, 0, 0) };
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        AutomationProperties.SetLiveSetting(_status, AutomationLiveSetting.Polite);
         footer.Children.Add(_status);
         var close = new Button
         {

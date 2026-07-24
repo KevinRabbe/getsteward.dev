@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
 
@@ -5,6 +6,8 @@ namespace SharedWorlds.Infrastructure.Storage;
 
 public sealed class LocalWorldStorage : IWorldStorage
 {
+    private const string PayloadFileName = "payload.bin";
+    private const string PayloadSha256FileName = "payload.sha256";
     private readonly string _rootPath;
 
     public LocalWorldStorage(string rootPath)
@@ -130,19 +133,20 @@ public sealed class LocalWorldStorage : IWorldStorage
                 StorageDocumentSchemas.StateRevision,
                 revision,
                 cancellationToken);
-            await using (var output = new FileStream(
-                             Path.Combine(temporaryDirectory, "payload.bin"),
-                             FileMode.CreateNew,
-                             FileAccess.Write,
-                             FileShare.None,
-                             bufferSize: 1024 * 128,
-                             useAsync: true))
-            {
-                await package.CopyToAsync(output, cancellationToken);
-                await output.FlushAsync(cancellationToken);
-            }
 
-            // Publish metadata and payload together only after both are fully written.
+            var payloadPath = Path.Combine(temporaryDirectory, PayloadFileName);
+            var payloadSha256 = await CopyPayloadWithSha256Async(
+                package,
+                payloadPath,
+                cancellationToken);
+            await File.WriteAllTextAsync(
+                Path.Combine(temporaryDirectory, PayloadSha256FileName),
+                payloadSha256,
+                cancellationToken);
+
+            // Publish metadata, payload, and its integrity digest together only after all three are
+            // fully written. A revision directory therefore never advertises a checksum for bytes
+            // that were not durably staged with it.
             Directory.Move(temporaryDirectory, finalDirectory);
         }
         finally
@@ -169,14 +173,15 @@ public sealed class LocalWorldStorage : IWorldStorage
             cancellationToken);
     }
 
-    public Task<Stream> OpenRevisionAsync(
+    public async Task<Stream> OpenRevisionAsync(
         WorldId worldId,
         RevisionId revisionId,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var path = Path.Combine(GetStateRevisionDirectory(worldId, revisionId), "payload.bin");
+        var revisionDirectory = GetStateRevisionDirectory(worldId, revisionId);
+        var path = Path.Combine(revisionDirectory, PayloadFileName);
         if (!File.Exists(path))
         {
             throw new FileNotFoundException(
@@ -184,8 +189,68 @@ public sealed class LocalWorldStorage : IWorldStorage
                 path);
         }
 
-        Stream stream = OpenRead(path);
-        return Task.FromResult(stream);
+        var checksumPath = Path.Combine(revisionDirectory, PayloadSha256FileName);
+        if (!File.Exists(checksumPath))
+        {
+            // Pre-checksum revisions remain readable for persistence compatibility. Every revision
+            // written by the current storage format receives a checksum before publication.
+            return OpenRead(path);
+        }
+
+        var checksumText = (await File.ReadAllTextAsync(checksumPath, cancellationToken)).Trim();
+        byte[] expectedHash;
+        try
+        {
+            expectedHash = Convert.FromHexString(checksumText);
+        }
+        catch (FormatException exception)
+        {
+            throw new InvalidDataException(
+                $"State revision '{revisionId}' for World '{worldId}' has an invalid SHA-256 integrity digest.",
+                exception);
+        }
+
+        if (expectedHash.Length != SHA256.HashSizeInBytes)
+        {
+            throw new InvalidDataException(
+                $"State revision '{revisionId}' for World '{worldId}' has an invalid SHA-256 integrity digest length.");
+        }
+
+        return new Sha256VerifyingReadStream(
+            OpenRead(path),
+            expectedHash,
+            $"State revision '{revisionId}' for World '{worldId}' payload");
+    }
+
+    private static async Task<string> CopyPayloadWithSha256Async(
+        Stream source,
+        string destination,
+        CancellationToken cancellationToken)
+    {
+        await using var output = new FileStream(
+            destination,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 1024 * 128,
+            useAsync: true);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var buffer = new byte[1024 * 128];
+
+        while (true)
+        {
+            var read = await source.ReadAsync(buffer, cancellationToken);
+            if (read == 0)
+            {
+                break;
+            }
+
+            hash.AppendData(buffer, 0, read);
+            await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+        }
+
+        await output.FlushAsync(cancellationToken);
+        return Convert.ToHexString(hash.GetHashAndReset());
     }
 
     private async Task WriteDocumentAtomicAsync<T>(

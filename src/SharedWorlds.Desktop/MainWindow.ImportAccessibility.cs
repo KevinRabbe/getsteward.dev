@@ -40,6 +40,9 @@ public partial class MainWindow
             itemStyle.Setters.Add(new Setter(
                 AutomationProperties.HelpTextProperty,
                 new Binding(nameof(ImportBrowserCandidate.Subtitle))));
+            itemStyle.Setters.Add(new Setter(
+                FrameworkElement.FocusVisualStyleProperty,
+                FindResource("StewardFocusVisualStyle")));
             _importBrowserList.ItemContainerStyle = itemStyle;
         }
 

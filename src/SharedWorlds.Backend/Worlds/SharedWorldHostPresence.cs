@@ -48,7 +48,11 @@ public enum PublishSharedWorldHostPresenceStatus
 
 public interface ISharedWorldHostPresenceStore
 {
-    Task UpsertAsync(
+    /// <summary>
+    /// Stores current host evidence when it is still eligible to replace the row for this World.
+    /// False means a newer reservation/session already won and the caller must not report success.
+    /// </summary>
+    Task<bool> TryUpsertAsync(
         SharedWorldHostPresence presence,
         CancellationToken cancellationToken = default);
 
@@ -132,7 +136,7 @@ public sealed class SharedWorldHostPresenceService
         }
 
         var now = _clock();
-        await _store.UpsertAsync(
+        var stored = await _store.TryUpsertAsync(
             new SharedWorldHostPresence(
                 worldId,
                 reservationSessionId,
@@ -145,7 +149,9 @@ public sealed class SharedWorldHostPresenceService
                 joinToken,
                 now),
             cancellationToken);
-        return PublishSharedWorldHostPresenceStatus.Published;
+        return stored
+            ? PublishSharedWorldHostPresenceStatus.Published
+            : PublishSharedWorldHostPresenceStatus.ReservationMismatch;
     }
 
     public async Task<SharedWorldHostPresence?> GetVisibleAsync(

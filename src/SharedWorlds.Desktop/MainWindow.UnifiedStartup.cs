@@ -7,6 +7,7 @@ public partial class MainWindow
         // Recovery evidence is authoritative startup input. Load it before any game/World surface
         // can present an interrupted World as Ready.
         await InitializeRuntimeResponsibilityAsync();
+        RegisterAdditionalProductionAdapters();
         InitializeUnifiedHostingPreference();
         await LoadDeviceSettingsAsync();
         await InitializeUnifiedGameUiAsync();

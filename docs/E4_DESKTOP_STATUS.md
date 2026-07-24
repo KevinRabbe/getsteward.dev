@@ -1,8 +1,8 @@
 # E4 Windows Desktop Remote Composition Status
 
-Status: **DESKTOP REMOTE COMPOSITION + DETERMINISTIC SYNC/CLEANUP/INTERRUPTED RECOVERY + SHARE/ACCESS FLOW COMPLETE AND CI GREEN; LIVE STEAM/BACKEND ACCEPTANCE STILL REQUIRED.**
+Status: **DESKTOP REMOTE COMPOSITION + DETERMINISTIC SYNC/CLEANUP/INTERRUPTED RECOVERY + SHARE/ACCESS + READ-ONLY JOIN CONSUMPTION COMPLETE; E4-A NO LONGER REQUIRES STEAM PUBLISHER CREDENTIALS; E4-B PRODUCTION STEAM/HOST HANDOFF STILL REQUIRES LIVE ACCEPTANCE.**
 
-This checkpoint records the point where the production Windows Desktop stopped being structurally local-only. The existing `Only on this PC` path remains local, while authenticated shared Worlds use the same remote storage, authority, transfer, commit, recovery, and flat access components already proven by the backend work.
+This checkpoint records the point where the production Windows Desktop stopped being structurally local-only. The existing `Only on this PC` path remains local, while authenticated shared Worlds use the same remote storage, authority, transfer, commit, recovery, flat access, host-presence, and read-only Join components already proven by the backend work.
 
 ## What is now composed in Desktop
 
@@ -14,6 +14,7 @@ The authenticated shared-World runtime owns and connects:
 - `StewardInitialWorldPublisher`;
 - `StewardAuthorityClient`;
 - `StewardReservationAbandonClient`;
+- `StewardHostPresenceClient`;
 - `StewardPackageDownloadClient` + `VerifiedPackageCache` + `StewardVerifiedPackageSource`;
 - `StewardPackageUploadClient`;
 - `StewardWritableReservationRegistry`;
@@ -21,6 +22,7 @@ The authenticated shared-World runtime owns and connects:
 - `StewardWorldStorage`;
 - one `ManagedWritableSessionGate` shared by normal lifecycle and remote recovery;
 - `WorldLifecycleService`;
+- read-only `WorldJoinService`;
 - `StewardPendingSyncRecoveryService`.
 
 Desktop also composes the corresponding local recovery path around `LocalWorldStorage`, `LocalWorldSessionCoordinator`, a shared local `ManagedWritableSessionGate`, `LocalPendingWorkspaceRecoveryService`, and the common cleanup/decision services.
@@ -47,9 +49,27 @@ A remote outage does not make private local Worlds unusable. A stale local recor
 
 For a backend World, Verify/Repair reads the canonical structured `EnvironmentManifest` through `StewardWorldStorage`.
 
-Shared Continue/Host remains disabled until verification reports `Ready`, and the action handlers independently reject an unverified shared World. Local-only Worlds retain their existing behavior.
+Shared Continue/Host/Join remains disabled until verification reports `Ready`, and the action handlers independently reject an unverified shared World. Local-only Worlds retain their existing behavior.
 
 Remote environment-version mutation is intentionally not faked through a local checkbox. The canonical backend environment remains immutable until an explicit reviewed environment-transition operation exists.
+
+## Read-only Join does less by owning less
+
+Join is intentionally separate from writable World authority.
+
+```text
+shared World metadata
+-> exact EnvironmentRevision
+-> verify local environment
+-> prepare adapter environment
+-> read current short-lived host presence
+-> launch client against proven host connection
+-> discard read-only prepared workspace
+```
+
+Join does **not** acquire a writable reservation, download/restore canonical state, register recovery responsibility, capture a candidate, or commit a revision. The active host already owns the writable World state. Core tests explicitly prove that the Join lifecycle does not even require a current state revision.
+
+The host-presence row is also not authority. It is short-lived evidence tied to the exact active reservation session/generation. PostgreSQL rejects stale, uncertain, wrong-session, and superseded writes at the write boundary so a delayed old host cannot replace newer Join evidence.
 
 ## Installation-bound identity
 
@@ -79,13 +99,15 @@ SteamAPI.Init
 
 No development AppID is silently guessed or hard-coded.
 
-Remote sharing is enabled only when all three explicit deployment values are supplied:
+Desktop remote sharing is enabled only when all three explicit client deployment values are supplied:
 
 - `STEWARD_API_BASE_URL`;
 - `STEWARD_STEAM_APP_ID`;
 - `STEWARD_STEAM_WEB_API_IDENTITY`.
 
 With none configured, Steward stays local-only. Partial/invalid configuration fails closed for shared functionality without disabling local Worlds.
+
+The **backend is different**: E4-A infrastructure deployment may intentionally omit all three server-side Steam values (`Steam:AppId`, `Steam:PublisherApiKey`, `Steam:Identity`). In that mode the API still boots, initializes PostgreSQL/S3 infrastructure, and exposes health/readiness, while Steam authentication itself fails closed before any Steam network request. Partial server-side Steam configuration is a startup error. Supplying all three enables the real verifier for E4-B.
 
 ## Share World and flat access management
 
@@ -204,24 +226,22 @@ confirm discard
 
 If Steward cannot identify the exact environment or safely invoke the adapter, it preserves the workspace and journal rather than guessing.
 
-## Factorio hosted lifecycle
+## Factorio hosted lifecycle: current truth
 
-The existing Factorio adapter already implements the intended authoritative hosted path rather than merely launching a listen-host process:
+Factorio currently advertises automatic host/client launch, but the active adapter host path is the direct Factorio listen-host launch:
 
 ```text
-isolated canonical World
--> private dedicated Factorio server
--> authenticated loopback RCON readiness
--> launch normal graphical host client
--> host client ends
--> verify server still alive
--> RCON /server-save
--> observe save refresh
--> stop dedicated server
--> capture + commit
+isolated prepared save
+-> factorio --host <save>
+-> tracked game process / Steam bootstrap handoff
+-> session ends
+-> capture prepared save
+-> commit
 ```
 
-Code-level readiness and protocol tests exist. Commercial acceptance still requires repeating this lifecycle on the real Windows Steam installation as part of the live E4 handoff.
+The repository also contains richer dedicated-server/RCON primitives, but they are **not** currently the adapter's `LaunchHostAsync` path. They therefore do not count as product behavior merely because the code exists.
+
+The exact Windows graceful managed-stop signal remains a deferred empirical test. External connection-address/reachability evidence for publishing truthful `Ready` host presence is also deliberately deferred rather than guessed. Neither blocks independent backend, UI, storage, recovery, or adapter work.
 
 ## Failure behavior
 
@@ -254,9 +274,28 @@ The real Desktop Share/Manage access/Invites surfaces plus backend flat-access H
 - S3-compatible integration: green;
 - backend production container: green.
 
-## What E4 still needs before product acceptance
+The newer host-presence/Join/adapter-reduction/E4-A work is qualified continuously by the aggregate CI plus separate Windows, Palworld, 7DTD, and Project Zomboid gates. Do not treat superseded aggregate runs as failures when a newer branch commit intentionally replaces them.
 
-The remaining E4 acceptance gap is now primarily evidence at the actual deployment boundary:
+## E4-A — live infrastructure readiness
+
+E4-A deliberately excludes private Steam publisher credentials. It proves the real deployment boundary that does not require Steam production onboarding:
+
+```text
+real HTTPS Steward API
+-> real PostgreSQL
+-> real S3-compatible storage
+-> schema initialization
+-> health/live
+-> health/ready
+-> transfer/network behaviour
+-> deployment/restart/logging checks
+```
+
+The production backend can now start in this mode with Steam authentication explicitly unavailable/fail-closed. `tools/e4-live-acceptance.ps1` selects E4-A when the client Steam values are omitted.
+
+## E4-B — Steam production acceptance
+
+E4-B starts only when the real Steward Steam AppID/publisher credentials exist. Its remaining proof is intentionally empirical:
 
 ```text
 real Windows Steward build launched under Steward's Steam AppID
@@ -267,15 +306,15 @@ real Windows Steward build launched under Steward's Steam AppID
 -> PC A invites PC B
 -> PC B accepts and lists the same backend World
 -> canonical Factorio environment verified Ready
--> remote Continue/Host
--> exact reservation + verified download
--> authoritative Factorio dedicated host reaches RCON readiness
--> gameplay ends + server-save succeeds
+-> remote host acquires exact reservation + verified download
+-> game host becomes genuinely reachable and publishes truthful Ready presence
+-> PC B consumes Ready presence and joins without writable authority
+-> gameplay ends + safe host stop/save boundary succeeds
 -> capture + multipart upload
 -> expected-head canonical commit
 -> second Steward installation observes the new canonical revision
 ```
 
-`tools/e4-live-acceptance.ps1` validates the non-secret Desktop deployment values and both public backend health probes before launching a configured Desktop build. It deliberately does not fake the Steam ticket, object transfer, or two-installation handoff that E4 exists to prove.
+`tools/e4-live-acceptance.ps1` now has explicit E4-A and E4-B modes. It does not fake Steam tickets, host reachability, object transfer, or the two-installation handoff that E4-B exists to prove.
 
-Palworld shared play remains fail-closed until its adapter has a real exact-environment verifier. That is adapter acceptance work, not a reason to weaken the shared-World gate.
+Palworld shared play remains fail-closed until its remaining adapter acceptance evidence is satisfied. 7 Days to Die and Project Zomboid continue to advertise only capabilities they actually implement.

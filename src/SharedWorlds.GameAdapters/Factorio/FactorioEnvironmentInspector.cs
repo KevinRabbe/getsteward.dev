@@ -16,7 +16,7 @@ internal static partial class FactorioEnvironmentInspector
         CancellationToken cancellationToken)
     {
         var userDataPath = GetRequiredMetadata(installation, FactorioInstallationDiscovery.UserDataPathKey);
-        FactorioModSettingsSafety.RequireRegularFileIfPresent(Path.Combine(userDataPath, "mods"));
+        FactorioModInputSafety.RequireInspectionInputs(installation);
 
         var gameVersion = await ReadInstalledGameVersionAsync(installation, cancellationToken);
         var components = ReadEnabledMods(installation.RootPath, userDataPath, gameVersion);

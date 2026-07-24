@@ -77,7 +77,10 @@ public sealed class SevenDaysToDieAdapter : IGameAdapter
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(state);
         SevenDaysToDieWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
-        SevenDaysToDieStatePackagePreflight.Validate(state.Path, world.WorkingDirectory);
+        SevenDaysToDieStatePackagePreflight.Validate(
+            state.Path,
+            world.WorkingDirectory,
+            cancellationToken);
         return SevenDaysToDieWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
     }
 

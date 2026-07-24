@@ -9,6 +9,25 @@ public static class DesktopText
         "SharedWorlds.Desktop.DesktopText",
         typeof(DesktopText).Assembly);
 
+    public static string Tagline => Get(nameof(Tagline));
+    public static string Games => Get(nameof(Games));
+    public static string DeviceSettings => Get(nameof(DeviceSettings));
+    public static string AllowDeviceHosting => Get(nameof(AllowDeviceHosting));
+    public static string HostingDisabledOnDevice => Get(nameof(HostingDisabledOnDevice));
+    public static string HostingAllowedOnDevice => Get(nameof(HostingAllowedOnDevice));
+    public static string SelectWorld => Get(nameof(SelectWorld));
+    public static string Play => Get(nameof(Play));
+    public static string WorldSettings => Get(nameof(WorldSettings));
+    public static string KeepExactGameVersion => Get(nameof(KeepExactGameVersion));
+    public static string EnvironmentReadiness => Get(nameof(EnvironmentReadiness));
+    public static string NotCheckedYet => Get(nameof(NotCheckedYet));
+    public static string TechnicalDetails => Get(nameof(TechnicalDetails));
+    public static string WorldIdLabel => Get(nameof(WorldIdLabel));
+    public static string EnvironmentLabel => Get(nameof(EnvironmentLabel));
+    public static string StateLabel => Get(nameof(StateLabel));
+    public static string Ready => Get(nameof(Ready));
+    public static string OnlyOnThisPc => Get(nameof(OnlyOnThisPc));
+    public static string Shared => Get(nameof(Shared));
     public static string Import => Get(nameof(Import));
     public static string Refresh => Get(nameof(Refresh));
     public static string Invites => Get(nameof(Invites));

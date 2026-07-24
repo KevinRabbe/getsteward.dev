@@ -46,7 +46,15 @@ var cleanupBatchSize = ParseBoundedInt32(
     minimum: 1,
     maximum: 1000);
 
-builder.Services.AddHttpClient("steam-identity");
+builder.Services
+    .AddHttpClient("steam-identity", client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(30);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        AllowAutoRedirect = false
+    });
 builder.Services.AddSingleton(_ => new NpgsqlDataSourceBuilder(connectionString).Build());
 
 builder.Services.AddSingleton<PostgreSqlSharedWorldStore>();

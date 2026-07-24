@@ -32,4 +32,16 @@ jobs:
         run: dotnet restore tools/SharedWorlds.PalworldNativeSettingsMaterializationProbe/SharedWorlds.PalworldNativeSettingsMaterializationProbe.csproj
 
       - name: Build
-        run: dotnet build tools/SharedWorlds.PalworldNativeSettingsMaterializationProbe/SharedWorlds.PalworldNativeSettingsMaterializationProbe.csproj --configuration Release --no-restore --nologo --verbosity normal
+        shell: pwsh
+        run: |
+          dotnet build tools/SharedWorlds.PalworldNativeSettingsMaterializationProbe/SharedWorlds.PalworldNativeSettingsMaterializationProbe.csproj --configuration Release --no-restore --nologo --verbosity normal 2>&1 | Tee-Object -FilePath native-materialization-build.log
+          $code = $LASTEXITCODE
+          exit $code
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: native-materialization-build-log
+          path: native-materialization-build.log
+          if-no-files-found: error

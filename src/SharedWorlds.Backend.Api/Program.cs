@@ -159,7 +159,9 @@ builder.Services.AddHostedService<SharedRevisionRetentionCleanupWorker>();
 
 var app = builder.Build();
 
-await PostgreSqlBackendSchema.InitializeAsync(app.Services.GetRequiredService<NpgsqlDataSource>());
+var dataSource = app.Services.GetRequiredService<NpgsqlDataSource>();
+await PostgreSqlBackendSchema.InitializeAsync(dataSource);
+await PostgreSqlSharedWorldHostPresenceSchema.InitializeAsync(dataSource);
 
 app.UseStewardApiProblemHandling();
 app.MapGet("/health/live", () => Results.Ok(new { status = "live" }));

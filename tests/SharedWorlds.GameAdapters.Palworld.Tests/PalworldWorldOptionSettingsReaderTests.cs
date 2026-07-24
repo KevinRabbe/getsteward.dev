@@ -39,13 +39,11 @@ public sealed class PalworldWorldOptionSettingsReaderTests
     {
         var codec = new TestOodleCodec();
         var payload = BuildGvasPayload();
-        var save = WrapPlM(payload, codec);
-        var compressCallsBeforeRead = codec.CompressCalls;
+        var save = WrapPlM(payload);
 
         var snapshot = PalworldWorldOptionSettingsReader.Read(save, codec);
 
         Assert.Equal("PlM/0x31", snapshot.Container);
-        Assert.Equal(compressCallsBeforeRead, codec.CompressCalls);
         Assert.True(codec.DecompressCalls > 0);
         Assert.Contains(snapshot.Settings, setting => setting.Name == "BaseCampWorkerMaxNum" && setting.Value == "20");
     }
@@ -53,8 +51,7 @@ public sealed class PalworldWorldOptionSettingsReaderTests
     [Fact]
     public void PlMWithoutDecoderFailsClosed()
     {
-        var codec = new TestOodleCodec();
-        var save = WrapPlM(BuildGvasPayload(), codec);
+        var save = WrapPlM(BuildGvasPayload());
 
         var exception = Assert.Throws<InvalidDataException>(() =>
             PalworldWorldOptionSettingsReader.Read(save));
@@ -259,9 +256,11 @@ public sealed class PalworldWorldOptionSettingsReaderTests
         return Wrap(payload.Length, compressed, "PlZ"u8, 0x31);
     }
 
-    private static byte[] WrapPlM(ReadOnlySpan<byte> payload, IPalworldOodleCodec codec)
+    private static byte[] WrapPlM(ReadOnlySpan<byte> payload)
     {
-        var compressed = codec.CompressMermaid(payload);
+        // The test transport is zlib on purpose: the fake Oodle codec only needs deterministic
+        // compressed bytes so the reader's PlM path can prove it performs decode-only work.
+        var compressed = Compress(payload);
         return Wrap(payload.Length, compressed, "PlM"u8, 0x31);
     }
 
@@ -321,8 +320,6 @@ public sealed class PalworldWorldOptionSettingsReaderTests
 
     private sealed class TestOodleCodec : IPalworldOodleCodec
     {
-        public int CompressCalls { get; private set; }
-
         public int DecompressCalls { get; private set; }
 
         public byte[] Decompress(ReadOnlySpan<byte> compressed, int uncompressedLength)
@@ -331,12 +328,6 @@ public sealed class PalworldWorldOptionSettingsReaderTests
             var result = PalworldWorldOptionSettingsReaderTests.Decompress(compressed);
             Assert.Equal(uncompressedLength, result.Length);
             return result;
-        }
-
-        public byte[] CompressMermaid(ReadOnlySpan<byte> payload)
-        {
-            CompressCalls++;
-            return Compress(payload);
         }
     }
 }

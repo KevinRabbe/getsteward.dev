@@ -103,7 +103,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
             BaseAddress = normalizedBaseAddress,
             Timeout = TimeSpan.FromSeconds(30)
         };
-        var transferClient = new HttpClient
+        var transferClient = new HttpClient(new StewardDirectTransferHandler())
         {
             Timeout = Timeout.InfiniteTimeSpan
         };

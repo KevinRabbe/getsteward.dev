@@ -68,7 +68,8 @@ public sealed class SteamWebApiTicketVerifier
         new("https://partner.steam-api.com/ISteamUserAuth/AuthenticateUserTicket/v1/");
 
     private readonly HttpClient _httpClient;
-    private readonly SteamWebApiTicketVerifierOptions _options;
+    private readonly SteamWebApiTicketVerifierOptions? _options;
+    private readonly string? _unavailableReason;
 
     public SteamWebApiTicketVerifier(
         HttpClient httpClient,
@@ -80,10 +81,35 @@ public sealed class SteamWebApiTicketVerifier
         _options = options;
     }
 
+    private SteamWebApiTicketVerifier(HttpClient httpClient, string unavailableReason)
+    {
+        ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentException.ThrowIfNullOrWhiteSpace(unavailableReason);
+        _httpClient = httpClient;
+        _unavailableReason = unavailableReason;
+    }
+
+    /// <summary>
+    /// Creates a fail-closed verifier for deployment stages where Steam publisher credentials do not
+    /// exist yet. This keeps non-auth backend infrastructure deployable without pretending Steam
+    /// authentication is configured.
+    /// </summary>
+    public static SteamWebApiTicketVerifier CreateUnavailable(
+        HttpClient httpClient,
+        string unavailableReason = "Steam identity verification is not configured on this deployment.")
+        => new(httpClient, unavailableReason);
+
     public async Task<ExternalIdentityTicketVerificationResult> VerifyAsync(
         string ticketHex,
         CancellationToken cancellationToken = default)
     {
+        if (_options is null)
+        {
+            throw new ExternalIdentityProviderException(
+                Provider,
+                _unavailableReason ?? "Steam identity verification is unavailable.");
+        }
+
         if (!IsValidHexTicket(ticketHex))
         {
             return new(ExternalIdentityTicketVerificationStatus.InvalidTicket, null);
@@ -173,12 +199,14 @@ public sealed class SteamWebApiTicketVerifier
 
     private Uri BuildRequestUri(string ticketHex)
     {
+        var options = _options ?? throw new InvalidOperationException(
+            "Steam identity verification is not configured.");
         var query = string.Join(
             '&',
-            $"key={Uri.EscapeDataString(_options.PublisherApiKey)}",
-            $"appid={_options.AppId.ToString(CultureInfo.InvariantCulture)}",
+            $"key={Uri.EscapeDataString(options.PublisherApiKey)}",
+            $"appid={options.AppId.ToString(CultureInfo.InvariantCulture)}",
             $"ticket={Uri.EscapeDataString(ticketHex)}",
-            $"identity={Uri.EscapeDataString(_options.Identity)}");
+            $"identity={Uri.EscapeDataString(options.Identity)}");
         return new UriBuilder(Endpoint) { Query = query }.Uri;
     }
 
@@ -209,7 +237,6 @@ public sealed class SteamWebApiTicketVerifier
     {
         result = null;
         steamId = null;
-
         if (!root.TryGetProperty("response", out var response) ||
             !response.TryGetProperty("params", out var parameters) ||
             !parameters.TryGetProperty("result", out var resultElement))

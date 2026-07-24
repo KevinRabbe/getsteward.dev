@@ -65,6 +65,12 @@ internal static class ProjectZomboidWorkshopPathGuard
         ArgumentException.ThrowIfNullOrWhiteSpace(workshopContentRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(workshopId);
 
+        if (!workshopId.All(char.IsDigit))
+        {
+            throw new InvalidOperationException(
+                $"Project Zomboid Workshop item id '{workshopId}' is not a valid numeric Steam Workshop id.");
+        }
+
         var itemRoot = Path.Combine(Path.GetFullPath(workshopContentRoot), workshopId);
         if (!Directory.Exists(itemRoot))
         {
@@ -126,13 +132,12 @@ internal static class ProjectZomboidWorkshopPathGuard
                     .ToArray();
             }
         }
-        catch (IOException)
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
         {
-            return [];
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return [];
+            throw new InvalidOperationException(
+                $"Steward could not inspect Project Zomboid server configuration '{configPath}' before Workshop metadata discovery.",
+                exception);
         }
 
         return [];

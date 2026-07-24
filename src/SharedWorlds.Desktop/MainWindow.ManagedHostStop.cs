@@ -72,7 +72,7 @@ public partial class MainWindow
 
         StopHostingButton.Visibility = canStop ? Visibility.Visible : Visibility.Collapsed;
         StopHostingButton.IsEnabled = canStop && !_hostStopRequestInFlight;
-        StopHostingButton.Content = _hostStopRequestInFlight ? "Saving..." : "Stop and Save";
+        StopHostingButton.Content = _hostStopRequestInFlight ? "Saving..." : DesktopText.StopAndSave;
         StopHostingButton.ToolTip = canStop ? helpText : null;
         AutomationProperties.SetHelpText(StopHostingButton, canStop ? helpText : string.Empty);
     }

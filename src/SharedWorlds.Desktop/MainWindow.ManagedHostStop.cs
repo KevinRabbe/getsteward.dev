@@ -39,12 +39,12 @@ public partial class MainWindow
             if (!await lifecycle.RequestHostStopAsync(world.Id))
             {
                 StatusText.Text =
-                    $"{adapter.DisplayName} is still entering its managed host session. Try Stop and Save again once it is running.";
+                    $"{adapter.DisplayName} is still entering its hosted session. Try Stop and Save again once it is running.";
             }
         }
         catch (Exception exception)
         {
-            StatusText.Text = $"Could not safely stop {world.Name}. The hosted session remains Steward responsibility.";
+            StatusText.Text = $"Could not safely stop {world.Name}. Steward is still protecting this hosted session.";
             ShowError("Could not safely stop hosting", exception);
         }
         finally
@@ -68,7 +68,7 @@ public partial class MainWindow
             responsibility.Phase == WorldLifecyclePhase.Running;
 
         const string helpText =
-            "Save the World, shut down the dedicated server safely, restore its original runtime inputs, then let Steward capture and commit the new revision.";
+            "Save the World, stop the hosted session safely, restore any temporary game runtime changes, then let Steward capture the updated World.";
 
         StopHostingButton.Visibility = canStop ? Visibility.Visible : Visibility.Collapsed;
         StopHostingButton.IsEnabled = canStop && !_hostStopRequestInFlight;

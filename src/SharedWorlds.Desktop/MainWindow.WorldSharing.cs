@@ -160,7 +160,7 @@ public partial class MainWindow
 
                     await RefreshUnifiedWorldsAsync(localShadow.Id, preserveStatus: true);
                     StatusText.Text =
-                        $"'{localShadow.Name}' is shared. Steward now treats the backend copy as its canonical authority.";
+                        $"'{localShadow.Name}' is shared. Steward will keep the shared World synchronized across devices.";
                 }
                 catch (Exception exception)
                 {

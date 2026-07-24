@@ -5,7 +5,7 @@ namespace SharedWorlds.GameAdapters.SevenDaysToDie;
 internal static class SevenDaysToDieWorldDiscovery
 {
     private const string SavesDirectoryName = "Saves";
-    private const string MainWorldFileName = "main.ttw";
+    private static readonly string[] MainWorldFileNames = ["main.ttp", "main.ttw"];
 
     public static IReadOnlyList<DetectedWorld> Discover(GameInstallation installation)
     {
@@ -34,8 +34,7 @@ internal static class SevenDaysToDieWorldDiscovery
 
             foreach (var saveDirectory in EnumerateDirectoriesSafely(worldDirectory))
             {
-                var mainWorldPath = Path.Combine(saveDirectory, MainWorldFileName);
-                if (!File.Exists(mainWorldPath))
+                if (!HasKnownWorldMarker(saveDirectory))
                 {
                     continue;
                 }
@@ -55,10 +54,18 @@ internal static class SevenDaysToDieWorldDiscovery
         }
 
         return worlds
-            .OrderByDescending(world => GetLastWriteTimeUtcSafe(Path.Combine(world.SourcePath, MainWorldFileName)))
+            .OrderByDescending(world => GetWorldLastWriteTimeUtc(world.SourcePath))
             .ThenBy(world => world.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToArray();
     }
+
+    internal static bool HasKnownWorldMarker(string saveDirectory)
+        => MainWorldFileNames.Any(name => File.Exists(Path.Combine(saveDirectory, name)));
+
+    private static DateTime GetWorldLastWriteTimeUtc(string saveDirectory)
+        => MainWorldFileNames
+            .Select(name => GetLastWriteTimeUtcSafe(Path.Combine(saveDirectory, name)))
+            .Max();
 
     private static IEnumerable<string> EnumerateDirectoriesSafely(string path)
     {
@@ -79,7 +86,7 @@ internal static class SevenDaysToDieWorldDiscovery
     {
         try
         {
-            return File.GetLastWriteTimeUtc(path);
+            return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
         }
         catch (Exception exception) when (
             exception is IOException or

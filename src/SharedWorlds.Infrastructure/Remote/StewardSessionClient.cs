@@ -170,7 +170,7 @@ public sealed class StewardSessionClient
         => new(
             response.StatusCode,
             response.Code,
-            response.Retryable || IsTransientStatus(response.StatusCode));
+            response.Retryable);
 
     private static void ValidateCredential(string value, string parameterName)
     {
@@ -179,11 +179,6 @@ public sealed class StewardSessionClient
             throw new ArgumentException("Credential must be non-empty and contain no whitespace.", parameterName);
         }
     }
-
-    private static bool IsTransientStatus(HttpStatusCode statusCode)
-        => statusCode == HttpStatusCode.RequestTimeout ||
-           statusCode == HttpStatusCode.TooManyRequests ||
-           (int)statusCode >= 500;
 
     private sealed record SteamSessionRequest(
         string TicketHex,

@@ -33,7 +33,7 @@ internal static partial class DesktopErrorMessage
     private static partial Regex BearerTokenRegex();
 
     [GeneratedRegex(
-        @"(?i)(\b(?:password|adminpassword|serverpassword|access[_-]?token|refresh[_-]?token|token|secret)\s*[=:]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)",
+        """(?i)(\b(?:password|adminpassword|serverpassword|access[_-]?token|refresh[_-]?token|token|secret)\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)""",
         RegexOptions.CultureInvariant)]
     private static partial Regex SecretAssignmentRegex();
 

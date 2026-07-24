@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Npgsql;
 using SharedWorlds.Backend.Identity;
 using SharedWorlds.Backend.PostgreSql;
@@ -10,8 +11,8 @@ namespace SharedWorlds.Backend.PostgreSql.Tests;
 
 public sealed class PostgreSqlBackupRestoreProbeTests
 {
-    private const string ProbeModeEnvironmentVariable = "STEWARD_BACKUP_RESTORE_MODE";
     private const string Hash = "ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB";
+    private const string PostgreSqlImage = "postgres:17-alpine";
 
     private static readonly WorldId WorldId = new(Guid.Parse("7f76f495-d7bf-4cae-bda0-1299fd773101"));
     private static readonly RevisionId StateRevisionId = new(Guid.Parse("7f76f495-d7bf-4cae-bda0-1299fd773102"));
@@ -25,33 +26,134 @@ public sealed class PostgreSqlBackupRestoreProbeTests
     [Fact]
     public async Task ProviderNativeBackupRestoreRoundTrip()
     {
-        var mode = Environment.GetEnvironmentVariable(ProbeModeEnvironmentVariable);
-        if (string.IsNullOrWhiteSpace(mode))
+        var connectionString = Environment.GetEnvironmentVariable("STEWARD_TEST_POSTGRES");
+        if (string.IsNullOrWhiteSpace(connectionString) ||
+            !string.Equals(
+                Environment.GetEnvironmentVariable("GITHUB_ACTIONS"),
+                "true",
+                StringComparison.OrdinalIgnoreCase))
         {
-            // The ordinary PostgreSQL integration suite should not mutate durable probe state.
-            // CI invokes this test explicitly in seed and verify modes around pg_dump/pg_restore.
+            // The normal unit matrix and local PostgreSQL development runs do not require Docker.
+            // The real provider-native proof executes in the GitHub PostgreSQL integration job.
             return;
         }
 
-        var connectionString = Environment.GetEnvironmentVariable("STEWARD_TEST_POSTGRES");
-        if (string.IsNullOrWhiteSpace(connectionString))
+        var source = new NpgsqlConnectionStringBuilder(connectionString);
+        if (string.IsNullOrWhiteSpace(source.Host) ||
+            string.IsNullOrWhiteSpace(source.Username) ||
+            string.IsNullOrWhiteSpace(source.Database))
         {
             throw new InvalidOperationException(
-                "STEWARD_TEST_POSTGRES must be set for the PostgreSQL backup/restore probe.");
+                "STEWARD_TEST_POSTGRES must identify a host, username, and database.");
         }
 
-        await using var dataSource = NpgsqlDataSource.Create(connectionString);
-        switch (mode)
+        var temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"steward-postgres-backup-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        var dumpPath = Path.Combine(temporaryDirectory, "steward.dump");
+        var restoreDatabase = $"steward_restore_{Guid.NewGuid():N}";
+        var restoreCreated = false;
+
+        try
         {
-            case "seed":
-                await SeedAsync(dataSource);
-                break;
-            case "verify":
-                await VerifyAsync(dataSource);
-                break;
-            default:
-                throw new InvalidOperationException(
-                    $"Unknown {ProbeModeEnvironmentVariable} value '{mode}'.");
+            await using (var sourceDataSource = NpgsqlDataSource.Create(source.ConnectionString))
+            {
+                await SeedAsync(sourceDataSource);
+            }
+
+            await RunPostgreSqlContainerAsync(
+                source,
+                temporaryDirectory,
+                [
+                    "pg_dump",
+                    "--host", source.Host,
+                    "--port", source.Port.ToString(),
+                    "--username", source.Username,
+                    "--dbname", source.Database,
+                    "--format", "custom",
+                    "--no-owner",
+                    "--no-acl",
+                    "--file", "/backup/steward.dump"
+                ]);
+
+            Assert.True(File.Exists(dumpPath), "pg_dump did not create the expected backup file.");
+            Assert.True(new FileInfo(dumpPath).Length > 0, "pg_dump created an empty backup file.");
+
+            await RunPostgreSqlContainerAsync(
+                source,
+                temporaryDirectory,
+                [
+                    "psql",
+                    "--host", source.Host,
+                    "--port", source.Port.ToString(),
+                    "--username", source.Username,
+                    "--dbname", "postgres",
+                    "--set", "ON_ERROR_STOP=1",
+                    "--command", $"CREATE DATABASE \"{restoreDatabase}\";"
+                ]);
+            restoreCreated = true;
+
+            await RunPostgreSqlContainerAsync(
+                source,
+                temporaryDirectory,
+                [
+                    "pg_restore",
+                    "--host", source.Host,
+                    "--port", source.Port.ToString(),
+                    "--username", source.Username,
+                    "--dbname", restoreDatabase,
+                    "--exit-on-error",
+                    "--no-owner",
+                    "--no-acl",
+                    "/backup/steward.dump"
+                ]);
+
+            var restored = new NpgsqlConnectionStringBuilder(source.ConnectionString)
+            {
+                Database = restoreDatabase,
+                Pooling = false
+            };
+            await using (var restoredDataSource = NpgsqlDataSource.Create(restored.ConnectionString))
+            {
+                await VerifyAsync(restoredDataSource);
+            }
+        }
+        finally
+        {
+            if (restoreCreated)
+            {
+                try
+                {
+                    await RunPostgreSqlContainerAsync(
+                        source,
+                        temporaryDirectory,
+                        [
+                            "psql",
+                            "--host", source.Host,
+                            "--port", source.Port.ToString(),
+                            "--username", source.Username,
+                            "--dbname", "postgres",
+                            "--set", "ON_ERROR_STOP=1",
+                            "--command", $"DROP DATABASE IF EXISTS \"{restoreDatabase}\" WITH (FORCE);"
+                        ]);
+                }
+                catch
+                {
+                    // Do not hide the actual backup/restore assertion failure with cleanup noise.
+                }
+            }
+
+            try
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
         }
     }
 
@@ -72,7 +174,6 @@ public sealed class PostgreSqlBackupRestoreProbeTests
                 EnvironmentRevisionId));
         Assert.Equal(CreateSharedWorldStatus.Created, create.Status);
 
-        var manifest = CreateManifest();
         var environment = new SharedEnvironmentRevisionMetadata(
             WorldId,
             EnvironmentRevisionId,
@@ -82,7 +183,7 @@ public sealed class PostgreSqlBackupRestoreProbeTests
             Hash,
             Manager.Subject,
             PublishedAt,
-            manifest);
+            CreateManifest());
         Assert.Equal(
             RecordRevisionMetadataStatus.Recorded,
             await revisions.RecordVerifiedEnvironmentRevisionAsync(environment));
@@ -104,9 +205,8 @@ public sealed class PostgreSqlBackupRestoreProbeTests
 
     private static async Task VerifyAsync(NpgsqlDataSource dataSource)
     {
-        // Deliberately do not call PostgreSqlBackendSchema.InitializeAsync here. A successful
-        // verification must prove pg_restore recreated the real schema rather than letting the
-        // application repair missing tables before the assertion.
+        // Deliberately do not call PostgreSqlBackendSchema.InitializeAsync here. Successful reads
+        // must prove pg_restore recreated the schema rather than letting Steward repair it first.
         var store = new PostgreSqlSharedWorldStore(dataSource);
         var revisions = new SharedRevisionMetadataService(store, store);
 
@@ -128,7 +228,16 @@ public sealed class PostgreSqlBackupRestoreProbeTests
                 EnvironmentRevisionId));
         Assert.Equal("backup-probe/environment", environment.ArtifactReference);
         Assert.Equal(Hash, environment.Sha256);
-        Assert.Equal(CreateManifest(), environment.Manifest);
+        var manifest = Assert.IsType<EnvironmentManifest>(environment.Manifest);
+        Assert.Equal(1, manifest.SchemaVersion);
+        Assert.Equal("factorio", manifest.AdapterId);
+        Assert.Equal("2.1.11", manifest.GameVersion);
+        var component = Assert.Single(manifest.Components);
+        Assert.Equal("mod", component.Kind);
+        Assert.Equal("base", component.Id);
+        Assert.Equal("2.1.11", component.Version);
+        Assert.Equal(Hash, component.Hash);
+        Assert.Equal(Hash, manifest.Configuration["startupSettingsSha256"]);
 
         var state = Assert.IsType<SharedStateRevisionMetadata>(
             await revisions.GetStateRevisionMetadataAsync(
@@ -139,6 +248,55 @@ public sealed class PostgreSqlBackupRestoreProbeTests
         Assert.Equal(Hash, state.Sha256);
         Assert.Equal(EnvironmentRevisionId, state.RequiredEnvironmentRevisionId);
         Assert.Equal(Manager.Subject, state.PublishedBy);
+    }
+
+    private static async Task RunPostgreSqlContainerAsync(
+        NpgsqlConnectionStringBuilder connection,
+        string backupDirectory,
+        IReadOnlyList<string> postgresArguments)
+    {
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = "docker",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            }
+        };
+        process.StartInfo.ArgumentList.Add("run");
+        process.StartInfo.ArgumentList.Add("--rm");
+        process.StartInfo.ArgumentList.Add("--network");
+        process.StartInfo.ArgumentList.Add("host");
+        process.StartInfo.ArgumentList.Add("-e");
+        process.StartInfo.ArgumentList.Add("PGPASSWORD");
+        process.StartInfo.ArgumentList.Add("-v");
+        process.StartInfo.ArgumentList.Add($"{Path.GetFullPath(backupDirectory)}:/backup");
+        process.StartInfo.ArgumentList.Add(PostgreSqlImage);
+        foreach (var argument in postgresArguments)
+        {
+            process.StartInfo.ArgumentList.Add(argument);
+        }
+
+        process.StartInfo.Environment["PGPASSWORD"] = connection.Password ?? string.Empty;
+        if (!process.Start())
+        {
+            throw new InvalidOperationException("Could not start PostgreSQL backup/restore container.");
+        }
+
+        var standardOutput = process.StandardOutput.ReadToEndAsync();
+        var standardError = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        var output = await standardOutput;
+        var error = await standardError;
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"PostgreSQL backup/restore command failed with exit code {process.ExitCode}. " +
+                $"stdout: {output.Trim()} stderr: {error.Trim()}");
+        }
     }
 
     private static EnvironmentManifest CreateManifest()

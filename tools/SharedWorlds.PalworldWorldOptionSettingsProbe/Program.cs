@@ -83,13 +83,13 @@ static async Task<bool> RunAsync()
     Console.WriteLine("worldOption:");
     Console.WriteLine($"  worldId: {configuration.SelectedWorldId}");
     Console.WriteLine($"  path: {worldOptionPath}");
-    Console.WriteLine($"  container: {PalworldWorldOptionAdminPasswordRuntimeOverlay.DescribeContainer(originalBytes)}");
+    Console.WriteLine($"  container: {DescribeContainer(originalBytes)}");
     Console.WriteLine($"  sha256Before: {originalHash}");
 
     PalworldOodleCodec? oodleCodec = null;
     try
     {
-        if (PalworldWorldOptionAdminPasswordRuntimeOverlay.RequiresOodle(originalBytes))
+        if (RequiresOodle(originalBytes))
         {
             try
             {
@@ -165,6 +165,25 @@ static async Task<bool> RunAsync()
 
 static string Sha256(ReadOnlySpan<byte> bytes)
     => Convert.ToHexString(SHA256.HashData(bytes));
+
+static bool RequiresOodle(ReadOnlySpan<byte> save)
+    => save.Length >= 12 && save.Slice(8, 3).SequenceEqual("PlM"u8);
+
+static string DescribeContainer(ReadOnlySpan<byte> save)
+{
+    if (save.Length < 12)
+    {
+        return "unknown";
+    }
+
+    var magic = save.Slice(8, 3);
+    var name = magic.SequenceEqual("PlM"u8)
+        ? "PlM"
+        : magic.SequenceEqual("PlZ"u8)
+            ? "PlZ"
+            : "unknown";
+    return $"{name}/0x{save[11]:X2}";
+}
 
 static bool IsAnyPalworldProcessRunning()
     => IsProcessRunning("PalServer") || IsProcessRunning("PalServer-Win64-Shipping-Cmd");

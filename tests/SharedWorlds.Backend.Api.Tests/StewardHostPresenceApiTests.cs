@@ -298,12 +298,12 @@ public sealed class StewardHostPresenceApiTests
     {
         public SharedWorldHostPresence? Presence { get; private set; }
 
-        public Task UpsertAsync(
+        public Task<bool> TryUpsertAsync(
             SharedWorldHostPresence presence,
             CancellationToken cancellationToken = default)
         {
             Presence = presence;
-            return Task.CompletedTask;
+            return Task.FromResult(true);
         }
 
         public Task<SharedWorldHostPresence?> GetAsync(

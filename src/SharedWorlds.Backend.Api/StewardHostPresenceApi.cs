@@ -168,7 +168,7 @@ public static class StewardHostPresenceApi
             return null;
         }
 
-        return await sessions.ResolveAccessTokenAsync(accessToken, cancellationToken);
+        return await sessions.ValidateAccessTokenAsync(accessToken, cancellationToken);
     }
 
     public sealed record PublishHostPresenceRequest(

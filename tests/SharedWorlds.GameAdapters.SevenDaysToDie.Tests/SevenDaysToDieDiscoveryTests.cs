@@ -1,4 +1,5 @@
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Environment;
 
 namespace SharedWorlds.GameAdapters.SevenDaysToDie.Tests;
 
@@ -24,7 +25,7 @@ public sealed class SevenDaysToDieDiscoveryTests : IDisposable
         Directory.CreateDirectory(Path.Combine(serverLibrary, "steamapps"));
         File.WriteAllText(
             Path.Combine(clientLibrary, "steamapps", "appmanifest_251570.acf"),
-            "\"AppState\"\n{\n    \"installdir\"    \"Custom Client\"\n}");
+            "\"AppState\"\n{\n    \"installdir\"    \"Custom Client\"\n    \"buildid\"    \"12345678\"\n}");
         var serverManifest = Path.Combine(serverLibrary, "steamapps", "appmanifest_294420.acf");
         File.WriteAllText(
             serverManifest,
@@ -110,6 +111,56 @@ public sealed class SevenDaysToDieDiscoveryTests : IDisposable
         var installation = new GameInstallation("7-days-to-die:test", _root, "test");
 
         Assert.Empty(SevenDaysToDieWorldDiscovery.Discover(installation));
+    }
+
+    [Fact]
+    public void EnvironmentInspectionUsesSteamBuildIdWithoutLaunchingGame()
+    {
+        var installation = CreateSteamInstallation("87654321");
+
+        var environment = SevenDaysToDieEnvironment.Inspect(installation);
+
+        Assert.Equal(1, environment.SchemaVersion);
+        Assert.Equal("7-days-to-die", environment.AdapterId);
+        Assert.Equal("87654321", environment.GameVersion);
+        Assert.Empty(environment.Components);
+        Assert.Empty(environment.Configuration);
+    }
+
+    [Fact]
+    public void EnvironmentVerificationFailsClosedOnBuildMismatch()
+    {
+        var installation = CreateSteamInstallation("22222222");
+        var required = new EnvironmentManifest(
+            1,
+            "7-days-to-die",
+            "11111111",
+            [],
+            new Dictionary<string, string>(StringComparer.Ordinal));
+
+        var verification = SevenDaysToDieEnvironment.Verify(installation, required);
+
+        Assert.False(verification.IsReady);
+        Assert.Contains(
+            verification.Issues,
+            issue => issue.Code == "7dtd-version-mismatch");
+    }
+
+    private GameInstallation CreateSteamInstallation(string buildId)
+    {
+        var library = Path.Combine(_root, $"environment-{Guid.NewGuid():N}");
+        var root = Path.Combine(library, "steamapps", "common", "7 Days To Die");
+        Directory.CreateDirectory(root);
+        var manifest = Path.Combine(library, "steamapps", "appmanifest_251570.acf");
+        Directory.CreateDirectory(Path.GetDirectoryName(manifest)!);
+        File.WriteAllText(
+            manifest,
+            $"\"AppState\"\n{{\n    \"installdir\"    \"7 Days To Die\"\n    \"buildid\"    \"{buildId}\"\n}}");
+        return new GameInstallation(
+            "7-days-to-die:test",
+            root,
+            "steam",
+            new Dictionary<string, string>(StringComparer.Ordinal));
     }
 
     public void Dispose()

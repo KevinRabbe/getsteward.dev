@@ -146,25 +146,21 @@ public sealed class LocalWorldStorage : IWorldStorage
 
         try
         {
-            await WriteDocumentFileAsync(
-                Path.Combine(temporaryDirectory, "revision.json"),
-                StorageDocumentSchemas.StateRevision,
-                revision,
-                cancellationToken);
-
             var payloadPath = Path.Combine(temporaryDirectory, PayloadFileName);
             var payloadSha256 = await CopyPayloadWithSha256Async(
                 package,
                 payloadPath,
                 cancellationToken);
-            await File.WriteAllTextAsync(
-                Path.Combine(temporaryDirectory, PayloadSha256FileName),
-                payloadSha256,
+
+            await WriteDocumentFileAsync(
+                Path.Combine(temporaryDirectory, "revision.json"),
+                StorageDocumentSchemas.StateRevision,
+                new PersistedStateRevision(revision, payloadSha256),
                 cancellationToken);
 
-            // Publish metadata, payload, and its integrity digest together only after all three are
-            // fully written. A revision directory therefore never advertises a checksum for bytes
-            // that were not durably staged with it.
+            // The expected payload digest is inside the integrity-protected revision metadata.
+            // Publishing the staged directory therefore binds revision identity and payload bytes
+            // without a separately mutable checksum sidecar for new revisions.
             Directory.Move(temporaryDirectory, finalDirectory);
         }
         finally
@@ -177,27 +173,10 @@ public sealed class LocalWorldStorage : IWorldStorage
         WorldId worldId,
         RevisionId revisionId,
         CancellationToken cancellationToken = default)
-    {
-        var path = Path.Combine(GetStateRevisionDirectory(worldId, revisionId), "revision.json");
-        if (!File.Exists(path))
-        {
-            return null;
-        }
-
-        await using var stream = OpenRead(path);
-        var revision = await PersistedDocumentCodec.ReadAsync(
-            stream,
-            StorageDocumentSchemas.StateRevision,
-            cancellationToken);
-        EnsureRevisionStorageIdentity(
-            revision.WorldId,
-            revision.Id,
+        => (await LoadStateRevisionRecordAsync(
             worldId,
             revisionId,
-            "state revision",
-            path);
-        return revision;
-    }
+            cancellationToken))?.Revision;
 
     public async Task<Stream> OpenRevisionAsync(
         WorldId worldId,
@@ -215,52 +194,84 @@ public sealed class LocalWorldStorage : IWorldStorage
                 path);
         }
 
-        var revision = await LoadStateRevisionAsync(worldId, revisionId, cancellationToken);
-        if (revision is null)
+        var persisted = await LoadStateRevisionRecordAsync(
+            worldId,
+            revisionId,
+            cancellationToken);
+        if (persisted is null)
         {
             throw new InvalidDataException(
                 $"State revision '{revisionId}' for World '{worldId}' has payload bytes but no revision metadata.");
         }
 
-        var checksumPath = Path.Combine(revisionDirectory, PayloadSha256FileName);
-        if (!File.Exists(checksumPath))
+        if (!string.IsNullOrWhiteSpace(persisted.PayloadSha256))
         {
-            var persistedSchemaVersion = await ReadStateRevisionSchemaVersionAsync(
-                revisionDirectory,
-                cancellationToken);
-            if (persistedSchemaVersion is >= 2)
-            {
-                throw new InvalidDataException(
-                    $"State revision '{revisionId}' for World '{worldId}' is missing its required SHA-256 integrity digest.");
-            }
+            var expectedHash = ParseSha256(
+                persisted.PayloadSha256,
+                $"State revision '{revisionId}' for World '{worldId}' has an invalid metadata-bound SHA-256 integrity digest");
+            return new Sha256VerifyingReadStream(
+                OpenRead(path),
+                expectedHash,
+                $"State revision '{revisionId}' for World '{worldId}' payload");
+        }
 
-            // Pre-checksum schema 0/1 revisions remain readable for persistence compatibility.
+        // Schemas 2 and 3 predate metadata-bound payload integrity and use the legacy sidecar.
+        // Schemas 0 and 1 predate local payload checksums entirely and remain readable.
+        var persistedSchemaVersion = await ReadStateRevisionSchemaVersionAsync(
+            revisionDirectory,
+            cancellationToken);
+        if (persistedSchemaVersion is >= 4)
+        {
+            throw new InvalidDataException(
+                $"State revision '{revisionId}' for World '{worldId}' is missing its required metadata-bound SHA-256 integrity digest.");
+        }
+
+        if (persistedSchemaVersion is < 2)
+        {
             return OpenRead(path);
         }
 
+        var checksumPath = Path.Combine(revisionDirectory, PayloadSha256FileName);
+        if (!File.Exists(checksumPath))
+        {
+            throw new InvalidDataException(
+                $"State revision '{revisionId}' for World '{worldId}' is missing its required legacy SHA-256 integrity digest.");
+        }
+
         var checksumText = (await File.ReadAllTextAsync(checksumPath, cancellationToken)).Trim();
-        byte[] expectedHash;
-        try
-        {
-            expectedHash = Convert.FromHexString(checksumText);
-        }
-        catch (FormatException exception)
-        {
-            throw new InvalidDataException(
-                $"State revision '{revisionId}' for World '{worldId}' has an invalid SHA-256 integrity digest.",
-                exception);
-        }
-
-        if (expectedHash.Length != SHA256.HashSizeInBytes)
-        {
-            throw new InvalidDataException(
-                $"State revision '{revisionId}' for World '{worldId}' has an invalid SHA-256 integrity digest length.");
-        }
-
+        var legacyExpectedHash = ParseSha256(
+            checksumText,
+            $"State revision '{revisionId}' for World '{worldId}' has an invalid legacy SHA-256 integrity digest");
         return new Sha256VerifyingReadStream(
             OpenRead(path),
-            expectedHash,
+            legacyExpectedHash,
             $"State revision '{revisionId}' for World '{worldId}' payload");
+    }
+
+    private async Task<PersistedStateRevision?> LoadStateRevisionRecordAsync(
+        WorldId worldId,
+        RevisionId revisionId,
+        CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(GetStateRevisionDirectory(worldId, revisionId), "revision.json");
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        await using var stream = OpenRead(path);
+        var persisted = await PersistedDocumentCodec.ReadAsync(
+            stream,
+            StorageDocumentSchemas.StateRevision,
+            cancellationToken);
+        EnsureRevisionStorageIdentity(
+            persisted.Revision.WorldId,
+            persisted.Revision.Id,
+            worldId,
+            revisionId,
+            "state revision",
+            path);
+        return persisted;
     }
 
     private static async Task<int?> ReadStateRevisionSchemaVersionAsync(
@@ -334,6 +345,26 @@ public sealed class LocalWorldStorage : IWorldStorage
 
         await output.FlushAsync(cancellationToken);
         return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    private static byte[] ParseSha256(string text, string errorPrefix)
+    {
+        byte[] expectedHash;
+        try
+        {
+            expectedHash = Convert.FromHexString(text);
+        }
+        catch (FormatException exception)
+        {
+            throw new InvalidDataException($"{errorPrefix}.", exception);
+        }
+
+        if (expectedHash.Length != SHA256.HashSizeInBytes)
+        {
+            throw new InvalidDataException($"{errorPrefix} length.");
+        }
+
+        return expectedHash;
     }
 
     private static void EnsureWorldStorageIdentity(

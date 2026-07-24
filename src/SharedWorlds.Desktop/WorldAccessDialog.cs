@@ -108,6 +108,9 @@ internal sealed class WorldAccessDialog : Window
         memberItemStyle.Setters.Add(new Setter(
             AutomationProperties.NameProperty,
             new Binding(nameof(MemberRow.DisplayText))));
+        memberItemStyle.Setters.Add(new Setter(
+            FrameworkElement.FocusVisualStyleProperty,
+            FindResource("StewardFocusVisualStyle")));
         _members.ItemContainerStyle = memberItemStyle;
         Grid.SetRow(_members, 2);
         root.Children.Add(_members);

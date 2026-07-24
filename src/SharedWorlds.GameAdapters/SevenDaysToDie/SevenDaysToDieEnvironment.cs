@@ -316,6 +316,6 @@ internal static partial class SevenDaysToDieEnvironment
         return fullRoot;
     }
 
-    [GeneratedRegex("\"buildid\"\s+\"([^\"]+)\"", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex("\"buildid\"\\s+\"([^\"]+)\"", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex SteamBuildIdRegex();
 }

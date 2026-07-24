@@ -8,7 +8,7 @@ public partial class MainWindow
 {
     private readonly Button _invitationsButton = new()
     {
-        Content = "Invites",
+        Content = DesktopText.Invites,
         Padding = new Thickness(12, 6, 12, 6),
         MinHeight = 32,
         Margin = new Thickness(0, 0, 8, 0)
@@ -23,7 +23,7 @@ public partial class MainWindow
         }
 
         _worldInvitationsUiInitialized = true;
-        AutomationProperties.SetName(_invitationsButton, "Shared World invitations");
+        AutomationProperties.SetName(_invitationsButton, DesktopText.SharedWorldInvitations);
         _invitationsButton.Click += InvitationsButton_Click;
 
         if (RefreshButton.Parent is Grid header)
@@ -73,7 +73,7 @@ public partial class MainWindow
         if (remote is null)
         {
             SetInvitationsActionState(
-                "Invites",
+                DesktopText.Invites,
                 false,
                 "Connect authenticated Steward to view invitations.");
             return;
@@ -83,8 +83,8 @@ public partial class MainWindow
         {
             var invitations = await remote.Access.ListPendingInvitationsAsync(cancellationToken);
             var content = invitations.Count == 0
-                ? "Invites"
-                : $"Invites ({invitations.Count})";
+                ? DesktopText.Invites
+                : $"{DesktopText.Invites} ({invitations.Count})";
             var helpText = invitations.Count == 0
                 ? "No pending shared World invitations."
                 : $"{invitations.Count} pending shared World invitation{(invitations.Count == 1 ? string.Empty : "s")}.";
@@ -93,7 +93,7 @@ public partial class MainWindow
         catch (Exception exception) when (IsRemoteAvailabilityFailure(exception))
         {
             SetInvitationsActionState(
-                "Invites",
+                DesktopText.Invites,
                 false,
                 "Steward could not load invitations. Reconnect the shared service and try again.");
         }

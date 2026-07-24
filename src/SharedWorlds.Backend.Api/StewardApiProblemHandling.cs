@@ -28,8 +28,10 @@ public static class StewardApiProblemHandling
                 await StewardApiResults.Problem(
                         StatusCodes.Status503ServiceUnavailable,
                         "IdentityProviderUnavailable",
-                        "External identity verification is temporarily unavailable.",
-                        retryable: true,
+                        exception.Retryable
+                            ? "External identity verification is temporarily unavailable."
+                            : "External identity verification is not configured for this deployment.",
+                        retryable: exception.Retryable,
                         context.TraceIdentifier)
                     .ExecuteAsync(context);
             }

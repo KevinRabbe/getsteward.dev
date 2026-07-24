@@ -1,3 +1,4 @@
+using System.Text.Json;
 using SharedWorlds.Backend.Identity;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
@@ -94,6 +95,8 @@ public sealed record SharedCurrentRevisionMetadata(
 /// </summary>
 public sealed class SharedRevisionMetadataService
 {
+    private const int MaximumManifestBytes = 4 * 1024 * 1024;
+
     private readonly ISharedWorldMetadataStore _worldStore;
     private readonly ISharedRevisionMetadataStore _revisionStore;
 
@@ -345,15 +348,33 @@ public sealed class SharedRevisionMetadataService
     }
 
     private static bool IsValidManifest(EnvironmentManifest manifest)
-        => manifest.SchemaVersion > 0 &&
-           !string.IsNullOrWhiteSpace(manifest.AdapterId) &&
-           !string.IsNullOrWhiteSpace(manifest.GameVersion) &&
-           manifest.Components is not null &&
-           manifest.Configuration is not null &&
-           manifest.Components.All(component =>
-               component is not null &&
-               !string.IsNullOrWhiteSpace(component.Kind) &&
-               !string.IsNullOrWhiteSpace(component.Id));
+    {
+        if (manifest.SchemaVersion <= 0 ||
+            string.IsNullOrWhiteSpace(manifest.AdapterId) ||
+            string.IsNullOrWhiteSpace(manifest.GameVersion) ||
+            manifest.Components is null ||
+            manifest.Configuration is null ||
+            !manifest.Components.All(component =>
+                component is not null &&
+                !string.IsNullOrWhiteSpace(component.Kind) &&
+                !string.IsNullOrWhiteSpace(component.Id)))
+        {
+            return false;
+        }
+
+        try
+        {
+            return JsonSerializer.SerializeToUtf8Bytes(manifest).Length <= MaximumManifestBytes;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
 
     private static void ValidatePackageIntegrity(long byteSize, string sha256, string parameterName)
     {

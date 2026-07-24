@@ -27,6 +27,9 @@ public sealed record CreateSharedWorldResult(
 /// </summary>
 public sealed class SharedWorldMetadataService
 {
+    private const int MaximumAdapterIdCharacters = 256;
+    private const int MaximumDisplayNameCharacters = 512;
+
     private readonly ISharedWorldMetadataStore _store;
     private readonly Func<DateTimeOffset> _utcNow;
 
@@ -104,8 +107,16 @@ public sealed class SharedWorldMetadataService
     private static void ValidateCommand(CreateSharedWorldCommand command)
     {
         ValidateWorldId(command.WorldId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(command.AdapterId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(command.DisplayName);
+        ValidatePersistentText(
+            command.AdapterId,
+            MaximumAdapterIdCharacters,
+            "Adapter ID",
+            nameof(command));
+        ValidatePersistentText(
+            command.DisplayName,
+            MaximumDisplayNameCharacters,
+            "World display name",
+            nameof(command));
 
         if (command.CurrentStateRevisionId.Value == Guid.Empty)
         {
@@ -120,6 +131,22 @@ public sealed class SharedWorldMetadataService
             throw new ArgumentException(
                 "Environment revision cannot be empty when provided.",
                 nameof(command));
+        }
+    }
+
+    private static void ValidatePersistentText(
+        string value,
+        int maximumCharacters,
+        string fieldName,
+        string parameterName)
+    {
+        if (string.IsNullOrWhiteSpace(value) ||
+            value.Length > maximumCharacters ||
+            value.Any(char.IsControl))
+        {
+            throw new ArgumentException(
+                $"{fieldName} must be non-empty, contain no control characters, and be at most {maximumCharacters} characters.",
+                parameterName);
         }
     }
 

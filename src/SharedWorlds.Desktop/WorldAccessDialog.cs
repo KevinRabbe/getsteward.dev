@@ -17,10 +17,10 @@ internal sealed class WorldAccessDialog : Window
     private StewardRemoteIdentity _accessManager;
     private readonly ListBox _members = new();
     private readonly TextBox _inviteSteamId = new();
-    private readonly Button _inviteButton = new() { Content = "Invite", Padding = new Thickness(12, 6, 12, 6) };
-    private readonly Button _revokeButton = new() { Content = "Remove access", Padding = new Thickness(12, 6, 12, 6) };
-    private readonly Button _transferButton = new() { Content = "Make Access Manager", Padding = new Thickness(12, 6, 12, 6) };
-    private readonly Button _leaveButton = new() { Content = "Leave World", Padding = new Thickness(12, 6, 12, 6) };
+    private readonly Button _inviteButton = new() { Content = DesktopText.Invite, Padding = new Thickness(12, 6, 12, 6) };
+    private readonly Button _revokeButton = new() { Content = DesktopText.RemoveAccess, Padding = new Thickness(12, 6, 12, 6) };
+    private readonly Button _transferButton = new() { Content = DesktopText.MakeAccessManager, Padding = new Thickness(12, 6, 12, 6) };
+    private readonly Button _leaveButton = new() { Content = DesktopText.LeaveWorld, Padding = new Thickness(12, 6, 12, 6) };
     private readonly TextBlock _summary = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.78 };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.82 };
     private bool _busy;
@@ -41,7 +41,7 @@ internal sealed class WorldAccessDialog : Window
         _currentUser = currentUser;
         _accessManager = accessManager;
 
-        Title = $"Manage access — {world.Name}";
+        Title = $"{DesktopText.ManageAccess} — {world.Name}";
         Width = 560;
         Height = 500;
         MinWidth = 480;
@@ -132,7 +132,7 @@ internal sealed class WorldAccessDialog : Window
         footer.Children.Add(_status);
         var close = new Button
         {
-            Content = "Close",
+            Content = DesktopText.Close,
             Padding = new Thickness(16, 6, 16, 6),
             Margin = new Thickness(12, 0, 0, 0)
         };

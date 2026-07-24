@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="Import" xml:space="preserve">
+    <value>Import</value>
+  </data>
+  <data name="Refresh" xml:space="preserve">
+    <value>Refresh</value>
+  </data>
+  <data name="BackToWorlds" xml:space="preserve">
+    <value>Back to Worlds</value>
+  </data>
+  <data name="StartWorld" xml:space="preserve">
+    <value>Start World</value>
+  </data>
+  <data name="HostWorld" xml:space="preserve">
+    <value>Host World</value>
+  </data>
+  <data name="StopAndSave" xml:space="preserve">
+    <value>Stop and Save</value>
+  </data>
+  <data name="ShareWorld" xml:space="preserve">
+    <value>Share World</value>
+  </data>
+  <data name="VerifyEnvironment" xml:space="preserve">
+    <value>Verify Environment</value>
+  </data>
+  <data name="Repair" xml:space="preserve">
+    <value>Repair</value>
+  </data>
+  <data name="OpenSteward" xml:space="preserve">
+    <value>Open Steward</value>
+  </data>
+  <data name="QuitSteward" xml:space="preserve">
+    <value>Quit Steward</value>
+  </data>
+</root>

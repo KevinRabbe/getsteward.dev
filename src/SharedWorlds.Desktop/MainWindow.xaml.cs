@@ -191,11 +191,13 @@ public partial class MainWindow : Window
 
     private void UpdateHostingPreferenceText()
         => HostingPreferenceText.Text = _deviceSettings.AllowHosting
-            ? "This device may host Worlds."
-            : "Hosting is disabled on this device.";
+            ? DesktopText.HostingAllowedOnDevice
+            : DesktopText.HostingDisabledOnDevice;
 
     private static string FormatSharingMode(WorldSharingMode sharingMode)
-        => sharingMode == WorldSharingMode.LocalOnly ? "Only on this PC" : "Shared";
+        => sharingMode == WorldSharingMode.LocalOnly
+            ? DesktopText.OnlyOnThisPc
+            : DesktopText.Shared;
 
     private static UserIdentity GetLocalUser()
         => new(

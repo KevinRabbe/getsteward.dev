@@ -7,7 +7,7 @@ public sealed class SevenDaysToDieAdapter : IGameAdapter
 {
     public string Id => "7-days-to-die";
     public string DisplayName => "7 Days to Die";
-    public GameAdapterCapabilities Capabilities => GameAdapterCapabilities.None;
+    public GameAdapterCapabilities Capabilities => GameAdapterCapabilities.ExactGameVersion;
 
     public Task<IReadOnlyList<GameInstallation>> DiscoverInstallationsAsync(CancellationToken cancellationToken = default)
     {
@@ -21,8 +21,24 @@ public sealed class SevenDaysToDieAdapter : IGameAdapter
         return Task.FromResult(SevenDaysToDieWorldDiscovery.Discover(installation));
     }
 
-    public Task<EnvironmentManifest> InspectEnvironmentAsync(GameInstallation installation, DetectedWorld world, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    public Task<EnvironmentManifest> InspectEnvironmentAsync(
+        GameInstallation installation,
+        DetectedWorld world,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(SevenDaysToDieEnvironment.Inspect(installation));
+    }
+
+    public Task<EnvironmentVerificationReport> VerifyEnvironmentAsync(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(SevenDaysToDieEnvironment.Verify(installation, requiredEnvironment));
+    }
 
     public Task<CapturedState> CaptureDetectedWorldAsync(GameInstallation installation, DetectedWorld world, CancellationToken cancellationToken = default)
         => throw new NotImplementedException();

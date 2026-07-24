@@ -81,6 +81,69 @@ public sealed class ProjectZomboidWorldStateTests : IDisposable
     }
 
     [Fact]
+    public async Task CaptureRejectsLinkedWorldDirectoryInsteadOfFollowingOutsideWorld()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var userData = CreateServerBundle("linked-world");
+        var worldPath = Path.Combine(userData, "Saves", "Multiplayer", "linked-world");
+        var outside = Path.Combine(_root, "outside-linked-pz-world");
+        Directory.CreateDirectory(outside);
+        await File.WriteAllBytesAsync(Path.Combine(outside, "outside.bin"), [9, 9, 9]);
+
+        var linkedDirectory = Path.Combine(worldPath, "LinkedOutside");
+        Directory.CreateSymbolicLink(linkedDirectory, outside);
+        try
+        {
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                ProjectZomboidWorldState.CaptureDetectedWorldAsync(
+                    Installation(userData),
+                    new DetectedWorld(worldPath, "linked-world", worldPath),
+                    CancellationToken.None));
+
+            Assert.Contains("linked or reparse-point", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(linkedDirectory);
+        }
+    }
+
+    [Fact]
+    public async Task CaptureRejectsLinkedServerConfiguration()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var userData = CreateServerBundle("linked-config");
+        var worldPath = Path.Combine(userData, "Saves", "Multiplayer", "linked-config");
+        var configPath = Path.Combine(userData, "Server", "linked-config.ini");
+        var outsideConfig = Path.Combine(_root, "outside-linked-config.ini");
+        await File.WriteAllTextAsync(outsideConfig, "PublicName=Outside");
+        File.Delete(configPath);
+        File.CreateSymbolicLink(configPath, outsideConfig);
+        try
+        {
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                ProjectZomboidWorldState.CaptureDetectedWorldAsync(
+                    Installation(userData),
+                    new DetectedWorld(worldPath, "linked-config", worldPath),
+                    CancellationToken.None));
+
+            Assert.Contains("linked or reparse-point", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
+    [Fact]
     public async Task RestoreRejectsAdditionalServerPresetBeforeReplacingWorkspace()
     {
         var package = Path.Combine(_root, "multiple-server-presets.zip");

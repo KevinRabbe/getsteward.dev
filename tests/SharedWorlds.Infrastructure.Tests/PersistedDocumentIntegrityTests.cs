@@ -115,7 +115,13 @@ public sealed class PersistedDocumentIntegrityTests : IDisposable
 
         var loaded = await storage.LoadWorldAsync(world.Id);
 
-        Assert.Equal(world, loaded);
+        Assert.NotNull(loaded);
+        Assert.Equal(world.Id, loaded.Id);
+        Assert.Equal(world.Name, loaded.Name);
+        Assert.Equal(world.GameAdapterId, loaded.GameAdapterId);
+        Assert.Equal(world.CurrentEnvironmentRevisionId, loaded.CurrentEnvironmentRevisionId);
+        Assert.Equal(world.CurrentStateRevisionId, loaded.CurrentStateRevisionId);
+        Assert.Equal(world.Members.ToArray(), loaded.Members.ToArray());
     }
 
     [Fact]

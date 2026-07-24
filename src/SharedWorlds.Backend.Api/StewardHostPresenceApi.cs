@@ -47,7 +47,7 @@ public static class StewardHostPresenceApi
         try
         {
             var status = await hostPresence.PublishAsync(
-                ToIdentityRef(caller.Identity),
+                caller.Identity,
                 caller.InstallationId,
                 new WorldId(worldId),
                 request.ReservationSessionId,
@@ -92,7 +92,7 @@ public static class StewardHostPresenceApi
         }
 
         var presence = await hostPresence.GetVisibleAsync(
-            ToIdentityRef(caller.Identity),
+            caller.Identity,
             new WorldId(worldId),
             cancellationToken);
         if (presence is null)
@@ -140,7 +140,7 @@ public static class StewardHostPresenceApi
         }
 
         var deleted = await hostPresence.ClearAsync(
-            ToIdentityRef(caller.Identity),
+            caller.Identity,
             new WorldId(worldId),
             sessionId,
             generation,
@@ -170,9 +170,6 @@ public static class StewardHostPresenceApi
 
         return await sessions.ResolveAccessTokenAsync(accessToken, cancellationToken);
     }
-
-    private static ExternalIdentityRef ToIdentityRef(VerifiedExternalIdentity identity)
-        => new(identity.Provider, identity.ExternalId);
 
     public sealed record PublishHostPresenceRequest(
         Guid ReservationSessionId,

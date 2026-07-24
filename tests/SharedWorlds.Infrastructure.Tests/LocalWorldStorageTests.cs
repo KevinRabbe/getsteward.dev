@@ -219,14 +219,12 @@ public sealed class LocalWorldStorageTests : IDisposable
         Directory.CreateDirectory(revisionDirectory);
         var expected = Encoding.UTF8.GetBytes("legacy-state");
 
-        var legacyJson = JsonSerializer.Serialize(
-            new
-            {
-                documentType = "sharedworlds.state-revision",
-                schemaVersion = 1,
-                payload = revision
-            },
-            PersistedDocumentCodec.JsonOptions);
+        var legacyJson = JsonSerializer.Serialize(new
+        {
+            documentType = "sharedworlds.state-revision",
+            schemaVersion = 1,
+            payload = revision
+        });
         await File.WriteAllTextAsync(
             Path.Combine(revisionDirectory, "revision.json"),
             legacyJson);

@@ -7,7 +7,9 @@ internal sealed class Sha256VerifyingReadStream : Stream
     private readonly Stream _inner;
     private readonly byte[] _expectedHash;
     private readonly string _description;
+    private readonly long _expectedLength;
     private readonly IncrementalHash _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+    private long _observedBytes;
     private InvalidDataException? _integrityFailure;
     private bool _verified;
     private bool _disposed;
@@ -20,9 +22,18 @@ internal sealed class Sha256VerifyingReadStream : Stream
         ArgumentNullException.ThrowIfNull(inner);
         ArgumentNullException.ThrowIfNull(expectedHash);
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        if (!inner.CanRead)
+        if (!inner.CanRead || !inner.CanSeek)
         {
-            throw new ArgumentException("The wrapped stream must be readable.", nameof(inner));
+            throw new ArgumentException(
+                "The wrapped stream must be readable and seekable for integrity verification.",
+                nameof(inner));
+        }
+
+        if (inner.Position != 0)
+        {
+            throw new ArgumentException(
+                "The wrapped stream must be positioned at byte 0 for integrity verification.",
+                nameof(inner));
         }
 
         if (expectedHash.Length != SHA256.HashSizeInBytes)
@@ -33,16 +44,17 @@ internal sealed class Sha256VerifyingReadStream : Stream
         _inner = inner;
         _expectedHash = expectedHash.ToArray();
         _description = description;
+        _expectedLength = inner.Length;
     }
 
     public override bool CanRead => !_disposed && _inner.CanRead;
     public override bool CanSeek => false;
     public override bool CanWrite => false;
-    public override long Length => _inner.Length;
+    public override long Length => _expectedLength;
 
     public override long Position
     {
-        get => _inner.Position;
+        get => _observedBytes;
         set => throw new NotSupportedException();
     }
 
@@ -125,22 +137,52 @@ internal sealed class Sha256VerifyingReadStream : Stream
             throw _integrityFailure;
         }
 
-        if (bytes.Length > 0)
+        if (_verified)
         {
-            if (_verified)
+            if (bytes.Length == 0)
             {
-                throw new InvalidOperationException(
-                    "Cannot read additional bytes after SHA-256 verification completed.");
+                return;
             }
 
-            _hash.AppendData(bytes);
+            throw new InvalidOperationException(
+                "Cannot read additional bytes after SHA-256 verification completed.");
+        }
+
+        if (bytes.Length == 0)
+        {
+            if (_observedBytes != _expectedLength)
+            {
+                FailIntegrity(
+                    $"{_description} ended after {_observedBytes} bytes, expected {_expectedLength} bytes.");
+            }
+
+            Verify();
             return;
         }
 
-        VerifyAtEndOfStream();
+        try
+        {
+            _observedBytes = checked(_observedBytes + bytes.Length);
+        }
+        catch (OverflowException)
+        {
+            FailIntegrity($"{_description} exceeded its expected byte length.");
+        }
+
+        if (_observedBytes > _expectedLength)
+        {
+            FailIntegrity(
+                $"{_description} exceeded its expected length of {_expectedLength} bytes.");
+        }
+
+        _hash.AppendData(bytes);
+        if (_observedBytes == _expectedLength)
+        {
+            Verify();
+        }
     }
 
-    private void VerifyAtEndOfStream()
+    private void Verify()
     {
         if (_verified)
         {
@@ -150,11 +192,15 @@ internal sealed class Sha256VerifyingReadStream : Stream
         var actualHash = _hash.GetHashAndReset();
         if (!CryptographicOperations.FixedTimeEquals(actualHash, _expectedHash))
         {
-            _integrityFailure = new InvalidDataException(
-                $"{_description} failed SHA-256 integrity verification.");
-            throw _integrityFailure;
+            FailIntegrity($"{_description} failed SHA-256 integrity verification.");
         }
 
         _verified = true;
+    }
+
+    private void FailIntegrity(string message)
+    {
+        _integrityFailure = new InvalidDataException(message);
+        throw _integrityFailure;
     }
 }

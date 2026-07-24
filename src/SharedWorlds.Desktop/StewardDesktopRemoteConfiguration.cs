@@ -1,4 +1,5 @@
 using System.Globalization;
+using SharedWorlds.Infrastructure.Remote;
 
 namespace SharedWorlds.Desktop;
 
@@ -34,11 +35,14 @@ internal sealed record StewardDesktopRemoteConfiguration(
             return false;
         }
 
-        if (!Uri.TryCreate(apiText, UriKind.Absolute, out var apiBaseAddress) ||
-            apiBaseAddress.Scheme is not ("http" or "https"))
+        if (!Uri.TryCreate(apiText, UriKind.Absolute, out var parsedApiBaseAddress) ||
+            !StewardRemoteEndpointPolicy.TryNormalizeApiBaseAddress(
+                parsedApiBaseAddress,
+                out var apiBaseAddress) ||
+            apiBaseAddress is null)
         {
             configuration = null;
-            problem = $"{ApiBaseAddressVariable} must be an absolute HTTP or HTTPS URI.";
+            problem = $"{ApiBaseAddressVariable} must use HTTPS. Plain HTTP is allowed only for a loopback development endpoint.";
             return false;
         }
 

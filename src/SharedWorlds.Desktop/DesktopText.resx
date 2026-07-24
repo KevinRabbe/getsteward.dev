@@ -60,12 +60,6 @@
   <data name="ContinueFromLastSafeState" xml:space="preserve">
     <value>Continue from last safe state</value>
   </data>
-  <data name="RecoverChanges" xml:space="preserve">
-    <value>Recover changes</value>
-  </data>
-  <data name="DiscardInterruptedSession" xml:space="preserve">
-    <value>Discard interrupted session</value>
-  </data>
   <data name="RetryCleanup" xml:space="preserve">
     <value>Retry cleanup</value>
   </data>

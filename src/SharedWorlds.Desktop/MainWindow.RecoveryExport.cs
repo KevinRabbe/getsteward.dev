@@ -1,5 +1,4 @@
 using System.IO;
-using System.IO.Compression;
 using System.Windows;
 using Microsoft.Win32;
 using SharedWorlds.Core.Domain;
@@ -94,11 +93,7 @@ public partial class MainWindow
                 {
                     await Task.Run(() =>
                     {
-                        ZipFile.CreateFromDirectory(
-                            sourceDirectory,
-                            temporaryPath,
-                            CompressionLevel.Optimal,
-                            includeBaseDirectory: false);
+                        RecoveryWorkspaceArchive.Create(sourceDirectory, temporaryPath);
                         File.Move(temporaryPath, destinationPath, overwrite: true);
                     });
                 }

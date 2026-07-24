@@ -1,3 +1,4 @@
+using System.Windows.Automation;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
 using SharedWorlds.Core.Worlds;
@@ -131,6 +132,7 @@ public partial class MainWindow
             EnvironmentReadinessText.Text = string.Empty;
             VerifyEnvironmentButton.IsEnabled = false;
             RepairEnvironmentButton.IsEnabled = false;
+            SetEnvironmentActionHelp("Select a World.", "Select a World.");
             UpdateUnifiedActionState();
             return;
         }
@@ -140,15 +142,16 @@ public partial class MainWindow
             EnvironmentReadinessText.Text =
                 "Authenticated Steward authority is not connected. Verification and repair are blocked so this device cannot act on stale local shared-World metadata.";
             VerifyEnvironmentButton.IsEnabled = false;
-            VerifyEnvironmentButton.ToolTip = "Reconnect Steward to load the canonical shared environment first.";
             RepairEnvironmentButton.IsEnabled = false;
-            RepairEnvironmentButton.ToolTip = "Reconnect Steward before repair.";
+            SetEnvironmentActionHelp(
+                "Reconnect Steward to load the canonical shared environment first.",
+                "Reconnect Steward before repair.");
             UpdateUnifiedActionState();
             return;
         }
 
         VerifyEnvironmentButton.IsEnabled = !_isBusy;
-        VerifyEnvironmentButton.ToolTip = "Verify this device against the World's canonical environment.";
+        const string verifyHelp = "Verify this device against the World's canonical environment.";
 
         var verification = GetEnvironmentVerificationFor(world);
         if (verification is null)
@@ -156,7 +159,7 @@ public partial class MainWindow
             EnvironmentReadinessText.Text =
                 "Not checked yet. Verify tests the same exact environment reproduction path used before play without launching the game or changing the World.";
             RepairEnvironmentButton.IsEnabled = false;
-            RepairEnvironmentButton.ToolTip = "Run Verify first.";
+            SetEnvironmentActionHelp(verifyHelp, "Run Verify first.");
             UpdateUnifiedActionState();
             return;
         }
@@ -166,7 +169,7 @@ public partial class MainWindow
             EnvironmentReadinessText.Text =
                 "Ready. This device can reproduce the World's exact game version, mods and recorded environment requirements.";
             RepairEnvironmentButton.IsEnabled = false;
-            RepairEnvironmentButton.ToolTip = "No repair is needed.";
+            SetEnvironmentActionHelp(verifyHelp, "No repair is needed.");
             UpdateUnifiedActionState();
             return;
         }
@@ -176,9 +179,19 @@ public partial class MainWindow
             verification.Issues.Select(issue => $"• {issue.Message}"));
         EnvironmentReadinessText.Text = issueText;
         RepairEnvironmentButton.IsEnabled = !_isBusy && verification.CanRepairAutomatically;
-        RepairEnvironmentButton.ToolTip = verification.CanRepairAutomatically
-            ? "Apply only adapter-defined safe local repairs, then verify again."
-            : "Steward does not have a safe automatic repair for this problem yet.";
+        SetEnvironmentActionHelp(
+            verifyHelp,
+            verification.CanRepairAutomatically
+                ? "Apply only adapter-defined safe local repairs, then verify again."
+                : "Steward does not have a safe automatic repair for this problem yet.");
         UpdateUnifiedActionState();
+    }
+
+    private void SetEnvironmentActionHelp(string verifyHelp, string repairHelp)
+    {
+        VerifyEnvironmentButton.ToolTip = verifyHelp;
+        RepairEnvironmentButton.ToolTip = repairHelp;
+        AutomationProperties.SetHelpText(VerifyEnvironmentButton, verifyHelp);
+        AutomationProperties.SetHelpText(RepairEnvironmentButton, repairHelp);
     }
 }

@@ -1,4 +1,5 @@
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Environment;
 
 namespace SharedWorlds.GameAdapters.ProjectZomboid.Tests;
 
@@ -27,7 +28,7 @@ public sealed class ProjectZomboidDiscoveryTests : IDisposable
         var serverManifest = Path.Combine(serverLibrary, "steamapps", "appmanifest_380870.acf");
         File.WriteAllText(
             serverManifest,
-            "\"AppState\"\n{\n    \"installdir\"    \"Custom PZ Server\"\n}");
+            "\"AppState\"\n{\n    \"installdir\"    \"Custom PZ Server\"\n    \"buildid\"    \"87654321\"\n}");
 
         var userData = Path.Combine(_root, "Zomboid");
         var installations = ProjectZomboidInstallationDiscovery.DiscoverFromSteamLibraries(
@@ -115,6 +116,78 @@ public sealed class ProjectZomboidDiscoveryTests : IDisposable
         var installation = new GameInstallation("project-zomboid:test", _root, "test");
 
         Assert.Empty(ProjectZomboidWorldDiscovery.Discover(installation));
+    }
+
+    [Fact]
+    public void EnvironmentInspectionUsesDedicatedServerSteamBuildId()
+    {
+        var installation = CreateInstallationWithDedicatedServerBuild("87654321");
+
+        var environment = ProjectZomboidEnvironment.Inspect(installation);
+
+        Assert.Equal(1, environment.SchemaVersion);
+        Assert.Equal("project-zomboid", environment.AdapterId);
+        Assert.Equal("87654321", environment.GameVersion);
+        Assert.Empty(environment.Components);
+        Assert.Empty(environment.Configuration);
+    }
+
+    [Fact]
+    public void EnvironmentInspectionFailsClosedWithoutDedicatedServerManifest()
+    {
+        var installation = new GameInstallation(
+            "project-zomboid:test",
+            _root,
+            "steam",
+            new Dictionary<string, string>(StringComparer.Ordinal));
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            ProjectZomboidEnvironment.Inspect(installation));
+
+        Assert.Contains("Dedicated Server", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EnvironmentVerificationFailsClosedOnDedicatedServerBuildMismatch()
+    {
+        var installation = CreateInstallationWithDedicatedServerBuild("22222222");
+        var required = new EnvironmentManifest(
+            1,
+            "project-zomboid",
+            "11111111",
+            [],
+            new Dictionary<string, string>(StringComparer.Ordinal));
+
+        var verification = ProjectZomboidEnvironment.Verify(installation, required);
+
+        Assert.False(verification.IsReady);
+        Assert.Contains(
+            verification.Issues,
+            issue => issue.Code == "project-zomboid-version-mismatch");
+    }
+
+    private GameInstallation CreateInstallationWithDedicatedServerBuild(string buildId)
+    {
+        var library = Path.Combine(_root, $"environment-{Guid.NewGuid():N}");
+        var clientRoot = Path.Combine(library, "steamapps", "common", "ProjectZomboid");
+        var serverRoot = Path.Combine(library, "steamapps", "common", "Project Zomboid Dedicated Server");
+        Directory.CreateDirectory(clientRoot);
+        Directory.CreateDirectory(serverRoot);
+        var manifest = Path.Combine(library, "steamapps", "appmanifest_380870.acf");
+        Directory.CreateDirectory(Path.GetDirectoryName(manifest)!);
+        File.WriteAllText(
+            manifest,
+            $"\"AppState\"\n{{\n    \"installdir\"    \"Project Zomboid Dedicated Server\"\n    \"buildid\"    \"{buildId}\"\n}}");
+        return new GameInstallation(
+            "project-zomboid:test",
+            clientRoot,
+            "steam",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [ProjectZomboidInstallationDiscovery.DedicatedServerRootPathKey] = serverRoot,
+                [ProjectZomboidInstallationDiscovery.DedicatedServerManifestPathKey] = manifest,
+                [ProjectZomboidInstallationDiscovery.DedicatedServerInstallStateKey] = "installed"
+            });
     }
 
     public void Dispose()

@@ -16,9 +16,20 @@ public sealed record S3CompatibleObjectStoreOptions
             throw new ArgumentException("S3 service URL must be absolute.", nameof(serviceUrl));
         }
 
-        if (serviceUrl.Scheme is not ("https" or "http"))
+        var usesHttps = string.Equals(
+            serviceUrl.Scheme,
+            Uri.UriSchemeHttps,
+            StringComparison.OrdinalIgnoreCase);
+        var usesLoopbackHttp = string.Equals(
+                                   serviceUrl.Scheme,
+                                   Uri.UriSchemeHttp,
+                                   StringComparison.OrdinalIgnoreCase) &&
+                               serviceUrl.IsLoopback;
+        if (!usesHttps && !usesLoopbackHttp)
         {
-            throw new ArgumentException("S3 service URL must use HTTP or HTTPS.", nameof(serviceUrl));
+            throw new ArgumentException(
+                "S3 service URL must use HTTPS. Plain HTTP is allowed only for loopback development endpoints.",
+                nameof(serviceUrl));
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(authenticationRegion);

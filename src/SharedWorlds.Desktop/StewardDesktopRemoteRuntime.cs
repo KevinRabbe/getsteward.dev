@@ -94,7 +94,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         ArgumentNullException.ThrowIfNull(recoveryStore);
         ArgumentNullException.ThrowIfNull(lifecycleObserver);
 
-        var normalizedBaseAddress = NormalizeApiBaseAddress(apiBaseAddress);
+        var normalizedBaseAddress = StewardRemoteEndpointPolicy.NormalizeApiBaseAddress(apiBaseAddress);
         var apiClient = new HttpClient
         {
             BaseAddress = normalizedBaseAddress,
@@ -204,21 +204,5 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         _accessSession.Dispose();
         _transferClient.Dispose();
         _apiClient.Dispose();
-    }
-
-    private static Uri NormalizeApiBaseAddress(Uri apiBaseAddress)
-    {
-        if (!apiBaseAddress.IsAbsoluteUri ||
-            apiBaseAddress.Scheme is not ("http" or "https"))
-        {
-            throw new ArgumentException(
-                "Steward API base address must be an absolute HTTP or HTTPS URI.",
-                nameof(apiBaseAddress));
-        }
-
-        var absolute = apiBaseAddress.AbsoluteUri;
-        return absolute.EndsWith("/", StringComparison.Ordinal)
-            ? apiBaseAddress
-            : new Uri(absolute + '/', UriKind.Absolute);
     }
 }

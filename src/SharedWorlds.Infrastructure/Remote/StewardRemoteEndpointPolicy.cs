@@ -27,7 +27,7 @@ public static class StewardRemoteEndpointPolicy
         }
 
         var absolute = apiBaseAddress.AbsoluteUri;
-        normalizedBaseAddress = absolute.EndsWith('/', StringComparison.Ordinal)
+        normalizedBaseAddress = absolute.EndsWith("/", StringComparison.Ordinal)
             ? apiBaseAddress
             : new Uri(absolute + '/', UriKind.Absolute);
         return true;

@@ -12,6 +12,7 @@ internal static class FactorioModCatalog
             return [];
         }
 
+        FactorioModSettingsSafety.RequireRegularFileIfPresent(modsDirectory);
         var artifacts = new List<FactorioModArtifact>();
 
         foreach (var directory in Directory.EnumerateDirectories(modsDirectory, "*", SearchOption.TopDirectoryOnly))

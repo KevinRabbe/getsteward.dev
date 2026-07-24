@@ -7,7 +7,9 @@ public sealed class SevenDaysToDieAdapter : IGameAdapter
 {
     public string Id => "7-days-to-die";
     public string DisplayName => "7 Days to Die";
-    public GameAdapterCapabilities Capabilities => GameAdapterCapabilities.ExactGameVersion;
+    public GameAdapterCapabilities Capabilities =>
+        GameAdapterCapabilities.Mods |
+        GameAdapterCapabilities.ExactGameVersion;
 
     public Task<IReadOnlyList<GameInstallation>> DiscoverInstallationsAsync(CancellationToken cancellationToken = default)
     {

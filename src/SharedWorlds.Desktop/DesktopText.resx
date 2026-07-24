@@ -18,6 +18,12 @@
   <data name="Refresh" xml:space="preserve">
     <value>Refresh</value>
   </data>
+  <data name="Invites" xml:space="preserve">
+    <value>Invites</value>
+  </data>
+  <data name="SharedWorldInvitations" xml:space="preserve">
+    <value>Shared World invitations</value>
+  </data>
   <data name="BackToWorlds" xml:space="preserve">
     <value>Back to Worlds</value>
   </data>
@@ -62,6 +68,27 @@
   </data>
   <data name="RetryCleanup" xml:space="preserve">
     <value>Retry cleanup</value>
+  </data>
+  <data name="Accept" xml:space="preserve">
+    <value>Accept</value>
+  </data>
+  <data name="Decline" xml:space="preserve">
+    <value>Decline</value>
+  </data>
+  <data name="Invite" xml:space="preserve">
+    <value>Invite</value>
+  </data>
+  <data name="RemoveAccess" xml:space="preserve">
+    <value>Remove access</value>
+  </data>
+  <data name="MakeAccessManager" xml:space="preserve">
+    <value>Make Access Manager</value>
+  </data>
+  <data name="LeaveWorld" xml:space="preserve">
+    <value>Leave World</value>
+  </data>
+  <data name="Close" xml:space="preserve">
+    <value>Close</value>
   </data>
   <data name="VerifyEnvironment" xml:space="preserve">
     <value>Verify Environment</value>

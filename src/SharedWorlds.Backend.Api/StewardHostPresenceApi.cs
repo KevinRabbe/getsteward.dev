@@ -34,7 +34,7 @@ public static class StewardHostPresenceApi
         var caller = await AuthenticateAsync(httpRequest, sessions, cancellationToken);
         if (caller is null)
         {
-            return Results.Unauthorized();
+            return StewardApiResults.AuthenticationRequired();
         }
 
         if (request.ReservationSessionId == Guid.Empty || request.ReservationGeneration <= 0)
@@ -88,7 +88,7 @@ public static class StewardHostPresenceApi
         var caller = await AuthenticateAsync(httpRequest, sessions, cancellationToken);
         if (caller is null)
         {
-            return Results.Unauthorized();
+            return StewardApiResults.AuthenticationRequired();
         }
 
         var presence = await hostPresence.GetVisibleAsync(
@@ -126,7 +126,7 @@ public static class StewardHostPresenceApi
         var caller = await AuthenticateAsync(httpRequest, sessions, cancellationToken);
         if (caller is null)
         {
-            return Results.Unauthorized();
+            return StewardApiResults.AuthenticationRequired();
         }
 
         if (sessionId == Guid.Empty || generation <= 0)

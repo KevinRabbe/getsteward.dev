@@ -16,6 +16,7 @@ internal static partial class FactorioEnvironmentInspector
         CancellationToken cancellationToken)
     {
         var userDataPath = GetRequiredMetadata(installation, FactorioInstallationDiscovery.UserDataPathKey);
+        FactorioModSettingsSafety.RequireRegularFileIfPresent(Path.Combine(userDataPath, "mods"));
 
         var gameVersion = await ReadInstalledGameVersionAsync(installation, cancellationToken);
         var components = ReadEnabledMods(installation.RootPath, userDataPath, gameVersion);
@@ -59,7 +60,6 @@ internal static partial class FactorioEnvironmentInspector
                 CreateNoWindow = true
             }
         };
-
         process.StartInfo.ArgumentList.Add("--version");
 
         if (!process.Start())
@@ -69,7 +69,6 @@ internal static partial class FactorioEnvironmentInspector
 
         var outputTask = process.StandardOutput.ReadToEndAsync();
         var errorTask = process.StandardError.ReadToEndAsync();
-
         await process.WaitForExitAsync(cancellationToken);
         var output = await outputTask;
         var error = await errorTask;
@@ -103,7 +102,6 @@ internal static partial class FactorioEnvironmentInspector
 
         using var stream = File.OpenRead(modListPath);
         using var document = JsonDocument.Parse(stream);
-
         if (!document.RootElement.TryGetProperty("mods", out var mods) ||
             mods.ValueKind != JsonValueKind.Array)
         {

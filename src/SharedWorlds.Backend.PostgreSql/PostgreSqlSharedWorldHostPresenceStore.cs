@@ -146,17 +146,20 @@ public sealed class PostgreSqlSharedWorldHostPresenceStore : ISharedWorldHostPre
     public async Task<bool> DeleteAsync(
         WorldId worldId,
         ExternalIdentityRef holder,
+        string installationId,
         Guid sessionId,
         long generation,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(installationId);
         const string sql = """
             DELETE FROM steward_world_host_presence
             WHERE world_id = @world_id
               AND session_id = @session_id
               AND generation = @generation
               AND holder_provider = @holder_provider
-              AND holder_external_id = @holder_external_id;
+              AND holder_external_id = @holder_external_id
+              AND installation_id = @installation_id;
             """;
 
         await using var command = _dataSource.CreateCommand(sql);
@@ -165,6 +168,7 @@ public sealed class PostgreSqlSharedWorldHostPresenceStore : ISharedWorldHostPre
         command.Parameters.AddWithValue("generation", generation);
         command.Parameters.AddWithValue("holder_provider", holder.Provider);
         command.Parameters.AddWithValue("holder_external_id", holder.ExternalId);
+        command.Parameters.AddWithValue("installation_id", installationId);
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 }

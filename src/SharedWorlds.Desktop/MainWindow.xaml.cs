@@ -25,7 +25,6 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        RegisterProductAdapters();
 
         // Keep the existing local data root for persistence compatibility while the product shell
         // moves from the old SharedWorlds working name to Steward.

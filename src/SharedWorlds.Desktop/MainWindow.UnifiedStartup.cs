@@ -18,6 +18,7 @@ public partial class MainWindow
         // stays local-only; with valid configuration it authenticates through Steam and refreshes the
         // same game-first library with canonical shared Worlds.
         await InitializeStewardRemoteSessionAsync();
+        await InitializeWorldJoinUiAsync();
 
         InitializeUnifiedImportBrowser();
         InitializeResponsibilityPresentation();

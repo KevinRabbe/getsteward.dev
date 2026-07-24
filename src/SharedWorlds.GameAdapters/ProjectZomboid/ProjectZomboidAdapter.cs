@@ -7,6 +7,7 @@ public sealed class ProjectZomboidAdapter : IGameAdapter
 {
     public string Id => "project-zomboid";
     public string DisplayName => "Project Zomboid";
+
     public GameAdapterCapabilities Capabilities =>
         GameAdapterCapabilities.Mods |
         GameAdapterCapabilities.ExactGameVersion |
@@ -29,7 +30,10 @@ public sealed class ProjectZomboidAdapter : IGameAdapter
         DetectedWorld world,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(installation);
+        ArgumentNullException.ThrowIfNull(world);
         cancellationToken.ThrowIfCancellationRequested();
+        ProjectZomboidWorkshopPathGuard.ValidateConfiguredWorkshopItems(installation, world);
         return Task.FromResult(ProjectZomboidEnvironment.Inspect(installation, world));
     }
 
@@ -38,21 +42,23 @@ public sealed class ProjectZomboidAdapter : IGameAdapter
         EnvironmentManifest requiredEnvironment,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(installation);
+        ArgumentNullException.ThrowIfNull(requiredEnvironment);
         cancellationToken.ThrowIfCancellationRequested();
+        ProjectZomboidWorkshopPathGuard.ValidateRequiredWorkshopItems(
+            installation,
+            requiredEnvironment);
         return Task.FromResult(ProjectZomboidEnvironment.Verify(installation, requiredEnvironment));
     }
 
-    public async Task<CapturedState> CaptureDetectedWorldAsync(
+    public Task<CapturedState> CaptureDetectedWorldAsync(
         GameInstallation installation,
         DetectedWorld world,
         CancellationToken cancellationToken = default)
-    {
-        var captured = await ProjectZomboidWorldState.CaptureDetectedWorldAsync(
+        => ProjectZomboidWorldState.CaptureDetectedWorldAsync(
             installation,
             world,
             cancellationToken);
-        return captured with { DeletePackageAfterStore = true };
-    }
 
     public Task<PreparedWorld> PrepareEnvironmentAsync(
         GameInstallation installation,
@@ -63,13 +69,10 @@ public sealed class ProjectZomboidAdapter : IGameAdapter
         return Task.FromResult(ProjectZomboidWorldState.PrepareEnvironment(installation, requiredEnvironment));
     }
 
-    public async Task<CapturedState> CaptureStateAsync(
+    public Task<CapturedState> CaptureStateAsync(
         PreparedWorld world,
         CancellationToken cancellationToken = default)
-    {
-        var captured = await ProjectZomboidWorldState.CapturePreparedWorldAsync(world, cancellationToken);
-        return captured with { DeletePackageAfterStore = true };
-    }
+        => ProjectZomboidWorldState.CapturePreparedWorldAsync(world, cancellationToken);
 
     public Task RestoreStateAsync(
         PreparedWorld world,

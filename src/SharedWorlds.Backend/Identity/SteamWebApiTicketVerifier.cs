@@ -40,21 +40,31 @@ public sealed record SteamWebApiTicketVerifierOptions
 
 public sealed class ExternalIdentityProviderException : Exception
 {
-    public ExternalIdentityProviderException(string provider, string message)
+    public ExternalIdentityProviderException(
+        string provider,
+        string message,
+        bool retryable = true)
         : base(message)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(provider);
         Provider = provider;
+        Retryable = retryable;
     }
 
-    public ExternalIdentityProviderException(string provider, string message, Exception innerException)
+    public ExternalIdentityProviderException(
+        string provider,
+        string message,
+        Exception innerException,
+        bool retryable = true)
         : base(message, innerException)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(provider);
         Provider = provider;
+        Retryable = retryable;
     }
 
     public string Provider { get; }
+    public bool Retryable { get; }
 }
 
 /// <summary>
@@ -107,7 +117,8 @@ public sealed class SteamWebApiTicketVerifier
         {
             throw new ExternalIdentityProviderException(
                 Provider,
-                _unavailableReason ?? "Steam identity verification is unavailable.");
+                _unavailableReason ?? "Steam identity verification is unavailable.",
+                retryable: false);
         }
 
         if (!IsValidHexTicket(ticketHex))

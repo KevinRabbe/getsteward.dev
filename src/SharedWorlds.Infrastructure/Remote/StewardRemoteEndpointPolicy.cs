@@ -2,31 +2,39 @@ namespace SharedWorlds.Infrastructure.Remote;
 
 public static class StewardRemoteEndpointPolicy
 {
+    public static bool IsAllowedHttpEndpoint(Uri? endpoint)
+    {
+        if (endpoint is null || !endpoint.IsAbsoluteUri)
+        {
+            return false;
+        }
+
+        if (string.Equals(
+                endpoint.Scheme,
+                Uri.UriSchemeHttps,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return string.Equals(
+                   endpoint.Scheme,
+                   Uri.UriSchemeHttp,
+                   StringComparison.OrdinalIgnoreCase) &&
+               endpoint.IsLoopback;
+    }
+
     public static bool TryNormalizeApiBaseAddress(
         Uri? apiBaseAddress,
         out Uri? normalizedBaseAddress)
     {
         normalizedBaseAddress = null;
-        if (apiBaseAddress is null || !apiBaseAddress.IsAbsoluteUri)
+        if (!IsAllowedHttpEndpoint(apiBaseAddress))
         {
             return false;
         }
 
-        var usesHttps = string.Equals(
-            apiBaseAddress.Scheme,
-            Uri.UriSchemeHttps,
-            StringComparison.OrdinalIgnoreCase);
-        var usesLoopbackHttp = string.Equals(
-                                   apiBaseAddress.Scheme,
-                                   Uri.UriSchemeHttp,
-                                   StringComparison.OrdinalIgnoreCase) &&
-                               apiBaseAddress.IsLoopback;
-        if (!usesHttps && !usesLoopbackHttp)
-        {
-            return false;
-        }
-
-        var absolute = apiBaseAddress.AbsoluteUri;
+        var absolute = apiBaseAddress!.AbsoluteUri;
         normalizedBaseAddress = absolute.EndsWith("/", StringComparison.Ordinal)
             ? apiBaseAddress
             : new Uri(absolute + '/', UriKind.Absolute);

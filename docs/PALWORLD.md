@@ -11,105 +11,143 @@ It stresses a different path from Factorio:
 - directory-based World state;
 - server configuration selecting one World id;
 - a dedicated server process that owns the writable session;
-- player identity differences between local co-op and dedicated-server play.
+- player identity differences between local/co-op and dedicated-server play.
 
-The adapter must keep those details out of Core.
+Those details remain adapter-owned. Core does not know Palworld process names, save paths, REST ports, or save serialization.
 
-## Validated lifecycle
+## Final runtime-input invariant
 
-The following path has been validated on a real Windows Steam installation:
+`WorldOption.sav` is canonical World state. Steward treats it as **read-only**.
+
+Steward does not:
+
+- patch `WorldOption.sav`;
+- re-encode GVAS;
+- compress Oodle Mermaid output;
+- convert current `PlM` containers to legacy `PlZ`;
+- delete World-owned settings to make management easier.
+
+The proven managed-session lifecycle is:
 
 ```text
-discover Palworld client
--> discover Palworld dedicated server
--> discover local and dedicated Worlds
--> select one local World
--> copy the World directory unchanged into the dedicated-server save layout
--> configure the server to select that World id
+read canonical WorldOption.sav
+-> read effective World settings
+-> generate disposable PalWorldSettings.ini
+-> override only Steward management fields
+   - AdminPassword
+   - RESTAPIEnabled
+   - RESTAPIPort
+-> park canonical WorldOption.sav
 -> launch PalServer
--> connect through the normal Palworld client
--> preserve the original World state
+-> authenticate only through localhost
+-> verify active World and effective settings
+-> run session
+-> POST /save
+-> POST /shutdown
+-> wait for the complete Palworld process tree to exit
+-> discard the disposable runtime INI, regardless of Palworld mutations
+-> restore the untouched canonical WorldOption.sav
+-> restore the original PalWorldSettings.ini byte-for-byte
+-> verify hashes and transient-credential absence
+-> allow capture
 ```
 
-The key result is:
+A canonical input is never restored underneath a still-running Palworld process.
 
-> **The World format did not require a generic rewrite before dedicated hosting.**
+## Empirical evidence
 
-The adapter coordinates the existing Palworld client, dedicated server, save layout, and configuration instead of teaching Core about Palworld serialization.
+Real-machine acceptance on the current Windows Steam installation established:
 
-## Discovery
+- `WorldOption.sav` is startup input rather than continuously authoritative runtime configuration;
+- restoring a byte-exact copy while Palworld is running does not reapply settings;
+- Palworld does not mutate the restored `WorldOption.sav`;
+- current `PlM/0x31` WorldOption data can be decoded read-only;
+- 119 WorldOption settings were extracted structurally;
+- the generated runtime INI serialized all 119 settings;
+- 115 REST-observable World settings matched with zero mismatches and zero unexposed settings;
+- `CrossplayPlatforms` and `DenyTechnologyList` are REST JSON arrays and compare semantically, not as INI text;
+- Palworld may rewrite the disposable `PalWorldSettings.ini` during runtime;
+- that rewrite is harmless because the disposable INI remains in place until the server process tree exits;
+- `POST /save` succeeds;
+- `POST /shutdown` succeeds;
+- `PalServer.exe` and `PalServer-Win64-Shipping-Cmd.exe` both exit without forced cleanup;
+- no unexpected `WorldOption.sav` is generated while the canonical file is parked;
+- both original runtime-input files restore byte-for-byte after exit;
+- the transient management credential is absent from restored files.
+
+The authoritative capture boundary is therefore:
+
+```text
+POST /save
+-> POST /shutdown
+-> full Palworld process-tree exit
+-> restore canonical runtime inputs
+-> capture
+```
+
+## Discovery and environment
 
 The adapter identifies:
 
 - Palworld client installations;
 - Palworld dedicated-server installations;
-- local player-profile save roots;
-- dedicated-server save roots;
+- local and dedicated World roots;
 - native World ids;
 - the dedicated-server Steam app manifest when Steam exposes it;
-- the server configuration used to select the active World.
+- the server configuration selecting the active World.
 
-When the same native World appears in local and dedicated locations, discovery must not silently assume the copies are interchangeable if they may have diverged. Source preference/deduplication remains Palworld-adapter logic and must be evidence-driven.
+New imports capture the exact Palworld Dedicated Server Steam build ID from app `2394010` into `EnvironmentManifest.GameVersion`.
 
-## Exact environment
-
-New Palworld imports now capture the exact discovered **Palworld Dedicated Server Steam build ID** from app `2394010`'s Steam manifest into `EnvironmentManifest.GameVersion`.
-
-Shared writable play verifies, on Windows:
+Shared writable play verifies:
 
 - environment schema and adapter identity;
 - dedicated-server hosting mode;
-- safe native dedicated World id;
-- dedicated-server root and executable still exist;
-- the canonical environment contains an exact build ID;
-- the current dedicated-server Steam manifest exposes the same build ID;
-- PalServer has initialized its Windows server configuration;
-- `DedicatedServerName` is present in that configuration.
+- safe native World id;
+- dedicated-server root and executable;
+- an exact required build ID;
+- the installed dedicated-server build matches;
+- PalServer has initialized its Windows configuration;
+- `DedicatedServerName` exists.
 
-A legacy Palworld environment whose canonical version is still `unknown` is deliberately **Blocked** for shared writable play. Steward does not guess that whatever PalServer happens to be installed is compatible.
-
-Repair currently re-verifies only. Steward does not silently update PalServer or move the canonical environment revision.
-
-Initial **Share World** also performs this exact-environment preflight before it writes the local `Shared` authority marker or creates anything remotely. A preflight failure therefore leaves the World genuinely local rather than creating an unusable half-shared World.
+A legacy environment with version `unknown` is blocked for shared writable play. Steward does not guess compatibility or silently update PalServer.
 
 ## Preparation and restore
 
-For dedicated hosting, the adapter prepares the server World location and configures the server to select the intended native World id.
+The adapter prepares the dedicated-server World location and selects the required native World id.
 
-Canonical restore has been validated through a controlled staging/rollback flow:
+Canonical restore uses staging and validation:
 
 ```text
 open canonical package
--> stage restored World
+-> stage World
 -> validate required contents
--> replace prepared server World safely
+-> replace prepared World safely
 -> verify restored files against package bytes
 -> reject unexpected files
--> launch PalServer from restored state
 ```
 
-The original imported local source remains outside normal managed-session mutation.
+The originally imported source remains outside normal managed-session mutation.
 
-## Session observation
+## Session ownership
 
-The writable hosted session is represented by the Palworld dedicated-server process, not by one player's graphical client.
+The writable session belongs to the dedicated server, not to one graphical client.
 
-The adapter must therefore:
+The empirical process tree is:
 
-- launch and track `PalServer`;
-- determine readiness using Palworld/server-relevant signals;
-- keep the Steward World reserved while the server remains active;
-- avoid treating a client exit as server-session completion;
-- stop the server safely before final capture;
-- capture only after the server has completed its writes.
+```text
+PalServer.exe
+└─ PalServer-Win64-Shipping-Cmd.exe
+```
 
-Core must not hard-code the process name, network port, save path, or shutdown behavior.
+The Shipping process owns the REST listener. Steward waits for the complete Palworld process tree, not merely the launcher PID.
 
-### Current server-control direction
+Core exposes only the game-agnostic managed-host lifecycle. The Palworld adapter owns readiness, save, shutdown, process observation, runtime-input restoration, and abnormal-exit recovery.
 
-Palworld's current official server documentation exposes a REST management API and marks RCON deprecated. The API provides the exact small lifecycle surface Steward needs: server info/readiness, explicit World save, and graceful shutdown.
+An unexpected external/crash exit still restores user-owned runtime inputs after Palworld is gone, but it does not create a normal automatic commit. The workspace remains recovery-pending.
 
-A minimal adapter-owned REST protocol client now covers:
+## REST management
+
+The adapter uses only the minimal Palworld REST surface needed for lifecycle control:
 
 ```text
 GET  /v1/api/info
@@ -118,149 +156,72 @@ POST /v1/api/save
 POST /v1/api/shutdown
 ```
 
-with HTTP Basic authentication and no secret values in errors.
+Authentication is HTTP Basic with a random transient admin credential. Steward connects to `127.0.0.1` only and never logs the secret.
 
-The REST endpoint is still not production-wired. On the real Windows installation it binds `0.0.0.0:8212`, so endpoint isolation remains a separate production-security gate.
+The real server has been observed binding the REST listener to `0.0.0.0`. Palworld currently exposes a REST port but no documented REST bind-address setting. Network isolation therefore remains a separate deferred acceptance/security item; it is not a reason to alter the proven World lifecycle.
 
-## REST acceptance evidence
+## Current PlM decoder boundary
 
-Controlled real-machine acceptance on 2026-07-23 established:
+Current `PlM` input needs Oodle Mermaid **decompression only**. Steward contains no Oodle compression API and no WorldOption writer.
 
-- `PalServer.exe` is the launcher;
-- `PalServer-Win64-Shipping-Cmd.exe` is the real server process and owns the REST listener;
-- authenticated `/v1/api/info` identifies the intended World when the effective `AdminPassword` is configured;
-- `POST /v1/api/save` succeeds and writes canonical World files;
-- `POST /v1/api/shutdown` succeeds;
-- launcher and Shipping process exit normally without forced cleanup;
-- Palworld transaction artifacts complete before the Shipping process exits;
-- no canonical World file changed after Shipping exit;
-- post-exit hash snapshots remained stable;
-- canonical capture and restore passed byte-for-byte verification.
+Production lookup currently accepts only a usable Oodle runtime already installed beneath discovered Palworld client/server roots. It deliberately ignores the acceptance-only environment override and will not search unrelated games, download, copy, or redistribute Oodle.
 
-The empirically proven safe capture boundary is therefore:
+A legitimate ordinary-user decode path remains a release gate unless it can be eliminated entirely.
 
-```text
-POST /save
--> POST /shutdown
--> wait for Shipping process exit
--> short post-exit verification
--> capture
-```
+A deferred acceptance experiment tests a stronger alternative: let Palworld itself materialize the effective World settings from an intact disposable copy of `WorldOption.sav`, then cache/use the game-written settings representation. If that proves equivalent, Steward can remove shipped PlM/Oodle decoding instead of solving the decoder-distribution problem.
 
-A live running server does not need to become permanently quiet before shutdown. The earlier acceptance probe's `filesystemStable: false` result was a measurement-boundary defect, not evidence of writes continuing after the authoritative process had exited.
+No production dependency should be added until that choice is resolved.
 
-## WorldOption.sav management override
+## Capture and canonical commit
 
-A real migrated World contains `WorldOption.sav`, and Palworld gives that World-owned configuration precedence over the `AdminPassword` in `PalWorldSettings.ini`.
+The adapter captures the authoritative dedicated-server World directory after the proven process-exit boundary.
 
-This was proven directly:
+Validated package behavior includes:
 
-```text
-WorldOption.sav present
--> REST returns 401: AdminPassword is empty
+- required World state included;
+- server backup subtree excluded from canonical payload;
+- restore into a clean prepared location;
+- byte-for-byte verification;
+- unexpected restored files rejected;
+- required save content such as `Level.sav` verified.
 
-same WorldOption.sav reversibly renamed
--> REST authentication succeeds
--> /v1/api/info reports the expected World GUID
-```
-
-Canonical restore recreating `WorldOption.sav` is correct behavior. Steward must preserve it as World state rather than deleting or excluding it merely to gain administrative access.
-
-The remaining acceptance question is whether Steward can apply a temporary runtime-only `AdminPassword` overlay, use REST for the managed session, restore the exact original `WorldOption.sav` bytes after server exit, and capture without leaking the transient credential.
-
-### Current Palworld 1.0 container format
-
-The first overlay probe failed closed before writing because it assumed the older `PlZ` zlib save container. The real Palworld 1.0.1 `WorldOption.sav` uses the current `PlM` container instead.
-
-Current implementation therefore keeps both paths explicit:
-
-```text
-PlZ + 0x31/0x32 -> legacy zlib acceptance path
-PlM + 0x31      -> Oodle Mermaid acceptance path
-```
-
-For `PlM`, Steward does not redistribute Oodle. The acceptance tool looks only for an already-installed `oo2core_9_win64.dll` under the discovered Palworld client/server roots and fails closed if no usable runtime is present.
-
-After decompression, the payload must begin with `GVAS`. The runtime overlay still changes only the structurally validated `AdminPassword` `StrProperty`; it does not deserialize/rewrite the complete World. The patched GVAS is recompressed with Mermaid and immediately decompressed again to prove byte-for-byte round-trip before any temporary runtime file may be written.
-
-This PlM path remains **acceptance-only** until the real PalServer experiment succeeds.
-
-## Capture
-
-The adapter captures the authoritative dedicated-server World directory into a portable package.
-
-Validated behavior includes:
-
-- inclusion of the required World state;
-- exclusion of the server backup subtree from the canonical package;
-- package restore into a clean prepared location;
-- byte-for-byte verification of restored files;
-- rejection of unexpected restored files;
-- confirmation that required save content such as `Level.sav` is present.
-
-Backups generated by the game may remain useful local recovery material, but they are not automatically canonical World payload.
-
-## Canonical commit
-
-Captured Palworld state has been committed through Steward's canonical state transaction boundary.
-
-Required invariant:
+Canonical advancement remains transactional:
 
 ```text
 previous canonical state
 -> capture candidate
 -> durable immutable storage
+-> verify
 -> atomic head advancement
 ```
 
-A failed capture, store, verification, or head update leaves the previous valid state authoritative.
+Failure before head advancement leaves the previous canonical state authoritative.
 
 ## Player identity limitation
 
-Palworld may represent the same human player differently between:
+World migration and player identity migration are separate problems. Palworld may represent the same person differently between local/co-op play, dedicated-server play, Steam identity, and native player GUID files.
 
-- a local/co-op host save;
-- a dedicated-server save;
-- Steam identity;
-- Palworld's native player GUID files.
+That edge case stays Palworld-specific. It must not expand Steward's universal World model.
 
-World migration and player identity migration are separate problems.
+## Deferred acceptance queue
 
-Current status:
+Real-machine experiments are batched rather than allowed to block unrelated product work.
 
-```text
-World state migration: validated
-Generic World format rewrite: not required
-Player identity migration: unresolved Palworld-specific edge case
-```
+Current deferred items include:
 
-This limitation must remain inside the Palworld adapter or a validated Palworld-specific migration tool. It must not expand the universal World model.
+1. prove the Windows Firewall REST boundary from a genuinely external LAN peer;
+2. run the Palworld-native settings-materialization experiment to determine whether shipped PlM decoding can be eliminated.
 
-## Product acceptance criteria
-
-Palworld support is commercially ready only when it repeatedly proves:
-
-1. correct client and server discovery;
-2. correct World discovery without confusing duplicate sources;
-3. safe import that leaves the source untouched;
-4. deterministic preparation and restore;
-5. reliable server launch and readiness;
-6. background observation of the real server session;
-7. graceful explicit save/stop and safe capture;
-8. durable store, verification, and commit;
-9. recovery after interrupted capture/store;
-10. cross-device latest-state handoff;
-11. clear handling or disclosure of player identity limitations.
+Neither item justifies reopening WorldOption write/encode experiments.
 
 ## Non-goals
 
 The Palworld adapter does not require Steward to provide:
 
 - generic save merging;
-- branch or Fork workflows;
 - gameplay-semantic editing;
 - permanent game-server hosting;
-- ownership or party systems;
-- conversion of Palworld Worlds into another game's Worlds.
+- conversion into another game's World format;
+- a generic player-identity migration system.
 
 Its job is to make the latest valid Palworld World state portable, temporarily hostable, safely capturable, and ready for the next session.

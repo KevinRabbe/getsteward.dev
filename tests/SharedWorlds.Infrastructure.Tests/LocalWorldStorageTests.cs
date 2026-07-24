@@ -59,7 +59,7 @@ public sealed class LocalWorldStorageTests : IDisposable
         using var document = await JsonDocument.ParseAsync(stream);
 
         Assert.Equal("sharedworlds.world", document.RootElement.GetProperty("documentType").GetString());
-        Assert.Equal(1, document.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(2, document.RootElement.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(world.Name, document.RootElement.GetProperty("payload").GetProperty("name").GetString());
     }
 
@@ -103,7 +103,7 @@ public sealed class LocalWorldStorageTests : IDisposable
 
         Assert.Equal("sharedworlds.world", exception.DocumentType);
         Assert.Equal(999, exception.EncounteredSchemaVersion);
-        Assert.Equal(1, exception.CurrentSchemaVersion);
+        Assert.Equal(2, exception.CurrentSchemaVersion);
     }
 
     [Fact]
@@ -127,7 +127,7 @@ public sealed class LocalWorldStorageTests : IDisposable
         using (var document = await JsonDocument.ParseAsync(metadataStream))
         {
             Assert.Equal("sharedworlds.state-revision", document.RootElement.GetProperty("documentType").GetString());
-            Assert.Equal(2, document.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(3, document.RootElement.GetProperty("schemaVersion").GetInt32());
         }
 
         var checksumPath = Path.Combine(revisionDirectory, "payload.sha256");

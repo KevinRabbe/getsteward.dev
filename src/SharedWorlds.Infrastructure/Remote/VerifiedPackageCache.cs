@@ -7,9 +7,12 @@ namespace SharedWorlds.Infrastructure.Remote;
 
 public sealed record VerifiedPackageCacheOptions
 {
+    private const long DefaultMaximumCacheBytes = 40L * 1024 * 1024 * 1024;
+
     public VerifiedPackageCacheOptions(
         long minimumFreeSpaceReserveBytes,
-        int copyBufferBytes)
+        int copyBufferBytes,
+        long maximumCacheBytes = DefaultMaximumCacheBytes)
     {
         if (minimumFreeSpaceReserveBytes < 0)
         {
@@ -21,16 +24,25 @@ public sealed record VerifiedPackageCacheOptions
             throw new ArgumentOutOfRangeException(nameof(copyBufferBytes));
         }
 
+        if (maximumCacheBytes <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumCacheBytes));
+        }
+
         MinimumFreeSpaceReserveBytes = minimumFreeSpaceReserveBytes;
         CopyBufferBytes = copyBufferBytes;
+        MaximumCacheBytes = maximumCacheBytes;
     }
 
     public long MinimumFreeSpaceReserveBytes { get; }
     public int CopyBufferBytes { get; }
+    public long MaximumCacheBytes { get; }
 
     public static VerifiedPackageCacheOptions FirstReleaseDefaults { get; } = new(
         minimumFreeSpaceReserveBytes: 256L * 1024 * 1024,
-        copyBufferBytes: 1024 * 1024);
+        copyBufferBytes: 1024 * 1024,
+        // First release permits up to one 20 GiB State package plus one 20 GiB hosted Environment.
+        maximumCacheBytes: DefaultMaximumCacheBytes);
 }
 
 public sealed class PackageDownloadAuthorizationExpiredException : IOException
@@ -75,12 +87,26 @@ public sealed class InsufficientPackageCacheSpaceException : IOException
     public long AvailableBytes { get; }
 }
 
+public sealed class PackageCacheCapacityException : IOException
+{
+    public PackageCacheCapacityException(long requiredBytes, long maximumBytes)
+        : base($"Package cache requires {requiredBytes} bytes, exceeding its configured maximum of {maximumBytes} bytes.")
+    {
+        RequiredBytes = requiredBytes;
+        MaximumBytes = maximumBytes;
+    }
+
+    public long RequiredBytes { get; }
+    public long MaximumBytes { get; }
+}
+
 /// <summary>
 /// Content-addressed immutable package cache used below IWorldStorage.OpenRevisionAsync.
 ///
 /// Presigned URLs and Steward credentials are never persisted. A download is written to a .partial
 /// file and may resume using a fresh authorization. The final cache path appears only after exact
-/// byte-size and SHA-256 verification.
+/// byte-size and SHA-256 verification. Cache files are disposable/re-downloadable and are bounded
+/// independently from durable recovery workspaces, which are never scanned or evicted here.
 /// </summary>
 public sealed class VerifiedPackageCache
 {
@@ -88,6 +114,7 @@ public sealed class VerifiedPackageCache
     private readonly HttpClient _transferClient;
     private readonly VerifiedPackageCacheOptions _options;
     private readonly ConcurrentDictionary<string, KeyedGate> _gates = new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim _cacheMutationGate = new(1, 1);
 
     public VerifiedPackageCache(
         string rootDirectory,
@@ -109,6 +136,7 @@ public sealed class VerifiedPackageCache
 
         var sha256 = authorization.ExpectedSha256;
         using var gate = await AcquireAsync(sha256, cancellationToken);
+        using var cacheMutation = await AcquireCacheMutationAsync(cancellationToken);
         var finalPath = GetFinalPath(sha256);
         var partialPath = finalPath + ".partial";
         Directory.CreateDirectory(Path.GetDirectoryName(finalPath)!);
@@ -121,6 +149,8 @@ public sealed class VerifiedPackageCache
                     sha256,
                     cancellationToken))
             {
+                EnforceCacheCapacity(finalPath, partialPath, additionalBytes: 0);
+                TouchCacheEntry(finalPath);
                 return new VerifiedCachedPackage(
                     finalPath,
                     authorization.ExpectedByteSize,
@@ -145,12 +175,14 @@ public sealed class VerifiedPackageCache
                         sha256,
                         cancellationToken))
                 {
+                    EnforceCacheCapacity(finalPath, partialPath, additionalBytes: 0);
                     PublishVerifiedPartial(partialPath, finalPath);
                     await EnsurePublishedFinalIsVerifiedAsync(
                         finalPath,
                         authorization.ExpectedByteSize,
                         sha256,
                         cancellationToken);
+                    TouchCacheEntry(finalPath);
                     return new VerifiedCachedPackage(
                         finalPath,
                         authorization.ExpectedByteSize,
@@ -164,9 +196,9 @@ public sealed class VerifiedPackageCache
         var existingPartialBytes = File.Exists(partialPath)
             ? new FileInfo(partialPath).Length
             : 0;
-        EnsureSufficientFreeSpace(
-            finalPath,
-            authorization.ExpectedByteSize - existingPartialBytes);
+        var remainingDownloadBytes = authorization.ExpectedByteSize - existingPartialBytes;
+        EnforceCacheCapacity(finalPath, partialPath, remainingDownloadBytes);
+        EnsureSufficientFreeSpace(finalPath, remainingDownloadBytes);
 
         if (authorization.ExpiresAt <= DateTimeOffset.UtcNow)
         {
@@ -206,6 +238,7 @@ public sealed class VerifiedPackageCache
             authorization.ExpectedByteSize,
             sha256,
             cancellationToken);
+        TouchCacheEntry(finalPath);
         return new VerifiedCachedPackage(
             finalPath,
             authorization.ExpectedByteSize,
@@ -420,6 +453,114 @@ public sealed class VerifiedPackageCache
         }
     }
 
+    private void EnforceCacheCapacity(
+        string protectedFinalPath,
+        string protectedPartialPath,
+        long additionalBytes)
+    {
+        if (additionalBytes < 0)
+        {
+            throw new PackageCacheCapacityException(additionalBytes, _options.MaximumCacheBytes);
+        }
+
+        var cacheRoot = Path.Combine(_rootDirectory, "packages", "sha256");
+        if (!Directory.Exists(cacheRoot))
+        {
+            if (additionalBytes > _options.MaximumCacheBytes)
+            {
+                throw new PackageCacheCapacityException(additionalBytes, _options.MaximumCacheBytes);
+            }
+
+            return;
+        }
+
+        var protectedFinal = Path.GetFullPath(protectedFinalPath);
+        var protectedPartial = Path.GetFullPath(protectedPartialPath);
+        var entries = Directory.EnumerateFiles(cacheRoot, "*", SearchOption.AllDirectories)
+            .Where(path => path.EndsWith(".package", StringComparison.OrdinalIgnoreCase) ||
+                           path.EndsWith(".partial", StringComparison.OrdinalIgnoreCase))
+            .Select(path => new FileInfo(path))
+            .Where(file => file.Exists)
+            .ToArray();
+
+        long currentBytes = 0;
+        foreach (var entry in entries)
+        {
+            currentBytes = checked(currentBytes + entry.Length);
+        }
+
+        var requiredBytes = checked(currentBytes + additionalBytes);
+        if (requiredBytes <= _options.MaximumCacheBytes)
+        {
+            return;
+        }
+
+        var candidates = entries
+            .Where(entry =>
+            {
+                var fullPath = Path.GetFullPath(entry.FullName);
+                return !string.Equals(fullPath, protectedFinal, StringComparison.OrdinalIgnoreCase) &&
+                       !string.Equals(fullPath, protectedPartial, StringComparison.OrdinalIgnoreCase);
+            })
+            .OrderBy(entry => entry.LastWriteTimeUtc)
+            .ThenBy(entry => entry.FullName, StringComparer.Ordinal)
+            .ToArray();
+
+        foreach (var candidate in candidates)
+        {
+            var candidateBytes = candidate.Length;
+            if (!TryDeleteCacheEntry(candidate.FullName))
+            {
+                continue;
+            }
+
+            currentBytes = Math.Max(0, currentBytes - candidateBytes);
+            requiredBytes = checked(currentBytes + additionalBytes);
+            if (requiredBytes <= _options.MaximumCacheBytes)
+            {
+                return;
+            }
+        }
+
+        throw new PackageCacheCapacityException(requiredBytes, _options.MaximumCacheBytes);
+    }
+
+    private static bool TryDeleteCacheEntry(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return true;
+            }
+
+            File.Delete(path);
+            return !File.Exists(path);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static void TouchCacheEntry(string path)
+    {
+        try
+        {
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
     private void EnsureSufficientFreeSpace(string destinationPath, long remainingDownloadBytes)
     {
         if (remainingDownloadBytes <= 0)
@@ -474,6 +615,13 @@ public sealed class VerifiedPackageCache
         }
     }
 
+    private async ValueTask<CacheMutationLease> AcquireCacheMutationAsync(
+        CancellationToken cancellationToken)
+    {
+        await _cacheMutationGate.WaitAsync(cancellationToken);
+        return new CacheMutationLease(_cacheMutationGate);
+    }
+
     private async ValueTask<KeyedGateLease> AcquireAsync(
         string key,
         CancellationToken cancellationToken)
@@ -510,6 +658,21 @@ public sealed class VerifiedPackageCache
         if (Interlocked.Decrement(ref gate.ReferenceCount) == 0)
         {
             _gates.TryRemove(new KeyValuePair<string, KeyedGate>(key, gate));
+        }
+    }
+
+    private sealed class CacheMutationLease : IDisposable
+    {
+        private SemaphoreSlim? _gate;
+
+        public CacheMutationLease(SemaphoreSlim gate)
+        {
+            _gate = gate;
+        }
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref _gate, null)?.Release();
         }
     }
 

@@ -7,11 +7,6 @@ using System.Text;
 using System.Text.RegularExpressions;
 using SharedWorlds.GameAdapters.Palworld;
 
-const string LauncherProcessName = "PalServer";
-const string ShippingProcessName = "PalServer-Win64-Shipping-Cmd";
-const uint CreateNewProcessGroup = 0x00000200;
-const uint CtrlBreakEvent = 1;
-
 Console.WriteLine("SharedWorlds Palworld-native settings materialization acceptance");
 Console.WriteLine();
 
@@ -22,340 +17,345 @@ if (!OperatingSystem.IsWindows())
     return;
 }
 
-Environment.ExitCode = await RunAsync() ? 0 : 2;
+Environment.ExitCode = await PalworldNativeSettingsMaterializationProbe.RunAsync() ? 0 : 2;
 
-static async Task<bool> RunAsync()
+internal static class PalworldNativeSettingsMaterializationProbe
 {
-    if (IsAnyPalworldProcessRunning())
+    private const string LauncherProcessName = "PalServer";
+    private const string ShippingProcessName = "PalServer-Win64-Shipping-Cmd";
+    private const uint CreateNewProcessGroup = 0x00000200;
+    private const uint CtrlBreakEvent = 1;
+
+    public static async Task<bool> RunAsync()
     {
-        Console.Error.WriteLine("PalServer is already running. Stop it before this acceptance probe.");
-        return false;
-    }
-
-    var adapter = new PalworldAdapter();
-    var installations = await adapter.DiscoverInstallationsAsync();
-    var candidates = installations
-        .Where(installation =>
-            installation.Metadata is not null &&
-            installation.Metadata.TryGetValue(PalworldInstallationDiscovery.DedicatedServerRootPathKey, out var root) &&
-            !string.IsNullOrWhiteSpace(root) &&
-            installation.Metadata.TryGetValue(PalworldInstallationDiscovery.DedicatedServerExecutablePathKey, out var executable) &&
-            !string.IsNullOrWhiteSpace(executable))
-        .ToArray();
-
-    if (candidates.Length != 1)
-    {
-        Console.Error.WriteLine(
-            $"Expected exactly one discovered Palworld installation with a dedicated server, found {candidates.Length}.");
-        return false;
-    }
-
-    var installation = candidates[0];
-    var metadata = installation.Metadata!;
-    var serverRoot = metadata[PalworldInstallationDiscovery.DedicatedServerRootPathKey];
-    var serverExecutable = metadata[PalworldInstallationDiscovery.DedicatedServerExecutablePathKey];
-    if (!File.Exists(serverExecutable))
-    {
-        Console.Error.WriteLine("PalServer.exe was not found at the discovered path.");
-        return false;
-    }
-
-    var configDirectory = Path.Combine(serverRoot, "Pal", "Saved", "Config", "WindowsServer");
-    var gameUserSettingsPath = Path.Combine(configDirectory, "GameUserSettings.ini");
-    var palWorldSettingsPath = Path.Combine(configDirectory, "PalWorldSettings.ini");
-    if (!File.Exists(gameUserSettingsPath) || !File.Exists(palWorldSettingsPath))
-    {
-        Console.Error.WriteLine(
-            "GameUserSettings.ini and PalWorldSettings.ini must both exist before this acceptance probe.");
-        return false;
-    }
-
-    var currentConfiguration = PalworldRestAcceptanceConfigurationReader.Read(serverRoot);
-    if (string.IsNullOrWhiteSpace(currentConfiguration.SelectedWorldId))
-    {
-        Console.Error.WriteLine("GameUserSettings.ini does not select a dedicated World.");
-        return false;
-    }
-
-    var selectedWorldId = currentConfiguration.SelectedWorldId;
-    var savesRoot = Path.Combine(serverRoot, "Pal", "Saved", "SaveGames", "0");
-    var selectedWorldPath = Path.Combine(savesRoot, selectedWorldId);
-    var selectedWorldOptionPath = Path.Combine(selectedWorldPath, "WorldOption.sav");
-    if (!File.Exists(Path.Combine(selectedWorldPath, "Level.sav")) || !File.Exists(selectedWorldOptionPath))
-    {
-        Console.Error.WriteLine(
-            "The selected dedicated World must contain Level.sav and WorldOption.sav for this experiment.");
-        return false;
-    }
-
-    var originalGameUserSettingsBytes = await File.ReadAllBytesAsync(gameUserSettingsPath);
-    var originalPalWorldSettingsBytes = await File.ReadAllBytesAsync(palWorldSettingsPath);
-    var originalWorldOptionBytes = await File.ReadAllBytesAsync(selectedWorldOptionPath);
-    var originalGameUserSettingsHash = Sha256(originalGameUserSettingsBytes);
-    var originalPalWorldSettingsHash = Sha256(originalPalWorldSettingsBytes);
-    var originalWorldOptionHash = Sha256(originalWorldOptionBytes);
-    var originalIniWriteTimeUtc = File.GetLastWriteTimeUtc(palWorldSettingsPath);
-
-    var temporaryWorldId = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
-    var temporaryWorldPath = Path.Combine(savesRoot, temporaryWorldId);
-
-    Process? launcher = null;
-    PalworldOodleCodec? oracleOodle = null;
-    var temporaryWorldCreated = false;
-    var temporarySelectionInstalled = false;
-    var startupSignalObserved = false;
-    var ctrlBreakSent = false;
-    var ctrlBreakShutdownSucceeded = false;
-    var allProcessesExited = false;
-    var forcedCleanupUsed = false;
-    var rewrittenIniObserved = false;
-    var rewrittenIniTimestampAdvanced = false;
-    var rewrittenIniParsed = false;
-    var verifiedWorldSettingCount = 0;
-    var mismatchNames = Array.Empty<string>();
-    var unrepresentedWorldSettings = Array.Empty<string>();
-    var unexpectedIniSettings = Array.Empty<string>();
-    var originalConfigsRestored = false;
-    var temporaryWorldDeleted = false;
-    var selectedWorldOptionUnchanged = false;
-    var finalGameUserSettingsHashMatches = false;
-    var finalPalWorldSettingsHashMatches = false;
-
-    try
-    {
-        if (PalworldWorldOptionAdminPasswordRuntimeOverlay.RequiresOodle(originalWorldOptionBytes))
-        {
-            oracleOodle = PalworldOodleCodec.LoadFromPalworldRoots(serverRoot, installation.RootPath);
-            Console.WriteLine($"oracleOodleLibrary: {oracleOodle.LibraryPath}");
-            Console.WriteLine("oracleOodleUsage: decode-only; acceptance verdict only");
-        }
-
-        var snapshot = PalworldWorldOptionSettingsReader.Read(originalWorldOptionBytes, oracleOodle);
-        var expectedMirror = PalworldWorldOptionIniMirror.Create(snapshot, "ORACLE_ONLY_NOT_WRITTEN", 8212);
-        var managementOverrides = expectedMirror.ManagementOverrides;
-
-        Console.WriteLine("preflight:");
-        Console.WriteLine($"  selectedWorldId: {selectedWorldId}");
-        Console.WriteLine($"  temporaryWorldId: {temporaryWorldId}");
-        Console.WriteLine($"  container: {snapshot.Container}");
-        Console.WriteLine($"  extractedSettings: {snapshot.Settings.Count}");
-        Console.WriteLine($"  oracleComparableSettings: {snapshot.Settings.Count(setting => !managementOverrides.Contains(setting.Name))}");
-        Console.WriteLine($"  selectedWorldOptionSha256: {originalWorldOptionHash}");
-        Console.WriteLine($"  originalPalWorldSettingsSha256: {originalPalWorldSettingsHash}");
-        Console.WriteLine();
-
-        CopyDirectory(selectedWorldPath, temporaryWorldPath);
-        temporaryWorldCreated = true;
-
-        var temporaryWorldOptionPath = Path.Combine(temporaryWorldPath, "WorldOption.sav");
-        if (!File.Exists(temporaryWorldOptionPath) ||
-            !string.Equals(await Sha256FileAsync(temporaryWorldOptionPath), originalWorldOptionHash, StringComparison.Ordinal))
-        {
-            throw new InvalidDataException("The disposable World clone did not preserve WorldOption.sav byte-for-byte.");
-        }
-
-        var gameUserSettingsText = Encoding.UTF8.GetString(originalGameUserSettingsBytes);
-        var selectedForProbe = ReplaceDedicatedServerName(gameUserSettingsText, temporaryWorldId);
-        if (string.Equals(gameUserSettingsText, selectedForProbe, StringComparison.Ordinal))
-        {
-            throw new InvalidDataException("GameUserSettings.ini could not be redirected to the disposable World.");
-        }
-
-        await WriteAtomicallyAsync(gameUserSettingsPath, Encoding.UTF8.GetBytes(selectedForProbe));
-        temporarySelectionInstalled = true;
-
-        var selectedAfterWrite = PalworldRestAcceptanceConfigurationReader.Read(serverRoot).SelectedWorldId;
-        if (!string.Equals(selectedAfterWrite, temporaryWorldId, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidDataException("PalServer configuration did not select the disposable World after redirection.");
-        }
-
-        launcher = StartInNewProcessGroup(serverExecutable, serverRoot);
-        Console.WriteLine("translatorBoot:");
-        Console.WriteLine($"  launcherProcessId: {launcher.Id}");
-
-        startupSignalObserved = await WaitForShippingProcessAsync(launcher, TimeSpan.FromSeconds(90));
-        Console.WriteLine($"  shippingProcessObserved: {startupSignalObserved}");
-        if (!startupSignalObserved)
-        {
-            throw new InvalidOperationException(
-                "PalServer-Win64-Shipping-Cmd did not appear for the disposable translator boot.");
-        }
-
-        // REST is intentionally not used here: this experiment asks whether Palworld itself can
-        // materialize WorldOption settings without Steward understanding PlM. Give the Shipping
-        // process time to finish normal World/config startup before requesting console shutdown.
-        await Task.Delay(TimeSpan.FromSeconds(20));
-        if (!IsAnyPalworldProcessRunning())
-        {
-            throw new InvalidOperationException("Palworld exited before the translator shutdown signal was sent.");
-        }
-
-        if (!NativeMethods.GenerateConsoleCtrlEvent(CtrlBreakEvent, (uint)launcher.Id))
-        {
-            throw new Win32Exception(Marshal.GetLastWin32Error(), "GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT) failed.");
-        }
-
-        ctrlBreakSent = true;
-        Console.WriteLine($"  ctrlBreakSent: {ctrlBreakSent}");
-
-        allProcessesExited = await WaitForPalworldExitAsync(launcher, TimeSpan.FromSeconds(60));
-        ctrlBreakShutdownSucceeded = allProcessesExited;
-        Console.WriteLine($"  ctrlBreakShutdownSucceeded: {ctrlBreakShutdownSucceeded}");
-        Console.WriteLine($"  allPalworldProcessesExited: {allProcessesExited}");
-        if (!allProcessesExited)
-        {
-            throw new InvalidOperationException(
-                "Palworld did not fully exit after the disposable translator CTRL_BREAK request.");
-        }
-
-        if (!File.Exists(palWorldSettingsPath))
-        {
-            throw new InvalidDataException("Palworld removed PalWorldSettings.ini during the translator boot.");
-        }
-
-        var rewrittenIniBytes = await File.ReadAllBytesAsync(palWorldSettingsPath);
-        rewrittenIniObserved = !rewrittenIniBytes.AsSpan().SequenceEqual(originalPalWorldSettingsBytes);
-        rewrittenIniTimestampAdvanced = File.GetLastWriteTimeUtc(palWorldSettingsPath) > originalIniWriteTimeUtc;
-
-        var actualSettings = ParseOptionSettings(Encoding.UTF8.GetString(rewrittenIniBytes));
-        rewrittenIniParsed = actualSettings.Count > 0;
-        if (!rewrittenIniParsed)
-        {
-            throw new InvalidDataException("Palworld's post-shutdown PalWorldSettings.ini did not contain parseable OptionSettings.");
-        }
-
-        var mismatches = new List<string>();
-        var unrepresented = new List<string>();
-        var verified = 0;
-
-        foreach (var setting in snapshot.Settings)
-        {
-            if (managementOverrides.Contains(setting.Name))
-            {
-                continue;
-            }
-
-            if (!expectedMirror.SerializedValues.TryGetValue(setting.Name, out var expectedValue))
-            {
-                throw new InvalidDataException(
-                    $"The acceptance oracle did not serialize WorldOption setting {setting.Name}.");
-            }
-
-            if (!actualSettings.TryGetValue(setting.Name, out var actualValue))
-            {
-                unrepresented.Add(setting.Name);
-                continue;
-            }
-
-            if (!IniValuesSemanticallyEqual(setting, expectedValue, actualValue))
-            {
-                mismatches.Add(setting.Name);
-                continue;
-            }
-
-            verified++;
-        }
-
-        verifiedWorldSettingCount = verified;
-        mismatchNames = mismatches.Order(StringComparer.Ordinal).ToArray();
-        unrepresentedWorldSettings = unrepresented.Order(StringComparer.Ordinal).ToArray();
-        unexpectedIniSettings = actualSettings.Keys
-            .Where(name =>
-                !managementOverrides.Contains(name) &&
-                !snapshot.Settings.Any(setting => string.Equals(setting.Name, name, StringComparison.Ordinal)))
-            .Order(StringComparer.Ordinal)
-            .ToArray();
-
-        Console.WriteLine();
-        Console.WriteLine("materializedIni:");
-        Console.WriteLine($"  bytesChanged: {rewrittenIniObserved}");
-        Console.WriteLine($"  timestampAdvanced: {rewrittenIniTimestampAdvanced}");
-        Console.WriteLine($"  parsedSettingCount: {actualSettings.Count}");
-        Console.WriteLine($"  verifiedWorldSettingCount: {verifiedWorldSettingCount}");
-        Console.WriteLine($"  mismatchCount: {mismatchNames.Length}");
-        Console.WriteLine($"  unrepresentedWorldSettingCount: {unrepresentedWorldSettings.Length}");
-        Console.WriteLine($"  unexpectedIniSettingCount: {unexpectedIniSettings.Length}");
-        if (mismatchNames.Length > 0)
-        {
-            Console.WriteLine($"  mismatchNames: {string.Join(", ", mismatchNames)}");
-        }
-        if (unrepresentedWorldSettings.Length > 0)
-        {
-            Console.WriteLine($"  unrepresentedWorldSettings: {string.Join(", ", unrepresentedWorldSettings)}");
-        }
-        if (unexpectedIniSettings.Length > 0)
-        {
-            Console.WriteLine($"  unexpectedIniSettings: {string.Join(", ", unexpectedIniSettings)}");
-        }
-
-        await RestoreExactConfigsAsync(
-            gameUserSettingsPath,
-            originalGameUserSettingsBytes,
-            palWorldSettingsPath,
-            originalPalWorldSettingsBytes);
-        temporarySelectionInstalled = false;
-        originalConfigsRestored = true;
-
-        Directory.Delete(temporaryWorldPath, recursive: true);
-        temporaryWorldCreated = false;
-        temporaryWorldDeleted = true;
-
-        selectedWorldOptionUnchanged =
-            File.Exists(selectedWorldOptionPath) &&
-            string.Equals(await Sha256FileAsync(selectedWorldOptionPath), originalWorldOptionHash, StringComparison.Ordinal);
-        finalGameUserSettingsHashMatches = string.Equals(
-            await Sha256FileAsync(gameUserSettingsPath),
-            originalGameUserSettingsHash,
-            StringComparison.Ordinal);
-        finalPalWorldSettingsHashMatches = string.Equals(
-            await Sha256FileAsync(palWorldSettingsPath),
-            originalPalWorldSettingsHash,
-            StringComparison.Ordinal);
-    }
-    catch (Exception exception) when (
-        exception is IOException or
-        UnauthorizedAccessException or
-        InvalidOperationException or
-        InvalidDataException or
-        TaskCanceledException or
-        DllNotFoundException or
-        BadImageFormatException or
-        EntryPointNotFoundException or
-        ArgumentException or
-        OverflowException or
-        Win32Exception)
-    {
-        Console.Error.WriteLine($"Native settings materialization acceptance failed: {exception.Message}");
-    }
-    finally
-    {
-        oracleOodle?.Dispose();
-
         if (IsAnyPalworldProcessRunning())
         {
-            forcedCleanupUsed = await ForceCleanupPalworldProcessesAsync();
+            Console.Error.WriteLine("PalServer is already running. Stop it before this acceptance probe.");
+            return false;
         }
 
-        if (!IsAnyPalworldProcessRunning())
+        var adapter = new PalworldAdapter();
+        var installations = await adapter.DiscoverInstallationsAsync();
+        var candidates = installations
+            .Where(installation =>
+                installation.Metadata is not null &&
+                installation.Metadata.TryGetValue(PalworldInstallationDiscovery.DedicatedServerRootPathKey, out var root) &&
+                !string.IsNullOrWhiteSpace(root) &&
+                installation.Metadata.TryGetValue(PalworldInstallationDiscovery.DedicatedServerExecutablePathKey, out var executable) &&
+                !string.IsNullOrWhiteSpace(executable))
+            .ToArray();
+
+        if (candidates.Length != 1)
         {
-            try
+            Console.Error.WriteLine(
+                $"Expected exactly one discovered Palworld installation with a dedicated server, found {candidates.Length}.");
+            return false;
+        }
+
+        var installation = candidates[0];
+        var metadata = installation.Metadata!;
+        var serverRoot = metadata[PalworldInstallationDiscovery.DedicatedServerRootPathKey];
+        var serverExecutable = metadata[PalworldInstallationDiscovery.DedicatedServerExecutablePathKey];
+        if (!File.Exists(serverExecutable))
+        {
+            Console.Error.WriteLine("PalServer.exe was not found at the discovered path.");
+            return false;
+        }
+
+        var configDirectory = Path.Combine(serverRoot, "Pal", "Saved", "Config", "WindowsServer");
+        var gameUserSettingsPath = Path.Combine(configDirectory, "GameUserSettings.ini");
+        var palWorldSettingsPath = Path.Combine(configDirectory, "PalWorldSettings.ini");
+        if (!File.Exists(gameUserSettingsPath) || !File.Exists(palWorldSettingsPath))
+        {
+            Console.Error.WriteLine(
+                "GameUserSettings.ini and PalWorldSettings.ini must both exist before this acceptance probe.");
+            return false;
+        }
+
+        var configuration = PalworldRestAcceptanceConfigurationReader.Read(serverRoot);
+        if (string.IsNullOrWhiteSpace(configuration.SelectedWorldId))
+        {
+            Console.Error.WriteLine("GameUserSettings.ini does not select a dedicated World.");
+            return false;
+        }
+
+        var selectedWorldId = configuration.SelectedWorldId;
+        var savesRoot = Path.Combine(serverRoot, "Pal", "Saved", "SaveGames", "0");
+        var selectedWorldPath = Path.Combine(savesRoot, selectedWorldId);
+        var selectedWorldOptionPath = Path.Combine(selectedWorldPath, "WorldOption.sav");
+        if (!File.Exists(Path.Combine(selectedWorldPath, "Level.sav")) || !File.Exists(selectedWorldOptionPath))
+        {
+            Console.Error.WriteLine(
+                "The selected dedicated World must contain Level.sav and WorldOption.sav for this experiment.");
+            return false;
+        }
+
+        var originalGameUserSettingsBytes = await File.ReadAllBytesAsync(gameUserSettingsPath);
+        var originalPalWorldSettingsBytes = await File.ReadAllBytesAsync(palWorldSettingsPath);
+        var originalWorldOptionBytes = await File.ReadAllBytesAsync(selectedWorldOptionPath);
+        var originalGameUserSettingsHash = Sha256(originalGameUserSettingsBytes);
+        var originalPalWorldSettingsHash = Sha256(originalPalWorldSettingsBytes);
+        var originalWorldOptionHash = Sha256(originalWorldOptionBytes);
+        var originalIniWriteTimeUtc = File.GetLastWriteTimeUtc(palWorldSettingsPath);
+
+        var temporaryWorldId = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+        var temporaryWorldPath = Path.Combine(savesRoot, temporaryWorldId);
+
+        Process? launcher = null;
+        PalworldOodleCodec? oracleOodle = null;
+        var temporaryWorldCreated = false;
+        var sharedConfigsModified = false;
+        var startupSignalObserved = false;
+        var ctrlBreakSent = false;
+        var ctrlBreakShutdownSucceeded = false;
+        var allProcessesExited = false;
+        var forcedCleanupUsed = false;
+        var rewrittenIniObserved = false;
+        var rewrittenIniTimestampAdvanced = false;
+        var rewrittenIniParsed = false;
+        var verifiedWorldSettingCount = 0;
+        string[] mismatchNames = [];
+        string[] unrepresentedWorldSettings = [];
+        string[] unexpectedIniSettings = [];
+        var originalConfigsRestored = false;
+        var temporaryWorldDeleted = false;
+        var selectedWorldOptionUnchanged = false;
+        var finalGameUserSettingsHashMatches = false;
+        var finalPalWorldSettingsHashMatches = false;
+
+        try
+        {
+            if (PalworldWorldOptionAdminPasswordRuntimeOverlay.RequiresOodle(originalWorldOptionBytes))
             {
-                if (temporarySelectionInstalled ||
-                    !File.Exists(gameUserSettingsPath) ||
-                    !File.Exists(palWorldSettingsPath))
+                oracleOodle = PalworldOodleCodec.LoadFromPalworldRoots(serverRoot, installation.RootPath);
+                Console.WriteLine($"oracleOodleLibrary: {oracleOodle.LibraryPath}");
+                Console.WriteLine("oracleOodleUsage: decode-only; acceptance verdict only");
+            }
+
+            var snapshot = PalworldWorldOptionSettingsReader.Read(originalWorldOptionBytes, oracleOodle);
+            var expectedMirror = PalworldWorldOptionIniMirror.Create(snapshot, "ORACLE_ONLY_NOT_WRITTEN", 8212);
+            var managementOverrides = expectedMirror.ManagementOverrides;
+            var comparableCount = snapshot.Settings.Count(setting => !managementOverrides.Contains(setting.Name));
+
+            Console.WriteLine("preflight:");
+            Console.WriteLine($"  selectedWorldId: {selectedWorldId}");
+            Console.WriteLine($"  temporaryWorldId: {temporaryWorldId}");
+            Console.WriteLine($"  container: {snapshot.Container}");
+            Console.WriteLine($"  extractedSettings: {snapshot.Settings.Count}");
+            Console.WriteLine($"  oracleComparableSettings: {comparableCount}");
+            Console.WriteLine($"  selectedWorldOptionSha256: {originalWorldOptionHash}");
+
+            CopyDirectory(selectedWorldPath, temporaryWorldPath);
+            temporaryWorldCreated = true;
+
+            var temporaryWorldOptionPath = Path.Combine(temporaryWorldPath, "WorldOption.sav");
+            if (!File.Exists(temporaryWorldOptionPath) ||
+                !string.Equals(await Sha256FileAsync(temporaryWorldOptionPath), originalWorldOptionHash, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException("The disposable World clone did not preserve WorldOption.sav byte-for-byte.");
+            }
+
+            var originalGameUserSettingsText = Encoding.UTF8.GetString(originalGameUserSettingsBytes);
+            var temporarySelectionText = ReplaceDedicatedServerName(originalGameUserSettingsText, temporaryWorldId);
+            if (string.Equals(originalGameUserSettingsText, temporarySelectionText, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException("GameUserSettings.ini could not be redirected to the disposable World.");
+            }
+
+            await WriteAtomicallyAsync(gameUserSettingsPath, Encoding.UTF8.GetBytes(temporarySelectionText));
+            sharedConfigsModified = true;
+
+            var selectedAfterWrite = PalworldRestAcceptanceConfigurationReader.Read(serverRoot).SelectedWorldId;
+            if (!string.Equals(selectedAfterWrite, temporaryWorldId, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException("PalServer configuration did not select the disposable World after redirection.");
+            }
+
+            launcher = StartInNewProcessGroup(serverExecutable, serverRoot);
+            Console.WriteLine();
+            Console.WriteLine("translatorBoot:");
+            Console.WriteLine($"  launcherProcessId: {launcher.Id}");
+
+            startupSignalObserved = await WaitForShippingProcessAsync(launcher, TimeSpan.FromSeconds(90));
+            Console.WriteLine($"  shippingProcessObserved: {startupSignalObserved}");
+            if (!startupSignalObserved)
+            {
+                throw new InvalidOperationException(
+                    "PalServer-Win64-Shipping-Cmd did not appear for the disposable translator boot.");
+            }
+
+            // REST is deliberately not used. The disposable World lets us test whether Palworld can
+            // materialize its own WorldOption settings without Steward understanding PlM.
+            await Task.Delay(TimeSpan.FromSeconds(20));
+            if (!IsAnyPalworldProcessRunning())
+            {
+                throw new InvalidOperationException("Palworld exited before the translator shutdown signal was sent.");
+            }
+
+            if (!NativeMethods.GenerateConsoleCtrlEvent(CtrlBreakEvent, (uint)launcher.Id))
+            {
+                throw new Win32Exception(
+                    Marshal.GetLastWin32Error(),
+                    "GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT) failed.");
+            }
+
+            ctrlBreakSent = true;
+            Console.WriteLine($"  ctrlBreakSent: {ctrlBreakSent}");
+
+            allProcessesExited = await WaitForPalworldExitAsync(launcher, TimeSpan.FromSeconds(60));
+            ctrlBreakShutdownSucceeded = allProcessesExited;
+            Console.WriteLine($"  ctrlBreakShutdownSucceeded: {ctrlBreakShutdownSucceeded}");
+            Console.WriteLine($"  allPalworldProcessesExited: {allProcessesExited}");
+            if (!allProcessesExited)
+            {
+                throw new InvalidOperationException(
+                    "Palworld did not fully exit after the disposable translator CTRL_BREAK request.");
+            }
+
+            if (!File.Exists(palWorldSettingsPath))
+            {
+                throw new InvalidDataException("Palworld removed PalWorldSettings.ini during the translator boot.");
+            }
+
+            var rewrittenIniBytes = await File.ReadAllBytesAsync(palWorldSettingsPath);
+            rewrittenIniObserved = !rewrittenIniBytes.AsSpan().SequenceEqual(originalPalWorldSettingsBytes);
+            rewrittenIniTimestampAdvanced = File.GetLastWriteTimeUtc(palWorldSettingsPath) > originalIniWriteTimeUtc;
+
+            var actualSettings = ParseOptionSettings(Encoding.UTF8.GetString(rewrittenIniBytes));
+            rewrittenIniParsed = actualSettings.Count > 0;
+            if (!rewrittenIniParsed)
+            {
+                throw new InvalidDataException(
+                    "Palworld's post-shutdown PalWorldSettings.ini did not contain parseable OptionSettings.");
+            }
+
+            var mismatches = new List<string>();
+            var unrepresented = new List<string>();
+            foreach (var setting in snapshot.Settings)
+            {
+                if (managementOverrides.Contains(setting.Name))
                 {
-                    await RestoreExactConfigsAsync(
-                        gameUserSettingsPath,
-                        originalGameUserSettingsBytes,
-                        palWorldSettingsPath,
-                        originalPalWorldSettingsBytes);
-                    temporarySelectionInstalled = false;
+                    continue;
                 }
-                else
+
+                if (!expectedMirror.SerializedValues.TryGetValue(setting.Name, out var expectedValue))
                 {
-                    // Even after a successful explicit restoration, enforce byte-exact originals.
-                    if (!string.Equals(
+                    throw new InvalidDataException(
+                        $"The acceptance oracle did not serialize WorldOption setting {setting.Name}.");
+                }
+
+                if (!actualSettings.TryGetValue(setting.Name, out var actualValue))
+                {
+                    unrepresented.Add(setting.Name);
+                    continue;
+                }
+
+                if (!IniValuesSemanticallyEqual(setting, expectedValue, actualValue))
+                {
+                    mismatches.Add(setting.Name);
+                    continue;
+                }
+
+                verifiedWorldSettingCount++;
+            }
+
+            mismatchNames = mismatches.Order(StringComparer.Ordinal).ToArray();
+            unrepresentedWorldSettings = unrepresented.Order(StringComparer.Ordinal).ToArray();
+            unexpectedIniSettings = actualSettings.Keys
+                .Where(name =>
+                    !managementOverrides.Contains(name) &&
+                    !snapshot.Settings.Any(setting => string.Equals(setting.Name, name, StringComparison.Ordinal)))
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+
+            Console.WriteLine();
+            Console.WriteLine("materializedIni:");
+            Console.WriteLine($"  bytesChanged: {rewrittenIniObserved}");
+            Console.WriteLine($"  timestampAdvanced: {rewrittenIniTimestampAdvanced}");
+            Console.WriteLine($"  parsedSettingCount: {actualSettings.Count}");
+            Console.WriteLine($"  verifiedWorldSettingCount: {verifiedWorldSettingCount}");
+            Console.WriteLine($"  mismatchCount: {mismatchNames.Length}");
+            Console.WriteLine($"  unrepresentedWorldSettingCount: {unrepresentedWorldSettings.Length}");
+            Console.WriteLine($"  unexpectedIniSettingCount: {unexpectedIniSettings.Length}");
+            if (mismatchNames.Length > 0)
+            {
+                Console.WriteLine($"  mismatchNames: {string.Join(", ", mismatchNames)}");
+            }
+            if (unrepresentedWorldSettings.Length > 0)
+            {
+                Console.WriteLine($"  unrepresentedWorldSettings: {string.Join(", ", unrepresentedWorldSettings)}");
+            }
+            if (unexpectedIniSettings.Length > 0)
+            {
+                Console.WriteLine($"  unexpectedIniSettings: {string.Join(", ", unexpectedIniSettings)}");
+            }
+
+            var nativeMaterializationMatches =
+                verifiedWorldSettingCount == comparableCount &&
+                mismatchNames.Length == 0 &&
+                unrepresentedWorldSettings.Length == 0;
+            if (!nativeMaterializationMatches)
+            {
+                throw new InvalidDataException(
+                    "Palworld's rewritten INI did not reproduce every non-management WorldOption setting.");
+            }
+
+            await RestoreExactConfigsAsync(
+                gameUserSettingsPath,
+                originalGameUserSettingsBytes,
+                palWorldSettingsPath,
+                originalPalWorldSettingsBytes);
+            sharedConfigsModified = false;
+            originalConfigsRestored = true;
+
+            Directory.Delete(temporaryWorldPath, recursive: true);
+            temporaryWorldCreated = false;
+            temporaryWorldDeleted = true;
+
+            selectedWorldOptionUnchanged =
+                File.Exists(selectedWorldOptionPath) &&
+                string.Equals(await Sha256FileAsync(selectedWorldOptionPath), originalWorldOptionHash, StringComparison.Ordinal);
+            finalGameUserSettingsHashMatches = string.Equals(
+                await Sha256FileAsync(gameUserSettingsPath),
+                originalGameUserSettingsHash,
+                StringComparison.Ordinal);
+            finalPalWorldSettingsHashMatches = string.Equals(
+                await Sha256FileAsync(palWorldSettingsPath),
+                originalPalWorldSettingsHash,
+                StringComparison.Ordinal);
+        }
+        catch (Exception exception) when (
+            exception is IOException or
+            UnauthorizedAccessException or
+            InvalidOperationException or
+            InvalidDataException or
+            TaskCanceledException or
+            DllNotFoundException or
+            BadImageFormatException or
+            EntryPointNotFoundException or
+            ArgumentException or
+            OverflowException or
+            Win32Exception)
+        {
+            Console.Error.WriteLine($"Native settings materialization acceptance failed: {exception.Message}");
+        }
+        finally
+        {
+            oracleOodle?.Dispose();
+
+            if (IsAnyPalworldProcessRunning())
+            {
+                forcedCleanupUsed = await ForceCleanupPalworldProcessesAsync();
+            }
+
+            if (!IsAnyPalworldProcessRunning())
+            {
+                try
+                {
+                    if (sharedConfigsModified ||
+                        !File.Exists(gameUserSettingsPath) ||
+                        !File.Exists(palWorldSettingsPath) ||
+                        !string.Equals(
                             await Sha256FileAsync(gameUserSettingsPath),
                             originalGameUserSettingsHash,
                             StringComparison.Ordinal) ||
@@ -369,190 +369,219 @@ static async Task<bool> RunAsync()
                             originalGameUserSettingsBytes,
                             palWorldSettingsPath,
                             originalPalWorldSettingsBytes);
+                        sharedConfigsModified = false;
                     }
+
+                    originalConfigsRestored =
+                        string.Equals(
+                            await Sha256FileAsync(gameUserSettingsPath),
+                            originalGameUserSettingsHash,
+                            StringComparison.Ordinal) &&
+                        string.Equals(
+                            await Sha256FileAsync(palWorldSettingsPath),
+                            originalPalWorldSettingsHash,
+                            StringComparison.Ordinal);
+
+                    if (temporaryWorldCreated && Directory.Exists(temporaryWorldPath))
+                    {
+                        Directory.Delete(temporaryWorldPath, recursive: true);
+                        temporaryWorldCreated = false;
+                    }
+
+                    temporaryWorldDeleted = !Directory.Exists(temporaryWorldPath);
+                    selectedWorldOptionUnchanged =
+                        File.Exists(selectedWorldOptionPath) &&
+                        string.Equals(
+                            await Sha256FileAsync(selectedWorldOptionPath),
+                            originalWorldOptionHash,
+                            StringComparison.Ordinal);
+                    finalGameUserSettingsHashMatches =
+                        File.Exists(gameUserSettingsPath) &&
+                        string.Equals(
+                            await Sha256FileAsync(gameUserSettingsPath),
+                            originalGameUserSettingsHash,
+                            StringComparison.Ordinal);
+                    finalPalWorldSettingsHashMatches =
+                        File.Exists(palWorldSettingsPath) &&
+                        string.Equals(
+                            await Sha256FileAsync(palWorldSettingsPath),
+                            originalPalWorldSettingsHash,
+                            StringComparison.Ordinal);
                 }
-
-                originalConfigsRestored =
-                    File.Exists(gameUserSettingsPath) &&
-                    File.Exists(palWorldSettingsPath) &&
-                    string.Equals(
-                        await Sha256FileAsync(gameUserSettingsPath),
-                        originalGameUserSettingsHash,
-                        StringComparison.Ordinal) &&
-                    string.Equals(
-                        await Sha256FileAsync(palWorldSettingsPath),
-                        originalPalWorldSettingsHash,
-                        StringComparison.Ordinal);
-
-                if (temporaryWorldCreated && Directory.Exists(temporaryWorldPath))
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
                 {
-                    Directory.Delete(temporaryWorldPath, recursive: true);
-                    temporaryWorldCreated = false;
+                    Console.Error.WriteLine($"CRITICAL: translator cleanup failed: {exception.Message}");
                 }
-
-                temporaryWorldDeleted = !Directory.Exists(temporaryWorldPath);
-                selectedWorldOptionUnchanged =
-                    File.Exists(selectedWorldOptionPath) &&
-                    string.Equals(
-                        await Sha256FileAsync(selectedWorldOptionPath),
-                        originalWorldOptionHash,
-                        StringComparison.Ordinal);
-                finalGameUserSettingsHashMatches =
-                    File.Exists(gameUserSettingsPath) &&
-                    string.Equals(
-                        await Sha256FileAsync(gameUserSettingsPath),
-                        originalGameUserSettingsHash,
-                        StringComparison.Ordinal);
-                finalPalWorldSettingsHashMatches =
-                    File.Exists(palWorldSettingsPath) &&
-                    string.Equals(
-                        await Sha256FileAsync(palWorldSettingsPath),
-                        originalPalWorldSettingsHash,
-                        StringComparison.Ordinal);
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            else
             {
-                Console.Error.WriteLine($"CRITICAL: translator cleanup failed: {exception.Message}");
+                Console.Error.WriteLine(
+                    "CRITICAL: a Palworld process is still running. The probe deliberately did not restore shared server config or delete the disposable World underneath the live process.");
             }
+
+            launcher?.Dispose();
+            CryptographicOperations.ZeroMemory(originalGameUserSettingsBytes);
+            CryptographicOperations.ZeroMemory(originalPalWorldSettingsBytes);
+            CryptographicOperations.ZeroMemory(originalWorldOptionBytes);
         }
-        else
+
+        var rewriteEvidence = rewrittenIniObserved || rewrittenIniTimestampAdvanced;
+        var materializedSettingsMatch =
+            rewrittenIniParsed &&
+            verifiedWorldSettingCount > 0 &&
+            mismatchNames.Length == 0 &&
+            unrepresentedWorldSettings.Length == 0;
+        var proven =
+            startupSignalObserved &&
+            ctrlBreakSent &&
+            ctrlBreakShutdownSucceeded &&
+            allProcessesExited &&
+            rewriteEvidence &&
+            materializedSettingsMatch &&
+            !forcedCleanupUsed &&
+            originalConfigsRestored &&
+            temporaryWorldDeleted &&
+            selectedWorldOptionUnchanged &&
+            finalGameUserSettingsHashMatches &&
+            finalPalWorldSettingsHashMatches;
+
+        Console.WriteLine();
+        Console.WriteLine("result:");
+        Console.WriteLine($"  startupSignalObserved: {startupSignalObserved}");
+        Console.WriteLine($"  ctrlBreakSent: {ctrlBreakSent}");
+        Console.WriteLine($"  ctrlBreakShutdownSucceeded: {ctrlBreakShutdownSucceeded}");
+        Console.WriteLine($"  allPalworldProcessesExited: {allProcessesExited}");
+        Console.WriteLine($"  rewrittenIniObserved: {rewrittenIniObserved}");
+        Console.WriteLine($"  rewrittenIniTimestampAdvanced: {rewrittenIniTimestampAdvanced}");
+        Console.WriteLine($"  rewrittenIniParsed: {rewrittenIniParsed}");
+        Console.WriteLine($"  verifiedWorldSettingCount: {verifiedWorldSettingCount}");
+        Console.WriteLine($"  mismatchCount: {mismatchNames.Length}");
+        Console.WriteLine($"  unrepresentedWorldSettingCount: {unrepresentedWorldSettings.Length}");
+        Console.WriteLine($"  originalConfigsRestored: {originalConfigsRestored}");
+        Console.WriteLine($"  temporaryWorldDeleted: {temporaryWorldDeleted}");
+        Console.WriteLine($"  selectedWorldOptionUnchanged: {selectedWorldOptionUnchanged}");
+        Console.WriteLine($"  forcedCleanupUsed: {forcedCleanupUsed}");
+        Console.WriteLine($"  finalGameUserSettingsSha256Matches: {finalGameUserSettingsHashMatches}");
+        Console.WriteLine($"  finalPalWorldSettingsSha256Matches: {finalPalWorldSettingsHashMatches}");
+        Console.WriteLine($"palworldNativeSettingsMaterializationProven: {proven}");
+
+        return proven;
+    }
+
+    private static Process StartInNewProcessGroup(string executablePath, string workingDirectory)
+    {
+        var startupInfo = new NativeMethods.StartupInfo
         {
-            Console.Error.WriteLine(
-                "CRITICAL: a Palworld process is still running. Steward deliberately did not restore shared server config or delete the disposable World underneath the live process.");
-        }
+            cb = (uint)Marshal.SizeOf<NativeMethods.StartupInfo>()
+        };
 
-        launcher?.Dispose();
-        CryptographicOperations.ZeroMemory(originalGameUserSettingsBytes);
-        CryptographicOperations.ZeroMemory(originalPalWorldSettingsBytes);
-        CryptographicOperations.ZeroMemory(originalWorldOptionBytes);
-    }
-
-    var nativeMaterializationMatches =
-        rewrittenIniParsed &&
-        verifiedWorldSettingCount > 0 &&
-        mismatchNames.Length == 0 &&
-        unrepresentedWorldSettings.Length == 0;
-
-    var proven =
-        startupSignalObserved &&
-        ctrlBreakSent &&
-        ctrlBreakShutdownSucceeded &&
-        allProcessesExited &&
-        nativeMaterializationMatches &&
-        !forcedCleanupUsed &&
-        originalConfigsRestored &&
-        temporaryWorldDeleted &&
-        selectedWorldOptionUnchanged &&
-        finalGameUserSettingsHashMatches &&
-        finalPalWorldSettingsHashMatches;
-
-    Console.WriteLine();
-    Console.WriteLine("result:");
-    Console.WriteLine($"  startupSignalObserved: {startupSignalObserved}");
-    Console.WriteLine($"  ctrlBreakSent: {ctrlBreakSent}");
-    Console.WriteLine($"  ctrlBreakShutdownSucceeded: {ctrlBreakShutdownSucceeded}");
-    Console.WriteLine($"  allPalworldProcessesExited: {allProcessesExited}");
-    Console.WriteLine($"  rewrittenIniObserved: {rewrittenIniObserved}");
-    Console.WriteLine($"  rewrittenIniTimestampAdvanced: {rewrittenIniTimestampAdvanced}");
-    Console.WriteLine($"  rewrittenIniParsed: {rewrittenIniParsed}");
-    Console.WriteLine($"  verifiedWorldSettingCount: {verifiedWorldSettingCount}");
-    Console.WriteLine($"  mismatchCount: {mismatchNames.Length}");
-    Console.WriteLine($"  unrepresentedWorldSettingCount: {unrepresentedWorldSettings.Length}");
-    Console.WriteLine($"  originalConfigsRestored: {originalConfigsRestored}");
-    Console.WriteLine($"  temporaryWorldDeleted: {temporaryWorldDeleted}");
-    Console.WriteLine($"  selectedWorldOptionUnchanged: {selectedWorldOptionUnchanged}");
-    Console.WriteLine($"  forcedCleanupUsed: {forcedCleanupUsed}");
-    Console.WriteLine($"  finalGameUserSettingsSha256Matches: {finalGameUserSettingsHashMatches}");
-    Console.WriteLine($"  finalPalWorldSettingsSha256Matches: {finalPalWorldSettingsHashMatches}");
-    Console.WriteLine($"palworldNativeSettingsMaterializationProven: {proven}");
-
-    return proven;
-}
-
-static Process StartInNewProcessGroup(string executablePath, string workingDirectory)
-{
-    var startupInfo = new NativeMethods.StartupInfo
-    {
-        cb = Marshal.SizeOf<NativeMethods.StartupInfo>()
-    };
-
-    if (!NativeMethods.CreateProcess(
-            executablePath,
-            null,
-            IntPtr.Zero,
-            IntPtr.Zero,
-            inheritHandles: false,
-            CreateNewProcessGroup,
-            IntPtr.Zero,
-            workingDirectory,
-            ref startupInfo,
-            out var processInformation))
-    {
-        throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateProcess failed for PalServer.exe.");
-    }
-
-    try
-    {
-        return Process.GetProcessById((int)processInformation.dwProcessId);
-    }
-    finally
-    {
-        NativeMethods.CloseHandle(processInformation.hThread);
-        NativeMethods.CloseHandle(processInformation.hProcess);
-    }
-}
-
-static async Task<bool> WaitForShippingProcessAsync(Process launcher, TimeSpan timeout)
-{
-    var deadline = DateTimeOffset.UtcNow + timeout;
-    while (DateTimeOffset.UtcNow < deadline)
-    {
-        if (launcher.HasExited && !IsAnyPalworldProcessRunning())
+        if (!NativeMethods.CreateProcess(
+                executablePath,
+                IntPtr.Zero,
+                IntPtr.Zero,
+                IntPtr.Zero,
+                inheritHandles: false,
+                CreateNewProcessGroup,
+                IntPtr.Zero,
+                workingDirectory,
+                ref startupInfo,
+                out var processInformation))
         {
-            return false;
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateProcessW failed for PalServer.exe.");
         }
 
-        if (IsProcessRunning(ShippingProcessName))
-        {
-            return true;
-        }
-
-        await Task.Delay(250);
-    }
-
-    return false;
-}
-
-static async Task<bool> WaitForPalworldExitAsync(Process launcher, TimeSpan timeout)
-{
-    var deadline = DateTimeOffset.UtcNow + timeout;
-    while (DateTimeOffset.UtcNow < deadline)
-    {
-        var launcherExited = false;
         try
         {
-            launcherExited = launcher.HasExited;
+            return Process.GetProcessById((int)processInformation.dwProcessId);
         }
-        catch (InvalidOperationException)
+        finally
         {
-            launcherExited = true;
+            NativeMethods.CloseHandle(processInformation.hThread);
+            NativeMethods.CloseHandle(processInformation.hProcess);
         }
-
-        if (launcherExited && !IsAnyPalworldProcessRunning())
-        {
-            return true;
-        }
-
-        await Task.Delay(250);
     }
 
-    return false;
-}
+    private static async Task<bool> WaitForShippingProcessAsync(Process launcher, TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (launcher.HasExited && !IsAnyPalworldProcessRunning())
+            {
+                return false;
+            }
 
-static async Task<bool> ForceCleanupPalworldProcessesAsync()
-{
-    var killedAny = false;
-    foreach (var processName in new[] { ShippingProcessName, LauncherProcessName })
+            if (IsProcessRunning(ShippingProcessName))
+            {
+                return true;
+            }
+
+            await Task.Delay(250);
+        }
+
+        return false;
+    }
+
+    private static async Task<bool> WaitForPalworldExitAsync(Process launcher, TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var launcherExited = false;
+            try
+            {
+                launcherExited = launcher.HasExited;
+            }
+            catch (InvalidOperationException)
+            {
+                launcherExited = true;
+            }
+
+            if (launcherExited && !IsAnyPalworldProcessRunning())
+            {
+                return true;
+            }
+
+            await Task.Delay(250);
+        }
+
+        return false;
+    }
+
+    private static async Task<bool> ForceCleanupPalworldProcessesAsync()
+    {
+        var killedAny = false;
+        foreach (var processName in new[] { ShippingProcessName, LauncherProcessName })
+        {
+            foreach (var process in Process.GetProcessesByName(processName))
+            {
+                using (process)
+                {
+                    try
+                    {
+                        if (!process.HasExited)
+                        {
+                            process.Kill(entireProcessTree: true);
+                            killedAny = true;
+                            await process.WaitForExitAsync();
+                        }
+                    }
+                    catch (Exception exception) when (
+                        exception is InvalidOperationException or Win32Exception)
+                    {
+                        // Final process observation decides whether config restoration is safe.
+                    }
+                }
+            }
+        }
+
+        return killedAny;
+    }
+
+    private static bool IsAnyPalworldProcessRunning()
+        => IsProcessRunning(LauncherProcessName) || IsProcessRunning(ShippingProcessName);
+
+    private static bool IsProcessRunning(string processName)
     {
         foreach (var process in Process.GetProcessesByName(processName))
         {
@@ -562,531 +591,493 @@ static async Task<bool> ForceCleanupPalworldProcessesAsync()
                 {
                     if (!process.HasExited)
                     {
-                        process.Kill(entireProcessTree: true);
-                        killedAny = true;
-                        await process.WaitForExitAsync();
+                        return true;
                     }
                 }
-                catch (Exception exception) when (
-                    exception is InvalidOperationException or Win32Exception)
+                catch (InvalidOperationException)
                 {
-                    // Final process observation decides whether config restoration is safe.
+                    // Process disappeared while being observed.
                 }
             }
         }
+
+        return false;
     }
 
-    return killedAny;
-}
-
-static bool IsAnyPalworldProcessRunning()
-    => IsProcessRunning(LauncherProcessName) || IsProcessRunning(ShippingProcessName);
-
-static bool IsProcessRunning(string processName)
-{
-    foreach (var process in Process.GetProcessesByName(processName))
+    private static string ReplaceDedicatedServerName(string text, string worldId)
     {
-        using (process)
+        var expression = new Regex(
+            @"^(?<prefix>\s*DedicatedServerName\s*=\s*).*$",
+            RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.CultureInvariant);
+        var match = expression.Match(text);
+        if (!match.Success)
         {
-            try
+            throw new InvalidDataException("DedicatedServerName was not found in GameUserSettings.ini.");
+        }
+
+        return expression.Replace(
+            text,
+            current => current.Groups["prefix"].Value + worldId,
+            count: 1);
+    }
+
+    private static void CopyDirectory(string sourcePath, string destinationPath)
+    {
+        if (Directory.Exists(destinationPath))
+        {
+            throw new IOException($"Disposable World path already exists: {destinationPath}");
+        }
+
+        Directory.CreateDirectory(destinationPath);
+        foreach (var directory in Directory.EnumerateDirectories(sourcePath, "*", SearchOption.AllDirectories))
+        {
+            if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
             {
-                if (!process.HasExited)
+                throw new InvalidDataException($"Refusing to clone reparse-point directory: {directory}");
+            }
+
+            Directory.CreateDirectory(Path.Combine(destinationPath, Path.GetRelativePath(sourcePath, directory)));
+        }
+
+        foreach (var file in Directory.EnumerateFiles(sourcePath, "*", SearchOption.AllDirectories))
+        {
+            if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
+            {
+                throw new InvalidDataException($"Refusing to clone reparse-point file: {file}");
+            }
+
+            var destination = Path.Combine(destinationPath, Path.GetRelativePath(sourcePath, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.Copy(file, destination, overwrite: false);
+        }
+    }
+
+    private static async Task RestoreExactConfigsAsync(
+        string gameUserSettingsPath,
+        byte[] gameUserSettingsBytes,
+        string palWorldSettingsPath,
+        byte[] palWorldSettingsBytes)
+    {
+        await WriteAtomicallyAsync(gameUserSettingsPath, gameUserSettingsBytes);
+        await WriteAtomicallyAsync(palWorldSettingsPath, palWorldSettingsBytes);
+    }
+
+    private static async Task WriteAtomicallyAsync(string path, byte[] bytes)
+    {
+        var directory = Path.GetDirectoryName(path)
+            ?? throw new InvalidOperationException("Path has no parent directory.");
+        Directory.CreateDirectory(directory);
+        var temp = Path.Combine(directory, $".{Path.GetFileName(path)}.sharedworlds-{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await File.WriteAllBytesAsync(temp, bytes);
+            File.Move(temp, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temp))
+            {
+                File.Delete(temp);
+            }
+        }
+    }
+
+    private static IReadOnlyDictionary<string, string> ParseOptionSettings(string iniText)
+    {
+        var optionIndex = iniText.IndexOf("OptionSettings", StringComparison.OrdinalIgnoreCase);
+        if (optionIndex < 0)
+        {
+            throw new InvalidDataException("OptionSettings was not found in PalWorldSettings.ini.");
+        }
+
+        var equalsIndex = iniText.IndexOf('=', optionIndex + "OptionSettings".Length);
+        var openIndex = equalsIndex < 0 ? -1 : iniText.IndexOf('(', equalsIndex + 1);
+        if (equalsIndex < 0 || openIndex < 0)
+        {
+            throw new InvalidDataException("OptionSettings does not contain a tuple value.");
+        }
+
+        var closeIndex = FindMatchingParenthesis(iniText, openIndex);
+        var inner = iniText[(openIndex + 1)..closeIndex];
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var item in SplitTopLevel(inner, ','))
+        {
+            if (string.IsNullOrWhiteSpace(item))
+            {
+                continue;
+            }
+
+            var itemEquals = FindTopLevelCharacter(item, '=');
+            if (itemEquals <= 0)
+            {
+                throw new InvalidDataException("OptionSettings contains an entry without a key/value separator.");
+            }
+
+            var key = item[..itemEquals].Trim();
+            var value = item[(itemEquals + 1)..].Trim();
+            if (string.IsNullOrWhiteSpace(key) || !result.TryAdd(key, value))
+            {
+                throw new InvalidDataException($"OptionSettings contains an empty or duplicate setting name: {key}");
+            }
+        }
+
+        return result;
+    }
+
+    private static int FindMatchingParenthesis(string text, int openIndex)
+    {
+        var depth = 0;
+        var quoted = false;
+        var escaped = false;
+        for (var index = openIndex; index < text.Length; index++)
+        {
+            var character = text[index];
+            if (quoted)
+            {
+                if (escaped)
                 {
-                    return true;
+                    escaped = false;
+                }
+                else if (character == '\\')
+                {
+                    escaped = true;
+                }
+                else if (character == '"')
+                {
+                    quoted = false;
+                }
+                continue;
+            }
+
+            if (character == '"')
+            {
+                quoted = true;
+            }
+            else if (character == '(')
+            {
+                depth++;
+            }
+            else if (character == ')')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return index;
                 }
             }
-            catch (InvalidOperationException)
+        }
+
+        throw new InvalidDataException("OptionSettings contains unbalanced parentheses or quotes.");
+    }
+
+    private static IReadOnlyList<string> SplitTopLevel(string text, char separator)
+    {
+        var parts = new List<string>();
+        var start = 0;
+        var depth = 0;
+        var quoted = false;
+        var escaped = false;
+        for (var index = 0; index < text.Length; index++)
+        {
+            var character = text[index];
+            if (quoted)
             {
-                // Process disappeared while being observed.
+                if (escaped)
+                {
+                    escaped = false;
+                }
+                else if (character == '\\')
+                {
+                    escaped = true;
+                }
+                else if (character == '"')
+                {
+                    quoted = false;
+                }
+                continue;
+            }
+
+            if (character == '"')
+            {
+                quoted = true;
+            }
+            else if (character == '(')
+            {
+                depth++;
+            }
+            else if (character == ')')
+            {
+                depth--;
+                if (depth < 0)
+                {
+                    throw new InvalidDataException("OptionSettings contains an unexpected closing parenthesis.");
+                }
+            }
+            else if (character == separator && depth == 0)
+            {
+                parts.Add(text[start..index]);
+                start = index + 1;
             }
         }
-    }
 
-    return false;
-}
-
-static string ReplaceDedicatedServerName(string text, string worldId)
-{
-    var expression = new Regex(
-        @"^(?<prefix>\s*DedicatedServerName\s*=\s*).*$",
-        RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.CultureInvariant);
-    var match = expression.Match(text);
-    if (!match.Success)
-    {
-        throw new InvalidDataException("DedicatedServerName was not found in GameUserSettings.ini.");
-    }
-
-    return expression.Replace(
-        text,
-        current => current.Groups["prefix"].Value + worldId,
-        count: 1);
-}
-
-static void CopyDirectory(string sourcePath, string destinationPath)
-{
-    if (Directory.Exists(destinationPath))
-    {
-        throw new IOException($"Disposable World path already exists: {destinationPath}");
-    }
-
-    Directory.CreateDirectory(destinationPath);
-    foreach (var directory in Directory.EnumerateDirectories(sourcePath, "*", SearchOption.AllDirectories))
-    {
-        var attributes = File.GetAttributes(directory);
-        if ((attributes & FileAttributes.ReparsePoint) != 0)
+        if (quoted || depth != 0)
         {
-            throw new InvalidDataException($"Refusing to clone reparse-point directory: {directory}");
+            throw new InvalidDataException("OptionSettings contains an unterminated quote or nested tuple.");
         }
 
-        var relative = Path.GetRelativePath(sourcePath, directory);
-        Directory.CreateDirectory(Path.Combine(destinationPath, relative));
+        parts.Add(text[start..]);
+        return parts;
     }
 
-    foreach (var file in Directory.EnumerateFiles(sourcePath, "*", SearchOption.AllDirectories))
+    private static int FindTopLevelCharacter(string text, char target)
     {
-        var attributes = File.GetAttributes(file);
-        if ((attributes & FileAttributes.ReparsePoint) != 0)
+        var depth = 0;
+        var quoted = false;
+        var escaped = false;
+        for (var index = 0; index < text.Length; index++)
         {
-            throw new InvalidDataException($"Refusing to clone reparse-point file: {file}");
-        }
-
-        var relative = Path.GetRelativePath(sourcePath, file);
-        var destination = Path.Combine(destinationPath, relative);
-        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-        File.Copy(file, destination, overwrite: false);
-    }
-}
-
-static async Task RestoreExactConfigsAsync(
-    string gameUserSettingsPath,
-    byte[] gameUserSettingsBytes,
-    string palWorldSettingsPath,
-    byte[] palWorldSettingsBytes)
-{
-    await WriteAtomicallyAsync(gameUserSettingsPath, gameUserSettingsBytes);
-    await WriteAtomicallyAsync(palWorldSettingsPath, palWorldSettingsBytes);
-}
-
-static async Task WriteAtomicallyAsync(string path, byte[] bytes)
-{
-    var directory = Path.GetDirectoryName(path) ?? throw new InvalidOperationException("Path has no parent directory.");
-    Directory.CreateDirectory(directory);
-    var temp = Path.Combine(directory, $".{Path.GetFileName(path)}.sharedworlds-{Guid.NewGuid():N}.tmp");
-    try
-    {
-        await File.WriteAllBytesAsync(temp, bytes);
-        File.Move(temp, path, overwrite: true);
-    }
-    finally
-    {
-        if (File.Exists(temp))
-        {
-            File.Delete(temp);
-        }
-    }
-}
-
-static IReadOnlyDictionary<string, string> ParseOptionSettings(string iniText)
-{
-    var optionIndex = iniText.IndexOf("OptionSettings", StringComparison.OrdinalIgnoreCase);
-    if (optionIndex < 0)
-    {
-        throw new InvalidDataException("OptionSettings was not found in PalWorldSettings.ini.");
-    }
-
-    var equalsIndex = iniText.IndexOf('=', optionIndex + "OptionSettings".Length);
-    if (equalsIndex < 0)
-    {
-        throw new InvalidDataException("OptionSettings does not contain '='.");
-    }
-
-    var openIndex = iniText.IndexOf('(', equalsIndex + 1);
-    if (openIndex < 0)
-    {
-        throw new InvalidDataException("OptionSettings does not contain an opening tuple parenthesis.");
-    }
-
-    var closeIndex = FindMatchingParenthesis(iniText, openIndex);
-    var inner = iniText[(openIndex + 1)..closeIndex];
-    var result = new Dictionary<string, string>(StringComparer.Ordinal);
-    foreach (var item in SplitTopLevel(inner, ','))
-    {
-        if (string.IsNullOrWhiteSpace(item))
-        {
-            continue;
-        }
-
-        var itemEquals = FindTopLevelCharacter(item, '=');
-        if (itemEquals <= 0)
-        {
-            throw new InvalidDataException($"Malformed OptionSettings entry without key/value separator: {item.Trim()}");
-        }
-
-        var key = item[..itemEquals].Trim();
-        var value = item[(itemEquals + 1)..].Trim();
-        if (string.IsNullOrWhiteSpace(key) || !result.TryAdd(key, value))
-        {
-            throw new InvalidDataException($"OptionSettings contains an empty or duplicate setting name: {key}");
-        }
-    }
-
-    return result;
-}
-
-static int FindMatchingParenthesis(string text, int openIndex)
-{
-    var depth = 0;
-    var quoted = false;
-    var escaped = false;
-    for (var index = openIndex; index < text.Length; index++)
-    {
-        var character = text[index];
-        if (quoted)
-        {
-            if (escaped)
+            var character = text[index];
+            if (quoted)
             {
-                escaped = false;
+                if (escaped)
+                {
+                    escaped = false;
+                }
+                else if (character == '\\')
+                {
+                    escaped = true;
+                }
+                else if (character == '"')
+                {
+                    quoted = false;
+                }
+                continue;
             }
-            else if (character == '\\')
-            {
-                escaped = true;
-            }
-            else if (character == '"')
-            {
-                quoted = false;
-            }
-            continue;
-        }
 
-        if (character == '"')
-        {
-            quoted = true;
-        }
-        else if (character == '(')
-        {
-            depth++;
-        }
-        else if (character == ')')
-        {
-            depth--;
-            if (depth == 0)
+            if (character == '"')
+            {
+                quoted = true;
+            }
+            else if (character == '(')
+            {
+                depth++;
+            }
+            else if (character == ')')
+            {
+                depth--;
+            }
+            else if (character == target && depth == 0)
             {
                 return index;
             }
-            if (depth < 0)
-            {
-                break;
-            }
         }
+
+        return -1;
     }
 
-    throw new InvalidDataException("OptionSettings contains unbalanced parentheses or quotes.");
-}
-
-static IReadOnlyList<string> SplitTopLevel(string text, char separator)
-{
-    var parts = new List<string>();
-    var start = 0;
-    var depth = 0;
-    var quoted = false;
-    var escaped = false;
-    for (var index = 0; index < text.Length; index++)
+    private static bool IniValuesSemanticallyEqual(
+        PalworldWorldOptionSetting setting,
+        string expected,
+        string actual)
     {
-        var character = text[index];
-        if (quoted)
+        try
         {
-            if (escaped)
+            return setting.PropertyType switch
             {
-                escaped = false;
-            }
-            else if (character == '\\')
-            {
-                escaped = true;
-            }
-            else if (character == '"')
-            {
-                quoted = false;
-            }
-            continue;
+                "BoolProperty" => ParseBoolean(expected) == ParseBoolean(actual),
+                "IntProperty" or "Int64Property" or "UInt32Property" or "UInt64Property" =>
+                    ParseInteger(expected) == ParseInteger(actual),
+                "FloatProperty" or "DoubleProperty" => FloatingPointEqual(expected, actual),
+                "StrProperty" or "NameProperty" =>
+                    string.Equals(Unquote(expected), Unquote(actual), StringComparison.Ordinal),
+                "EnumProperty" or "ByteProperty" =>
+                    string.Equals(
+                        StripEnumPrefix(Unquote(expected)),
+                        StripEnumPrefix(Unquote(actual)),
+                        StringComparison.Ordinal),
+                "ArrayProperty" => ArraysEqual(expected, actual),
+                _ => false
+            };
         }
-
-        if (character == '"')
-        {
-            quoted = true;
-        }
-        else if (character == '(')
-        {
-            depth++;
-        }
-        else if (character == ')')
-        {
-            depth--;
-            if (depth < 0)
-            {
-                throw new InvalidDataException("OptionSettings contains an unexpected closing parenthesis.");
-            }
-        }
-        else if (character == separator && depth == 0)
-        {
-            parts.Add(text[start..index]);
-            start = index + 1;
-        }
-    }
-
-    if (quoted || depth != 0)
-    {
-        throw new InvalidDataException("OptionSettings contains an unterminated quote or nested tuple.");
-    }
-
-    parts.Add(text[start..]);
-    return parts;
-}
-
-static int FindTopLevelCharacter(string text, char target)
-{
-    var depth = 0;
-    var quoted = false;
-    var escaped = false;
-    for (var index = 0; index < text.Length; index++)
-    {
-        var character = text[index];
-        if (quoted)
-        {
-            if (escaped)
-            {
-                escaped = false;
-            }
-            else if (character == '\\')
-            {
-                escaped = true;
-            }
-            else if (character == '"')
-            {
-                quoted = false;
-            }
-            continue;
-        }
-
-        if (character == '"')
-        {
-            quoted = true;
-        }
-        else if (character == '(')
-        {
-            depth++;
-        }
-        else if (character == ')')
-        {
-            depth--;
-        }
-        else if (character == target && depth == 0)
-        {
-            return index;
-        }
-    }
-
-    return -1;
-}
-
-static bool IniValuesSemanticallyEqual(
-    PalworldWorldOptionSetting setting,
-    string expected,
-    string actual)
-{
-    try
-    {
-        return setting.PropertyType switch
-        {
-            "BoolProperty" => ParseBoolean(expected) == ParseBoolean(actual),
-            "IntProperty" or "Int64Property" or "UInt32Property" or "UInt64Property" =>
-                ParseInteger(expected) == ParseInteger(actual),
-            "FloatProperty" or "DoubleProperty" => FloatingPointEqual(expected, actual),
-            "StrProperty" or "NameProperty" =>
-                string.Equals(Unquote(expected), Unquote(actual), StringComparison.Ordinal),
-            "EnumProperty" or "ByteProperty" =>
-                string.Equals(StripEnumPrefix(Unquote(expected)), StripEnumPrefix(Unquote(actual)), StringComparison.Ordinal),
-            "ArrayProperty" => ArraysEqual(expected, actual),
-            _ => false
-        };
-    }
-    catch (Exception exception) when (
-        exception is FormatException or OverflowException or InvalidDataException)
-    {
-        return false;
-    }
-}
-
-static bool ParseBoolean(string value)
-    => bool.TryParse(Unquote(value), out var parsed)
-        ? parsed
-        : throw new FormatException("Invalid Boolean INI value.");
-
-static decimal ParseInteger(string value)
-    => decimal.TryParse(
-        Unquote(value),
-        NumberStyles.Integer,
-        CultureInfo.InvariantCulture,
-        out var parsed)
-        ? parsed
-        : throw new FormatException("Invalid integer INI value.");
-
-static bool FloatingPointEqual(string left, string right)
-{
-    if (!double.TryParse(Unquote(left), NumberStyles.Float, CultureInfo.InvariantCulture, out var leftValue) ||
-        !double.TryParse(Unquote(right), NumberStyles.Float, CultureInfo.InvariantCulture, out var rightValue) ||
-        double.IsNaN(leftValue) ||
-        double.IsNaN(rightValue) ||
-        double.IsInfinity(leftValue) ||
-        double.IsInfinity(rightValue))
-    {
-        return false;
-    }
-
-    var scale = Math.Max(1.0, Math.Max(Math.Abs(leftValue), Math.Abs(rightValue)));
-    return Math.Abs(leftValue - rightValue) <= 1e-6 * scale;
-}
-
-static bool ArraysEqual(string expected, string actual)
-{
-    var expectedItems = ParseTuple(expected);
-    var actualItems = ParseTuple(actual);
-    if (expectedItems.Count != actualItems.Count)
-    {
-        return false;
-    }
-
-    for (var index = 0; index < expectedItems.Count; index++)
-    {
-        if (!string.Equals(
-                StripEnumPrefix(Unquote(expectedItems[index])),
-                StripEnumPrefix(Unquote(actualItems[index])),
-                StringComparison.Ordinal))
+        catch (Exception exception) when (
+            exception is FormatException or OverflowException or InvalidDataException)
         {
             return false;
         }
     }
 
-    return true;
-}
+    private static bool ParseBoolean(string value)
+        => bool.TryParse(Unquote(value), out var parsed)
+            ? parsed
+            : throw new FormatException("Invalid Boolean INI value.");
 
-static IReadOnlyList<string> ParseTuple(string value)
-{
-    var trimmed = value.Trim();
-    if (trimmed.Length == 0 || string.Equals(trimmed, "()", StringComparison.Ordinal))
+    private static decimal ParseInteger(string value)
+        => decimal.TryParse(
+            Unquote(value),
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out var parsed)
+            ? parsed
+            : throw new FormatException("Invalid integer INI value.");
+
+    private static bool FloatingPointEqual(string left, string right)
     {
-        return Array.Empty<string>();
+        if (!double.TryParse(Unquote(left), NumberStyles.Float, CultureInfo.InvariantCulture, out var leftValue) ||
+            !double.TryParse(Unquote(right), NumberStyles.Float, CultureInfo.InvariantCulture, out var rightValue) ||
+            double.IsNaN(leftValue) ||
+            double.IsNaN(rightValue) ||
+            double.IsInfinity(leftValue) ||
+            double.IsInfinity(rightValue))
+        {
+            return false;
+        }
+
+        var scale = Math.Max(1.0, Math.Max(Math.Abs(leftValue), Math.Abs(rightValue)));
+        return Math.Abs(leftValue - rightValue) <= 1e-6 * scale;
     }
 
-    if (trimmed.Length < 2 || trimmed[0] != '(' || trimmed[^1] != ')')
+    private static bool ArraysEqual(string expected, string actual)
     {
-        throw new InvalidDataException("Array INI value is not a tuple.");
+        var expectedItems = ParseTuple(expected);
+        var actualItems = ParseTuple(actual);
+        if (expectedItems.Count != actualItems.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < expectedItems.Count; index++)
+        {
+            if (!string.Equals(
+                    StripEnumPrefix(Unquote(expectedItems[index])),
+                    StripEnumPrefix(Unquote(actualItems[index])),
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
-    var inner = trimmed[1..^1];
-    return inner.Length == 0 ? Array.Empty<string>() : SplitTopLevel(inner, ',');
-}
-
-static string Unquote(string value)
-{
-    var trimmed = value.Trim();
-    if (trimmed.Length < 2 || trimmed[0] != '"' || trimmed[^1] != '"')
+    private static IReadOnlyList<string> ParseTuple(string value)
     {
-        return trimmed;
+        var trimmed = value.Trim();
+        if (trimmed.Length == 0 || string.Equals(trimmed, "()", StringComparison.Ordinal))
+        {
+            return Array.Empty<string>();
+        }
+
+        if (trimmed.Length < 2 || trimmed[0] != '(' || trimmed[^1] != ')')
+        {
+            throw new InvalidDataException("Array INI value is not a tuple.");
+        }
+
+        var inner = trimmed[1..^1];
+        return inner.Length == 0 ? Array.Empty<string>() : SplitTopLevel(inner, ',');
     }
 
-    var builder = new StringBuilder(trimmed.Length - 2);
-    var escaped = false;
-    for (var index = 1; index < trimmed.Length - 1; index++)
+    private static string Unquote(string value)
     {
-        var character = trimmed[index];
+        var trimmed = value.Trim();
+        if (trimmed.Length < 2 || trimmed[0] != '"' || trimmed[^1] != '"')
+        {
+            return trimmed;
+        }
+
+        var builder = new StringBuilder(trimmed.Length - 2);
+        var escaped = false;
+        for (var index = 1; index < trimmed.Length - 1; index++)
+        {
+            var character = trimmed[index];
+            if (escaped)
+            {
+                builder.Append(character);
+                escaped = false;
+            }
+            else if (character == '\\')
+            {
+                escaped = true;
+            }
+            else
+            {
+                builder.Append(character);
+            }
+        }
+
         if (escaped)
         {
-            builder.Append(character);
-            escaped = false;
+            throw new InvalidDataException("Quoted INI value ends with an incomplete escape.");
         }
-        else if (character == '\\')
+
+        return builder.ToString();
+    }
+
+    private static string StripEnumPrefix(string value)
+    {
+        var separator = value.LastIndexOf("::", StringComparison.Ordinal);
+        return separator >= 0 ? value[(separator + 2)..] : value;
+    }
+
+    private static string Sha256(ReadOnlySpan<byte> bytes)
+        => Convert.ToHexString(SHA256.HashData(bytes));
+
+    private static async Task<string> Sha256FileAsync(string path)
+        => Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(path)));
+
+    private static class NativeMethods
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct StartupInfo
         {
-            escaped = true;
+            internal uint cb;
+            internal IntPtr lpReserved;
+            internal IntPtr lpDesktop;
+            internal IntPtr lpTitle;
+            internal uint dwX;
+            internal uint dwY;
+            internal uint dwXSize;
+            internal uint dwYSize;
+            internal uint dwXCountChars;
+            internal uint dwYCountChars;
+            internal uint dwFillAttribute;
+            internal uint dwFlags;
+            internal ushort wShowWindow;
+            internal ushort cbReserved2;
+            internal IntPtr lpReserved2;
+            internal IntPtr hStdInput;
+            internal IntPtr hStdOutput;
+            internal IntPtr hStdError;
         }
-        else
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct ProcessInformation
         {
-            builder.Append(character);
+            internal IntPtr hProcess;
+            internal IntPtr hThread;
+            internal uint dwProcessId;
+            internal uint dwThreadId;
         }
+
+        [DllImport("kernel32.dll", EntryPoint = "CreateProcessW", SetLastError = true, CharSet = CharSet.Unicode)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool CreateProcess(
+            string applicationName,
+            IntPtr commandLine,
+            IntPtr processAttributes,
+            IntPtr threadAttributes,
+            [MarshalAs(UnmanagedType.Bool)] bool inheritHandles,
+            uint creationFlags,
+            IntPtr environment,
+            string currentDirectory,
+            ref StartupInfo startupInfo,
+            out ProcessInformation processInformation);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool GenerateConsoleCtrlEvent(uint ctrlEvent, uint processGroupId);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool CloseHandle(IntPtr handle);
     }
-
-    if (escaped)
-    {
-        throw new InvalidDataException("Quoted INI value ends with an incomplete escape.");
-    }
-
-    return builder.ToString();
-}
-
-static string StripEnumPrefix(string value)
-{
-    var separator = value.LastIndexOf("::", StringComparison.Ordinal);
-    return separator >= 0 ? value[(separator + 2)..] : value;
-}
-
-static string Sha256(ReadOnlySpan<byte> bytes)
-    => Convert.ToHexString(SHA256.HashData(bytes));
-
-static async Task<string> Sha256FileAsync(string path)
-    => Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(path)));
-
-internal static partial class NativeMethods
-{
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    internal struct StartupInfo
-    {
-        internal int cb;
-        internal string? lpReserved;
-        internal string? lpDesktop;
-        internal string? lpTitle;
-        internal int dwX;
-        internal int dwY;
-        internal int dwXSize;
-        internal int dwYSize;
-        internal int dwXCountChars;
-        internal int dwYCountChars;
-        internal int dwFillAttribute;
-        internal int dwFlags;
-        internal short wShowWindow;
-        internal short cbReserved2;
-        internal IntPtr lpReserved2;
-        internal IntPtr hStdInput;
-        internal IntPtr hStdOutput;
-        internal IntPtr hStdError;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct ProcessInformation
-    {
-        internal IntPtr hProcess;
-        internal IntPtr hThread;
-        internal uint dwProcessId;
-        internal uint dwThreadId;
-    }
-
-    [LibraryImport("kernel32.dll", EntryPoint = "CreateProcessW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool CreateProcess(
-        string applicationName,
-        StringBuilder? commandLine,
-        IntPtr processAttributes,
-        IntPtr threadAttributes,
-        [MarshalAs(UnmanagedType.Bool)] bool inheritHandles,
-        uint creationFlags,
-        IntPtr environment,
-        string currentDirectory,
-        ref StartupInfo startupInfo,
-        out ProcessInformation processInformation);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool GenerateConsoleCtrlEvent(uint ctrlEvent, uint processGroupId);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool CloseHandle(IntPtr handle);
 }

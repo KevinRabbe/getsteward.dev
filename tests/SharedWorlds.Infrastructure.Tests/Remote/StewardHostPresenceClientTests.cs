@@ -59,6 +59,31 @@ public sealed class StewardHostPresenceClientTests
     }
 
     [Fact]
+    public async Task AuthenticationRequiredRemainsAuthenticationFailureInsteadOfMalformedJson()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(
+            HttpStatusCode.Unauthorized,
+            """
+            {
+              "type": "urn:steward:problem:authentication-required",
+              "title": "A valid Steward access credential is required.",
+              "status": 401,
+              "code": "AuthenticationRequired",
+              "retryable": false
+            }
+            """));
+        using var http = CreateHttpClient(handler);
+        var client = new StewardHostPresenceClient(http);
+
+        var exception = await Assert.ThrowsAsync<StewardRemoteApiException>(() =>
+            client.GetAsync(WorldId.New(), "expired-access-token"));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, exception.StatusCode);
+        Assert.Equal("AuthenticationRequired", exception.Code);
+        Assert.False(exception.Retryable);
+    }
+
+    [Fact]
     public async Task PublishSendsExactReservationAndReadyConnectionEvidence()
     {
         var worldId = WorldId.New();

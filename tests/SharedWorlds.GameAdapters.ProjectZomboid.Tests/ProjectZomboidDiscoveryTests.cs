@@ -122,8 +122,9 @@ public sealed class ProjectZomboidDiscoveryTests : IDisposable
     public void EnvironmentInspectionUsesDedicatedServerSteamBuildId()
     {
         var installation = CreateInstallationWithDedicatedServerBuild("87654321");
+        var world = CreateEnvironmentWorld(installation);
 
-        var environment = ProjectZomboidEnvironment.Inspect(installation);
+        var environment = ProjectZomboidEnvironment.Inspect(installation, world);
 
         Assert.Equal(1, environment.SchemaVersion);
         Assert.Equal("project-zomboid", environment.AdapterId);
@@ -140,9 +141,10 @@ public sealed class ProjectZomboidDiscoveryTests : IDisposable
             _root,
             "steam",
             new Dictionary<string, string>(StringComparer.Ordinal));
+        var world = new DetectedWorld(_root, "servertest", _root);
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
-            ProjectZomboidEnvironment.Inspect(installation));
+            ProjectZomboidEnvironment.Inspect(installation, world));
 
         Assert.Contains("Dedicated Server", exception.Message, StringComparison.Ordinal);
     }
@@ -171,8 +173,10 @@ public sealed class ProjectZomboidDiscoveryTests : IDisposable
         var library = Path.Combine(_root, $"environment-{Guid.NewGuid():N}");
         var clientRoot = Path.Combine(library, "steamapps", "common", "ProjectZomboid");
         var serverRoot = Path.Combine(library, "steamapps", "common", "Project Zomboid Dedicated Server");
+        var userDataRoot = Path.Combine(library, "Zomboid");
         Directory.CreateDirectory(clientRoot);
         Directory.CreateDirectory(serverRoot);
+        Directory.CreateDirectory(userDataRoot);
         var manifest = Path.Combine(library, "steamapps", "appmanifest_380870.acf");
         Directory.CreateDirectory(Path.GetDirectoryName(manifest)!);
         File.WriteAllText(
@@ -186,8 +190,23 @@ public sealed class ProjectZomboidDiscoveryTests : IDisposable
             {
                 [ProjectZomboidInstallationDiscovery.DedicatedServerRootPathKey] = serverRoot,
                 [ProjectZomboidInstallationDiscovery.DedicatedServerManifestPathKey] = manifest,
-                [ProjectZomboidInstallationDiscovery.DedicatedServerInstallStateKey] = "installed"
+                [ProjectZomboidInstallationDiscovery.DedicatedServerInstallStateKey] = "installed",
+                [ProjectZomboidInstallationDiscovery.UserDataPathKey] = userDataRoot
             });
+    }
+
+    private static DetectedWorld CreateEnvironmentWorld(GameInstallation installation)
+    {
+        var userDataRoot = installation.Metadata![ProjectZomboidInstallationDiscovery.UserDataPathKey];
+        var worldPath = Path.Combine(userDataRoot, "Saves", "Multiplayer", "servertest");
+        var serverRoot = Path.Combine(userDataRoot, "Server");
+        Directory.CreateDirectory(worldPath);
+        Directory.CreateDirectory(serverRoot);
+        File.WriteAllBytes(Path.Combine(worldPath, "map_t.bin"), [1]);
+        File.WriteAllText(
+            Path.Combine(serverRoot, "servertest.ini"),
+            "PublicName=Steward Test\nWorkshopItems=\nMods=\n");
+        return new DetectedWorld(worldPath, "servertest", worldPath);
     }
 
     public void Dispose()

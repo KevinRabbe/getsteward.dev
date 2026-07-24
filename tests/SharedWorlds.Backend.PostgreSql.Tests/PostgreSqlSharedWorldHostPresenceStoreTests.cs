@@ -56,10 +56,12 @@ public sealed class PostgreSqlSharedWorldHostPresenceStoreTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task UpsertRoundTripsExactPresence()
+    public async Task TryUpsertRoundTripsExactActiveReservationPresence()
     {
+        var sessionId = Guid.NewGuid();
+        await SetReservationAsync(sessionId, 3, "device-a", SharedWorldReservationState.Active);
         var presence = Presence(
-            sessionId: Guid.NewGuid(),
+            sessionId,
             generation: 3,
             installationId: "device-a",
             state: SharedWorldHostPresenceState.Ready,
@@ -68,7 +70,7 @@ public sealed class PostgreSqlSharedWorldHostPresenceStoreTests : IAsyncLifetime
             joinToken: "join-token",
             updatedAt: Now);
 
-        await _store.UpsertAsync(presence);
+        Assert.True(await _store.TryUpsertAsync(presence));
 
         var loaded = Assert.IsType<SharedWorldHostPresence>(
             await _store.GetAsync(_world.WorldId));
@@ -80,6 +82,7 @@ public sealed class PostgreSqlSharedWorldHostPresenceStoreTests : IAsyncLifetime
     {
         var oldSession = Guid.NewGuid();
         var currentSession = Guid.NewGuid();
+        await SetReservationAsync(oldSession, 4, "device-a", SharedWorldReservationState.Active);
         var old = Presence(
             oldSession,
             generation: 4,
@@ -89,8 +92,9 @@ public sealed class PostgreSqlSharedWorldHostPresenceStoreTests : IAsyncLifetime
             port: null,
             joinToken: null,
             updatedAt: Now);
-        await _store.UpsertAsync(old);
+        Assert.True(await _store.TryUpsertAsync(old));
 
+        await SetReservationAsync(currentSession, 5, "device-b", SharedWorldReservationState.Active);
         var current = Presence(
             currentSession,
             generation: 5,
@@ -100,17 +104,17 @@ public sealed class PostgreSqlSharedWorldHostPresenceStoreTests : IAsyncLifetime
             port: 34197,
             joinToken: "new-token",
             updatedAt: Now.AddMinutes(1));
-        await _store.UpsertAsync(current);
+        Assert.True(await _store.TryUpsertAsync(current));
 
-        // Simulate a delayed request that passed service-level reservation validation before
-        // generation 4 was reclaimed, but reached PostgreSQL only after generation 5 published.
-        await _store.UpsertAsync(old with
+        // Simulate a delayed request that passed the earlier service-level check before generation 4
+        // was reclaimed, but reaches PostgreSQL only after generation 5 became authoritative.
+        Assert.False(await _store.TryUpsertAsync(old with
         {
             State = SharedWorldHostPresenceState.Ready,
             Address = "203.0.113.99",
             Port = 34197,
             UpdatedAt = Now.AddMinutes(2)
-        });
+        }));
 
         Assert.False(await _store.DeleteAsync(
             _world.WorldId,
@@ -121,9 +125,10 @@ public sealed class PostgreSqlSharedWorldHostPresenceStoreTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task SameGenerationDifferentSessionCannotReplacePresence()
+    public async Task DifferentSessionCannotPublishAgainstCurrentReservation()
     {
         var currentSession = Guid.NewGuid();
+        await SetReservationAsync(currentSession, 6, "device-a", SharedWorldReservationState.Active);
         var current = Presence(
             currentSession,
             generation: 6,
@@ -133,9 +138,9 @@ public sealed class PostgreSqlSharedWorldHostPresenceStoreTests : IAsyncLifetime
             port: 34197,
             joinToken: "current",
             updatedAt: Now);
-        await _store.UpsertAsync(current);
+        Assert.True(await _store.TryUpsertAsync(current));
 
-        await _store.UpsertAsync(Presence(
+        Assert.False(await _store.TryUpsertAsync(Presence(
             Guid.NewGuid(),
             generation: 6,
             installationId: "device-b",
@@ -143,40 +148,59 @@ public sealed class PostgreSqlSharedWorldHostPresenceStoreTests : IAsyncLifetime
             address: "198.51.100.77",
             port: 34197,
             joinToken: "wrong-session",
-            updatedAt: Now.AddMinutes(1)));
+            updatedAt: Now.AddMinutes(1))));
 
         Assert.Equal(current, await _store.GetAsync(_world.WorldId));
+    }
+
+    [Fact]
+    public async Task UncertainReservationCannotPublishPresence()
+    {
+        var sessionId = Guid.NewGuid();
+        await SetReservationAsync(sessionId, 7, "device-a", SharedWorldReservationState.Uncertain);
+
+        Assert.False(await _store.TryUpsertAsync(Presence(
+            sessionId,
+            generation: 7,
+            installationId: "device-a",
+            state: SharedWorldHostPresenceState.Starting,
+            address: null,
+            port: null,
+            joinToken: null,
+            updatedAt: Now)));
+        Assert.Null(await _store.GetAsync(_world.WorldId));
     }
 
     [Fact]
     public async Task ExactClearRemovesPresence()
     {
         var sessionId = Guid.NewGuid();
-        await _store.UpsertAsync(Presence(
+        await SetReservationAsync(sessionId, 8, "device-a", SharedWorldReservationState.Active);
+        Assert.True(await _store.TryUpsertAsync(Presence(
             sessionId,
-            generation: 7,
+            generation: 8,
             installationId: "device-a",
             state: SharedWorldHostPresenceState.Ready,
             address: "203.0.113.20",
             port: 34197,
             joinToken: null,
-            updatedAt: Now));
+            updatedAt: Now)));
 
         Assert.True(await _store.DeleteAsync(
             _world.WorldId,
             _manager.Subject,
             sessionId,
-            generation: 7));
+            generation: 8));
         Assert.Null(await _store.GetAsync(_world.WorldId));
         Assert.False(await _store.DeleteAsync(
             _world.WorldId,
             _manager.Subject,
             sessionId,
-            generation: 7));
+            generation: 8));
     }
 
     [Fact]
-    public async Task PresenceCannotExistForUnknownWorld()
+    public async Task UnknownWorldOrReservationIsRejectedWithoutMutation()
     {
         var unknown = new SharedWorldHostPresence(
             WorldId.New(),
@@ -190,10 +214,8 @@ public sealed class PostgreSqlSharedWorldHostPresenceStoreTests : IAsyncLifetime
             null,
             Now);
 
-        var exception = await Assert.ThrowsAsync<PostgresException>(() =>
-            _store.UpsertAsync(unknown));
-
-        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, exception.SqlState);
+        Assert.False(await _store.TryUpsertAsync(unknown));
+        Assert.Null(await _store.GetAsync(unknown.WorldId));
     }
 
     private SharedWorldHostPresence Presence(
@@ -216,6 +238,81 @@ public sealed class PostgreSqlSharedWorldHostPresenceStoreTests : IAsyncLifetime
             port,
             joinToken,
             updatedAt);
+
+    private async Task SetReservationAsync(
+        Guid sessionId,
+        long generation,
+        string installationId,
+        SharedWorldReservationState state)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+
+        await using (var delete = new NpgsqlCommand(
+                         "DELETE FROM steward_world_reservations WHERE world_id = @world_id;",
+                         connection,
+                         transaction))
+        {
+            delete.Parameters.AddWithValue("world_id", _world.WorldId.Value);
+            await delete.ExecuteNonQueryAsync();
+        }
+
+        await using (var insert = new NpgsqlCommand(
+                         """
+                         INSERT INTO steward_world_reservations (
+                             world_id,
+                             session_id,
+                             generation,
+                             holder_provider,
+                             holder_external_id,
+                             installation_id,
+                             starting_state_revision_id,
+                             starting_environment_revision_id,
+                             state,
+                             acquired_at,
+                             last_heartbeat_at,
+                             became_uncertain_at)
+                         VALUES (
+                             @world_id,
+                             @session_id,
+                             @generation,
+                             @holder_provider,
+                             @holder_external_id,
+                             @installation_id,
+                             @starting_state_revision_id,
+                             @starting_environment_revision_id,
+                             @state,
+                             @now,
+                             @now,
+                             @became_uncertain_at);
+                         """,
+                         connection,
+                         transaction))
+        {
+            insert.Parameters.AddWithValue("world_id", _world.WorldId.Value);
+            insert.Parameters.AddWithValue("session_id", sessionId);
+            insert.Parameters.AddWithValue("generation", generation);
+            insert.Parameters.AddWithValue("holder_provider", _manager.Subject.Provider);
+            insert.Parameters.AddWithValue("holder_external_id", _manager.Subject.ExternalId);
+            insert.Parameters.AddWithValue("installation_id", installationId);
+            insert.Parameters.AddWithValue("starting_state_revision_id", _world.CurrentStateRevisionId.Value);
+            insert.Parameters.AddWithValue(
+                "starting_environment_revision_id",
+                NpgsqlTypes.NpgsqlDbType.Uuid,
+                _world.CurrentEnvironmentRevisionId is null
+                    ? DBNull.Value
+                    : _world.CurrentEnvironmentRevisionId.Value.Value);
+            insert.Parameters.AddWithValue("state", (short)state);
+            insert.Parameters.AddWithValue("now", Now);
+            insert.Parameters.AddWithValue(
+                "became_uncertain_at",
+                NpgsqlTypes.NpgsqlDbType.TimestampTz,
+                state == SharedWorldReservationState.Uncertain ? Now : DBNull.Value);
+            await insert.ExecuteNonQueryAsync();
+        }
+
+        await transaction.CommitAsync();
+    }
 
     private async Task ResetAsync()
     {

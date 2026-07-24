@@ -92,7 +92,10 @@ public sealed partial class PalworldAdapter : IGameAdapter
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(state);
         PalworldWorkspaceOwnership.RequireOwned(world);
-        PalworldStatePackagePreflight.Validate(state.Path, world.WorkingDirectory);
+        PalworldStatePackagePreflight.Validate(
+            state.Path,
+            world.WorkingDirectory,
+            cancellationToken);
         return PalworldWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
     }
 

@@ -277,16 +277,75 @@ public sealed class VerifiedPackageCache
         }
 
         var mode = append ? FileMode.Append : FileMode.Create;
-        await using var destination = new FileStream(
-            partialPath,
-            mode,
-            FileAccess.Write,
-            FileShare.None,
-            bufferSize: _options.CopyBufferBytes,
-            useAsync: true);
-        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
-        await source.CopyToAsync(destination, _options.CopyBufferBytes, cancellationToken);
-        await destination.FlushAsync(cancellationToken);
+        var remainingAuthorizedBytes = authorization.ExpectedByteSize - resumeOffset;
+        bool exceededAuthorizedSize;
+        await using (var destination = new FileStream(
+                         partialPath,
+                         mode,
+                         FileAccess.Write,
+                         FileShare.None,
+                         bufferSize: _options.CopyBufferBytes,
+                         useAsync: true))
+        await using (var source = await response.Content.ReadAsStreamAsync(cancellationToken))
+        {
+            exceededAuthorizedSize = await CopyWithByteCeilingAsync(
+                source,
+                destination,
+                remainingAuthorizedBytes,
+                _options.CopyBufferBytes,
+                cancellationToken);
+            await destination.FlushAsync(cancellationToken);
+        }
+
+        if (exceededAuthorizedSize)
+        {
+            File.Delete(partialPath);
+            throw new PackageIntegrityException(
+                $"Downloaded package exceeded its declared size of {authorization.ExpectedByteSize} bytes.");
+        }
+    }
+
+    private static async Task<bool> CopyWithByteCeilingAsync(
+        Stream source,
+        Stream destination,
+        long maximumBytes,
+        int bufferBytes,
+        CancellationToken cancellationToken)
+    {
+        if (maximumBytes < 0)
+        {
+            throw new PackageIntegrityException("Package resume offset exceeded the authorized immutable package size.");
+        }
+
+        var buffer = new byte[bufferBytes];
+        var remaining = maximumBytes;
+        while (true)
+        {
+            var requested = remaining < buffer.Length
+                ? checked((int)remaining + 1)
+                : buffer.Length;
+            var read = await source.ReadAsync(
+                buffer.AsMemory(0, requested),
+                cancellationToken);
+            if (read == 0)
+            {
+                return false;
+            }
+
+            var writable = (int)Math.Min(read, remaining);
+            if (writable > 0)
+            {
+                await destination.WriteAsync(
+                    buffer.AsMemory(0, writable),
+                    cancellationToken);
+                remaining -= writable;
+            }
+
+            if (read > writable)
+            {
+                return true;
+            }
+        }
     }
 
     private async Task<bool> VerifyFileAsync(

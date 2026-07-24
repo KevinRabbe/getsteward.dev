@@ -31,6 +31,8 @@ public sealed class DesktopTextAcceptanceTests
             Assert.Equal("Import", DesktopText.Import);
             Assert.Equal("Join", DesktopText.Join);
             Assert.Equal("Stop and Save", DesktopText.StopAndSave);
+            Assert.Equal("Retry recovery", DesktopText.RetryRecovery);
+            Assert.Equal("Continue from last safe state", DesktopText.ContinueFromLastSafeState);
             Assert.Equal("Quit Steward", DesktopText.QuitSteward);
         }
         finally

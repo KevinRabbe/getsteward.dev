@@ -9,25 +9,19 @@ namespace SharedWorlds.Infrastructure.Tests.Remote;
 public sealed class StewardHostPresenceClientTests
 {
     [Fact]
-    public async Task GetMapsReadyPresenceWithoutAcquiringAuthority()
+    public async Task GetMapsOnlyJoinEvidence()
     {
         var worldId = WorldId.New();
-        var sessionId = Guid.NewGuid();
         var handler = new RecordingHandler(_ => JsonResponse(
             HttpStatusCode.OK,
-            $$"""
+            """
             {
               "code": "HostPresence",
               "data": {
-                "worldId": "{{worldId.Value:D}}",
-                "reservationSessionId": "{{sessionId:D}}",
-                "reservationGeneration": 4,
-                "hostInstallationId": "host-device",
                 "state": "Ready",
                 "address": "203.0.113.20",
                 "port": 34197,
-                "joinToken": "token-1",
-                "updatedAt": "2026-07-24T12:00:00Z"
+                "joinToken": "token-1"
               },
               "retryable": false
             }
@@ -38,10 +32,6 @@ public sealed class StewardHostPresenceClientTests
         var presence = await client.GetAsync(worldId, "access-token");
 
         Assert.NotNull(presence);
-        Assert.Equal(worldId, presence.WorldId);
-        Assert.Equal(sessionId, presence.ReservationSessionId);
-        Assert.Equal(4, presence.ReservationGeneration);
-        Assert.Equal("host-device", presence.HostInstallationId);
         Assert.Equal(StewardRemoteHostPresenceState.Ready, presence.State);
         Assert.Equal("203.0.113.20", presence.Address);
         Assert.Equal(34197, presence.Port);
@@ -61,15 +51,11 @@ public sealed class StewardHostPresenceClientTests
     {
         var handler = new RecordingHandler(_ => JsonResponse(
             HttpStatusCode.NotFound,
-            """
-            { "code": "NotFound", "retryable": false }
-            """));
+            """{ "code": "NotFound", "retryable": false }"""));
         using var http = CreateHttpClient(handler);
         var client = new StewardHostPresenceClient(http);
 
-        var presence = await client.GetAsync(WorldId.New(), "access-token");
-
-        Assert.Null(presence);
+        Assert.Null(await client.GetAsync(WorldId.New(), "access-token"));
     }
 
     [Fact]
@@ -79,9 +65,7 @@ public sealed class StewardHostPresenceClientTests
         var sessionId = Guid.NewGuid();
         var handler = new RecordingHandler(_ => JsonResponse(
             HttpStatusCode.OK,
-            """
-            { "code": "HostPresencePublished", "retryable": false }
-            """));
+            """{ "code": "HostPresencePublished", "retryable": false }"""));
         using var http = CreateHttpClient(handler);
         var client = new StewardHostPresenceClient(http);
 
@@ -122,9 +106,7 @@ public sealed class StewardHostPresenceClientTests
     {
         var handler = new RecordingHandler(_ => JsonResponse(
             statusCode,
-            $$"""
-            { "code": "{{code}}", "retryable": false }
-            """));
+            $$"""{ "code": "{{code}}", "retryable": false }"""));
         using var http = CreateHttpClient(handler);
         var client = new StewardHostPresenceClient(http);
 
@@ -133,9 +115,9 @@ public sealed class StewardHostPresenceClientTests
             Guid.NewGuid(),
             1,
             StewardRemoteHostPresenceState.Starting,
-            address: null,
-            port: null,
-            joinToken: null,
+            null,
+            null,
+            null,
             "access-token");
 
         Assert.Equal(expected, result);
@@ -148,15 +130,11 @@ public sealed class StewardHostPresenceClientTests
         var sessionId = Guid.NewGuid();
         var handler = new RecordingHandler(_ => JsonResponse(
             HttpStatusCode.OK,
-            """
-            { "code": "HostPresenceCleared", "retryable": false }
-            """));
+            """{ "code": "HostPresenceCleared", "retryable": false }"""));
         using var http = CreateHttpClient(handler);
         var client = new StewardHostPresenceClient(http);
 
-        var cleared = await client.ClearAsync(worldId, sessionId, 12, "access-token");
-
-        Assert.True(cleared);
+        Assert.True(await client.ClearAsync(worldId, sessionId, 12, "access-token"));
         var request = Assert.Single(handler.Requests);
         Assert.Equal(HttpMethod.Delete, request.Method);
         Assert.Equal(
@@ -167,22 +145,16 @@ public sealed class StewardHostPresenceClientTests
     [Fact]
     public async Task UnknownStateFailsClosed()
     {
-        var worldId = WorldId.New();
         var handler = new RecordingHandler(_ => JsonResponse(
             HttpStatusCode.OK,
-            $$"""
+            """
             {
               "code": "HostPresence",
               "data": {
-                "worldId": "{{worldId.Value:D}}",
-                "reservationSessionId": "{{Guid.NewGuid():D}}",
-                "reservationGeneration": 1,
-                "hostInstallationId": "host-device",
                 "state": "MaybeReady",
                 "address": null,
                 "port": null,
-                "joinToken": null,
-                "updatedAt": "2026-07-24T12:00:00Z"
+                "joinToken": null
               },
               "retryable": false
             }
@@ -191,7 +163,7 @@ public sealed class StewardHostPresenceClientTests
         var client = new StewardHostPresenceClient(http);
 
         await Assert.ThrowsAsync<InvalidDataException>(() =>
-            client.GetAsync(worldId, "access-token"));
+            client.GetAsync(WorldId.New(), "access-token"));
     }
 
     [Fact]
@@ -206,19 +178,15 @@ public sealed class StewardHostPresenceClientTests
             Guid.Empty,
             1,
             StewardRemoteHostPresenceState.Starting,
-            address: null,
-            port: null,
-            joinToken: null,
+            null,
+            null,
+            null,
             "access-token"));
-
         Assert.Empty(handler.Requests);
     }
 
     private static HttpClient CreateHttpClient(HttpMessageHandler handler)
-        => new(handler)
-        {
-            BaseAddress = new Uri("https://steward.test/")
-        };
+        => new(handler) { BaseAddress = new Uri("https://steward.test/") };
 
     private static HttpResponseMessage JsonResponse(HttpStatusCode statusCode, string json)
         => new(statusCode)
@@ -231,9 +199,7 @@ public sealed class StewardHostPresenceClientTests
         private readonly Func<HttpRequestMessage, HttpResponseMessage> _responseFactory;
 
         public RecordingHandler(Func<HttpRequestMessage, HttpResponseMessage> responseFactory)
-        {
-            _responseFactory = responseFactory;
-        }
+            => _responseFactory = responseFactory;
 
         public List<RequestSnapshot> Requests { get; } = [];
 

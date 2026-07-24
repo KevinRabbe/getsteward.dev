@@ -76,7 +76,9 @@ public sealed class ProjectZomboidAdapter : IGameAdapter
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(state);
         ProjectZomboidWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        ProjectZomboidStatePackagePreflight.Validate(state.Path, world.WorkingDirectory);
         return ProjectZomboidWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
     }
 

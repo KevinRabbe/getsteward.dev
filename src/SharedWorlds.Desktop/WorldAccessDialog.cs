@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Media;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Infrastructure.Remote;
@@ -102,6 +104,11 @@ internal sealed class WorldAccessDialog : Window
         _members.Foreground = (Brush)FindResource("TextBrush");
         _members.BorderBrush = (Brush)FindResource("BorderBrush");
         AutomationProperties.SetName(_members, "People with access");
+        var memberItemStyle = new Style(typeof(ListBoxItem));
+        memberItemStyle.Setters.Add(new Setter(
+            AutomationProperties.NameProperty,
+            new Binding(nameof(MemberRow.DisplayText))));
+        _members.ItemContainerStyle = memberItemStyle;
         Grid.SetRow(_members, 2);
         root.Children.Add(_members);
 
@@ -143,7 +150,7 @@ internal sealed class WorldAccessDialog : Window
         var value = _inviteSteamId.Text.Trim();
         if (!ulong.TryParse(value, out var steamId) || steamId == 0)
         {
-            _status.Text = "Enter the player's numeric Steam ID64.";
+            SetStatus("Enter the player's numeric Steam ID64.");
             return;
         }
 
@@ -151,7 +158,7 @@ internal sealed class WorldAccessDialog : Window
         {
             await _access.InviteAsync(_world.Id, "steam", value);
             _inviteSteamId.Clear();
-            _status.Text = $"Invitation sent to Steam ID {value}.";
+            SetStatus($"Invitation sent to Steam ID {value}.");
             await ReloadAsync(preserveStatus: true);
         });
     }
@@ -181,9 +188,9 @@ internal sealed class WorldAccessDialog : Window
                 _world.Id,
                 row.Member.Identity.Provider,
                 row.Member.Identity.ExternalId);
-            _status.Text = result == RemoteMemberRevocationStatus.Revoked
+            SetStatus(result == RemoteMemberRevocationStatus.Revoked
                 ? "Access removed."
-                : "Access will be removed after the player's current writable responsibility resolves.";
+                : "Access will be removed after the player's current writable responsibility resolves.");
             await ReloadAsync(preserveStatus: true);
         });
     }
@@ -214,7 +221,7 @@ internal sealed class WorldAccessDialog : Window
                 row.Member.Identity.Provider,
                 row.Member.Identity.ExternalId);
             _accessManager = row.Member.Identity;
-            _status.Text = "Access Manager transferred.";
+            SetStatus("Access Manager transferred.");
             await ReloadAsync(preserveStatus: true);
         });
     }
@@ -279,13 +286,21 @@ internal sealed class WorldAccessDialog : Window
         }
         catch (Exception exception)
         {
-            _status.Text = exception.Message;
+            SetStatus(exception.Message);
         }
         finally
         {
             _busy = false;
             UpdateActions();
         }
+    }
+
+    private void SetStatus(string text)
+    {
+        _status.Text = text;
+        var peer = UIElementAutomationPeer.FromElement(_status) ??
+                   UIElementAutomationPeer.CreatePeerForElement(_status);
+        peer?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
     }
 
     private void UpdateActions()

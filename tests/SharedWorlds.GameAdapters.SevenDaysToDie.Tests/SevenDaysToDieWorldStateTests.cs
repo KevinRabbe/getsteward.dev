@@ -12,31 +12,46 @@ public sealed class SevenDaysToDieWorldStateTests : IDisposable
     private readonly List<string> _packages = [];
 
     [Fact]
-    public async Task CaptureAndRestorePreserveDirectoryWorldBytes()
+    public async Task CaptureAndRestorePreserveSaveAndGeneratedWorldBytes()
     {
-        var source = Path.Combine(_root, "source");
+        var userData = Path.Combine(_root, "user-data");
+        var source = Path.Combine(userData, "Saves", "StewardWorld", "StewardGame");
+        var generated = Path.Combine(userData, "GeneratedWorlds", "StewardWorld");
         Directory.CreateDirectory(Path.Combine(source, "Player"));
         Directory.CreateDirectory(Path.Combine(source, "Region"));
-        await File.WriteAllBytesAsync(Path.Combine(source, "main.ttw"), [1, 2, 3, 4]);
+        Directory.CreateDirectory(generated);
+        await File.WriteAllBytesAsync(Path.Combine(source, "main.ttp"), [1, 2, 3, 4]);
         await File.WriteAllBytesAsync(Path.Combine(source, "Player", "player.ttp"), [5, 6, 7]);
         await File.WriteAllBytesAsync(Path.Combine(source, "Region", "r.0.0.7rg"), [8, 9]);
+        await File.WriteAllBytesAsync(Path.Combine(generated, "biomes.png"), [10, 11]);
+        await File.WriteAllBytesAsync(Path.Combine(generated, "dtm_processed.raw"), [12, 13]);
 
-        var detected = new DetectedWorld(source, "Test", source);
+        var unrelated = Path.Combine(userData, "Saves", "OtherWorld", "OtherGame");
+        Directory.CreateDirectory(unrelated);
+        await File.WriteAllBytesAsync(Path.Combine(unrelated, "main.ttp"), [99]);
+
+        var installation = Installation(userData);
+        var detected = new DetectedWorld(source, "StewardGame (StewardWorld)", source);
         var captured = await SevenDaysToDieWorldState.CaptureDetectedWorldAsync(
+            installation,
             detected,
             CancellationToken.None);
         _packages.Add(captured.Package.Path);
 
         using (var archive = ZipFile.OpenRead(captured.Package.Path))
         {
-            Assert.Contains(archive.Entries, entry => entry.FullName == "main.ttw");
-            Assert.Contains(archive.Entries, entry => entry.FullName == "Player/player.ttp");
-            Assert.Contains(archive.Entries, entry => entry.FullName == "Region/r.0.0.7rg");
+            var names = archive.Entries.Select(entry => entry.FullName).ToArray();
+            Assert.Contains("Saves/StewardWorld/StewardGame/main.ttp", names);
+            Assert.Contains("Saves/StewardWorld/StewardGame/Player/player.ttp", names);
+            Assert.Contains("Saves/StewardWorld/StewardGame/Region/r.0.0.7rg", names);
+            Assert.Contains("GeneratedWorlds/StewardWorld/biomes.png", names);
+            Assert.Contains("GeneratedWorlds/StewardWorld/dtm_processed.raw", names);
+            Assert.DoesNotContain(names, name => name.Contains("OtherWorld", StringComparison.OrdinalIgnoreCase));
         }
 
-        var destination = Path.Combine(_root, "prepared", "world");
+        var destination = Path.Combine(_root, "prepared", "user-data");
         var prepared = new PreparedWorld(
-            new GameInstallation("7-days-to-die:test", _root, "test"),
+            installation,
             destination,
             EmptyEnvironment());
         await SevenDaysToDieWorldState.RestorePreparedWorldAsync(
@@ -45,41 +60,49 @@ public sealed class SevenDaysToDieWorldStateTests : IDisposable
             CancellationToken.None);
 
         Assert.Equal(
-            await File.ReadAllBytesAsync(Path.Combine(source, "main.ttw")),
-            await File.ReadAllBytesAsync(Path.Combine(destination, "main.ttw")));
+            await File.ReadAllBytesAsync(Path.Combine(source, "main.ttp")),
+            await File.ReadAllBytesAsync(Path.Combine(destination, "Saves", "StewardWorld", "StewardGame", "main.ttp")));
         Assert.Equal(
-            await File.ReadAllBytesAsync(Path.Combine(source, "Player", "player.ttp")),
-            await File.ReadAllBytesAsync(Path.Combine(destination, "Player", "player.ttp")));
-        Assert.Equal(
-            await File.ReadAllBytesAsync(Path.Combine(source, "Region", "r.0.0.7rg")),
-            await File.ReadAllBytesAsync(Path.Combine(destination, "Region", "r.0.0.7rg")));
+            await File.ReadAllBytesAsync(Path.Combine(generated, "biomes.png")),
+            await File.ReadAllBytesAsync(Path.Combine(destination, "GeneratedWorlds", "StewardWorld", "biomes.png")));
     }
 
     [Fact]
-    public async Task RestoreRejectsPathTraversalAndLeavesPreparedWorldUntouched()
+    public async Task CaptureAcceptsLegacyMainTtwWithoutFormatRewrite()
+    {
+        var userData = Path.Combine(_root, "legacy-user-data");
+        var source = Path.Combine(userData, "Saves", "Navezgane", "LegacyGame");
+        Directory.CreateDirectory(source);
+        await File.WriteAllBytesAsync(Path.Combine(source, "main.ttw"), [1, 2]);
+
+        var captured = await SevenDaysToDieWorldState.CaptureDetectedWorldAsync(
+            Installation(userData),
+            new DetectedWorld(source, "LegacyGame (Navezgane)", source),
+            CancellationToken.None);
+        _packages.Add(captured.Package.Path);
+
+        using var archive = ZipFile.OpenRead(captured.Package.Path);
+        Assert.Contains(
+            archive.Entries,
+            entry => entry.FullName == "Saves/Navezgane/LegacyGame/main.ttw");
+    }
+
+    [Fact]
+    public async Task RestoreRejectsPathTraversalAndLeavesPreparedWorkspaceUntouched()
     {
         var package = Path.Combine(_root, "malicious.zip");
         Directory.CreateDirectory(_root);
         using (var archive = ZipFile.Open(package, ZipArchiveMode.Create))
         {
-            var main = archive.CreateEntry("main.ttw");
-            await using (var stream = main.Open())
-            {
-                await stream.WriteAsync(new byte[] { 1 });
-            }
-
-            var escape = archive.CreateEntry("../escaped.txt");
-            await using (var stream = escape.Open())
-            {
-                await stream.WriteAsync(new byte[] { 2 });
-            }
+            await WriteEntryAsync(archive, "Saves/Navezgane/Test/main.ttp", [1]);
+            await WriteEntryAsync(archive, "../escaped.txt", [2]);
         }
 
-        var destination = Path.Combine(_root, "prepared", "world");
+        var destination = Path.Combine(_root, "prepared-traversal", "user-data");
         Directory.CreateDirectory(destination);
-        await File.WriteAllTextAsync(Path.Combine(destination, "main.ttw"), "original");
+        await File.WriteAllTextAsync(Path.Combine(destination, "sentinel.txt"), "original");
         var prepared = new PreparedWorld(
-            new GameInstallation("7-days-to-die:test", _root, "test"),
+            Installation(Path.Combine(_root, "unused")),
             destination,
             EmptyEnvironment());
 
@@ -89,48 +112,47 @@ public sealed class SevenDaysToDieWorldStateTests : IDisposable
                 new StatePackage("malicious", package),
                 CancellationToken.None));
 
-        Assert.Equal("original", await File.ReadAllTextAsync(Path.Combine(destination, "main.ttw")));
-        Assert.False(File.Exists(Path.Combine(_root, "prepared", "escaped.txt")));
+        Assert.Equal("original", await File.ReadAllTextAsync(Path.Combine(destination, "sentinel.txt")));
+        Assert.False(File.Exists(Path.Combine(_root, "prepared-traversal", "escaped.txt")));
     }
 
     [Fact]
-    public async Task RestoreWithoutMainTtwFailsBeforeReplacingExistingWorld()
+    public async Task RestoreRejectsGeneratedTerrainForDifferentWorld()
     {
-        var package = Path.Combine(_root, "incomplete.zip");
+        var package = Path.Combine(_root, "wrong-terrain.zip");
         Directory.CreateDirectory(_root);
         using (var archive = ZipFile.Open(package, ZipArchiveMode.Create))
         {
-            var entry = archive.CreateEntry("Region/r.0.0.7rg");
-            await using var stream = entry.Open();
-            await stream.WriteAsync(new byte[] { 4, 5, 6 });
+            await WriteEntryAsync(archive, "Saves/StewardWorld/StewardGame/main.ttp", [1]);
+            await WriteEntryAsync(archive, "GeneratedWorlds/OtherWorld/biomes.png", [2]);
         }
 
-        var destination = Path.Combine(_root, "prepared", "world");
+        var destination = Path.Combine(_root, "prepared-wrong-terrain", "user-data");
         Directory.CreateDirectory(destination);
-        await File.WriteAllTextAsync(Path.Combine(destination, "main.ttw"), "original");
+        await File.WriteAllTextAsync(Path.Combine(destination, "sentinel.txt"), "original");
         var prepared = new PreparedWorld(
-            new GameInstallation("7-days-to-die:test", _root, "test"),
+            Installation(Path.Combine(_root, "unused-2")),
             destination,
             EmptyEnvironment());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             SevenDaysToDieWorldState.RestorePreparedWorldAsync(
                 prepared,
-                new StatePackage("incomplete", package),
+                new StatePackage("wrong-terrain", package),
                 CancellationToken.None));
 
-        Assert.Equal("original", await File.ReadAllTextAsync(Path.Combine(destination, "main.ttw")));
+        Assert.Equal("original", await File.ReadAllTextAsync(Path.Combine(destination, "sentinel.txt")));
     }
 
     [Fact]
     public async Task FinalizePreservesRecoveryWorkspaceButDeletesDiscardedWorkspace()
     {
         var preserveRoot = Path.Combine(_root, "preserve");
-        var preserveWorld = Path.Combine(preserveRoot, "world");
-        Directory.CreateDirectory(preserveWorld);
+        var preserveUserData = Path.Combine(preserveRoot, "user-data");
+        Directory.CreateDirectory(preserveUserData);
         var preparedPreserve = new PreparedWorld(
-            new GameInstallation("7-days-to-die:test", _root, "test"),
-            preserveWorld,
+            Installation(Path.Combine(_root, "unused-3")),
+            preserveUserData,
             EmptyEnvironment());
 
         await SevenDaysToDieWorldState.FinalizePreparedWorldAsync(
@@ -140,9 +162,9 @@ public sealed class SevenDaysToDieWorldStateTests : IDisposable
         Assert.True(Directory.Exists(preserveRoot));
 
         var discardRoot = Path.Combine(_root, "discard");
-        var discardWorld = Path.Combine(discardRoot, "world");
-        Directory.CreateDirectory(discardWorld);
-        var preparedDiscard = preparedPreserve with { WorkingDirectory = discardWorld };
+        var discardUserData = Path.Combine(discardRoot, "user-data");
+        Directory.CreateDirectory(discardUserData);
+        var preparedDiscard = preparedPreserve with { WorkingDirectory = discardUserData };
 
         await SevenDaysToDieWorldState.FinalizePreparedWorldAsync(
             preparedDiscard,
@@ -151,6 +173,16 @@ public sealed class SevenDaysToDieWorldStateTests : IDisposable
         Assert.False(Directory.Exists(discardRoot));
     }
 
+    private static GameInstallation Installation(string userData)
+        => new(
+            "7-days-to-die:test",
+            Path.GetDirectoryName(userData) ?? userData,
+            "test",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [SevenDaysToDieInstallationDiscovery.UserDataPathKey] = userData
+            });
+
     private static EnvironmentManifest EmptyEnvironment()
         => new(
             1,
@@ -158,6 +190,13 @@ public sealed class SevenDaysToDieWorldStateTests : IDisposable
             "test-build",
             [],
             new Dictionary<string, string>(StringComparer.Ordinal));
+
+    private static async Task WriteEntryAsync(ZipArchive archive, string name, byte[] bytes)
+    {
+        var entry = archive.CreateEntry(name);
+        await using var stream = entry.Open();
+        await stream.WriteAsync(bytes);
+    }
 
     public void Dispose()
     {

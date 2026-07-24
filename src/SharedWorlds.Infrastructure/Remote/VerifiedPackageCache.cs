@@ -134,9 +134,34 @@ public sealed class VerifiedPackageCache
     {
         ArgumentNullException.ThrowIfNull(authorization);
 
-        var sha256 = authorization.ExpectedSha256;
-        using var gate = await AcquireAsync(sha256, cancellationToken);
+        using var keyedGate = await AcquireAsync(authorization.ExpectedSha256, cancellationToken);
         using var cacheMutation = await AcquireCacheMutationAsync(cancellationToken);
+        return await EnsureLockedAsync(authorization, cancellationToken);
+    }
+
+    public async Task<Stream> OpenVerifiedReadAsync(
+        AuthorizedPackageDownload authorization,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(authorization);
+
+        using var keyedGate = await AcquireAsync(authorization.ExpectedSha256, cancellationToken);
+        using var cacheMutation = await AcquireCacheMutationAsync(cancellationToken);
+        var cached = await EnsureLockedAsync(authorization, cancellationToken);
+        return new FileStream(
+            cached.Path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: _options.CopyBufferBytes,
+            useAsync: true);
+    }
+
+    private async Task<VerifiedCachedPackage> EnsureLockedAsync(
+        AuthorizedPackageDownload authorization,
+        CancellationToken cancellationToken)
+    {
+        var sha256 = authorization.ExpectedSha256;
         var finalPath = GetFinalPath(sha256);
         var partialPath = finalPath + ".partial";
         Directory.CreateDirectory(Path.GetDirectoryName(finalPath)!);
@@ -243,20 +268,6 @@ public sealed class VerifiedPackageCache
             finalPath,
             authorization.ExpectedByteSize,
             sha256);
-    }
-
-    public async Task<Stream> OpenVerifiedReadAsync(
-        AuthorizedPackageDownload authorization,
-        CancellationToken cancellationToken = default)
-    {
-        var cached = await EnsureAsync(authorization, cancellationToken);
-        return new FileStream(
-            cached.Path,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            bufferSize: _options.CopyBufferBytes,
-            useAsync: true);
     }
 
     private async Task DownloadAsync(

@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Media;
 using SharedWorlds.Infrastructure.Remote;
 
@@ -70,6 +72,11 @@ internal sealed class PendingInvitationsDialog : Window
         _invitations.Foreground = (Brush)FindResource("TextBrush");
         _invitations.BorderBrush = (Brush)FindResource("BorderBrush");
         AutomationProperties.SetName(_invitations, "Pending shared World invitations");
+        var invitationItemStyle = new Style(typeof(ListBoxItem));
+        invitationItemStyle.Setters.Add(new Setter(
+            AutomationProperties.NameProperty,
+            new Binding(nameof(InvitationRow.DisplayText))));
+        _invitations.ItemContainerStyle = invitationItemStyle;
         Grid.SetRow(_invitations, 1);
         root.Children.Add(_invitations);
 
@@ -115,7 +122,7 @@ internal sealed class PendingInvitationsDialog : Window
         {
             await _access.AcceptInvitationAsync(row.Invitation.InvitationId);
             MembershipChanged = true;
-            _status.Text = "Invitation accepted. The shared World is now available to this account.";
+            SetStatus("Invitation accepted. The shared World is now available to this account.");
             await ReloadAsync(preserveStatus: true);
         });
     }
@@ -130,7 +137,7 @@ internal sealed class PendingInvitationsDialog : Window
         await RunAsync(async () =>
         {
             await _access.DeclineInvitationAsync(row.Invitation.InvitationId);
-            _status.Text = "Invitation declined.";
+            SetStatus("Invitation declined.");
             await ReloadAsync(preserveStatus: true);
         });
     }
@@ -146,9 +153,14 @@ internal sealed class PendingInvitationsDialog : Window
 
         if (!preserveStatus)
         {
-            _status.Text = rows.Length == 0
-                ? "No pending invitations."
-                : string.Empty;
+            if (rows.Length == 0)
+            {
+                SetStatus("No pending invitations.");
+            }
+            else
+            {
+                _status.Text = string.Empty;
+            }
         }
 
         UpdateActions();
@@ -169,13 +181,21 @@ internal sealed class PendingInvitationsDialog : Window
         }
         catch (Exception exception)
         {
-            _status.Text = exception.Message;
+            SetStatus(exception.Message);
         }
         finally
         {
             _busy = false;
             UpdateActions();
         }
+    }
+
+    private void SetStatus(string text)
+    {
+        _status.Text = text;
+        var peer = UIElementAutomationPeer.FromElement(_status) ??
+                   UIElementAutomationPeer.CreatePeerForElement(_status);
+        peer?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
     }
 
     private void UpdateActions()

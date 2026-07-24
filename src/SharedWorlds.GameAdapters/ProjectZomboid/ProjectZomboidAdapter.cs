@@ -40,17 +40,40 @@ public sealed class ProjectZomboidAdapter : IGameAdapter
         return Task.FromResult(ProjectZomboidEnvironment.Verify(installation, requiredEnvironment));
     }
 
-    public Task<CapturedState> CaptureDetectedWorldAsync(GameInstallation installation, DetectedWorld world, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    public async Task<CapturedState> CaptureDetectedWorldAsync(
+        GameInstallation installation,
+        DetectedWorld world,
+        CancellationToken cancellationToken = default)
+    {
+        var captured = await ProjectZomboidWorldState.CaptureDetectedWorldAsync(
+            installation,
+            world,
+            cancellationToken);
+        return captured with { DeletePackageAfterStore = true };
+    }
 
-    public Task<PreparedWorld> PrepareEnvironmentAsync(GameInstallation installation, EnvironmentManifest requiredEnvironment, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    public Task<PreparedWorld> PrepareEnvironmentAsync(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(ProjectZomboidWorldState.PrepareEnvironment(installation, requiredEnvironment));
+    }
 
-    public Task<CapturedState> CaptureStateAsync(PreparedWorld world, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    public async Task<CapturedState> CaptureStateAsync(
+        PreparedWorld world,
+        CancellationToken cancellationToken = default)
+    {
+        var captured = await ProjectZomboidWorldState.CapturePreparedWorldAsync(world, cancellationToken);
+        return captured with { DeletePackageAfterStore = true };
+    }
 
-    public Task RestoreStateAsync(PreparedWorld world, StatePackage state, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    public Task RestoreStateAsync(
+        PreparedWorld world,
+        StatePackage state,
+        CancellationToken cancellationToken = default)
+        => ProjectZomboidWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
 
     public Task<GameSessionHandle> LaunchLocalAsync(PreparedWorld world, CancellationToken cancellationToken = default)
         => throw new NotImplementedException();
@@ -68,5 +91,5 @@ public sealed class ProjectZomboidAdapter : IGameAdapter
         PreparedWorld world,
         PreparedWorldDisposition disposition,
         CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+        => ProjectZomboidWorldState.FinalizePreparedWorldAsync(world, disposition, cancellationToken);
 }

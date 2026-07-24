@@ -75,7 +75,9 @@ public sealed class SevenDaysToDieAdapter : IGameAdapter
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(state);
         SevenDaysToDieWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        SevenDaysToDieStatePackagePreflight.Validate(state.Path, world.WorkingDirectory);
         return SevenDaysToDieWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
     }
 

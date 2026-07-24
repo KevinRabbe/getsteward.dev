@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Automation;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Worlds;
 
@@ -38,7 +39,7 @@ public partial class MainWindow
             if (!await lifecycle.RequestHostStopAsync(world.Id))
             {
                 StatusText.Text =
-                    $"{adapter.DisplayName} is still entering its managed host session. Try Stop Hosting again once it is running.";
+                    $"{adapter.DisplayName} is still entering its managed host session. Try Stop and Save again once it is running.";
             }
         }
         catch (Exception exception)
@@ -66,11 +67,13 @@ public partial class MainWindow
             responsibility.Mode == ManagedWorldSessionMode.Hosted &&
             responsibility.Phase == WorldLifecyclePhase.Running;
 
+        const string helpText =
+            "Save the World, shut down the dedicated server safely, restore its original runtime inputs, then let Steward capture and commit the new revision.";
+
         StopHostingButton.Visibility = canStop ? Visibility.Visible : Visibility.Collapsed;
         StopHostingButton.IsEnabled = canStop && !_hostStopRequestInFlight;
-        StopHostingButton.Content = _hostStopRequestInFlight ? "Saving..." : "Stop Hosting";
-        StopHostingButton.ToolTip = canStop
-            ? "Save the World, shut down the dedicated server safely, restore its original runtime inputs, then let Steward capture and commit the new revision."
-            : null;
+        StopHostingButton.Content = _hostStopRequestInFlight ? "Saving..." : "Stop and Save";
+        StopHostingButton.ToolTip = canStop ? helpText : null;
+        AutomationProperties.SetHelpText(StopHostingButton, canStop ? helpText : string.Empty);
     }
 }

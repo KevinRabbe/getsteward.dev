@@ -8,6 +8,7 @@ internal static partial class ProjectZomboidEnvironment
 {
     private const string WorkshopComponentKind = "steam-workshop";
     private const int MaxModInfoFilesPerWorkshopItem = 512;
+    private const int MaxDirectoriesPerWorkshopItem = 16_384;
 
     public static EnvironmentManifest Inspect(
         GameInstallation installation,
@@ -294,17 +295,20 @@ internal static partial class ProjectZomboidEnvironment
         return result;
     }
 
-    private static IReadOnlyCollection<string> ReadWorkshopModIds(
+    internal static IReadOnlyCollection<string> ReadWorkshopModIds(
         string contentPath,
         string workshopId)
     {
         string[] modInfoFiles;
         try
         {
-            modInfoFiles = Directory
-                .EnumerateFiles(contentPath, "mod.info", SearchOption.AllDirectories)
+            modInfoFiles = EnumerateWorkshopModInfoFiles(contentPath, workshopId)
                 .Take(MaxModInfoFilesPerWorkshopItem + 1)
                 .ToArray();
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
@@ -355,6 +359,56 @@ internal static partial class ProjectZomboidEnvironment
         }
 
         return ids;
+    }
+
+    private static IEnumerable<string> EnumerateWorkshopModInfoFiles(
+        string contentPath,
+        string workshopId)
+    {
+        var root = Path.GetFullPath(contentPath);
+        RejectWorkshopReparsePoint(root, workshopId);
+
+        var pending = new Stack<string>();
+        pending.Push(root);
+        var inspectedDirectories = 0;
+
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            inspectedDirectories++;
+            if (inspectedDirectories > MaxDirectoriesPerWorkshopItem)
+            {
+                throw new InvalidOperationException(
+                    $"Project Zomboid Workshop item {workshopId} contains more than {MaxDirectoriesPerWorkshopItem} directories; Steward stopped instead of performing an unbounded scan.");
+            }
+
+            foreach (var directory in Directory.EnumerateDirectories(
+                         current,
+                         "*",
+                         SearchOption.TopDirectoryOnly))
+            {
+                RejectWorkshopReparsePoint(directory, workshopId);
+                pending.Push(directory);
+            }
+
+            foreach (var modInfoPath in Directory.EnumerateFiles(
+                         current,
+                         "mod.info",
+                         SearchOption.TopDirectoryOnly))
+            {
+                RejectWorkshopReparsePoint(modInfoPath, workshopId);
+                yield return modInfoPath;
+            }
+        }
+    }
+
+    private static void RejectWorkshopReparsePoint(string path, string workshopId)
+    {
+        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new InvalidOperationException(
+                $"Project Zomboid Workshop item {workshopId} contains a linked or reparse-point path that Steward will not inspect: '{path}'.");
+        }
     }
 
     private static string? ReadUniqueIniValue(

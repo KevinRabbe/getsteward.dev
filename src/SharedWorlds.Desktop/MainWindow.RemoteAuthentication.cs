@@ -45,9 +45,13 @@ public partial class MainWindow
             using var ticket = await steamTickets.RequestAsync(
                 configuration.SteamWebApiIdentity,
                 cancellationToken);
-            using var apiClient = new HttpClient
+            using var apiHandler = new HttpClientHandler
             {
-                BaseAddress = NormalizeBaseAddress(configuration.ApiBaseAddress),
+                AllowAutoRedirect = false
+            };
+            using var apiClient = new HttpClient(apiHandler)
+            {
+                BaseAddress = configuration.ApiBaseAddress,
                 Timeout = TimeSpan.FromSeconds(30)
             };
 
@@ -86,13 +90,5 @@ public partial class MainWindow
             StatusText.Text =
                 $"Shared Worlds are temporarily unavailable: {exception.Message} Local Worlds remain available.";
         }
-    }
-
-    private static Uri NormalizeBaseAddress(Uri address)
-    {
-        var absolute = address.AbsoluteUri;
-        return absolute.EndsWith("/", StringComparison.Ordinal)
-            ? address
-            : new Uri(absolute + '/', UriKind.Absolute);
     }
 }

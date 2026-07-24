@@ -29,7 +29,8 @@ public sealed class SharedWorldHostPresenceServiceTests
             "join-token");
 
         Assert.Equal(PublishSharedWorldHostPresenceStatus.Published, status);
-        var stored = Assert.NotNull(presenceStore.Presence);
+        Assert.NotNull(presenceStore.Presence);
+        var stored = presenceStore.Presence!;
         Assert.Equal(reservation.WorldId, stored.WorldId);
         Assert.Equal(reservation.SessionId, stored.SessionId);
         Assert.Equal(reservation.Generation, stored.Generation);

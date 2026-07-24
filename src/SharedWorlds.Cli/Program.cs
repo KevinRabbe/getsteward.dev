@@ -226,7 +226,11 @@ static async Task<int> ShowWorldDetailsAsync(
 
     Console.WriteLine();
     Console.WriteLine("Available CLI actions:");
-    if (string.Equals(world.GameAdapterId, "factorio", StringComparison.Ordinal))
+    if (world.SharingMode == WorldSharingMode.Shared)
+    {
+        Console.WriteLine("  None. Shared Worlds require authenticated Steward backend authority and are never writable through this local CLI.");
+    }
+    else if (string.Equals(world.GameAdapterId, "factorio", StringComparison.Ordinal))
     {
         Console.WriteLine($"  continue-factorio {ShortId(world.Id)}");
         Console.WriteLine($"  host-factorio {ShortId(world.Id)}");
@@ -304,6 +308,12 @@ static async Task<int> ContinueFactorioAsync(
         return ApplicationExitCodes.ProductFailure;
     }
 
+    if (!IsWritableThroughLocalFactorioCli(world, out var refusal))
+    {
+        Console.Error.WriteLine(refusal);
+        return ApplicationExitCodes.ProductFailure;
+    }
+
     var adapter = new FactorioAdapter();
     var installation = (await adapter.DiscoverInstallationsAsync(cancellationToken)).FirstOrDefault();
     if (installation is null)
@@ -341,6 +351,12 @@ static async Task<int> HostFactorioAsync(
         return ApplicationExitCodes.ProductFailure;
     }
 
+    if (!IsWritableThroughLocalFactorioCli(world, out var refusal))
+    {
+        Console.Error.WriteLine(refusal);
+        return ApplicationExitCodes.ProductFailure;
+    }
+
     var adapter = new FactorioAdapter();
     var installation = (await adapter.DiscoverInstallationsAsync(cancellationToken)).FirstOrDefault();
     if (installation is null)
@@ -359,6 +375,26 @@ static async Task<int> HostFactorioAsync(
     Console.WriteLine();
     Console.WriteLine($"Hosted session ended. World '{updated.Name}' committed as revision {updated.CurrentStateRevisionId}.");
     return ApplicationExitCodes.Success;
+}
+
+static bool IsWritableThroughLocalFactorioCli(World world, out string refusal)
+{
+    if (world.SharingMode == WorldSharingMode.Shared)
+    {
+        refusal =
+            $"World '{world.Name}' is Shared. Shared Worlds require authenticated Steward backend authority and cannot use the local CLI writer.";
+        return false;
+    }
+
+    if (!string.Equals(world.GameAdapterId, "factorio", StringComparison.Ordinal))
+    {
+        refusal =
+            $"World '{world.Name}' uses adapter '{world.GameAdapterId}', not Factorio. This CLI command will not cross adapter boundaries.";
+        return false;
+    }
+
+    refusal = string.Empty;
+    return true;
 }
 
 static bool TryGetWorldSelector(
@@ -535,10 +571,11 @@ static void PrintUsage()
     Console.WriteLine("  worlds                              # list managed Worlds");
     Console.WriteLine("  world <world>                       # show World details");
     Console.WriteLine("  import-factorio <save-name>");
-    Console.WriteLine("  continue-factorio <world>           # local writable play");
-    Console.WriteLine("  host-factorio <world>               # temporary hosting; persistent sharing is separate");
+    Console.WriteLine("  continue-factorio <world>           # LocalOnly writable play");
+    Console.WriteLine("  host-factorio <world>               # LocalOnly temporary hosting; persistent sharing is separate");
     Console.WriteLine("  recovery");
     Console.WriteLine();
+    Console.WriteLine("Shared Worlds are writable only through authenticated Steward backend authority.");
     Console.WriteLine("Persistent Share / Manage access is available only through the authenticated Steward product flow.");
     Console.WriteLine("<world> may be a full ID, a unique World name, or a unique ID prefix of at least 8 characters.");
 }

@@ -163,7 +163,7 @@ public sealed class SharedWorldHostPresenceServiceTests
     }
 
     [Fact]
-    public async Task ClearDeletesOnlyMatchingCallerAndReservation()
+    public async Task ClearRequiresExactCallerInstallationAndReservation()
     {
         var now = new DateTimeOffset(2026, 7, 24, 12, 0, 0, TimeSpan.Zero);
         var caller = Identity("76561198000000001");
@@ -177,6 +177,15 @@ public sealed class SharedWorldHostPresenceServiceTests
 
         Assert.False(await service.ClearAsync(
             Identity("76561198000000002"),
+            "device-a",
+            reservation.WorldId,
+            reservation.SessionId,
+            reservation.Generation));
+        Assert.NotNull(presenceStore.Presence);
+
+        Assert.False(await service.ClearAsync(
+            caller,
+            "device-b",
             reservation.WorldId,
             reservation.SessionId,
             reservation.Generation));
@@ -184,6 +193,7 @@ public sealed class SharedWorldHostPresenceServiceTests
 
         Assert.True(await service.ClearAsync(
             caller,
+            "device-a",
             reservation.WorldId,
             reservation.SessionId,
             reservation.Generation));
@@ -310,6 +320,7 @@ public sealed class SharedWorldHostPresenceServiceTests
         public Task<bool> DeleteAsync(
             WorldId worldId,
             ExternalIdentityRef holder,
+            string installationId,
             Guid sessionId,
             long generation,
             CancellationToken cancellationToken = default)
@@ -317,6 +328,7 @@ public sealed class SharedWorldHostPresenceServiceTests
             var matches = Presence is not null &&
                           Presence.WorldId == worldId &&
                           Presence.Holder == holder &&
+                          string.Equals(Presence.InstallationId, installationId, StringComparison.Ordinal) &&
                           Presence.SessionId == sessionId &&
                           Presence.Generation == generation;
             if (matches)

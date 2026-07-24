@@ -17,9 +17,9 @@ internal sealed record PalworldWorldOptionSettingsSnapshot(
     IReadOnlyList<PalworldWorldOptionSetting> Settings);
 
 /// <summary>
-/// Read-only acceptance reader for Palworld's WorldOption.sav settings payload.
+/// Read-only reader for Palworld's WorldOption.sav settings payload.
 /// It never writes or re-encodes save data. Current PlM input is decoded through the
-/// acceptance Oodle codec; legacy PlZ input is decoded with zlib. The parser then finds
+/// supplied Oodle codec; legacy PlZ input is decoded with zlib. The parser then finds
 /// the unique OptionWorldData -> Settings tagged-property path and reports the contained
 /// setting names/types. Unknown values are preserved as opaque metadata rather than guessed.
 /// </summary>
@@ -34,6 +34,9 @@ internal static class PalworldWorldOptionSettingsReader
     private static readonly byte[] GvasMagic = "GVAS"u8.ToArray();
     private static readonly byte[] OptionWorldDataName = EncodeFString("OptionWorldData");
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
+    public static bool RequiresOodle(ReadOnlySpan<byte> save)
+        => save.Length >= WrapperHeaderLength && save.Slice(8, 3).SequenceEqual(PlMMagic);
 
     public static PalworldWorldOptionSettingsSnapshot Read(
         ReadOnlySpan<byte> save,
@@ -88,74 +91,55 @@ internal static class PalworldWorldOptionSettingsReader
 
         var uncompressedLength = ReadLength32(save[..4], "uncompressed");
         var compressedLength = ReadLength32(save.Slice(4, 4), "compressed");
+        if (save.Length != WrapperHeaderLength + compressedLength)
+        {
+            throw new InvalidDataException(
+                $"WorldOption.sav wrapper length mismatch: header declares {compressedLength} compressed bytes but file contains {save.Length - WrapperHeaderLength}.");
+        }
+
         var magic = save.Slice(8, 3);
         var saveType = save[11];
-        var compressedPayload = save[WrapperHeaderLength..];
-
+        var compressed = save[WrapperHeaderLength..];
         byte[] payload;
         string container;
+
         if (magic.SequenceEqual(PlMMagic))
         {
             if (saveType != SingleCompressionSaveType)
             {
-                throw new InvalidDataException($"Unsupported Palworld PlM save type 0x{saveType:X2}.");
-            }
-
-            if (compressedLength != compressedPayload.Length)
-            {
-                throw new InvalidDataException("WorldOption.sav PlM compressed length is inconsistent.");
+                throw new InvalidDataException(
+                    $"WorldOption.sav PlM wrapper has unsupported save type 0x{saveType:X2}.");
             }
 
             if (oodleCodec is null)
             {
-                throw new InvalidDataException("WorldOption.sav PlM input requires an Oodle decoder for this acceptance read.");
+                throw new InvalidDataException(
+                    "WorldOption.sav uses the current PlM/Oodle container, but no Oodle decoder was supplied.");
             }
 
-            payload = oodleCodec.Decompress(compressedPayload, uncompressedLength);
+            payload = oodleCodec.Decompress(compressed, uncompressedLength);
             container = $"PlM/0x{saveType:X2}";
         }
         else if (magic.SequenceEqual(PlZMagic))
         {
-            if (saveType == SingleCompressionSaveType)
+            payload = saveType switch
             {
-                if (compressedLength != compressedPayload.Length)
-                {
-                    throw new InvalidDataException("WorldOption.sav PlZ compressed length is inconsistent.");
-                }
-
-                payload = DecompressZlib(compressedPayload);
-            }
-            else if (saveType == DoubleZlibSaveType)
-            {
-                var innerCompressed = DecompressZlib(compressedPayload);
-                if (compressedLength != innerCompressed.Length)
-                {
-                    throw new InvalidDataException("WorldOption.sav PlZ inner compressed length is inconsistent.");
-                }
-
-                payload = DecompressZlib(innerCompressed);
-            }
-            else
-            {
-                throw new InvalidDataException($"Unsupported Palworld PlZ save type 0x{saveType:X2}.");
-            }
-
+                SingleCompressionSaveType => DecompressZlib(compressed, uncompressedLength),
+                DoubleZlibSaveType => DecompressDoubleZlib(compressed, uncompressedLength),
+                _ => throw new InvalidDataException(
+                    $"WorldOption.sav PlZ wrapper has unsupported save type 0x{saveType:X2}.")
+            };
             container = $"PlZ/0x{saveType:X2}";
         }
         else
         {
             throw new InvalidDataException(
-                $"WorldOption.sav uses unsupported wrapper magic {Convert.ToHexString(magic)}.");
+                $"WorldOption.sav uses unknown wrapper magic {Convert.ToHexString(magic)}.");
         }
 
-        if (payload.Length != uncompressedLength)
+        if (!payload.AsSpan().StartsWith(GvasMagic))
         {
-            throw new InvalidDataException("WorldOption.sav uncompressed length is inconsistent.");
-        }
-
-        if (payload.Length < GvasMagic.Length || !payload.AsSpan(0, GvasMagic.Length).SequenceEqual(GvasMagic))
-        {
-            throw new InvalidDataException("Decoded WorldOption.sav does not begin with GVAS.");
+            throw new InvalidDataException("Decoded WorldOption.sav payload does not begin with GVAS.");
         }
 
         return new DecodedWorldOption(container, payload);
@@ -164,380 +148,328 @@ internal static class PalworldWorldOptionSettingsReader
     private static int ReadLength32(ReadOnlySpan<byte> bytes, string description)
     {
         var value = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
-        if (value > int.MaxValue)
+        if (value is 0 or > int.MaxValue)
         {
-            throw new InvalidDataException($"WorldOption.sav {description} length exceeds the supported acceptance bound.");
+            throw new InvalidDataException(
+                $"WorldOption.sav declares an invalid {description} length {value}.");
         }
 
-        return (int)value;
+        return checked((int)value);
     }
 
-    private static ParsedProperty FindUniqueStructProperty(
-        ReadOnlySpan<byte> payload,
-        ReadOnlySpan<byte> encodedName,
+    private static byte[] DecompressZlib(ReadOnlySpan<byte> compressed, int expectedLength)
+    {
+        using var source = new MemoryStream(compressed.ToArray(), writable: false);
+        using var zlib = new ZLibStream(source, CompressionMode.Decompress);
+        using var destination = new MemoryStream(expectedLength);
+        zlib.CopyTo(destination);
+        var bytes = destination.ToArray();
+        if (bytes.Length != expectedLength)
+        {
+            throw new InvalidDataException(
+                $"WorldOption.sav zlib payload decoded to {bytes.Length} bytes; expected {expectedLength}.");
+        }
+
+        return bytes;
+    }
+
+    private static byte[] DecompressDoubleZlib(ReadOnlySpan<byte> compressed, int expectedLength)
+    {
+        using var source = new MemoryStream(compressed.ToArray(), writable: false);
+        using var outer = new ZLibStream(source, CompressionMode.Decompress);
+        using var middle = new MemoryStream();
+        outer.CopyTo(middle);
+        return DecompressZlib(middle.ToArray(), expectedLength);
+    }
+
+    private static TaggedProperty FindUniqueStructProperty(
+        byte[] payload,
+        byte[] encodedName,
         string expectedStructType)
     {
-        ParsedProperty? match = null;
+        var matches = new List<TaggedProperty>();
         var searchOffset = 0;
         while (searchOffset <= payload.Length - encodedName.Length)
         {
-            var relative = payload[searchOffset..].IndexOf(encodedName);
-            if (relative < 0)
+            var relativeIndex = payload.AsSpan(searchOffset).IndexOf(encodedName);
+            if (relativeIndex < 0)
             {
                 break;
             }
 
-            var offset = searchOffset + relative;
-            searchOffset = offset + encodedName.Length;
-
-            var property = TryReadCandidate(payload, offset);
-            if (property is null ||
-                !string.Equals(property.Name, "OptionWorldData", StringComparison.Ordinal) ||
-                !string.Equals(property.PropertyType, "StructProperty", StringComparison.Ordinal) ||
-                !string.Equals(property.ValueType, expectedStructType, StringComparison.Ordinal))
+            var absoluteIndex = searchOffset + relativeIndex;
+            try
             {
-                continue;
+                var property = ReadProperty(payload, absoluteIndex, "GVAS");
+                if (string.Equals(property.Name, DecodeFString(encodedName), StringComparison.Ordinal) &&
+                    string.Equals(property.PropertyType, "StructProperty", StringComparison.Ordinal) &&
+                    string.Equals(property.ValueType, expectedStructType, StringComparison.Ordinal))
+                {
+                    matches.Add(property);
+                }
+            }
+            catch (InvalidDataException)
+            {
+                // This byte sequence was not the start of the tagged property we need.
             }
 
-            if (match is not null)
-            {
-                throw new InvalidDataException(
-                    "WorldOption.sav contains multiple structurally valid OptionWorldData properties.");
-            }
-
-            match = property;
+            searchOffset = absoluteIndex + 1;
         }
 
-        return match ?? throw new InvalidDataException(
-            "WorldOption.sav does not contain one structurally valid OptionWorldData PalOptionWorldSaveData property.");
+        return matches.Count switch
+        {
+            1 => matches[0],
+            0 => throw new InvalidDataException(
+                $"WorldOption.sav does not contain a structurally valid {DecodeFString(encodedName)} StructProperty/{expectedStructType}."),
+            _ => throw new InvalidDataException(
+                $"WorldOption.sav contains multiple structurally valid {DecodeFString(encodedName)} StructProperty/{expectedStructType} candidates.")
+        };
     }
 
-    private static ParsedProperty? TryReadCandidate(ReadOnlySpan<byte> payload, int offset)
+    private static IReadOnlyList<TaggedProperty> ReadPropertyList(byte[] bytes, string context)
     {
-        try
+        var properties = new List<TaggedProperty>();
+        var offset = 0;
+        while (offset < bytes.Length)
         {
-            var cursor = offset;
-            return ReadProperty(payload, ref cursor, "root-search");
-        }
-        catch (InvalidDataException)
-        {
-            return null;
-        }
-        catch (OverflowException)
-        {
-            return null;
-        }
-    }
-
-    private static IReadOnlyList<ParsedProperty> ReadPropertyList(
-        ReadOnlyMemory<byte> memory,
-        string path)
-    {
-        var data = memory.Span;
-        var result = new List<ParsedProperty>();
-        var cursor = 0;
-        var terminated = false;
-        while (cursor < data.Length)
-        {
-            var before = cursor;
-            var property = ReadProperty(data, ref cursor, path);
-            if (property is null)
+            var (name, nextOffset) = ReadFString(bytes, offset, $"{context} property name");
+            if (string.Equals(name, "None", StringComparison.Ordinal))
             {
-                terminated = true;
-                break;
+                if (nextOffset != bytes.Length)
+                {
+                    throw new InvalidDataException(
+                        $"{context} contains trailing bytes after its None terminator.");
+                }
+
+                return properties;
             }
 
-            result.Add(property);
-            if (cursor <= before)
-            {
-                throw new InvalidDataException($"WorldOption.sav parser made no progress at {path}.");
-            }
+            var property = ReadProperty(bytes, offset, context);
+            properties.Add(property);
+            offset = property.NextOffset;
         }
 
-        if (!terminated)
-        {
-            throw new InvalidDataException($"WorldOption.sav {path} property list is missing its None terminator.");
-        }
-
-        if (cursor != data.Length)
-        {
-            throw new InvalidDataException($"WorldOption.sav {path} contains unexpected trailing bytes after its None terminator.");
-        }
-
-        return result;
+        throw new InvalidDataException($"{context} is missing the required None property terminator.");
     }
 
-    private static ParsedProperty? ReadProperty(
-        ReadOnlySpan<byte> data,
-        ref int cursor,
-        string path)
+    private static TaggedProperty ReadProperty(byte[] bytes, int offset, string context)
     {
-        var name = ReadFString(data, ref cursor);
+        var start = offset;
+        var (name, afterName) = ReadFString(bytes, offset, $"{context} property name");
         if (string.Equals(name, "None", StringComparison.Ordinal))
         {
-            return null;
+            throw new InvalidDataException($"{context} attempted to read None as a tagged property.");
         }
 
-        var propertyType = ReadFString(data, ref cursor);
-        EnsureRemaining(data, cursor, sizeof(ulong), path, name);
-        var declaredSize64 = BinaryPrimitives.ReadUInt64LittleEndian(data.Slice(cursor, sizeof(ulong)));
-        cursor += sizeof(ulong);
-        if (declaredSize64 > int.MaxValue)
+        var (propertyType, afterType) = ReadFString(bytes, afterName, $"{context}.{name} property type");
+        EnsureAvailable(bytes, afterType, sizeof(ulong), $"{context}.{name} value size");
+        var valueSize = BinaryPrimitives.ReadUInt64LittleEndian(bytes.AsSpan(afterType, sizeof(ulong)));
+        if (valueSize > int.MaxValue)
         {
-            throw new InvalidDataException($"WorldOption.sav {path}.{name} exceeds the supported acceptance value bound.");
+            throw new InvalidDataException($"{context}.{name} value is too large.");
         }
 
-        var declaredSize = (int)declaredSize64;
+        offset = afterType + sizeof(ulong);
         string? valueType = null;
-        string? displayValue = null;
-        ReadOnlyMemory<byte> valueBytes;
-
-        if (propertyType == "BoolProperty")
+        switch (propertyType)
         {
-            EnsureRemaining(data, cursor, 1, path, name);
-            var value = data[cursor++];
-            if (value is not (0 or 1))
+            case "StructProperty":
+                (valueType, offset) = ReadFString(bytes, offset, $"{context}.{name} struct type");
+                EnsureAvailable(bytes, offset, 16, $"{context}.{name} struct GUID");
+                offset += 16;
+                break;
+            case "EnumProperty":
+            case "ByteProperty":
+            case "ArrayProperty":
+            case "SetProperty":
+                (valueType, offset) = ReadFString(bytes, offset, $"{context}.{name} value type");
+                break;
+            case "MapProperty":
+                var (keyType, afterKeyType) = ReadFString(bytes, offset, $"{context}.{name} map key type");
+                var (mapValueType, afterMapValueType) = ReadFString(bytes, afterKeyType, $"{context}.{name} map value type");
+                valueType = $"{keyType}->{mapValueType}";
+                offset = afterMapValueType;
+                break;
+        }
+
+        EnsureAvailable(bytes, offset, 1, $"{context}.{name} property GUID flag");
+        var hasPropertyGuid = bytes[offset++] != 0;
+        if (hasPropertyGuid)
+        {
+            EnsureAvailable(bytes, offset, 16, $"{context}.{name} property GUID");
+            offset += 16;
+        }
+
+        if (string.Equals(propertyType, "BoolProperty", StringComparison.Ordinal))
+        {
+            // Unreal stores the Boolean value in the tag before the optional GUID flag. The field's
+            // serialized value size is therefore zero.
+            var boolOffset = offset - 1 - (hasPropertyGuid ? 16 : 0) - 1;
+            if (boolOffset < start)
             {
-                throw new InvalidDataException($"WorldOption.sav {path}.{name} has invalid BoolProperty value {value}.");
+                throw new InvalidDataException($"{context}.{name} Boolean tag is malformed.");
             }
 
-            ReadPropertyGuid(data, ref cursor, path, name);
-            if (declaredSize != 0)
-            {
-                throw new InvalidDataException($"WorldOption.sav {path}.{name} BoolProperty declared non-zero size {declaredSize}.");
-            }
-
-            valueBytes = ReadOnlyMemory<byte>.Empty;
-            displayValue = value == 1 ? "True" : "False";
-        }
-        else if (propertyType == "StructProperty")
-        {
-            valueType = ReadFString(data, ref cursor);
-            EnsureRemaining(data, cursor, 16, path, name);
-            cursor += 16;
-            ReadPropertyGuid(data, ref cursor, path, name);
-            valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
-        }
-        else if (propertyType == "EnumProperty")
-        {
-            valueType = ReadFString(data, ref cursor);
-            ReadPropertyGuid(data, ref cursor, path, name);
-            valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
-            displayValue = TryReadSingleFString(valueBytes.Span);
-        }
-        else if (propertyType == "ByteProperty")
-        {
-            valueType = ReadFString(data, ref cursor);
-            ReadPropertyGuid(data, ref cursor, path, name);
-            valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
-            displayValue = declaredSize == 1
-                ? valueBytes.Span[0].ToString(System.Globalization.CultureInfo.InvariantCulture)
-                : TryReadSingleFString(valueBytes.Span);
-        }
-        else if (propertyType == "ArrayProperty")
-        {
-            valueType = ReadFString(data, ref cursor);
-            ReadPropertyGuid(data, ref cursor, path, name);
-            valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
-            displayValue = TryFormatSimpleArray(valueType, valueBytes.Span, path, name);
-        }
-        else if (propertyType == "SetProperty")
-        {
-            valueType = ReadFString(data, ref cursor);
-            ReadPropertyGuid(data, ref cursor, path, name);
-            valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
-        }
-        else if (propertyType == "MapProperty")
-        {
-            var keyType = ReadFString(data, ref cursor);
-            var elementType = ReadFString(data, ref cursor);
-            valueType = $"{keyType}->{elementType}";
-            ReadPropertyGuid(data, ref cursor, path, name);
-            valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
-        }
-        else
-        {
-            ReadPropertyGuid(data, ref cursor, path, name);
-            valueBytes = ReadValueBytes(data, ref cursor, declaredSize, path, name);
-            displayValue = TryFormatScalar(propertyType, valueBytes.Span);
+            var boolValue = bytes[boolOffset] != 0;
+            return new TaggedProperty(
+                name,
+                propertyType,
+                valueType,
+                Array.Empty<byte>(),
+                boolValue ? "True" : "False",
+                offset);
         }
 
-        return new ParsedProperty(name, propertyType, valueType, displayValue, valueBytes);
+        var valueLength = checked((int)valueSize);
+        EnsureAvailable(bytes, offset, valueLength, $"{context}.{name} value bytes");
+        var valueBytes = bytes.AsSpan(offset, valueLength).ToArray();
+        var displayValue = TryFormatScalarValue(propertyType, valueType, valueBytes);
+        return new TaggedProperty(
+            name,
+            propertyType,
+            valueType,
+            valueBytes,
+            displayValue,
+            checked(offset + valueLength));
     }
 
-    private static string? TryFormatSimpleArray(
-        string elementType,
-        ReadOnlySpan<byte> value,
-        string path,
-        string name)
-    {
-        if (elementType is not ("EnumProperty" or "NameProperty" or "StrProperty"))
-        {
-            return null;
-        }
-
-        EnsureRemaining(value, 0, sizeof(uint), path, name);
-        var count = BinaryPrimitives.ReadUInt32LittleEndian(value[..sizeof(uint)]);
-        var cursor = sizeof(uint);
-
-        // Every FString element requires at least its 4-byte length field. This bound both
-        // rejects impossible counts and prevents allocating from attacker-controlled save data.
-        var maximumPossibleCount = (value.Length - sizeof(uint)) / sizeof(int);
-        if (count > maximumPossibleCount)
-        {
-            throw new InvalidDataException(
-                $"WorldOption.sav {path}.{name} declares {count} {elementType} array entries in only {value.Length} bytes.");
-        }
-
-        var entries = new string[(int)count];
-        for (var index = 0; index < entries.Length; index++)
-        {
-            entries[index] = ReadFString(value, ref cursor);
-        }
-
-        if (cursor != value.Length)
-        {
-            throw new InvalidDataException(
-                $"WorldOption.sav {path}.{name} {elementType} array contains unexpected trailing bytes.");
-        }
-
-        return $"({string.Join(',', entries)})";
-    }
-
-    private static string? TryFormatScalar(string propertyType, ReadOnlySpan<byte> value)
+    private static string? TryFormatScalarValue(
+        string propertyType,
+        string? valueType,
+        byte[] valueBytes)
     {
         return propertyType switch
         {
-            "IntProperty" when value.Length == 4 => BinaryPrimitives.ReadInt32LittleEndian(value)
-                .ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "Int64Property" when value.Length == 8 => BinaryPrimitives.ReadInt64LittleEndian(value)
-                .ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "UInt32Property" when value.Length == 4 => BinaryPrimitives.ReadUInt32LittleEndian(value)
-                .ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "UInt64Property" when value.Length == 8 => BinaryPrimitives.ReadUInt64LittleEndian(value)
-                .ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "FloatProperty" when value.Length == 4 => BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(value))
-                .ToString("R", System.Globalization.CultureInfo.InvariantCulture),
-            "DoubleProperty" when value.Length == 8 => BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(value))
-                .ToString("R", System.Globalization.CultureInfo.InvariantCulture),
-            "StrProperty" => TryReadSingleFString(value),
-            "NameProperty" => TryReadSingleFString(value),
+            "IntProperty" when valueBytes.Length == sizeof(int) =>
+                BinaryPrimitives.ReadInt32LittleEndian(valueBytes).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "Int64Property" when valueBytes.Length == sizeof(long) =>
+                BinaryPrimitives.ReadInt64LittleEndian(valueBytes).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "UInt32Property" when valueBytes.Length == sizeof(uint) =>
+                BinaryPrimitives.ReadUInt32LittleEndian(valueBytes).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "UInt64Property" when valueBytes.Length == sizeof(ulong) =>
+                BinaryPrimitives.ReadUInt64LittleEndian(valueBytes).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "FloatProperty" when valueBytes.Length == sizeof(float) =>
+                BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(valueBytes))
+                    .ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+            "DoubleProperty" when valueBytes.Length == sizeof(double) =>
+                BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(valueBytes))
+                    .ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+            "StrProperty" or "NameProperty" => TryDecodeSingleFString(valueBytes),
+            "EnumProperty" or "ByteProperty" => TryDecodeSingleFString(valueBytes),
+            "ArrayProperty" when valueType is "EnumProperty" or "NameProperty" or "StrProperty" =>
+                TryDecodeSimpleStringArray(valueBytes),
             _ => null
         };
     }
 
-    private static string? TryReadSingleFString(ReadOnlySpan<byte> value)
+    private static string? TryDecodeSimpleStringArray(byte[] valueBytes)
     {
+        if (valueBytes.Length < sizeof(uint))
+        {
+            return null;
+        }
+
         try
         {
-            var cursor = 0;
-            var text = ReadFString(value, ref cursor);
-            return cursor == value.Length ? text : null;
+            var count = BinaryPrimitives.ReadUInt32LittleEndian(valueBytes);
+            if (count > int.MaxValue)
+            {
+                return null;
+            }
+
+            var values = new string[checked((int)count)];
+            var offset = sizeof(uint);
+            for (var index = 0; index < values.Length; index++)
+            {
+                (values[index], offset) = ReadFString(
+                    valueBytes,
+                    offset,
+                    $"simple array element {index}");
+            }
+
+            if (offset != valueBytes.Length)
+            {
+                return null;
+            }
+
+            return $"({string.Join(',', values)})";
         }
         catch (InvalidDataException)
         {
             return null;
         }
-        catch (OverflowException)
+    }
+
+    private static string? TryDecodeSingleFString(byte[] bytes)
+    {
+        try
+        {
+            var (value, nextOffset) = ReadFString(bytes, 0, "scalar FString");
+            return nextOffset == bytes.Length ? value : null;
+        }
+        catch (InvalidDataException)
         {
             return null;
         }
     }
 
-    private static void ReadPropertyGuid(
-        ReadOnlySpan<byte> data,
-        ref int cursor,
-        string path,
-        string name)
+    private static string DecodeFString(byte[] encoded)
     {
-        EnsureRemaining(data, cursor, 1, path, name);
-        var hasGuid = data[cursor++];
-        if (hasGuid == 0)
+        var (value, nextOffset) = ReadFString(encoded, 0, "encoded FString");
+        if (nextOffset != encoded.Length)
         {
-            return;
+            throw new InvalidDataException("Encoded FString contains trailing bytes.");
         }
 
-        if (hasGuid != 1)
-        {
-            throw new InvalidDataException($"WorldOption.sav {path}.{name} has invalid property GUID flag {hasGuid}.");
-        }
-
-        EnsureRemaining(data, cursor, 16, path, name);
-        cursor += 16;
+        return value;
     }
 
-    private static ReadOnlyMemory<byte> ReadValueBytes(
-        ReadOnlySpan<byte> data,
-        ref int cursor,
-        int length,
-        string path,
-        string name)
+    private static (string Value, int NextOffset) ReadFString(
+        byte[] bytes,
+        int offset,
+        string context)
     {
-        EnsureRemaining(data, cursor, length, path, name);
-        var bytes = data.Slice(cursor, length).ToArray();
-        cursor += length;
-        return bytes;
+        EnsureAvailable(bytes, offset, sizeof(int), context);
+        var length = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset, sizeof(int)));
+        offset += sizeof(int);
+        if (length == 0)
+        {
+            return (string.Empty, offset);
+        }
+
+        if (length > 0)
+        {
+            EnsureAvailable(bytes, offset, length, context);
+            var valueBytes = bytes.AsSpan(offset, length);
+            if (valueBytes[^1] != 0)
+            {
+                throw new InvalidDataException($"{context} ANSI FString is missing its null terminator.");
+            }
+
+            return (
+                StrictUtf8.GetString(valueBytes[..^1]),
+                checked(offset + length));
+        }
+
+        var characterCount = checked(-length);
+        var byteCount = checked(characterCount * sizeof(char));
+        EnsureAvailable(bytes, offset, byteCount, context);
+        var valueBytesUtf16 = bytes.AsSpan(offset, byteCount);
+        if (valueBytesUtf16[^2] != 0 || valueBytesUtf16[^1] != 0)
+        {
+            throw new InvalidDataException($"{context} UTF-16 FString is missing its null terminator.");
+        }
+
+        return (
+            Encoding.Unicode.GetString(valueBytesUtf16[..^2]),
+            checked(offset + byteCount));
     }
 
-    private static string ReadFString(ReadOnlySpan<byte> data, ref int cursor)
+    private static void EnsureAvailable(byte[] bytes, int offset, int length, string context)
     {
-        EnsureRemaining(data, cursor, sizeof(int), "FString", "length");
-        var serializedLength = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(cursor, sizeof(int)));
-        cursor += sizeof(int);
-        if (serializedLength == 0)
+        if (offset < 0 || length < 0 || offset > bytes.Length - length)
         {
-            return string.Empty;
-        }
-
-        if (serializedLength > 0)
-        {
-            var byteLength = serializedLength;
-            EnsureRemaining(data, cursor, byteLength, "FString", "ANSI value");
-            var bytes = data.Slice(cursor, byteLength);
-            cursor += byteLength;
-            if (bytes[^1] != 0)
-            {
-                throw new InvalidDataException("WorldOption.sav contains an unterminated ANSI FString.");
-            }
-
-            try
-            {
-                return StrictUtf8.GetString(bytes[..^1]);
-            }
-            catch (DecoderFallbackException exception)
-            {
-                throw new InvalidDataException("WorldOption.sav contains a non-UTF8 ANSI FString.", exception);
-            }
-        }
-
-        if (serializedLength == int.MinValue)
-        {
-            throw new InvalidDataException("WorldOption.sav contains an invalid UTF-16 FString length.");
-        }
-
-        var characterCount = -serializedLength;
-        var byteLengthUtf16 = checked(characterCount * sizeof(char));
-        EnsureRemaining(data, cursor, byteLengthUtf16, "FString", "UTF-16 value");
-        var utf16 = data.Slice(cursor, byteLengthUtf16);
-        cursor += byteLengthUtf16;
-        if (utf16.Length < 2 || utf16[^2] != 0 || utf16[^1] != 0)
-        {
-            throw new InvalidDataException("WorldOption.sav contains an unterminated UTF-16 FString.");
-        }
-
-        return Encoding.Unicode.GetString(utf16[..^2]);
-    }
-
-    private static void EnsureRemaining(
-        ReadOnlySpan<byte> data,
-        int cursor,
-        int required,
-        string path,
-        string name)
-    {
-        if (required < 0 || cursor < 0 || cursor > data.Length - required)
-        {
-            throw new InvalidDataException($"WorldOption.sav is truncated while reading {path}.{name}.");
+            throw new InvalidDataException($"{context} exceeds the available bytes.");
         }
     }
 
@@ -546,33 +478,17 @@ internal static class PalworldWorldOptionSettingsReader
         var text = Encoding.UTF8.GetBytes(value);
         var result = new byte[sizeof(int) + text.Length + 1];
         BinaryPrimitives.WriteInt32LittleEndian(result.AsSpan(0, sizeof(int)), text.Length + 1);
-        text.CopyTo(result, sizeof(int));
+        text.CopyTo(result.AsSpan(sizeof(int)));
         return result;
-    }
-
-    private static byte[] DecompressZlib(ReadOnlySpan<byte> compressed)
-    {
-        using var source = new MemoryStream(compressed.ToArray(), writable: false);
-        using var zlib = new ZLibStream(source, CompressionMode.Decompress);
-        using var destination = new MemoryStream();
-        try
-        {
-            zlib.CopyTo(destination);
-        }
-        catch (InvalidDataException exception)
-        {
-            throw new InvalidDataException("WorldOption.sav contains invalid zlib data.", exception);
-        }
-
-        return destination.ToArray();
     }
 
     private sealed record DecodedWorldOption(string Container, byte[] Payload);
 
-    private sealed record ParsedProperty(
+    private sealed record TaggedProperty(
         string Name,
         string PropertyType,
         string? ValueType,
+        byte[] ValueBytes,
         string? DisplayValue,
-        ReadOnlyMemory<byte> ValueBytes);
+        int NextOffset);
 }

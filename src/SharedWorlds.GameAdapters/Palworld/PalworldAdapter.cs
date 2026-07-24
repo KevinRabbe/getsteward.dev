@@ -90,7 +90,9 @@ public sealed partial class PalworldAdapter : IGameAdapter
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(state);
         PalworldWorkspaceOwnership.RequireOwned(world);
+        PalworldStatePackagePreflight.Validate(state.Path, world.WorkingDirectory);
         return PalworldWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
     }
 

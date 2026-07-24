@@ -78,7 +78,10 @@ public sealed class ProjectZomboidAdapter : IGameAdapter
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(state);
         ProjectZomboidWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
-        ProjectZomboidStatePackagePreflight.Validate(state.Path, world.WorkingDirectory);
+        ProjectZomboidStatePackagePreflight.Validate(
+            state.Path,
+            world.WorkingDirectory,
+            cancellationToken);
         return ProjectZomboidWorldState.RestorePreparedWorldAsync(world, state, cancellationToken);
     }
 

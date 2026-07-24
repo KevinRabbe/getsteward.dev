@@ -93,7 +93,7 @@ public sealed class SharedWorldHostPresenceService
     }
 
     public async Task<PublishSharedWorldHostPresenceStatus> PublishAsync(
-        ExternalIdentityRef caller,
+        VerifiedExternalIdentity caller,
         string callerInstallationId,
         WorldId worldId,
         Guid reservationSessionId,
@@ -118,8 +118,9 @@ public sealed class SharedWorldHostPresenceService
             return PublishSharedWorldHostPresenceStatus.NotFoundOrUnauthorized;
         }
 
+        var callerSubject = caller.Subject;
         if (reservation.State != SharedWorldReservationState.Active ||
-            reservation.Holder != caller ||
+            reservation.Holder != callerSubject ||
             !string.Equals(
                 reservation.InstallationId,
                 callerInstallationId,
@@ -136,7 +137,7 @@ public sealed class SharedWorldHostPresenceService
                 worldId,
                 reservationSessionId,
                 reservationGeneration,
-                caller,
+                callerSubject,
                 callerInstallationId,
                 state,
                 address,
@@ -148,7 +149,7 @@ public sealed class SharedWorldHostPresenceService
     }
 
     public async Task<SharedWorldHostPresence?> GetVisibleAsync(
-        ExternalIdentityRef caller,
+        VerifiedExternalIdentity caller,
         WorldId worldId,
         CancellationToken cancellationToken = default)
     {
@@ -182,7 +183,7 @@ public sealed class SharedWorldHostPresenceService
     }
 
     public Task<bool> ClearAsync(
-        ExternalIdentityRef caller,
+        VerifiedExternalIdentity caller,
         WorldId worldId,
         Guid reservationSessionId,
         long reservationGeneration,
@@ -192,16 +193,17 @@ public sealed class SharedWorldHostPresenceService
         ValidateReservationIdentity(reservationSessionId, reservationGeneration);
         return _store.DeleteAsync(
             worldId,
-            caller,
+            caller.Subject,
             reservationSessionId,
             reservationGeneration,
             cancellationToken);
     }
 
-    private static void ValidateIdentity(ExternalIdentityRef caller)
+    private static void ValidateIdentity(VerifiedExternalIdentity caller)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(caller.Provider);
-        ArgumentException.ThrowIfNullOrWhiteSpace(caller.ExternalId);
+        ArgumentNullException.ThrowIfNull(caller);
+        ArgumentException.ThrowIfNullOrWhiteSpace(caller.Subject.Provider);
+        ArgumentException.ThrowIfNullOrWhiteSpace(caller.Subject.ExternalId);
     }
 
     private static void ValidateInstallationId(string installationId)

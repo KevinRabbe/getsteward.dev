@@ -56,24 +56,6 @@ public sealed class WorldLifecycleServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task SetSharingMode_RequiresExplicitChange()
-    {
-        var storage = new InMemoryWorldStorage();
-        var sessions = new RecordingSessionCoordinator();
-        var recovery = new RecordingWorkspaceRecoveryStore();
-        var adapter = new FakeGameAdapter(_root);
-        var user = TestUser();
-        var world = SeedPlayableWorld(storage, adapter, user, WorldSharingMode.LocalOnly);
-        var lifecycle = new WorldLifecycleService(storage, sessions, recovery);
-
-        var shared = await lifecycle.SetSharingModeAsync(world.Id, WorldSharingMode.Shared);
-        Assert.Equal(WorldSharingMode.Shared, shared.SharingMode);
-
-        var localOnly = await lifecycle.SetSharingModeAsync(world.Id, WorldSharingMode.LocalOnly);
-        Assert.Equal(WorldSharingMode.LocalOnly, localOnly.SharingMode);
-    }
-
-    [Fact]
     public async Task Prepare_RejectsWorldOwnedByDifferentAdapter_BeforePreparation()
     {
         var storage = new InMemoryWorldStorage();

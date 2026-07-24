@@ -41,16 +41,16 @@ public partial class MainWindow
             AccessibleName = "Steward tray menu",
             AccessibleDescription = "Open Steward or quit when Steward has no active World responsibility."
         };
-        var open = new Forms.ToolStripMenuItem("Open Steward")
+        var open = new Forms.ToolStripMenuItem(DesktopText.OpenSteward)
         {
-            AccessibleName = "Open Steward",
+            AccessibleName = DesktopText.OpenSteward,
             AccessibleDescription = "Open the Steward window."
         };
         open.Click += (_, _) => OpenStewardWindow();
 
-        var quit = new Forms.ToolStripMenuItem("Quit Steward")
+        var quit = new Forms.ToolStripMenuItem(DesktopText.QuitSteward)
         {
-            AccessibleName = "Quit Steward",
+            AccessibleName = DesktopText.QuitSteward,
             AccessibleDescription = "Quit Steward when no active or unresolved World responsibility remains."
         };
         quit.Click += (_, _) => RequestQuitSteward();

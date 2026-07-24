@@ -8,8 +8,10 @@ public sealed record LocalDiagnosticIncident(string Id, string? LogPath);
 public static partial class LocalDiagnosticLog
 {
     private const string Redacted = "<redacted>";
+    private const string TruncatedMarker = "<diagnostic-details-truncated>";
     private const int MaximumDetailCharacters = 64 * 1024;
     private const int MaximumIncidentFiles = 64;
+    private const int MaximumInnerExceptions = 8;
 
     public static LocalDiagnosticIncident TryWriteException(Exception exception, string diagnosticsRoot)
     {
@@ -25,12 +27,7 @@ public static partial class LocalDiagnosticLog
             DeleteLegacyUnredactedLogs(diagnosticsRoot);
             PruneOldIncidentFiles(diagnosticsRoot, keepNewest: MaximumIncidentFiles - 1);
 
-            var details = Redact(exception.ToString());
-            if (details.Length > MaximumDetailCharacters)
-            {
-                details = details[..MaximumDetailCharacters] + Environment.NewLine + "<diagnostic-details-truncated>";
-            }
-
+            var details = BuildBoundedDetails(exception);
             var logPath = Path.Combine(
                 diagnosticsRoot,
                 $"error-{timestamp:yyyyMMdd-HHmmssfff}-{incidentId}.log");
@@ -68,6 +65,114 @@ public static partial class LocalDiagnosticLog
         redacted = UrlQueryRegex().Replace(redacted, match =>
             $"{match.Groups[1].Value}?{Redacted}{match.Groups[3].Value}");
         return redacted;
+    }
+
+    private static string BuildBoundedDetails(Exception exception)
+    {
+        var builder = new StringBuilder(capacity: 4096);
+        Exception? current = exception;
+        var depth = 0;
+        var truncated = false;
+
+        while (current is not null && depth < MaximumInnerExceptions && !truncated)
+        {
+            if (depth > 0)
+            {
+                truncated = !TryAppendBounded(builder, Environment.NewLine + "--- inner exception ---" + Environment.NewLine);
+            }
+
+            if (!truncated)
+            {
+                truncated = !TryAppendBounded(
+                    builder,
+                    current.GetType().FullName ?? current.GetType().Name);
+            }
+
+            if (!truncated)
+            {
+                truncated = !TryAppendBounded(builder, ": ");
+            }
+
+            if (!truncated)
+            {
+                var message = BoundInputSegment(current.Message, out var messageWasTruncated);
+                truncated = !TryAppendBounded(builder, Redact(message)) || messageWasTruncated;
+            }
+
+            if (!truncated && !string.IsNullOrWhiteSpace(current.StackTrace))
+            {
+                var stackTrace = BoundInputSegment(current.StackTrace, out var stackWasTruncated);
+                truncated = !TryAppendBounded(
+                    builder,
+                    Environment.NewLine + Redact(stackTrace)) || stackWasTruncated;
+            }
+
+            current = current.InnerException;
+            depth++;
+        }
+
+        if (current is not null)
+        {
+            truncated = true;
+        }
+
+        if (truncated)
+        {
+            AppendTruncationMarker(builder);
+        }
+
+        return builder.ToString();
+    }
+
+    private static string BoundInputSegment(string? value, out bool truncated)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            truncated = false;
+            return string.Empty;
+        }
+
+        if (value.Length <= MaximumDetailCharacters)
+        {
+            truncated = false;
+            return value;
+        }
+
+        truncated = true;
+        return value[..MaximumDetailCharacters];
+    }
+
+    private static bool TryAppendBounded(StringBuilder builder, string value)
+    {
+        var reserved = Environment.NewLine.Length + TruncatedMarker.Length;
+        var maximumContentCharacters = MaximumDetailCharacters - reserved;
+        var available = maximumContentCharacters - builder.Length;
+        if (available <= 0)
+        {
+            return false;
+        }
+
+        if (value.Length <= available)
+        {
+            builder.Append(value);
+            return true;
+        }
+
+        builder.Append(value.AsSpan(0, available));
+        return false;
+    }
+
+    private static void AppendTruncationMarker(StringBuilder builder)
+    {
+        var reserved = Environment.NewLine.Length + TruncatedMarker.Length;
+        var maximumContentCharacters = MaximumDetailCharacters - reserved;
+        if (builder.Length > maximumContentCharacters)
+        {
+            builder.Length = maximumContentCharacters;
+        }
+
+        builder.AppendLine();
+        builder.Append(TruncatedMarker);
     }
 
     private static void DeleteLegacyUnredactedLogs(string diagnosticsRoot)

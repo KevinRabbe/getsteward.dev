@@ -167,6 +167,66 @@ public sealed class LocalWorldStorageTests : IDisposable
     }
 
     [Fact]
+    public async Task StateRevisionPayload_ExactLengthReadVerifiesWithoutExtraEofRead()
+    {
+        var storage = new LocalWorldStorage(_root);
+        var worldId = WorldId.New();
+        var revision = CreateStateRevision(worldId);
+        var expected = Encoding.UTF8.GetBytes("exact-length-state");
+        await using (var input = new MemoryStream(expected))
+        {
+            await storage.StoreRevisionAsync(revision, input);
+        }
+
+        await using var reopened = await storage.OpenRevisionAsync(worldId, revision.Id);
+        var bytes = new byte[checked((int)reopened.Length)];
+        var offset = 0;
+        while (offset < bytes.Length)
+        {
+            var read = await reopened.ReadAsync(bytes.AsMemory(offset));
+            Assert.True(read > 0);
+            offset += read;
+        }
+
+        Assert.Equal(expected, bytes);
+        Assert.Equal(reopened.Length, reopened.Position);
+    }
+
+    [Fact]
+    public async Task StateRevisionPayload_SameLengthTamperingFailsOnFinalReadWithoutExtraEofRead()
+    {
+        var storage = new LocalWorldStorage(_root);
+        var worldId = WorldId.New();
+        var revision = CreateStateRevision(worldId);
+        var canonical = Encoding.UTF8.GetBytes("same-length-state");
+        await using (var input = new MemoryStream(canonical))
+        {
+            await storage.StoreRevisionAsync(revision, input);
+        }
+
+        var corrupted = canonical.ToArray();
+        corrupted[^1] ^= 0x01;
+        await File.WriteAllBytesAsync(
+            Path.Combine(GetStateRevisionDirectory(worldId, revision.Id), "payload.bin"),
+            corrupted);
+
+        await using var reopened = await storage.OpenRevisionAsync(worldId, revision.Id);
+        var buffer = new byte[checked((int)reopened.Length)];
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(async () =>
+        {
+            var offset = 0;
+            while (offset < buffer.Length)
+            {
+                var read = await reopened.ReadAsync(buffer.AsMemory(offset));
+                Assert.True(read > 0);
+                offset += read;
+            }
+        });
+
+        Assert.Contains("SHA-256 integrity verification", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task NewStateRevision_MissingChecksumFailsClosed()
     {
         var storage = new LocalWorldStorage(_root);

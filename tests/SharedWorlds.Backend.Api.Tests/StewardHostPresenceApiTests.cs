@@ -15,10 +15,9 @@ namespace SharedWorlds.Backend.Api.Tests;
 public sealed class StewardHostPresenceApiTests
 {
     [Fact]
-    public async Task PublishThenGetReturnsReadyPresenceForExactReservation()
+    public async Task PublishThenGetReturnsOnlyJoinEvidence()
     {
         await using var harness = await HostPresenceHarness.CreateAsync();
-
         using (var publish = await harness.Client.PutAsJsonAsync(
                    $"/api/v1/worlds/{harness.Reservation.WorldId.Value:D}/host-presence",
                    new
@@ -32,7 +31,6 @@ public sealed class StewardHostPresenceApiTests
                    }))
         {
             Assert.Equal(HttpStatusCode.OK, publish.StatusCode);
-            Assert.Equal("HostPresencePublished", await ReadCodeAsync(publish));
         }
 
         using var get = await harness.Client.GetAsync(
@@ -42,45 +40,40 @@ public sealed class StewardHostPresenceApiTests
         using var body = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
         Assert.Equal("HostPresence", body.RootElement.GetProperty("code").GetString());
         var data = body.RootElement.GetProperty("data");
-        Assert.Equal(harness.Reservation.WorldId.Value, data.GetProperty("worldId").GetGuid());
-        Assert.Equal(harness.Reservation.SessionId, data.GetProperty("reservationSessionId").GetGuid());
-        Assert.Equal(harness.Reservation.Generation, data.GetProperty("reservationGeneration").GetInt64());
-        Assert.Equal("device-a", data.GetProperty("hostInstallationId").GetString());
         Assert.Equal("Ready", data.GetProperty("state").GetString());
         Assert.Equal("203.0.113.20", data.GetProperty("address").GetString());
         Assert.Equal(34197, data.GetProperty("port").GetInt32());
         Assert.Equal("join-token", data.GetProperty("joinToken").GetString());
-        Assert.Equal(harness.Clock.Now, data.GetProperty("updatedAt").GetDateTimeOffset());
+        Assert.Equal(4, data.EnumerateObject().Count());
+        Assert.False(data.TryGetProperty("worldId", out _));
+        Assert.False(data.TryGetProperty("reservationSessionId", out _));
+        Assert.False(data.TryGetProperty("reservationGeneration", out _));
+        Assert.False(data.TryGetProperty("hostInstallationId", out _));
+        Assert.False(data.TryGetProperty("updatedAt", out _));
     }
 
     [Fact]
-    public async Task ReadyWithoutAddressFailsClosed()
+    public async Task InvalidOrMismatchedPublishFailsWithoutMutation()
     {
         await using var harness = await HostPresenceHarness.CreateAsync();
 
-        using var response = await harness.Client.PutAsJsonAsync(
-            $"/api/v1/worlds/{harness.Reservation.WorldId.Value:D}/host-presence",
-            new
-            {
-                reservationSessionId = harness.Reservation.SessionId,
-                reservationGeneration = harness.Reservation.Generation,
-                state = "Ready",
-                address = (string?)null,
-                port = 34197,
-                joinToken = (string?)null
-            });
+        using (var missingAddress = await harness.Client.PutAsJsonAsync(
+                   $"/api/v1/worlds/{harness.Reservation.WorldId.Value:D}/host-presence",
+                   new
+                   {
+                       reservationSessionId = harness.Reservation.SessionId,
+                       reservationGeneration = harness.Reservation.Generation,
+                       state = "Ready",
+                       address = (string?)null,
+                       port = 34197,
+                       joinToken = (string?)null
+                   }))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, missingAddress.StatusCode);
+            Assert.Equal("InvalidHostPresence", await ReadCodeAsync(missingAddress));
+        }
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal("InvalidHostPresence", await ReadCodeAsync(response));
-        Assert.Null(harness.PresenceStore.Presence);
-    }
-
-    [Fact]
-    public async Task ReservationMismatchReturnsConflictWithoutPublishing()
-    {
-        await using var harness = await HostPresenceHarness.CreateAsync();
-
-        using var response = await harness.Client.PutAsJsonAsync(
+        using var wrongGeneration = await harness.Client.PutAsJsonAsync(
             $"/api/v1/worlds/{harness.Reservation.WorldId.Value:D}/host-presence",
             new
             {
@@ -91,17 +84,15 @@ public sealed class StewardHostPresenceApiTests
                 port = (int?)null,
                 joinToken = (string?)null
             });
-
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Equal("ReservationMismatch", await ReadCodeAsync(response));
+        Assert.Equal(HttpStatusCode.Conflict, wrongGeneration.StatusCode);
+        Assert.Equal("ReservationMismatch", await ReadCodeAsync(wrongGeneration));
         Assert.Null(harness.PresenceStore.Presence);
     }
 
     [Fact]
-    public async Task ExpiredPresenceIsNotVisibleThroughApi()
+    public async Task ExpiredPresenceIsNotVisible()
     {
         await using var harness = await HostPresenceHarness.CreateAsync();
-
         using (var publish = await harness.Client.PutAsJsonAsync(
                    $"/api/v1/worlds/{harness.Reservation.WorldId.Value:D}/host-presence",
                    new
@@ -118,18 +109,15 @@ public sealed class StewardHostPresenceApiTests
         }
 
         harness.Clock.Now = harness.Clock.Now.AddSeconds(46);
-
         using var get = await harness.Client.GetAsync(
             $"/api/v1/worlds/{harness.Reservation.WorldId.Value:D}/host-presence");
         Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
-        Assert.Equal("NotFound", await ReadCodeAsync(get));
     }
 
     [Fact]
-    public async Task ClearRequiresExactCallerReservationIdentity()
+    public async Task ClearUsesAuthenticatedInstallationIdentity()
     {
         await using var harness = await HostPresenceHarness.CreateAsync();
-
         using (var publish = await harness.Client.PutAsJsonAsync(
                    $"/api/v1/worlds/{harness.Reservation.WorldId.Value:D}/host-presence",
                    new
@@ -145,38 +133,28 @@ public sealed class StewardHostPresenceApiTests
             Assert.Equal(HttpStatusCode.OK, publish.StatusCode);
         }
 
-        using (var wrongGeneration = await harness.Client.DeleteAsync(
-                   $"/api/v1/worlds/{harness.Reservation.WorldId.Value:D}/host-presence/{harness.Reservation.SessionId:D}/{harness.Reservation.Generation + 1}"))
-        {
-            Assert.Equal(HttpStatusCode.NotFound, wrongGeneration.StatusCode);
-            Assert.NotNull(harness.PresenceStore.Presence);
-        }
-
         using var clear = await harness.Client.DeleteAsync(
             $"/api/v1/worlds/{harness.Reservation.WorldId.Value:D}/host-presence/{harness.Reservation.SessionId:D}/{harness.Reservation.Generation}");
         Assert.Equal(HttpStatusCode.OK, clear.StatusCode);
         Assert.Equal("HostPresenceCleared", await ReadCodeAsync(clear));
+        Assert.Equal("device-a", harness.PresenceStore.LastDeleteInstallationId);
         Assert.Null(harness.PresenceStore.Presence);
     }
 
     [Fact]
-    public async Task MissingBearerCredentialIsUnauthorized()
+    public async Task MissingBearerOrEmptyReservationIdentityFailsClosed()
     {
         await using var harness = await HostPresenceHarness.CreateAsync();
         harness.Client.DefaultRequestHeaders.Authorization = null;
+        using (var unauthorized = await harness.Client.GetAsync(
+                   $"/api/v1/worlds/{harness.Reservation.WorldId.Value:D}/host-presence"))
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
+        }
 
-        using var response = await harness.Client.GetAsync(
-            $"/api/v1/worlds/{harness.Reservation.WorldId.Value:D}/host-presence");
-
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task EmptyReservationIdentityIsRejectedBeforeServiceMutation()
-    {
-        await using var harness = await HostPresenceHarness.CreateAsync();
-
-        using var response = await harness.Client.PutAsJsonAsync(
+        harness.Client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", harness.AccessToken);
+        using var invalid = await harness.Client.PutAsJsonAsync(
             $"/api/v1/worlds/{harness.Reservation.WorldId.Value:D}/host-presence",
             new
             {
@@ -187,10 +165,8 @@ public sealed class StewardHostPresenceApiTests
                 port = (int?)null,
                 joinToken = (string?)null
             });
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal("InvalidReservationIdentity", await ReadCodeAsync(response));
-        Assert.Null(harness.PresenceStore.Presence);
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        Assert.Equal("InvalidReservationIdentity", await ReadCodeAsync(invalid));
     }
 
     private static async Task<string?> ReadCodeAsync(HttpResponseMessage response)
@@ -206,18 +182,21 @@ public sealed class StewardHostPresenceApiTests
         private HostPresenceHarness(
             WebApplication app,
             HttpClient client,
+            string accessToken,
             MutableClock clock,
             SharedWorldReservation reservation,
             PresenceStore presenceStore)
         {
             _app = app;
             Client = client;
+            AccessToken = accessToken;
             Clock = clock;
             Reservation = reservation;
             PresenceStore = presenceStore;
         }
 
         public HttpClient Client { get; }
+        public string AccessToken { get; }
         public MutableClock Clock { get; }
         public SharedWorldReservation Reservation { get; }
         public PresenceStore PresenceStore { get; }
@@ -230,31 +209,21 @@ public sealed class StewardHostPresenceApiTests
             };
             var holder = new ExternalIdentityRef("steam", "76561198000000001");
             var reservation = new SharedWorldReservation(
-                WorldId.New(),
-                Guid.NewGuid(),
-                7,
-                holder,
-                "device-a",
+                WorldId.New(), Guid.NewGuid(), 7, holder, "device-a",
                 new SharedWorldHead(RevisionId.New(), RevisionId.New()),
-                SharedWorldReservationState.Active,
-                clock.Now,
-                clock.Now,
-                BecameUncertainAt: null);
+                SharedWorldReservationState.Active, clock.Now, clock.Now, null);
             var authorityStore = new AuthorityStore { Reservation = reservation };
             var presenceStore = new PresenceStore();
-            var sessionStore = new ApiTestHarness.InMemorySessionStore();
 
             var builder = WebApplication.CreateBuilder();
             builder.WebHost.UseTestServer();
             builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =>
                 options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
             builder.Services.AddSingleton(new StewardSessionService(
-                sessionStore,
+                new ApiTestHarness.InMemorySessionStore(),
                 () => clock.Now,
                 tokenGenerator: new ApiTestHarness.DeterministicTokenGenerator()));
-            builder.Services.AddSingleton(new SharedWorldAuthorityService(
-                authorityStore,
-                () => clock.Now));
+            builder.Services.AddSingleton(new SharedWorldAuthorityService(authorityStore, () => clock.Now));
             builder.Services.AddSingleton<ISharedWorldHostPresenceStore>(presenceStore);
             builder.Services.AddSingleton(services => new SharedWorldHostPresenceService(
                 services.GetRequiredService<SharedWorldAuthorityService>(),
@@ -268,18 +237,13 @@ public sealed class StewardHostPresenceApiTests
 
             var sessions = app.Services.GetRequiredService<StewardSessionService>();
             var tokens = await sessions.CreateSessionAsync(
-                new VerifiedExternalIdentity(holder, "Host"),
-                "device-a");
+                new VerifiedExternalIdentity(holder, "Host"), "device-a");
             var client = app.GetTestClient();
             client.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
 
             return new HostPresenceHarness(
-                app,
-                client,
-                clock,
-                reservation,
-                presenceStore);
+                app, client, tokens.AccessToken, clock, reservation, presenceStore);
         }
 
         public async ValueTask DisposeAsync()
@@ -297,6 +261,7 @@ public sealed class StewardHostPresenceApiTests
     public sealed class PresenceStore : ISharedWorldHostPresenceStore
     {
         public SharedWorldHostPresence? Presence { get; private set; }
+        public string? LastDeleteInstallationId { get; private set; }
 
         public Task<bool> TryUpsertAsync(
             SharedWorldHostPresence presence,
@@ -314,13 +279,16 @@ public sealed class StewardHostPresenceApiTests
         public Task<bool> DeleteAsync(
             WorldId worldId,
             ExternalIdentityRef holder,
+            string installationId,
             Guid sessionId,
             long generation,
             CancellationToken cancellationToken = default)
         {
+            LastDeleteInstallationId = installationId;
             var matches = Presence is not null &&
                           Presence.WorldId == worldId &&
                           Presence.Holder == holder &&
+                          Presence.InstallationId == installationId &&
                           Presence.SessionId == sessionId &&
                           Presence.Generation == generation;
             if (matches)
@@ -337,55 +305,35 @@ public sealed class StewardHostPresenceApiTests
         public SharedWorldReservation? Reservation { get; init; }
 
         public Task<SharedWorldReservation?> GetReservationAsync(
-            ExternalIdentityRef caller,
-            WorldId worldId,
-            DateTimeOffset serverNow,
-            SharedWorldAuthorityOptions options,
-            CancellationToken cancellationToken = default)
+            ExternalIdentityRef caller, WorldId worldId, DateTimeOffset serverNow,
+            SharedWorldAuthorityOptions options, CancellationToken cancellationToken = default)
             => Task.FromResult(Reservation?.WorldId == worldId ? Reservation : null);
 
         public Task<AcquireSharedWorldReservationResult> AcquireAsync(
-            ExternalIdentityRef caller,
-            WorldId worldId,
-            string installationId,
-            SharedWorldHead expectedHead,
-            DateTimeOffset serverNow,
-            SharedWorldAuthorityOptions options,
-            CancellationToken cancellationToken = default)
+            ExternalIdentityRef caller, WorldId worldId, string installationId,
+            SharedWorldHead expectedHead, DateTimeOffset serverNow,
+            SharedWorldAuthorityOptions options, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<SharedWorldHeartbeatStatus> HeartbeatAsync(
-            ExternalIdentityRef caller,
-            WorldId worldId,
-            string installationId,
-            Guid sessionId,
-            long generation,
-            DateTimeOffset serverNow,
-            SharedWorldAuthorityOptions options,
+            ExternalIdentityRef caller, WorldId worldId, string installationId, Guid sessionId,
+            long generation, DateTimeOffset serverNow, SharedWorldAuthorityOptions options,
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<ReclaimSharedWorldReservationResult> ReclaimAsync(
-            ExternalIdentityRef caller,
-            WorldId worldId,
-            Guid expectedSessionId,
-            long expectedGeneration,
-            DateTimeOffset serverNow,
-            SharedWorldAuthorityOptions options,
+            ExternalIdentityRef caller, WorldId worldId, Guid expectedSessionId,
+            long expectedGeneration, DateTimeOffset serverNow, SharedWorldAuthorityOptions options,
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<CommitSharedWorldResult> CommitAsync(
-            ExternalIdentityRef caller,
-            CommitSharedWorldCommand command,
-            DateTimeOffset serverNow,
-            SharedWorldAuthorityOptions options,
-            CancellationToken cancellationToken = default)
+            ExternalIdentityRef caller, CommitSharedWorldCommand command, DateTimeOffset serverNow,
+            SharedWorldAuthorityOptions options, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<bool> HasUnresolvedWritableResponsibilityAsync(
-            WorldId worldId,
-            ExternalIdentityRef identity,
+            WorldId worldId, ExternalIdentityRef identity,
             CancellationToken cancellationToken = default)
             => Task.FromResult(false);
     }

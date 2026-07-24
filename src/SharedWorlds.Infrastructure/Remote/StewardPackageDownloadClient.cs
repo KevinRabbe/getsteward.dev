@@ -113,7 +113,8 @@ public sealed class StewardPackageDownloadClient
         var authorization = data.Authorization;
         if (!string.Equals(authorization.Method, "GET", StringComparison.OrdinalIgnoreCase) ||
             data.ExpectedByteSize <= 0 ||
-            authorization.ExpectedByteSize != data.ExpectedByteSize)
+            authorization.ExpectedByteSize != data.ExpectedByteSize ||
+            !IsSha256(data.ExpectedSha256))
         {
             throw new InvalidDataException("Steward returned inconsistent immutable package metadata.");
         }
@@ -123,7 +124,27 @@ public sealed class StewardPackageDownloadClient
             authorization.RequiredHeaders ?? new Dictionary<string, string>(),
             authorization.ExpiresAt,
             data.ExpectedByteSize,
-            data.ExpectedSha256);
+            data.ExpectedSha256.ToUpperInvariant());
+    }
+
+    private static bool IsSha256(string? value)
+    {
+        if (value is null || value.Length != 64)
+        {
+            return false;
+        }
+
+        foreach (var character in value)
+        {
+            if (!((character >= '0' && character <= '9') ||
+                  (character >= 'a' && character <= 'f') ||
+                  (character >= 'A' && character <= 'F')))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool IsTransientStatus(HttpStatusCode statusCode)

@@ -12,8 +12,8 @@ internal sealed class PendingInvitationsDialog : Window
 {
     private readonly StewardWorldAccessClient _access;
     private readonly ListBox _invitations = new();
-    private readonly Button _acceptButton = new() { Content = "Accept", Padding = new Thickness(12, 6, 12, 6) };
-    private readonly Button _declineButton = new() { Content = "Decline", Padding = new Thickness(12, 6, 12, 6) };
+    private readonly Button _acceptButton = new() { Content = DesktopText.Accept, Padding = new Thickness(12, 6, 12, 6) };
+    private readonly Button _declineButton = new() { Content = DesktopText.Decline, Padding = new Thickness(12, 6, 12, 6) };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.82 };
     private bool _busy;
 
@@ -22,7 +22,7 @@ internal sealed class PendingInvitationsDialog : Window
         ArgumentNullException.ThrowIfNull(access);
         _access = access;
 
-        Title = "Shared World invitations";
+        Title = DesktopText.SharedWorldInvitations;
         Width = 560;
         Height = 420;
         MinWidth = 460;
@@ -53,7 +53,7 @@ internal sealed class PendingInvitationsDialog : Window
         var heading = new StackPanel();
         heading.Children.Add(new TextBlock
         {
-            Text = "Shared World invitations",
+            Text = DesktopText.SharedWorldInvitations,
             FontSize = 22,
             FontWeight = FontWeights.SemiBold
         });
@@ -98,7 +98,7 @@ internal sealed class PendingInvitationsDialog : Window
         footer.Children.Add(_status);
         var close = new Button
         {
-            Content = "Close",
+            Content = DesktopText.Close,
             Padding = new Thickness(16, 6, 16, 6),
             Margin = new Thickness(12, 0, 0, 0)
         };

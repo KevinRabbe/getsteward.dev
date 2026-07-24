@@ -42,6 +42,21 @@ public sealed class ProjectZomboidStatePackagePreflightTests : IDisposable
     }
 
     [Fact]
+    public void CancellationStopsMetadataScan()
+    {
+        var package = CreateArchive(("a.bin", new byte[] { 1 }));
+        using var archive = ZipFile.OpenRead(package);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.Throws<OperationCanceledException>(() =>
+            ProjectZomboidStatePackagePreflight.GetDeclaredExtractionBytes(
+                archive,
+                maxEntries: 10,
+                cancellation.Token));
+    }
+
+    [Fact]
     public void FreeSpaceReserveFailsClosedWhenDeclaredExtractionCannotFit()
     {
         var exception = Assert.Throws<IOException>(() =>

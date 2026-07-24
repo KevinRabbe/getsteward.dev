@@ -77,6 +77,44 @@ public sealed class FactorioModCatalogLinkedPathTests : IDisposable
     }
 
     [Fact]
+    public void DiscoverRejectsLinkedStartupSettings()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var modsRoot = Path.Combine(_root, "linked-settings");
+        Directory.CreateDirectory(modsRoot);
+        var outsideSettings = Path.Combine(_root, "outside-mod-settings.dat");
+        File.WriteAllBytes(outsideSettings, [1, 2, 3]);
+        var linkedSettings = Path.Combine(modsRoot, "mod-settings.dat");
+        File.CreateSymbolicLink(linkedSettings, outsideSettings);
+
+        try
+        {
+            var exception = Assert.Throws<InvalidOperationException>(() =>
+                FactorioModCatalog.Discover(modsRoot));
+
+            Assert.Contains("linked or a reparse point", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(linkedSettings);
+        }
+    }
+
+    [Fact]
+    public void DiscoverAcceptsOrdinaryStartupSettings()
+    {
+        var modsRoot = Path.Combine(_root, "ordinary-settings");
+        Directory.CreateDirectory(modsRoot);
+        File.WriteAllBytes(Path.Combine(modsRoot, "mod-settings.dat"), [1, 2, 3]);
+
+        Assert.Empty(FactorioModCatalog.Discover(modsRoot));
+    }
+
+    [Fact]
     public void DiscoverStillAcceptsOrdinaryDirectoryMod()
     {
         var modsRoot = Path.Combine(_root, "ordinary-mods");

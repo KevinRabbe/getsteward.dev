@@ -29,7 +29,7 @@ public sealed class SevenDaysToDieDiscoveryTests : IDisposable
         var serverManifest = Path.Combine(serverLibrary, "steamapps", "appmanifest_294420.acf");
         File.WriteAllText(
             serverManifest,
-            "\"AppState\"\n{\n    \"installdir\"    \"Custom Server\"\n}");
+            "\"AppState\"\n{\n    \"installdir\"    \"Custom Server\"\n    \"buildid\"    \"87654321\"\n}");
 
         var userData = Path.Combine(_root, "user-data");
         var installations = SevenDaysToDieInstallationDiscovery.DiscoverFromSteamLibraries(
@@ -114,9 +114,9 @@ public sealed class SevenDaysToDieDiscoveryTests : IDisposable
     }
 
     [Fact]
-    public void EnvironmentInspectionUsesSteamBuildIdWithoutLaunchingGame()
+    public void EnvironmentInspectionUsesDedicatedServerSteamBuildId()
     {
-        var installation = CreateSteamInstallation("87654321");
+        var installation = CreateInstallationWithDedicatedServerBuild("87654321");
 
         var environment = SevenDaysToDieEnvironment.Inspect(installation);
 
@@ -128,9 +128,24 @@ public sealed class SevenDaysToDieDiscoveryTests : IDisposable
     }
 
     [Fact]
-    public void EnvironmentVerificationFailsClosedOnBuildMismatch()
+    public void EnvironmentInspectionFailsClosedWithoutDedicatedServerManifest()
     {
-        var installation = CreateSteamInstallation("22222222");
+        var installation = new GameInstallation(
+            "7-days-to-die:test",
+            _root,
+            "steam",
+            new Dictionary<string, string>(StringComparer.Ordinal));
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            SevenDaysToDieEnvironment.Inspect(installation));
+
+        Assert.Contains("Dedicated Server", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EnvironmentVerificationFailsClosedOnDedicatedServerBuildMismatch()
+    {
+        var installation = CreateInstallationWithDedicatedServerBuild("22222222");
         var required = new EnvironmentManifest(
             1,
             "7-days-to-die",
@@ -146,21 +161,28 @@ public sealed class SevenDaysToDieDiscoveryTests : IDisposable
             issue => issue.Code == "7dtd-version-mismatch");
     }
 
-    private GameInstallation CreateSteamInstallation(string buildId)
+    private GameInstallation CreateInstallationWithDedicatedServerBuild(string buildId)
     {
         var library = Path.Combine(_root, $"environment-{Guid.NewGuid():N}");
         var root = Path.Combine(library, "steamapps", "common", "7 Days To Die");
+        var serverRoot = Path.Combine(library, "steamapps", "common", "7 Days to Die Dedicated Server");
         Directory.CreateDirectory(root);
-        var manifest = Path.Combine(library, "steamapps", "appmanifest_251570.acf");
+        Directory.CreateDirectory(serverRoot);
+        var manifest = Path.Combine(library, "steamapps", "appmanifest_294420.acf");
         Directory.CreateDirectory(Path.GetDirectoryName(manifest)!);
         File.WriteAllText(
             manifest,
-            $"\"AppState\"\n{{\n    \"installdir\"    \"7 Days To Die\"\n    \"buildid\"    \"{buildId}\"\n}}");
+            $"\"AppState\"\n{{\n    \"installdir\"    \"7 Days to Die Dedicated Server\"\n    \"buildid\"    \"{buildId}\"\n}}");
         return new GameInstallation(
             "7-days-to-die:test",
             root,
             "steam",
-            new Dictionary<string, string>(StringComparer.Ordinal));
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [SevenDaysToDieInstallationDiscovery.DedicatedServerRootPathKey] = serverRoot,
+                [SevenDaysToDieInstallationDiscovery.DedicatedServerManifestPathKey] = manifest,
+                [SevenDaysToDieInstallationDiscovery.DedicatedServerInstallStateKey] = "installed"
+            });
     }
 
     public void Dispose()

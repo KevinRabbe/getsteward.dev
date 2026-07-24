@@ -222,7 +222,8 @@ public sealed class WorldLifecycleService
         IGameAdapter adapter,
         GameInstallation installation,
         ManagedWorldSessionMode? mode,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<World, PreparedWorld, CancellationToken, Task>? registerPreparedWorkspace = null)
     {
         ArgumentNullException.ThrowIfNull(adapter);
         ArgumentNullException.ThrowIfNull(installation);
@@ -294,44 +295,74 @@ public sealed class WorldLifecycleService
             DisplayName = world.Name
         };
 
-        Notify(worldId, mode, WorldLifecyclePhase.DownloadingState);
+        // Writable sessions register cleanup ownership immediately after the adapter creates a
+        // workspace. Until the session is actually launchable this is cleanup-only responsibility;
+        // a restore/download failure must never leave an untracked prepared workspace behind.
+        if (registerPreparedWorkspace is not null)
+        {
+            await registerPreparedWorkspace(world, prepared, CancellationToken.None);
+        }
+
         var materializedPackagePath = Path.Combine(
             Path.GetTempPath(),
             "SharedWorlds",
             "materialized",
             $"{Guid.NewGuid():N}.package");
-        Directory.CreateDirectory(Path.GetDirectoryName(materializedPackagePath)!);
-
-        await using (var source = await _storage.OpenRevisionAsync(
-                         worldId,
-                         stateRevisionId,
-                         cancellationToken))
-        await using (var destination = new FileStream(
-                         materializedPackagePath,
-                         FileMode.CreateNew,
-                         FileAccess.Write,
-                         FileShare.None,
-                         bufferSize: 1024 * 128,
-                         useAsync: true))
-        {
-            await source.CopyToAsync(destination, cancellationToken);
-            await destination.FlushAsync(cancellationToken);
-        }
 
         try
         {
+            Notify(worldId, mode, WorldLifecyclePhase.DownloadingState);
+            Directory.CreateDirectory(Path.GetDirectoryName(materializedPackagePath)!);
+
+            await using (var source = await _storage.OpenRevisionAsync(
+                             worldId,
+                             stateRevisionId,
+                             cancellationToken))
+            await using (var destination = new FileStream(
+                             materializedPackagePath,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             bufferSize: 1024 * 128,
+                             useAsync: true))
+            {
+                await source.CopyToAsync(destination, cancellationToken);
+                await destination.FlushAsync(cancellationToken);
+            }
+
             Notify(worldId, mode, WorldLifecyclePhase.RestoringState);
             await adapter.RestoreStateAsync(
                 prepared,
                 new StatePackage(stateRevision.StatePackageId, materializedPackagePath),
                 cancellationToken);
+
+            return new PreparedWorldContext(world, prepared);
+        }
+        catch (Exception preparationException)
+        {
+            if (registerPreparedWorkspace is null)
+            {
+                try
+                {
+                    await adapter.FinalizePreparedWorldAsync(
+                        prepared,
+                        PreparedWorldDisposition.Discard,
+                        CancellationToken.None);
+                }
+                catch (Exception cleanupException)
+                {
+                    throw new InvalidOperationException(
+                        "World preparation failed and the prepared workspace could not be discarded safely.",
+                        new AggregateException(preparationException, cleanupException));
+                }
+            }
+
+            throw;
         }
         finally
         {
             TryDelete(materializedPackagePath);
         }
-
-        return new PreparedWorldContext(world, prepared);
     }
 
     private async Task<World> ContinueSessionAsync(
@@ -370,6 +401,7 @@ public sealed class WorldLifecycleService
 
         Exception? operationException = null;
         PreparedWorldContext? context = null;
+        PreparedWorld? preparedWorkspace = null;
         WorkspaceRecoveryRecord? workspaceRecord = null;
         var sessionStarted = false;
         var unresolvedResponsibility = false;
@@ -382,31 +414,46 @@ public sealed class WorldLifecycleService
                 adapter,
                 installation,
                 mode,
-                cancellationToken);
+                cancellationToken,
+                registerPreparedWorkspace: async (preparedWorld, prepared, _) =>
+                {
+                    preparedWorkspace = prepared;
+                    var baseStateRevisionId = preparedWorld.CurrentStateRevisionId
+                        ?? throw new WorldIntegrityException(
+                            worldId,
+                            "The canonical state revision disappeared during preparation.");
+                    var environmentRevisionId = preparedWorld.CurrentEnvironmentRevisionId
+                        ?? throw new WorldIntegrityException(
+                            worldId,
+                            "The canonical environment revision disappeared during preparation.");
 
-            var baseStateRevisionId = context.World.CurrentStateRevisionId
-                ?? throw new WorldIntegrityException(
-                    worldId,
-                    "The canonical state revision disappeared during preparation.");
-            var environmentRevisionId = context.World.CurrentEnvironmentRevisionId
-                ?? throw new WorldIntegrityException(
-                    worldId,
-                    "The canonical environment revision disappeared during preparation.");
+                    var now = DateTimeOffset.UtcNow;
+                    workspaceRecord = new WorkspaceRecoveryRecord(
+                        Id: WorkspaceId.New(),
+                        WorldId: worldId,
+                        BaseStateRevisionId: baseStateRevisionId,
+                        AdapterId: adapter.Id,
+                        WorkingDirectory: prepared.WorkingDirectory,
+                        StartedBy: user,
+                        CreatedAt: now,
+                        UpdatedAt: now,
+                        Status: WorkspaceRecoveryStatus.CleanupPending,
+                        Reason: "Prepared workspace exists before session launch; cleanup is the only safe recovery action until launch begins.",
+                        EnvironmentRevisionId: environmentRevisionId);
 
-            var now = DateTimeOffset.UtcNow;
-            workspaceRecord = new WorkspaceRecoveryRecord(
-                Id: WorkspaceId.New(),
-                WorldId: worldId,
-                BaseStateRevisionId: baseStateRevisionId,
-                AdapterId: adapter.Id,
-                WorkingDirectory: context.PreparedWorld.WorkingDirectory,
-                StartedBy: user,
-                CreatedAt: now,
-                UpdatedAt: now,
-                Status: WorkspaceRecoveryStatus.Active,
-                EnvironmentRevisionId: environmentRevisionId);
+                    Notify(worldId, mode, WorldLifecyclePhase.RegisteringRecovery);
+                    await _workspaceRecoveryStore.SaveAsync(workspaceRecord, CancellationToken.None);
+                });
 
-            Notify(worldId, mode, WorldLifecyclePhase.RegisteringRecovery);
+            workspaceRecord = workspaceRecord is null
+                ? throw new InvalidOperationException(
+                    "Writable session preparation completed without durable workspace ownership.")
+                : workspaceRecord with
+                {
+                    Status = WorkspaceRecoveryStatus.Active,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                    Reason = null
+                };
             await _workspaceRecoveryStore.SaveAsync(workspaceRecord, cancellationToken);
 
             Notify(worldId, mode, WorldLifecyclePhase.StartingSession);
@@ -510,6 +557,15 @@ public sealed class WorldLifecycleService
                     sessionStarted,
                     exception);
             }
+            else if (preparedWorkspace is not null && workspaceRecord is not null)
+            {
+                unresolvedResponsibility |= await HandleFailedWorkspaceAsync(
+                    adapter,
+                    preparedWorkspace,
+                    workspaceRecord,
+                    sessionStarted: false,
+                    exception);
+            }
             else if (context is not null)
             {
                 var discarded = await TryFinalizePreparedWorldAsync(
@@ -524,6 +580,22 @@ public sealed class WorldLifecycleService
                         mode,
                         WorldLifecyclePhase.CleanupPending,
                         "Prepared workspace could not be discarded after recovery registration failed.");
+                }
+            }
+            else if (preparedWorkspace is not null)
+            {
+                var discarded = await TryFinalizePreparedWorldAsync(
+                    adapter,
+                    preparedWorkspace,
+                    PreparedWorldDisposition.Discard);
+                if (!discarded)
+                {
+                    unresolvedResponsibility = true;
+                    Notify(
+                        worldId,
+                        mode,
+                        WorldLifecyclePhase.CleanupPending,
+                        "Prepared workspace could not be discarded after pre-launch preparation failed.");
                 }
             }
 

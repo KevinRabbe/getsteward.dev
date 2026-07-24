@@ -215,7 +215,7 @@ internal static class SevenDaysToDieWorldState
         string entryRoot,
         CancellationToken cancellationToken)
     {
-        foreach (var filePath in Directory.EnumerateFiles(sourceRoot, "*", SearchOption.AllDirectories))
+        foreach (var filePath in EnumerateCaptureFiles(sourceRoot))
         {
             cancellationToken.ThrowIfCancellationRequested();
             var relativePath = Path.GetRelativePath(sourceRoot, filePath);
@@ -236,6 +236,58 @@ internal static class SevenDaysToDieWorldState
                 useAsync: true);
             await using var destinationStream = entry.Open();
             await sourceStream.CopyToAsync(destinationStream, cancellationToken);
+        }
+    }
+
+    private static IEnumerable<string> EnumerateCaptureFiles(string sourceRoot)
+    {
+        var fullSourceRoot = Path.GetFullPath(sourceRoot);
+        RejectLinkedCapturePath(fullSourceRoot);
+
+        var pending = new Stack<string>();
+        pending.Push(fullSourceRoot);
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            foreach (var directory in Directory.EnumerateDirectories(
+                         current,
+                         "*",
+                         SearchOption.TopDirectoryOnly))
+            {
+                RejectLinkedCapturePath(directory);
+                pending.Push(directory);
+            }
+
+            foreach (var filePath in Directory.EnumerateFiles(
+                         current,
+                         "*",
+                         SearchOption.TopDirectoryOnly))
+            {
+                RejectLinkedCapturePath(filePath);
+                yield return filePath;
+            }
+        }
+    }
+
+    private static void RejectLinkedCapturePath(string path)
+    {
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or FileNotFoundException or DirectoryNotFoundException)
+        {
+            throw new InvalidOperationException(
+                $"Steward could not inspect 7 Days to Die capture path '{path}'.",
+                exception);
+        }
+
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new InvalidOperationException(
+                $"7 Days to Die World capture contains a linked or reparse-point path that Steward will not follow: '{path}'.");
         }
     }
 

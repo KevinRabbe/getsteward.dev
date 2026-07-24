@@ -7,7 +7,10 @@ public sealed class ProjectZomboidAdapter : IGameAdapter
 {
     public string Id => "project-zomboid";
     public string DisplayName => "Project Zomboid";
-    public GameAdapterCapabilities Capabilities => GameAdapterCapabilities.ExactGameVersion;
+    public GameAdapterCapabilities Capabilities =>
+        GameAdapterCapabilities.Mods |
+        GameAdapterCapabilities.ExactGameVersion |
+        GameAdapterCapabilities.ExactModVersions;
 
     public Task<IReadOnlyList<GameInstallation>> DiscoverInstallationsAsync(CancellationToken cancellationToken = default)
     {
@@ -26,9 +29,8 @@ public sealed class ProjectZomboidAdapter : IGameAdapter
         DetectedWorld world,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(world);
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(ProjectZomboidEnvironment.Inspect(installation));
+        return Task.FromResult(ProjectZomboidEnvironment.Inspect(installation, world));
     }
 
     public Task<EnvironmentVerificationReport> VerifyEnvironmentAsync(

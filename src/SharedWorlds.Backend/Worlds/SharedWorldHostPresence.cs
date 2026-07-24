@@ -63,6 +63,7 @@ public interface ISharedWorldHostPresenceStore
     Task<bool> DeleteAsync(
         WorldId worldId,
         ExternalIdentityRef holder,
+        string installationId,
         Guid sessionId,
         long generation,
         CancellationToken cancellationToken = default);
@@ -190,16 +191,19 @@ public sealed class SharedWorldHostPresenceService
 
     public Task<bool> ClearAsync(
         VerifiedExternalIdentity caller,
+        string callerInstallationId,
         WorldId worldId,
         Guid reservationSessionId,
         long reservationGeneration,
         CancellationToken cancellationToken = default)
     {
         ValidateIdentity(caller);
+        ValidateInstallationId(callerInstallationId);
         ValidateReservationIdentity(reservationSessionId, reservationGeneration);
         return _store.DeleteAsync(
             worldId,
             caller.Subject,
+            callerInstallationId,
             reservationSessionId,
             reservationGeneration,
             cancellationToken);

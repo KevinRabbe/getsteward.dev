@@ -220,6 +220,12 @@ public sealed class LocalWorldStorage : IWorldStorage
         var persistedSchemaVersion = await ReadStateRevisionSchemaVersionAsync(
             revisionDirectory,
             cancellationToken);
+        if (persistedSchemaVersion is >= 4)
+        {
+            throw new InvalidDataException(
+                $"State revision '{revisionId}' for World '{worldId}' is missing its required metadata-bound SHA-256 integrity digest.");
+        }
+
         if (persistedSchemaVersion is < 2)
         {
             return OpenRead(path);

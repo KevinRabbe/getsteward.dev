@@ -9,7 +9,7 @@ internal static partial class SevenDaysToDieEnvironment
     public static EnvironmentManifest Inspect(GameInstallation installation)
     {
         ArgumentNullException.ThrowIfNull(installation);
-        var buildId = ReadRequiredBuildId(installation);
+        var buildId = ReadRequiredDedicatedServerBuildId(installation);
         return new EnvironmentManifest(
             SchemaVersion: 1,
             AdapterId: "7-days-to-die",
@@ -43,12 +43,12 @@ internal static partial class SevenDaysToDieEnvironment
         string? installedBuildId = null;
         try
         {
-            installedBuildId = ReadRequiredBuildId(installation);
+            installedBuildId = ReadRequiredDedicatedServerBuildId(installation);
         }
         catch (InvalidOperationException exception)
         {
             issues.Add(new EnvironmentVerificationIssue(
-                "7dtd-build-unavailable",
+                "7dtd-dedicated-server-build-unavailable",
                 exception.Message));
         }
 
@@ -57,7 +57,7 @@ internal static partial class SevenDaysToDieEnvironment
         {
             issues.Add(new EnvironmentVerificationIssue(
                 "7dtd-version-mismatch",
-                $"This World requires 7 Days to Die Steam build {requiredEnvironment.GameVersion}, but this device has build {installedBuildId}."));
+                $"This World requires 7 Days to Die Dedicated Server Steam build {requiredEnvironment.GameVersion}, but this device has build {installedBuildId}."));
         }
 
         return issues.Count == 0
@@ -65,25 +65,35 @@ internal static partial class SevenDaysToDieEnvironment
             : EnvironmentVerificationReport.Blocked(issues.ToArray());
     }
 
-    internal static string ReadRequiredBuildId(GameInstallation installation)
+    internal static string ReadRequiredDedicatedServerBuildId(GameInstallation installation)
     {
         ArgumentNullException.ThrowIfNull(installation);
-        var manifestPath = ResolveClientManifestPath(installation.RootPath);
-        if (!File.Exists(manifestPath))
+        if (installation.Metadata is null ||
+            !installation.Metadata.TryGetValue(
+                SevenDaysToDieInstallationDiscovery.DedicatedServerManifestPathKey,
+                out var manifestPath) ||
+            string.IsNullOrWhiteSpace(manifestPath))
         {
             throw new InvalidOperationException(
-                $"7 Days to Die Steam manifest was not found: {manifestPath}");
+                "7 Days to Die Dedicated Server is not installed with a discoverable Steam manifest on this device.");
+        }
+
+        var fullManifestPath = Path.GetFullPath(manifestPath);
+        if (!File.Exists(fullManifestPath))
+        {
+            throw new InvalidOperationException(
+                $"7 Days to Die Dedicated Server Steam manifest was not found: {fullManifestPath}");
         }
 
         string text;
         try
         {
-            text = File.ReadAllText(manifestPath);
+            text = File.ReadAllText(fullManifestPath);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             throw new InvalidOperationException(
-                $"7 Days to Die Steam manifest could not be read: {exception.Message}",
+                $"7 Days to Die Dedicated Server Steam manifest could not be read: {exception.Message}",
                 exception);
         }
 
@@ -91,25 +101,10 @@ internal static partial class SevenDaysToDieEnvironment
         if (!match.Success || string.IsNullOrWhiteSpace(match.Groups[1].Value))
         {
             throw new InvalidOperationException(
-                $"Steam buildid was not found in 7 Days to Die manifest: {manifestPath}");
+                $"Steam buildid was not found in 7 Days to Die Dedicated Server manifest: {fullManifestPath}");
         }
 
         return match.Groups[1].Value;
-    }
-
-    internal static string ResolveClientManifestPath(string installationRoot)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(installationRoot);
-        var root = Path.GetFullPath(installationRoot);
-        var commonDirectory = Directory.GetParent(root)?.FullName
-            ?? throw new InvalidOperationException(
-                $"Could not determine the Steam common directory from 7 Days to Die install root: {root}");
-        var steamAppsDirectory = Directory.GetParent(commonDirectory)?.FullName
-            ?? throw new InvalidOperationException(
-                $"Could not determine the Steam steamapps directory from 7 Days to Die install root: {root}");
-        return Path.Combine(
-            steamAppsDirectory,
-            $"appmanifest_{SevenDaysToDieInstallationDiscovery.GameSteamAppId}.acf");
     }
 
     [GeneratedRegex("\\\"buildid\\\"\\s+\\\"([^\\\"]+)\\\"", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]

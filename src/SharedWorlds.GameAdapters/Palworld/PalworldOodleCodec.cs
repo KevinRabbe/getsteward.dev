@@ -5,24 +5,19 @@ namespace SharedWorlds.GameAdapters.Palworld;
 internal interface IPalworldOodleCodec
 {
     byte[] Decompress(ReadOnlySpan<byte> compressed, int uncompressedLength);
-
-    byte[] CompressMermaid(ReadOnlySpan<byte> payload);
 }
 
 /// <summary>
-/// Loads an Oodle 9 runtime already present on the host and exposes only the operations required by
-/// Palworld save-container tooling. Steward never redistributes, copies, or downloads Oodle.
+/// Loads an Oodle 9 runtime already present on the host for read-only PlM decompression.
+/// Steward never redistributes, copies, downloads, or uses Oodle to generate WorldOption bytes.
 /// </summary>
 internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
 {
     private const string LibraryFileName = "oo2core_9_win64.dll";
     private const string AcceptanceLibraryEnvironmentVariable = "STEWARD_ACCEPTANCE_OODLE_LIB";
-    private const int MermaidCompressor = 9;
-    private const int CompressionLevelNormal = 4;
     private const int DecodeThreadPhaseAll = 3;
 
     private readonly nint _libraryHandle;
-    private readonly OodleCompress _compress;
     private readonly OodleDecompress _decompress;
     private bool _disposed;
 
@@ -32,7 +27,6 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
         _libraryHandle = NativeLibrary.Load(LibraryPath);
         try
         {
-            _compress = LoadExport<OodleCompress>("OodleLZ_Compress");
             _decompress = LoadExport<OodleDecompress>("OodleLZ_Decompress");
         }
         catch
@@ -136,7 +130,7 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
                 BadImageFormatException or
                 EntryPointNotFoundException)
             {
-                // Keep looking. We only accept a library exposing the exact Oodle surface needed here.
+                // Keep looking. We accept only a library exposing the read-only decode entry point.
             }
         }
 
@@ -194,50 +188,6 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
         }
     }
 
-    public byte[] CompressMermaid(ReadOnlySpan<byte> payload)
-    {
-        ThrowIfDisposed();
-        if (payload.IsEmpty)
-        {
-            throw new InvalidDataException("Palworld GVAS payload is empty.");
-        }
-
-        // Rejected/acceptance overlay tooling still exercises compression. Production runtime-input
-        // management never calls this method and never writes WorldOption.sav.
-        var outputCapacity = checked(payload.Length * 2);
-        var source = payload.ToArray();
-        var destination = new byte[outputCapacity];
-        var sourceHandle = GCHandle.Alloc(source, GCHandleType.Pinned);
-        var destinationHandle = GCHandle.Alloc(destination, GCHandleType.Pinned);
-        try
-        {
-            var compressedLength = _compress(
-                MermaidCompressor,
-                sourceHandle.AddrOfPinnedObject(),
-                source.Length,
-                destinationHandle.AddrOfPinnedObject(),
-                CompressionLevelNormal,
-                options: nint.Zero,
-                dictionaryBase: nint.Zero,
-                longRangeMatcher: nint.Zero,
-                scratchMemory: nint.Zero,
-                scratchMemorySize: 0);
-
-            if (compressedLength <= 0 || compressedLength > destination.Length)
-            {
-                throw new InvalidOperationException(
-                    $"Oodle returned an invalid compressed length: {compressedLength}.");
-            }
-
-            return destination.AsSpan(0, (int)compressedLength).ToArray();
-        }
-        finally
-        {
-            destinationHandle.Free();
-            sourceHandle.Free();
-        }
-    }
-
     public void Dispose()
     {
         if (_disposed)
@@ -268,19 +218,6 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
     }
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate nint OodleCompress(
-        int compressor,
-        nint rawBuffer,
-        nint rawLength,
-        nint compressedBuffer,
-        int compressionLevel,
-        nint options,
-        nint dictionaryBase,
-        nint longRangeMatcher,
-        nint scratchMemory,
-        nint scratchMemorySize);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate nint OodleDecompress(

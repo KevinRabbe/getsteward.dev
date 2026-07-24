@@ -29,6 +29,15 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      - name: Test Windows Desktop resource boundary
+        shell: pwsh
+        run: >-
+          dotnet test
+          tests/SharedWorlds.Desktop.AcceptanceTests/SharedWorlds.Desktop.AcceptanceTests.csproj
+          --configuration Release
+          --nologo
+          --verbosity minimal
+
       - name: Build byte-verifiable package
         shell: pwsh
         run: |

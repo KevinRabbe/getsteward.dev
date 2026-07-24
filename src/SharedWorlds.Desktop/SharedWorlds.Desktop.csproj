@@ -6,6 +6,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <NeutralLanguage>en</NeutralLanguage>
     <AssemblyName>SharedWorlds.Desktop</AssemblyName>
     <RootNamespace>SharedWorlds.Desktop</RootNamespace>
   </PropertyGroup>

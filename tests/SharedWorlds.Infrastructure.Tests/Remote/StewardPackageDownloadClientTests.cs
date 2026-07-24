@@ -14,7 +14,40 @@ public sealed class StewardPackageDownloadClientTests
     [InlineData("ABCDEF")]
     public async Task MalformedSha256AuthorizationFailsBeforeCacheUse(string sha256)
     {
-        using var apiClient = CreateApiClient(sha256);
+        using var apiClient = CreateApiClient(sha256: sha256);
+        var client = new StewardPackageDownloadClient(apiClient);
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            client.AuthorizeDownloadAsync(
+                WorldId.New(),
+                RevisionId.New(),
+                RemotePackageKind.State,
+                "access-token"));
+
+        Assert.Contains("inconsistent immutable package metadata", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MalformedObjectUriFailsAsInvalidServerMetadata()
+    {
+        using var apiClient = CreateApiClient(uri: "not-an-absolute-uri");
+        var client = new StewardPackageDownloadClient(apiClient);
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            client.AuthorizeDownloadAsync(
+                WorldId.New(),
+                RevisionId.New(),
+                RemotePackageKind.State,
+                "access-token"));
+
+        Assert.Contains("inconsistent immutable package metadata", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExpiredAuthorizationFailsAsInvalidServerMetadata()
+    {
+        using var apiClient = CreateApiClient(
+            expiresAt: DateTimeOffset.UtcNow.AddMinutes(-1));
         var client = new StewardPackageDownloadClient(apiClient);
 
         var exception = await Assert.ThrowsAsync<InvalidDataException>(() =>
@@ -31,7 +64,7 @@ public sealed class StewardPackageDownloadClientTests
     public async Task ValidLowercaseSha256IsNormalizedBeforeCacheUse()
     {
         var lowercaseSha = new string('a', 64);
-        using var apiClient = CreateApiClient(lowercaseSha);
+        using var apiClient = CreateApiClient(sha256: lowercaseSha);
         var client = new StewardPackageDownloadClient(apiClient);
 
         var authorization = await client.AuthorizeDownloadAsync(
@@ -44,8 +77,13 @@ public sealed class StewardPackageDownloadClientTests
         Assert.Equal(4, authorization.ExpectedByteSize);
     }
 
-    private static HttpClient CreateApiClient(string sha256)
+    private static HttpClient CreateApiClient(
+        string? sha256 = null,
+        string uri = "https://objects.example/package",
+        DateTimeOffset? expiresAt = null)
     {
+        sha256 ??= new string('A', 64);
+        expiresAt ??= DateTimeOffset.UtcNow.AddMinutes(10);
         var handler = new DelegateHandler((_, _) =>
         {
             var json = $$"""
@@ -53,10 +91,10 @@ public sealed class StewardPackageDownloadClientTests
               "code": "DownloadAuthorized",
               "data": {
                 "authorization": {
-                  "uri": "https://objects.example/package",
+                  "uri": "{{uri}}",
                   "method": "GET",
                   "requiredHeaders": {},
-                  "expiresAt": "{{DateTimeOffset.UtcNow.AddMinutes(10):O}}",
+                  "expiresAt": "{{expiresAt.Value:O}}",
                   "expectedByteSize": 4
                 },
                 "expectedByteSize": 4,

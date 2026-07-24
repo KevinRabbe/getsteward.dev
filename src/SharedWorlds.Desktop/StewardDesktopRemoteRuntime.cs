@@ -95,7 +95,10 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         ArgumentNullException.ThrowIfNull(lifecycleObserver);
 
         var normalizedBaseAddress = StewardRemoteEndpointPolicy.NormalizeApiBaseAddress(apiBaseAddress);
-        var apiClient = new HttpClient
+        var apiClient = new HttpClient(new HttpClientHandler
+        {
+            AllowAutoRedirect = false
+        })
         {
             BaseAddress = normalizedBaseAddress,
             Timeout = TimeSpan.FromSeconds(30)

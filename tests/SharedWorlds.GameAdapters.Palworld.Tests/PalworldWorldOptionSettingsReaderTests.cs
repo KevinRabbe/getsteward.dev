@@ -93,7 +93,7 @@ public sealed class PalworldWorldOptionSettingsReaderTests
     }
 
     [Fact]
-    public void MalformedSimpleArrayFailsClosed()
+    public void MalformedSimpleArrayRemainsOpaqueAndCannotBeMirrored()
     {
         var malformedArrayBody = new List<byte>();
         malformedArrayBody.AddRange(UInt32Bytes(2));
@@ -111,7 +111,14 @@ public sealed class PalworldWorldOptionSettingsReaderTests
         payload.AddRange(StructProperty("OptionWorldData", "PalOptionWorldSaveData", optionValue.ToArray()));
         var save = WrapPlZ(payload.ToArray());
 
-        Assert.Throws<InvalidDataException>(() => PalworldWorldOptionSettingsReader.Read(save));
+        var snapshot = PalworldWorldOptionSettingsReader.Read(save);
+        var setting = Assert.Single(snapshot.Settings);
+        Assert.Equal("CrossplayPlatforms", setting.Name);
+        Assert.Null(setting.Value);
+
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            PalworldWorldOptionIniMirror.Create(snapshot, "runtime-secret", 8212));
+        Assert.Contains("opaque", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     private static byte[] BuildGvasPayload()

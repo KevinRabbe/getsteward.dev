@@ -81,10 +81,18 @@ public sealed class LocalWorkspaceRecoveryStore : IWorkspaceRecoveryStore
                 bufferSize: 64 * 1024,
                 useAsync: true);
 
-            records.Add(await PersistedDocumentCodec.ReadAsync(
+            var record = await PersistedDocumentCodec.ReadAsync(
                 stream,
                 StorageDocumentSchemas.WorkspaceRecovery,
-                cancellationToken));
+                cancellationToken);
+            var storageKey = Path.GetFileNameWithoutExtension(path);
+            if (!string.Equals(storageKey, record.Id.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    $"Persisted recovery record '{record.Id}' is stored under mismatched workspace key '{storageKey}'.");
+            }
+
+            records.Add(record);
         }
 
         return records;

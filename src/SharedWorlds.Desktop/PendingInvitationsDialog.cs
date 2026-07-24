@@ -1,5 +1,7 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Media;
 using SharedWorlds.Infrastructure.Remote;
 
 namespace SharedWorlds.Desktop;
@@ -24,6 +26,10 @@ internal sealed class PendingInvitationsDialog : Window
         MinWidth = 460;
         MinHeight = 340;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        UseLayoutRounding = true;
+        SnapsToDevicePixels = true;
+        Background = (Brush)Application.Current.FindResource("AppBackgroundBrush");
+        Foreground = (Brush)Application.Current.FindResource("TextBrush");
         Content = BuildContent();
 
         _invitations.SelectionChanged += (_, _) => UpdateActions();
@@ -60,6 +66,10 @@ internal sealed class PendingInvitationsDialog : Window
         root.Children.Add(heading);
 
         _invitations.DisplayMemberPath = nameof(InvitationRow.DisplayText);
+        _invitations.Background = (Brush)FindResource("PanelBrush");
+        _invitations.Foreground = (Brush)FindResource("TextBrush");
+        _invitations.BorderBrush = (Brush)FindResource("BorderBrush");
+        AutomationProperties.SetName(_invitations, "Pending shared World invitations");
         Grid.SetRow(_invitations, 1);
         root.Children.Add(_invitations);
 
@@ -77,6 +87,7 @@ internal sealed class PendingInvitationsDialog : Window
         var footer = new Grid { Margin = new Thickness(0, 18, 0, 0) };
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        AutomationProperties.SetLiveSetting(_status, AutomationLiveSetting.Polite);
         footer.Children.Add(_status);
         var close = new Button
         {

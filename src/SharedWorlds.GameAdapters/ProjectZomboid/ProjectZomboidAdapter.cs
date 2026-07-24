@@ -7,10 +7,7 @@ public sealed class ProjectZomboidAdapter : IGameAdapter
 {
     public string Id => "project-zomboid";
     public string DisplayName => "Project Zomboid";
-    public GameAdapterCapabilities Capabilities =>
-        GameAdapterCapabilities.Mods |
-        GameAdapterCapabilities.AutomaticHostLaunch |
-        GameAdapterCapabilities.EnvironmentIsolation;
+    public GameAdapterCapabilities Capabilities => GameAdapterCapabilities.None;
 
     public Task<IReadOnlyList<GameInstallation>> DiscoverInstallationsAsync(CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<GameInstallation>>([]);

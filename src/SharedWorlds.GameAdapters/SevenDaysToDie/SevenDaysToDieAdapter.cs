@@ -13,10 +13,16 @@ public sealed class SevenDaysToDieAdapter : IGameAdapter
         GameAdapterCapabilities.EnvironmentIsolation;
 
     public Task<IReadOnlyList<GameInstallation>> DiscoverInstallationsAsync(CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<GameInstallation>>([]);
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(SevenDaysToDieInstallationDiscovery.Discover());
+    }
 
     public Task<IReadOnlyList<DetectedWorld>> DiscoverWorldsAsync(GameInstallation installation, CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<DetectedWorld>>([]);
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(SevenDaysToDieWorldDiscovery.Discover(installation));
+    }
 
     public Task<EnvironmentManifest> InspectEnvironmentAsync(GameInstallation installation, DetectedWorld world, CancellationToken cancellationToken = default)
         => throw new NotImplementedException();

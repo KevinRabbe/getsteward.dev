@@ -22,6 +22,7 @@ public static partial class LocalDiagnosticLog
         try
         {
             Directory.CreateDirectory(diagnosticsRoot);
+            DeleteLegacyUnredactedLogs(diagnosticsRoot);
             PruneOldIncidentFiles(diagnosticsRoot, keepNewest: MaximumIncidentFiles - 1);
 
             var details = Redact(exception.ToString());
@@ -69,6 +70,17 @@ public static partial class LocalDiagnosticLog
         return redacted;
     }
 
+    private static void DeleteLegacyUnredactedLogs(string diagnosticsRoot)
+    {
+        foreach (var path in Directory.EnumerateFiles(
+                     diagnosticsRoot,
+                     "errors-*.log",
+                     SearchOption.TopDirectoryOnly))
+        {
+            TryDelete(path);
+        }
+    }
+
     private static void PruneOldIncidentFiles(string diagnosticsRoot, int keepNewest)
     {
         var files = Directory.EnumerateFiles(
@@ -83,16 +95,21 @@ public static partial class LocalDiagnosticLog
 
         foreach (var file in files)
         {
-            try
-            {
-                file.Delete();
-            }
-            catch (IOException)
-            {
-            }
-            catch (UnauthorizedAccessException)
-            {
-            }
+            TryDelete(file.FullName);
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
         }
     }
 

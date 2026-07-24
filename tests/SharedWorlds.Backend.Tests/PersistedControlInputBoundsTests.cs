@@ -77,6 +77,44 @@ public sealed class PersistedControlInputBoundsTests
         Assert.Equal(PublishEnvironmentManifestStatus.InvalidManifest, status);
     }
 
+    [Fact]
+    public void OversizedIdentityProviderIsRejectedAtValueObjectBoundary()
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            new ExternalIdentityRef(new string('p', 129), "external-id"));
+
+        Assert.Contains("Identity provider", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OversizedExternalIdentityIdIsRejectedAtValueObjectBoundary()
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            new ExternalIdentityRef("steam", new string('i', 513)));
+
+        Assert.Contains("External identity ID", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void IdentityControlCharactersAreRejectedAtValueObjectBoundary()
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            new ExternalIdentityRef("steam", "player\ninjected"));
+
+        Assert.Contains("control characters", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OversizedVerifiedDisplayNameIsRejectedAtValueObjectBoundary()
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            new VerifiedExternalIdentity(
+                new ExternalIdentityRef("steam", "76561198000000000"),
+                new string('n', 513)));
+
+        Assert.Contains("Verified display name", exception.Message, StringComparison.Ordinal);
+    }
+
     private static CreateSharedWorldCommand CreateWorldCommand(
         string adapterId = "factorio",
         string displayName = "Bounded World")

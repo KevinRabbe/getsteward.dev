@@ -5,6 +5,7 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>SharedWorlds.Desktop</AssemblyName>
     <RootNamespace>SharedWorlds.Desktop</RootNamespace>
   </PropertyGroup>

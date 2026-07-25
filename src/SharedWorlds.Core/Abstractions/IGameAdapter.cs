@@ -131,9 +131,9 @@ public interface IGameAdapter
     }
 
     /// <summary>
-    /// Describes how this adapter can join a validated ready host on this device.
-    /// The default preserves the existing AutomaticClientJoin capability; adapters may override
-    /// this to expose guided manual Join or an explicit blocked/unsupported reason.
+    /// Describes whether this adapter can automatically join a validated ready host on this device,
+    /// including any environment/identity condition that blocks that otherwise-automatic path.
+    /// First-release Join does not expose a separate manual-session lifecycle.
     /// </summary>
     Task<JoinCapabilityResult> GetJoinCapabilityAsync(
         PreparedWorld world,
@@ -193,7 +193,6 @@ public enum GameAdapterCapabilities
 public enum JoinCapabilityKind
 {
     SupportedAutomatic,
-    SupportedGuidedManual,
     Unsupported,
     BlockedByEnvironment,
     BlockedByIdentityLimitation
@@ -201,21 +200,12 @@ public enum JoinCapabilityKind
 
 public sealed record JoinCapabilityResult(
     JoinCapabilityKind Kind,
-    string? Guidance = null,
     string? Reason = null)
 {
-    public bool IsSupported => Kind is
-        JoinCapabilityKind.SupportedAutomatic or
-        JoinCapabilityKind.SupportedGuidedManual;
+    public bool IsSupported => Kind == JoinCapabilityKind.SupportedAutomatic;
 
     public static JoinCapabilityResult SupportedAutomatic()
         => new(JoinCapabilityKind.SupportedAutomatic);
-
-    public static JoinCapabilityResult SupportedGuidedManual(string guidance)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(guidance);
-        return new(JoinCapabilityKind.SupportedGuidedManual, Guidance: guidance);
-    }
 
     public static JoinCapabilityResult Unsupported(string reason)
     {

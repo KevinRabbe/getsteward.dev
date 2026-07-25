@@ -129,39 +129,42 @@ public sealed partial class PalworldAdapter : IGameAdapter
     }
 
     public async Task RequestHostStopAsync(
-        GameSessionHandle session,
+        GameSessionHandle handle,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(session);
-        if (!_managedHosts.TryGetValue(session.ProcessId, out var managed))
+        ArgumentNullException.ThrowIfNull(handle);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!_managedHosts.TryGetValue(handle.ProcessId, out var managed))
         {
             throw new InvalidOperationException(
-                "The Palworld host session is no longer registered with this Steward adapter instance.");
+                $"Palworld process {handle.ProcessId} is not registered as a Steward-managed host.");
         }
 
         await managed.RequestStopAsync(cancellationToken);
     }
 
-    public async Task WaitForSessionEndAsync(
-        GameSessionHandle session,
+    public async Task WaitForHostExitAsync(
+        GameSessionHandle handle,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(session);
-        if (!_managedHosts.TryGetValue(session.ProcessId, out var managed))
+        ArgumentNullException.ThrowIfNull(handle);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!_managedHosts.TryGetValue(handle.ProcessId, out var managed))
         {
             throw new InvalidOperationException(
-                "The Palworld session is not a Steward-managed host, so its end cannot be accepted as a safe capture boundary.");
+                $"Palworld process {handle.ProcessId} is not registered as a Steward-managed host.");
         }
 
         try
         {
-            // Deliberately do not allow caller cancellation to release Core's responsibility while
-            // PalServer may still own writable state. The user can request the adapter's safe stop.
-            await managed.WaitForCompletionAsync();
+            await managed.WaitForCompletionAsync().WaitAsync(cancellationToken);
         }
         finally
         {
-            if (_managedHosts.TryRemove(session.ProcessId, out var removed))
+            if (managed.WaitForCompletionAsync().IsCompleted &&
+                _managedHosts.TryRemove(handle.ProcessId, out var removed))
             {
                 removed.Dispose();
             }
@@ -177,8 +180,8 @@ public sealed partial class PalworldAdapter : IGameAdapter
         cancellationToken.ThrowIfCancellationRequested();
         PalworldWorkspaceOwnership.RequireOwned(world);
 
-        // PalServer requires its native world to remain under SaveGames\0. The directory is a
-        // reusable runtime materialization of canonical state rather than a disposable workspace.
+        // Palworld's proven dedicated-host path operates directly in PalServer's native save tree.
+        // There is no disposable Steward-owned World workspace to delete here.
         return Task.CompletedTask;
     }
 }

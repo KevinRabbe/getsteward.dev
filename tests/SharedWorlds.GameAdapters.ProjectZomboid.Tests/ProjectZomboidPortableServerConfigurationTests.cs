@@ -53,8 +53,12 @@ public sealed class ProjectZomboidPortableServerConfigurationTests : IDisposable
         _packages.Add(captured.Package.Path);
 
         using var archive = ZipFile.OpenRead(captured.Package.Path);
-        var entry = Assert.Single(archive.Entries.Where(entry =>
-            string.Equals(entry.FullName, "Server/steward.ini", StringComparison.Ordinal)));
+        var entry = Assert.Single(
+            archive.Entries,
+            entry => string.Equals(
+                entry.FullName,
+                "Server/steward.ini",
+                StringComparison.Ordinal));
         using var reader = new StreamReader(entry.Open(), Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
         var portableConfig = await reader.ReadToEndAsync();
         Assert.Contains("Password=join-secret", portableConfig, StringComparison.Ordinal);

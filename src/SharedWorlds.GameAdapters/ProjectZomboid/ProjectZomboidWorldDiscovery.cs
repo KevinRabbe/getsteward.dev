@@ -11,14 +11,16 @@ internal static class ProjectZomboidWorldDiscovery
         ArgumentNullException.ThrowIfNull(installation);
         if (installation.Metadata is null ||
             !installation.Metadata.TryGetValue(ProjectZomboidInstallationDiscovery.UserDataPathKey, out var userDataPath) ||
-            string.IsNullOrWhiteSpace(userDataPath))
+            string.IsNullOrWhiteSpace(userDataPath) ||
+            !IsSafeDiscoveryDirectory(userDataPath))
         {
             return [];
         }
 
         var multiplayerRoot = Path.Combine(userDataPath, "Saves", "Multiplayer");
         var serverConfigRoot = Path.Combine(userDataPath, "Server");
-        if (!Directory.Exists(multiplayerRoot) || !Directory.Exists(serverConfigRoot))
+        if (!IsSafeDiscoveryDirectory(multiplayerRoot) ||
+            !IsSafeDiscoveryDirectory(serverConfigRoot))
         {
             return [];
         }
@@ -26,8 +28,13 @@ internal static class ProjectZomboidWorldDiscovery
         var worlds = new List<DetectedWorld>();
         foreach (var directory in EnumerateDirectoriesSafely(multiplayerRoot))
         {
+            if (!IsSafeDiscoveryDirectory(directory))
+            {
+                continue;
+            }
+
             var mapTimePath = Path.Combine(directory, MapTimeFileName);
-            if (!File.Exists(mapTimePath))
+            if (!IsSafeDiscoveryFile(mapTimePath))
             {
                 continue;
             }
@@ -43,12 +50,22 @@ internal static class ProjectZomboidWorldDiscovery
             // local server definition. Steward ignores remote caches instead of guessing from their
             // internal save contents.
             var serverConfigPath = Path.Combine(serverConfigRoot, serverName + ".ini");
-            if (!File.Exists(serverConfigPath))
+            if (!IsSafeDiscoveryFile(serverConfigPath))
             {
                 continue;
             }
 
-            var fullPath = Path.GetFullPath(directory);
+            string fullPath;
+            try
+            {
+                fullPath = Path.GetFullPath(directory);
+            }
+            catch (Exception exception) when (
+                exception is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                continue;
+            }
+
             worlds.Add(new DetectedWorld(
                 Id: fullPath,
                 DisplayName: serverName,
@@ -59,6 +76,32 @@ internal static class ProjectZomboidWorldDiscovery
             .OrderByDescending(world => GetLastWriteTimeUtcSafe(Path.Combine(world.SourcePath, MapTimeFileName)))
             .ThenBy(world => world.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private static bool IsSafeDiscoveryDirectory(string path)
+        => TryGetSafeDiscoveryAttributes(path, out var attributes) &&
+           (attributes & FileAttributes.Directory) != 0;
+
+    private static bool IsSafeDiscoveryFile(string path)
+        => TryGetSafeDiscoveryAttributes(path, out var attributes) &&
+           (attributes & FileAttributes.Directory) == 0;
+
+    private static bool TryGetSafeDiscoveryAttributes(
+        string path,
+        out FileAttributes attributes)
+    {
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
+        {
+            attributes = default;
+            return false;
+        }
+
+        return (attributes & FileAttributes.ReparsePoint) == 0;
     }
 
     private static IEnumerable<string> EnumerateDirectoriesSafely(string path)
@@ -78,6 +121,11 @@ internal static class ProjectZomboidWorldDiscovery
 
     private static DateTime GetLastWriteTimeUtcSafe(string path)
     {
+        if (!IsSafeDiscoveryFile(path))
+        {
+            return DateTime.MinValue;
+        }
+
         try
         {
             return File.GetLastWriteTimeUtc(path);

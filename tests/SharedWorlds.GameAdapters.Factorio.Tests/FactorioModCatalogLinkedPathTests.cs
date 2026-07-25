@@ -77,6 +77,52 @@ public sealed class FactorioModCatalogLinkedPathTests : IDisposable
     }
 
     [Fact]
+    public void DiscoverRejectsOversizedDirectoryInfoMetadata()
+    {
+        var modsRoot = Path.Combine(_root, "oversized-directory-metadata");
+        var modRoot = Path.Combine(modsRoot, "oversized_mod_4.0.0");
+        Directory.CreateDirectory(modRoot);
+        var infoPath = Path.Combine(modRoot, "info.json");
+        using (var stream = new FileStream(
+                   infoPath,
+                   FileMode.CreateNew,
+                   FileAccess.Write,
+                   FileShare.None))
+        {
+            stream.SetLength(FactorioModCatalog.MaximumInfoJsonBytes + 1L);
+        }
+
+        var artifacts = FactorioModCatalog.Discover(modsRoot);
+
+        Assert.Empty(artifacts);
+        Assert.Equal(
+            FactorioModCatalog.MaximumInfoJsonBytes + 1L,
+            new FileInfo(infoPath).Length);
+    }
+
+    [Fact]
+    public void DiscoverRejectsOversizedZipInfoMetadata()
+    {
+        var modsRoot = Path.Combine(_root, "oversized-zip-metadata");
+        Directory.CreateDirectory(modsRoot);
+        var archivePath = Path.Combine(modsRoot, "oversized_zip_mod_5.0.0.zip");
+        using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+        {
+            var info = archive.CreateEntry("oversized_zip_mod_5.0.0/info.json", CompressionLevel.Optimal);
+            using var stream = info.Open();
+            WriteBytes(stream, FactorioModCatalog.MaximumInfoJsonBytes + 1L);
+        }
+
+        var artifacts = FactorioModCatalog.Discover(modsRoot);
+
+        Assert.Empty(artifacts);
+        using var opened = ZipFile.OpenRead(archivePath);
+        Assert.Equal(
+            FactorioModCatalog.MaximumInfoJsonBytes + 1L,
+            Assert.Single(opened.Entries).Length);
+    }
+
+    [Fact]
     public void DiscoverStillAcceptsOrdinaryDirectoryMod()
     {
         var modsRoot = Path.Combine(_root, "ordinary-mods");
@@ -92,6 +138,18 @@ public sealed class FactorioModCatalogLinkedPathTests : IDisposable
         Assert.Equal("ordinary_mod", artifact.Name);
         Assert.Equal("3.0.0", artifact.Version);
         Assert.True(artifact.IsDirectory);
+    }
+
+    private static void WriteBytes(Stream stream, long count)
+    {
+        var buffer = new byte[16 * 1024];
+        var remaining = count;
+        while (remaining > 0)
+        {
+            var length = (int)Math.Min(buffer.Length, remaining);
+            stream.Write(buffer, 0, length);
+            remaining -= length;
+        }
     }
 
     public void Dispose()

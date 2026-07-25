@@ -10,6 +10,78 @@ public sealed class FactorioModInputSafetyTests : IDisposable
         $"sharedworlds-factorio-input-safety-{Guid.NewGuid():N}");
 
     [Fact]
+    public async Task InspectionRejectsLinkedModsDirectoryBeforeReadingEnvironment()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var userData = Path.Combine(_root, "inspection-linked-mods-user-data");
+        Directory.CreateDirectory(userData);
+        var outsideMods = Path.Combine(_root, "outside-inspection-mods");
+        Directory.CreateDirectory(outsideMods);
+        await File.WriteAllTextAsync(Path.Combine(outsideMods, "mod-list.json"), "{\"mods\":[]}");
+        await File.WriteAllBytesAsync(Path.Combine(outsideMods, "mod-settings.dat"), [1, 2, 3]);
+        var linkedMods = Path.Combine(userData, "mods");
+        Directory.CreateSymbolicLink(linkedMods, outsideMods);
+
+        try
+        {
+            var adapter = new FactorioAdapter();
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                adapter.InspectEnvironmentAsync(
+                    Installation(userData),
+                    new DetectedWorld("test", "Test", Path.Combine(_root, "test.zip"))));
+
+            Assert.Contains("mods directory", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("linked or a reparse point", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(linkedMods);
+        }
+    }
+
+    [Fact]
+    public async Task ReproductionRejectsLinkedModsDirectoryBeforeWorkspaceWork()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var userData = Path.Combine(_root, "reproduction-linked-mods-user-data");
+        Directory.CreateDirectory(userData);
+        var outsideMods = Path.Combine(_root, "outside-reproduction-mods");
+        Directory.CreateDirectory(outsideMods);
+        await File.WriteAllBytesAsync(Path.Combine(outsideMods, "mod-settings.dat"), [4, 5, 6]);
+        var linkedMods = Path.Combine(userData, "mods");
+        Directory.CreateSymbolicLink(linkedMods, outsideMods);
+
+        try
+        {
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                FactorioWorldOperations.PrepareEnvironmentAsync(
+                    Installation(userData),
+                    new EnvironmentManifest(
+                        1,
+                        "factorio",
+                        "test-version",
+                        [],
+                        new Dictionary<string, string>()),
+                    CancellationToken.None));
+
+            Assert.Contains("mods directory", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("linked or a reparse point", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(linkedMods);
+        }
+    }
+
+    [Fact]
     public async Task InspectionRejectsLinkedModListBeforeReadingEnvironment()
     {
         if (!OperatingSystem.IsWindows())

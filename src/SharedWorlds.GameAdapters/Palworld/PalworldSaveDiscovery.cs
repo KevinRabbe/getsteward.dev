@@ -48,7 +48,8 @@ internal static class PalworldSaveDiscovery
             installation.Metadata.TryGetValue(
                 PalworldInstallationDiscovery.DedicatedServerRootPathKey,
                 out var serverRoot) &&
-            !string.IsNullOrWhiteSpace(serverRoot))
+            !string.IsNullOrWhiteSpace(serverRoot) &&
+            IsSafeDiscoveryDirectory(serverRoot))
         {
             yield return new PalworldSaveRoot(
                 Path.Combine(serverRoot, "Pal", "Saved", "SaveGames"),
@@ -62,24 +63,30 @@ internal static class PalworldSaveDiscovery
         ICollection<DetectedWorld> worlds,
         ISet<string> seenPaths)
     {
-        if (!Directory.Exists(saveGamesRoot))
+        if (!IsSafeDiscoveryDirectory(saveGamesRoot))
         {
             return;
         }
 
         foreach (var profileDirectory in EnumerateDirectoriesSafe(saveGamesRoot))
         {
+            if (!IsSafeDiscoveryDirectory(profileDirectory))
+            {
+                continue;
+            }
+
             var profileId = Path.GetFileName(profileDirectory);
             foreach (var worldDirectory in EnumerateDirectoriesSafe(profileDirectory))
             {
                 var worldId = Path.GetFileName(worldDirectory);
-                if (IsSharedWorldsInternalDirectoryName(worldId))
+                if (IsSharedWorldsInternalDirectoryName(worldId) ||
+                    !IsSafeDiscoveryDirectory(worldDirectory))
                 {
                     continue;
                 }
 
                 var levelSavePath = Path.Combine(worldDirectory, LevelSaveFileName);
-                if (!File.Exists(levelSavePath))
+                if (!IsSafeDiscoveryFile(levelSavePath))
                 {
                     continue;
                 }
@@ -117,6 +124,32 @@ internal static class PalworldSaveDiscovery
         return directoryName.Contains(SharedWorldsBackupMarker, StringComparison.OrdinalIgnoreCase) ||
                directoryName.Contains(SharedWorldsStagingMarker, StringComparison.OrdinalIgnoreCase) ||
                directoryName.Contains(SharedWorldsRollbackMarker, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSafeDiscoveryDirectory(string path)
+        => TryGetSafeDiscoveryAttributes(path, out var attributes) &&
+           (attributes & FileAttributes.Directory) != 0;
+
+    private static bool IsSafeDiscoveryFile(string path)
+        => TryGetSafeDiscoveryAttributes(path, out var attributes) &&
+           (attributes & FileAttributes.Directory) == 0;
+
+    private static bool TryGetSafeDiscoveryAttributes(
+        string path,
+        out FileAttributes attributes)
+    {
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
+        {
+            attributes = default;
+            return false;
+        }
+
+        return (attributes & FileAttributes.ReparsePoint) == 0;
     }
 
     private static IEnumerable<string> EnumerateDirectoriesSafe(string path)

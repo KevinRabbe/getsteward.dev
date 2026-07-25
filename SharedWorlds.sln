@@ -34,6 +34,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.P
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.Satisfactory", "src\SharedWorlds.GameAdapters\Satisfactory\SharedWorlds.GameAdapters.Satisfactory.csproj", "{A3A3A3A3-A3A3-A3A3-A3A3-A3A3A3A3A3A3}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.Astroneer", "src\SharedWorlds.GameAdapters\Astroneer\SharedWorlds.GameAdapters.Astroneer.csproj", "{A5A5A5A5-A5A5-A5A5-A5A5-A5A5A5A5A5A5}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Cli", "src\SharedWorlds.Cli\SharedWorlds.Cli.csproj", "{66666666-6666-6666-6666-666666666666}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Desktop", "src\SharedWorlds.Desktop\SharedWorlds.Desktop.csproj", "{BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB}"
@@ -65,6 +67,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.PlanetCrafter.Tests", "tests\SharedWorlds.GameAdapters.PlanetCrafter.Tests\SharedWorlds.GameAdapters.PlanetCrafter.Tests.csproj", "{A2A2A2A2-A2A2-A2A2-A2A2-A2A2A2A2A2A2}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.Satisfactory.Tests", "tests\SharedWorlds.GameAdapters.Satisfactory.Tests\SharedWorlds.GameAdapters.Satisfactory.Tests.csproj", "{A4A4A4A4-A4A4-A4A4-A4A4-A4A4A4A4A4A4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.Astroneer.Tests", "tests\SharedWorlds.GameAdapters.Astroneer.Tests\SharedWorlds.GameAdapters.Astroneer.Tests.csproj", "{A6A6A6A6-A6A6-A6A6-A6A6-A6A6A6A6A6A6}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Architecture.Tests", "tests\SharedWorlds.Architecture.Tests\SharedWorlds.Architecture.Tests.csproj", "{AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}"
 EndProject
@@ -138,6 +142,10 @@ Global
         {A3A3A3A3-A3A3-A3A3-A3A3-A3A3A3A3A3A3}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {A3A3A3A3-A3A3-A3A3-A3A3-A3A3A3A3A3A3}.Release|Any CPU.ActiveCfg = Release|Any CPU
         {A3A3A3A3-A3A3-A3A3-A3A3-A3A3A3A3A3A3}.Release|Any CPU.Build.0 = Release|Any CPU
+        {A5A5A5A5-A5A5-A5A5-A5A5-A5A5A5A5A5A5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {A5A5A5A5-A5A5-A5A5-A5A5-A5A5A5A5A5A5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {A5A5A5A5-A5A5-A5A5-A5A5-A5A5A5A5A5A5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {A5A5A5A5-A5A5-A5A5-A5A5-A5A5A5A5A5A5}.Release|Any CPU.Build.0 = Release|Any CPU
         {66666666-6666-6666-6666-666666666666}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
         {66666666-6666-6666-6666-666666666666}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {66666666-6666-6666-6666-666666666666}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -202,6 +210,10 @@ Global
         {A4A4A4A4-A4A4-A4A4-A4A4-A4A4A4A4A4A4}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {A4A4A4A4-A4A4-A4A4-A4A4-A4A4A4A4A4A4}.Release|Any CPU.ActiveCfg = Release|Any CPU
         {A4A4A4A4-A4A4-A4A4-A4A4-A4A4A4A4A4A4}.Release|Any CPU.Build.0 = Release|Any CPU
+        {A6A6A6A6-A6A6-A6A6-A6A6-A6A6A6A6A6A6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {A6A6A6A6-A6A6-A6A6-A6A6-A6A6A6A6A6A6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {A6A6A6A6-A6A6-A6A6-A6A6-A6A6A6A6A6A6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {A6A6A6A6-A6A6-A6A6-A6A6-A6A6A6A6A6A6}.Release|Any CPU.Build.0 = Release|Any CPU
         {AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
         {AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}.Release|Any CPU.ActiveCfg = Release|Any CPU

@@ -5,6 +5,7 @@ namespace SharedWorlds.GameAdapters.ProjectZomboid.Tests;
 public sealed class ProjectZomboidRuntimeManagementConfigurationTests : IDisposable
 {
     private const string Password = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
+    private readonly List<string> _operationRoots = [];
     private readonly string _cleanupRoot = Path.Combine(
         Path.GetTempPath(),
         $"sharedworlds-pz-runtime-config-{Guid.NewGuid():N}");
@@ -133,12 +134,13 @@ public sealed class ProjectZomboidRuntimeManagementConfigurationTests : IDisposa
         }
     }
 
-    private static ProjectZomboidDedicatedServerHostInputs CreateInputs()
+    private ProjectZomboidDedicatedServerHostInputs CreateInputs()
     {
-        var workingDirectory = Path.Combine(
+        var operationRoot = Path.Combine(
             GetExpectedWorkRoot(),
-            Guid.NewGuid().ToString("N"),
-            "Zomboid");
+            Guid.NewGuid().ToString("N"));
+        _operationRoots.Add(operationRoot);
+        var workingDirectory = Path.Combine(operationRoot, "Zomboid");
         Directory.CreateDirectory(workingDirectory);
         return new ProjectZomboidDedicatedServerHostInputs(
             LaunchPath: Path.Combine(Path.GetTempPath(), "unused-StartServer64.bat"),
@@ -177,26 +179,25 @@ public sealed class ProjectZomboidRuntimeManagementConfigurationTests : IDisposa
 
     public void Dispose()
     {
-        try
+        foreach (var operationRoot in _operationRoots)
         {
-            var expectedRoot = GetExpectedWorkRoot();
-            if (Directory.Exists(expectedRoot))
+            try
             {
-                foreach (var operationRoot in Directory.EnumerateDirectories(expectedRoot))
+                if (Directory.Exists(operationRoot))
                 {
-                    try
-                    {
-                        Directory.Delete(operationRoot, recursive: true);
-                    }
-                    catch (IOException)
-                    {
-                    }
-                    catch (UnauthorizedAccessException)
-                    {
-                    }
+                    Directory.Delete(operationRoot, recursive: true);
                 }
             }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
 
+        try
+        {
             if (Directory.Exists(_cleanupRoot))
             {
                 Directory.Delete(_cleanupRoot, recursive: true);

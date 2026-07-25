@@ -110,11 +110,13 @@ public sealed class ProjectZomboidRemoteConsoleClientTests
         listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         using var releaseServer = new CancellationTokenSource();
+        var authenticationReceived = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var serverTask = Task.Run(async () =>
         {
             using var server = await listener.AcceptTcpClientAsync();
             await using var stream = server.GetStream();
             _ = await ProjectZomboidRemoteConsoleProtocol.ReadAsync(stream, CancellationToken.None);
+            authenticationReceived.TrySetResult(true);
             try
             {
                 await Task.Delay(Timeout.InfiniteTimeSpan, releaseServer.Token);
@@ -123,16 +125,20 @@ public sealed class ProjectZomboidRemoteConsoleClientTests
             {
             }
         });
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        using var cancellation = new CancellationTokenSource();
 
         try
         {
-            var exception = await Record.ExceptionAsync(() =>
-                ProjectZomboidRemoteConsoleClient.ConnectAsync(
-                    port,
-                    "transient-secret",
-                    TimeSpan.FromSeconds(10),
-                    cancellation.Token));
+            var connectTask = ProjectZomboidRemoteConsoleClient.ConnectAsync(
+                port,
+                "transient-secret",
+                TimeSpan.FromSeconds(10),
+                cancellation.Token);
+
+            await authenticationReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            cancellation.Cancel();
+
+            var exception = await Record.ExceptionAsync(() => connectTask);
 
             Assert.IsAssignableFrom<OperationCanceledException>(exception);
             Assert.IsNotType<TimeoutException>(exception);

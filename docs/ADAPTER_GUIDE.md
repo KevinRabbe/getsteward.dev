@@ -6,7 +6,7 @@ A game adapter isolates everything specific to one game while letting Core run t
 
 > Core knows what must happen. The adapter knows how this game makes it happen.
 
-Current first-party adapters are Factorio, Palworld, 7 Days to Die, Project Zomboid, Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, and Satisfactory. Their proven capability sets intentionally differ. Future adapters must preserve the same boundary without forcing their edge cases into Core.
+Current first-party adapters are Factorio, Palworld, 7 Days to Die, Project Zomboid, Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, and ASTRONEER. Their proven capability sets intentionally differ. Future adapters must preserve the same boundary without forcing their edge cases into Core.
 
 ## Product contract
 
@@ -61,7 +61,7 @@ The adapter finds supported installations using game-relevant sources such as:
 
 Core does not know how discovery works.
 
-The installation source also constrains the identity namespace the adapter may claim. If Steam, Epic, launcher-specific, or other account profiles share one broader game save root, a Steam-discovered adapter should not automatically treat every neighboring profile as Steam-owned state. Satisfactory is the current concrete example: its Steam adapter enters only canonical numeric Steam profile directories.
+The installation source also constrains the identity namespace the adapter may claim. If Steam, Epic, launcher-specific, or other account profiles share one broader game save root, a Steam-discovered adapter should not automatically treat every neighboring profile as Steam-owned state. Satisfactory is a concrete example: its Steam adapter enters only canonical numeric Steam profile directories.
 
 ## World discovery
 
@@ -70,7 +70,7 @@ The adapter identifies existing saves or server Worlds that can be imported.
 It decides:
 
 - which files or directories form one World;
-- which nearby files belong to player identity rather than World state;
+- which nearby files belong to player identity, account/config persistence, or auxiliary state rather than World state;
 - which storefront/account namespace belongs to the discovered installation source;
 - which autosaves, backups, auxiliary assets, or temporary states should be hidden;
 - how duplicate native sources are collapsed;
@@ -80,6 +80,8 @@ It decides:
 Discovery is read-only. It must not upload, publish, host, or mutate a discovered World.
 
 Physical proximity is not ownership. A game may store World state, character state, maps, configuration, and recovery data in the same profile tree. The adapter must classify those objects by semantics rather than directory adjacency. Core Keeper is a concrete example: character saves and player exploration maps remain player-owned even though the game stores them beside World files.
+
+Persistence itself is not enough to establish World ownership. ASTRONEER stores `*.savegame` World state beside `*.savecfg` account/custom-game configuration; Steward imports the former and deliberately leaves the latter outside World revisions.
 
 A native recovery file is not another current World. The Planet Crafter, for example, exposes `Backup.json` beside current save files; the adapter deliberately hides it from normal World discovery.
 
@@ -99,9 +101,9 @@ Examples include:
 
 Core stores the manifest but does not interpret the game's semantics.
 
-An adapter must not claim an exact environment by silently omitting a game-specific input it knows may matter. A narrower adapter may refuse unsupported environments instead. Stardew Valley uses this rule for detected SMAPI/non-empty Mods installations; Necesse applies it to a linked or non-empty local mods directory; Core Keeper applies it across manual install Mods, Steam Workshop content, and per-profile Mods; The Planet Crafter refuses known BepInEx bootstrap markers; Satisfactory refuses linked/non-empty `FactoryGame/Mods` and Steam Workshop content.
+An adapter must not claim an exact environment by silently omitting a game-specific input it knows may matter. A narrower adapter may refuse unsupported environments instead. Stardew Valley uses this rule for detected SMAPI/non-empty Mods installations; Necesse applies it to a linked or non-empty local mods directory; Core Keeper applies it across manual install Mods, Steam Workshop content, and per-profile Mods; The Planet Crafter refuses known BepInEx bootstrap markers; Satisfactory refuses linked/non-empty `FactoryGame/Mods` and Steam Workshop content; ASTRONEER refuses linked/non-empty `Saved/Mods` and `Saved/Paks`.
 
-The adapter does not need to enumerate every individual mod merely to know that it cannot truthfully reproduce the environment. A proven loader/bootstrap or mod-root boundary can be enough to refuse the narrower vanilla-only capability. Satisfactory demonstrates this by refusing a non-empty `FactoryGame/Mods`; an installed SML environment is caught there without a separate SML abstraction.
+The adapter does not need to enumerate every individual mod merely to know that it cannot truthfully reproduce the environment. A proven loader/bootstrap or mod-root boundary can be enough to refuse the narrower vanilla-only capability. Satisfactory demonstrates this by refusing a non-empty `FactoryGame/Mods`; an installed SML environment is caught there without a separate SML abstraction. ASTRONEER similarly uses its known mod-integration roots without interpreting individual packages.
 
 ## Import capture
 
@@ -125,7 +127,7 @@ When the game already stores the current World in a portable archive, do not aut
 
 When a World is spread across several files, capture only the smallest complete World-owned bundle proven necessary. Core Keeper demonstrates this rule with exactly three slot-matched files: World data, World metadata, and World-generation parameters. Character saves, player maps, and recovery copies are not included.
 
-When the game already stores the complete current World in one native file, do not invent an internal schema merely to move it. The Planet Crafter demonstrates this rule with one opaque `.json`; Satisfactory does the same with one opaque `.sav`. Steward copies those native bytes exactly and avoids a parser/re-encoder trust boundary that its proven state capability does not need.
+When the game already stores the complete current World in one native file, do not invent an internal schema merely to move it. The Planet Crafter demonstrates this rule with one opaque `.json`; Satisfactory does the same with one opaque `.sav`; ASTRONEER does the same with one opaque `.savegame`. Steward copies those native bytes exactly and avoids a parser/re-encoder trust boundary that its proven state capability does not need.
 
 ## Environment preparation
 
@@ -244,7 +246,7 @@ Implement in this order, stopping capability growth whenever the next game-speci
 2. installation discovery;
 3. bind discovery to the storefront/account namespace proven by that installation source;
 4. existing-World discovery;
-5. classify World-owned state separately from player-owned, auxiliary, and recovery state;
+5. classify World-owned state separately from player-owned, account/config, auxiliary, and recovery state;
 6. identify the smallest complete native World representation;
 7. safe import capture without parsing/re-encoding unless that is actually required;
 8. environment inspection;
@@ -265,7 +267,7 @@ Implement in this order, stopping capability growth whenever the next game-speci
 
 The first target is one truthful vertical slice, not many partially claimed workflows. An adapter that safely supports discovery/import/environment/state handling may be visible in Steward while launch/hosting remains unavailable; missing runtime evidence is represented by absent capability flags, not invented generic behavior.
 
-Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, and Satisfactory are current concrete examples of that narrower entry point. Terraria preserves one opaque vanilla `.wld`; Stardew Valley preserves exactly its two current vanilla save files while excluding `_old` recovery files; Necesse preserves the game's native compressed World ZIP byte-for-byte instead of adding a second archive layer; Core Keeper preserves exactly the three slot-matched World-owned files while excluding character and map state; The Planet Crafter preserves one opaque non-empty native `.json` World while excluding `Backup.json`; Satisfactory preserves one opaque Steam-profile `.sav` while excluding non-Steam profiles, backup trees, and blueprints. All six verify the exact Steam build and advertise only `ExactGameVersion`; launch/hosting capabilities remain absent.
+Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, and ASTRONEER are current concrete examples of that narrower entry point. Terraria preserves one opaque vanilla `.wld`; Stardew Valley preserves exactly its two current vanilla save files while excluding `_old` recovery files; Necesse preserves the game's native compressed World ZIP byte-for-byte instead of adding a second archive layer; Core Keeper preserves exactly the three slot-matched World-owned files while excluding character and map state; The Planet Crafter preserves one opaque non-empty native `.json` World while excluding `Backup.json`; Satisfactory preserves one opaque Steam-profile `.sav` while excluding non-Steam profiles, backup trees, and blueprints; ASTRONEER preserves one opaque `.savegame` while excluding adjacent `.savecfg` account/custom-game configuration. All seven verify the exact Steam build and advertise only `ExactGameVersion`; launch/hosting capabilities remain absent.
 
 Adding a game normally does **not** require changes to Core, backend, Infrastructure, or ordinary Desktop action logic. If implementation appears to require such a change, first prove that the need is genuinely universal rather than an adapter-specific edge case.
 
@@ -279,8 +281,8 @@ For a discovery/import/state-only slice, prove at minimum:
 discover intended installation without mutation
 -> stay inside the source platform/account identity namespace
 -> discover intended World without mutation
+-> distinguish World persistence from nearby account/config/auxiliary/recovery persistence
 -> identify the smallest complete World-owned state representation
--> exclude player-owned/auxiliary/recovery state unless evidence says otherwise
 -> preserve native bytes directly where interpretation is unnecessary
 -> import copied/controlled World while preserving source
 -> inspect exact supported environment

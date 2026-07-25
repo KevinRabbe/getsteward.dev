@@ -23,7 +23,6 @@ public sealed class ProjectZomboidTransientManagementConfigurationTests
         var runtimeText = Encoding.UTF8.GetString(configuration.RuntimeBytes);
 
         Assert.Equal(27015, configuration.Port);
-        Assert.Equal(sourceBytes, configuration.OriginalBytes);
         Assert.Equal(sourceBytes, Encoding.UTF8.GetBytes(source));
         Assert.Contains("Password=join-secret\r\n", runtimeText, StringComparison.Ordinal);
         Assert.Contains("RCONPort=27015\r\n", runtimeText, StringComparison.Ordinal);

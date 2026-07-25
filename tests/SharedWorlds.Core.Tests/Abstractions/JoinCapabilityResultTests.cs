@@ -16,39 +16,40 @@ public sealed class JoinCapabilityResultTests
 
         Assert.Equal(JoinCapabilityKind.SupportedAutomatic, result.Kind);
         Assert.True(result.IsSupported);
-        Assert.Null(result.Guidance);
         Assert.Null(result.Reason);
     }
 
     [Fact]
-    public async Task AdapterCanExposeGuidedManualJoinWithoutAddingGameSpecificCoreState()
+    public async Task AdapterWithoutAutomaticJoinMapsToUnsupported()
     {
-        IGameAdapter adapter = new GuidedJoinAdapter();
+        IGameAdapter adapter = new UnsupportedJoinAdapter();
         var result = await adapter.GetJoinCapabilityAsync(
             CreatePreparedWorld(),
             new HostConnection("127.0.0.1", 8211));
 
-        Assert.Equal(JoinCapabilityKind.SupportedGuidedManual, result.Kind);
-        Assert.True(result.IsSupported);
-        Assert.Equal("Connect to 127.0.0.1:8211 through the game server browser.", result.Guidance);
-        Assert.Null(result.Reason);
+        Assert.Equal(JoinCapabilityKind.Unsupported, result.Kind);
+        Assert.False(result.IsSupported);
+        Assert.Contains("does not expose a validated Join path", result.Reason, StringComparison.Ordinal);
     }
 
     [Theory]
-    [InlineData(JoinCapabilityKind.Unsupported)]
-    [InlineData(JoinCapabilityKind.BlockedByEnvironment)]
-    [InlineData(JoinCapabilityKind.BlockedByIdentityLimitation)]
-    public void BlockedAndUnsupportedResultsAreNotSupported(JoinCapabilityKind kind)
+    [InlineData(JoinCapabilityKind.Unsupported, "unsupported")]
+    [InlineData(JoinCapabilityKind.BlockedByEnvironment, "environment")]
+    [InlineData(JoinCapabilityKind.BlockedByIdentityLimitation, "identity")]
+    public void BlockedAndUnsupportedResultsAreNotSupportedAndPreserveReason(
+        JoinCapabilityKind kind,
+        string reason)
     {
         var result = kind switch
         {
-            JoinCapabilityKind.Unsupported => JoinCapabilityResult.Unsupported("unsupported"),
-            JoinCapabilityKind.BlockedByEnvironment => JoinCapabilityResult.BlockedByEnvironment("environment"),
-            JoinCapabilityKind.BlockedByIdentityLimitation => JoinCapabilityResult.BlockedByIdentityLimitation("identity"),
+            JoinCapabilityKind.Unsupported => JoinCapabilityResult.Unsupported(reason),
+            JoinCapabilityKind.BlockedByEnvironment => JoinCapabilityResult.BlockedByEnvironment(reason),
+            JoinCapabilityKind.BlockedByIdentityLimitation => JoinCapabilityResult.BlockedByIdentityLimitation(reason),
             _ => throw new InvalidOperationException("Unexpected test case.")
         };
 
         Assert.False(result.IsSupported);
+        Assert.Equal(reason, result.Reason);
     }
 
     private static PreparedWorld CreatePreparedWorld()
@@ -122,21 +123,6 @@ public sealed class JoinCapabilityResultTests
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
-        public virtual Task<JoinCapabilityResult> GetJoinCapabilityAsync(
-            PreparedWorld world,
-            HostConnection host,
-            CancellationToken cancellationToken = default)
-        {
-            ArgumentNullException.ThrowIfNull(world);
-            ArgumentNullException.ThrowIfNull(host);
-
-            return Task.FromResult(
-                Capabilities.HasFlag(GameAdapterCapabilities.AutomaticClientJoin)
-                    ? JoinCapabilityResult.SupportedAutomatic()
-                    : JoinCapabilityResult.Unsupported(
-                        $"{DisplayName} does not expose a validated Join path yet."));
-        }
-
         public Task WaitForSessionEndAsync(
             GameSessionHandle session,
             CancellationToken cancellationToken = default)
@@ -154,15 +140,8 @@ public sealed class JoinCapabilityResultTests
         public override GameAdapterCapabilities Capabilities => GameAdapterCapabilities.AutomaticClientJoin;
     }
 
-    private sealed class GuidedJoinAdapter : BaseAdapter
+    private sealed class UnsupportedJoinAdapter : BaseAdapter
     {
         public override GameAdapterCapabilities Capabilities => GameAdapterCapabilities.None;
-
-        public override Task<JoinCapabilityResult> GetJoinCapabilityAsync(
-            PreparedWorld world,
-            HostConnection host,
-            CancellationToken cancellationToken = default)
-            => Task.FromResult(JoinCapabilityResult.SupportedGuidedManual(
-                $"Connect to {host.Address}:{host.Port} through the game server browser."));
     }
 }

@@ -28,9 +28,9 @@ It also passed all five workflows. PR #72 changes only Desktop adapter compositi
 
 ## Latest qualified product line
 
-Normal adapter expansion has continued without reopening the platform. The latest qualified product line is The Planet Crafter PR #85:
+Normal adapter expansion has continued without reopening the platform. The latest qualified product line is Satisfactory PR #87:
 
-> `6e27c80876a9c2f79044ae4ac4426da5d5055d92`
+> `d0b95b39a491c1a737877285e3b1b98264d40c7d`
 
 On that exact head all five repository workflows are green again, including Quality, Ubuntu/Windows build-and-test, backend container, PostgreSQL, S3-compatible integration, and Windows acceptance.
 
@@ -44,11 +44,12 @@ The aggregate adapter counts on that line are:
 - Stardew Valley: 11/11;
 - Necesse: 9/9;
 - Core Keeper: 14/14;
-- The Planet Crafter: 12/12 on both Ubuntu and Windows.
+- The Planet Crafter: 12/12;
+- Satisfactory: 12/12 on both Ubuntu and Windows.
 
-PR #85 extends the same post-platform pattern already proven by Terraria, Stardew Valley, Necesse, and Core Keeper: one independent adapter project, game-owned discovery/environment/state behavior, truthful capability exposure, adapter-specific tests, solution/Desktop registration, and exact combined qualification. It does not modify Core, backend, Infrastructure, or generic Desktop lifecycle contracts.
+PR #87 extends the same post-platform pattern already proven by Terraria, Stardew Valley, Necesse, Core Keeper, and The Planet Crafter: one independent adapter project, game-owned discovery/environment/state behavior, truthful capability exposure, adapter-specific tests, solution/Desktop registration, and exact combined qualification. It does not modify Core, backend, Infrastructure, or generic Desktop lifecycle contracts.
 
-The Planet Crafter demonstrates another useful simplification: when the game's current authoritative World is already one portable native file, Steward preserves those bytes directly. It does not parse or re-encode game-specific save syntax merely because it could. Native `Backup.json` remains recovery history, not another current World.
+Satisfactory adds another identity boundary: when multiple storefront/account namespaces share a broader save root, Steward must stay inside the namespace proven by the installation source. The Steam adapter imports only canonical numeric Steam profile directories; adjacent non-Steam profiles, backup trees, and blueprint assets are not silently reclassified as Steam World state.
 
 ## What "platform complete" means
 
@@ -92,18 +93,21 @@ Current adapters:
 | Necesse | local vanilla compressed-World ZIP discovery/import, exact Steam build identity, raw byte-preserving capture/restore, and owned workspace handling; uncompressed `-zipsaves 0` Worlds, mods, launch, Host, Stop, and Join remain unsupported |
 | Core Keeper | local vanilla slot-based World discovery/import, exact Steam build identity, exact three-file World-owned capture/restore, and owned workspace handling; character/map state, mods, launch, Host, Stop, and Join remain unsupported |
 | The Planet Crafter | local vanilla non-empty `.json` World discovery/import, exact Steam build identity, raw byte-preserving capture/restore, and owned workspace handling; `Backup.json`, BepInEx environments, launch, Host, Stop, and Join remain unsupported |
+| Satisfactory | Steam-profile-only vanilla non-empty `.sav` World discovery/import, exact Steam build identity, raw byte-preserving capture/restore, and owned workspace handling; non-Steam profiles, backup/blueprint trees, modded environments, launch, Host, Stop, and Join remain unsupported |
 
 Registration does not grant capabilities. The Desktop reads each adapter's `GameAdapterCapabilities`; adding an adapter to the catalog cannot silently make Start, Host, Join, or Stop available.
 
-Terraria, Stardew Valley, Necesse, Core Keeper, and The Planet Crafter currently advertise only `ExactGameVersion`. Their state-only entries are deliberate evidence that adapters can join the product before launch/hosting semantics are proven.
+Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, and Satisfactory currently advertise only `ExactGameVersion`. Their state-only entries are deliberate evidence that adapters can join the product before launch/hosting semantics are proven.
 
-Stardew Valley refuses a detected SMAPI or non-empty Mods environment rather than recording an incomplete vanilla `EnvironmentManifest` for a modded installation. Necesse applies the same principle to its local mods directory. Core Keeper applies it across manual install Mods, Steam Workshop content, and per-profile Mods. The Planet Crafter refuses known BepInEx bootstrap markers rather than enumerating or pretending to reproduce individual mods.
+Stardew Valley refuses a detected SMAPI or non-empty Mods environment rather than recording an incomplete vanilla `EnvironmentManifest` for a modded installation. Necesse applies the same principle to its local mods directory. Core Keeper applies it across manual install Mods, Steam Workshop content, and per-profile Mods. The Planet Crafter refuses known BepInEx bootstrap markers rather than enumerating or pretending to reproduce individual mods. Satisfactory refuses linked/non-empty `FactoryGame/Mods` and Steam Workshop content; this also catches an installed SML environment without requiring Steward to understand individual mods.
 
 Necesse demonstrates a simple state rule: when the game's native current World artifact is already a portable ZIP, Steward preserves those bytes directly instead of unpacking and rebuilding a second archive format.
 
 Core Keeper demonstrates the complementary ownership rule: storage adjacency is not identity. Character saves and player exploration maps are excluded even though they live in the same game-managed profile tree as the World files.
 
 The Planet Crafter demonstrates the same restraint for an opaque native file: Steward does not need to understand the internal save grammar to preserve, transfer, restore, and verify the exact bytes it owns.
+
+Satisfactory demonstrates that the source platform is also part of discovery scope. When Steam and non-Steam account namespaces coexist below one game save root, the Steam adapter remains inside canonical Steam profile identities instead of importing every directory that happens to contain a `.sav` file.
 
 ## Normal path for adding a game
 
@@ -162,7 +166,7 @@ These remain recorded in `DEFERRED_EMPIRICAL_TESTS.md` and related acceptance do
 
 Older E6/E8 status files preserve useful historical evidence, but checkpoint statements such as `62517139` being the last globally green head or "reconcile the E6/E8 stack onto the newer Factorio tree" are superseded by this document.
 
-The current line contains the E6 commercial UI stack, the E8 deterministic hardening stack, the later adapter hardening work, the PR #72 Desktop composition correction, and post-platform adapter expansion through qualified Terraria #77, Stardew Valley #79, Necesse #81, Core Keeper #83, and The Planet Crafter #85 on one all-workflows-green ancestry.
+The current line contains the E6 commercial UI stack, the E8 deterministic hardening stack, the later adapter hardening work, the PR #72 Desktop composition correction, and post-platform adapter expansion through qualified Terraria #77, Stardew Valley #79, Necesse #81, Core Keeper #83, The Planet Crafter #85, and Satisfactory #87 on one all-workflows-green ancestry.
 
 Use this file for the current implementation mode. Use E6/E8 documents for the detailed evidence and deferred acceptance categories they describe.
 

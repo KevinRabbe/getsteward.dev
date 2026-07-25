@@ -43,11 +43,38 @@ public sealed class ConanExilesEnhancedAdapter : IGameAdapter
         return Task.FromResult(ConanExilesEnhancedEnvironment.Verify(installation, requiredEnvironment));
     }
 
-    public Task<CapturedState> CaptureDetectedWorldAsync(
+    public async Task<CapturedState> CaptureDetectedWorldAsync(
         GameInstallation installation,
         DetectedWorld world,
         CancellationToken cancellationToken = default)
-        => ConanExilesEnhancedWorldState.CaptureDetectedWorldAsync(world, cancellationToken);
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        var sourcePath = Path.GetFullPath(world.SourcePath);
+        if (!ConanExilesEnhancedWorldDiscovery.IsSafelyCapturableDatabase(sourcePath))
+        {
+            throw new InvalidOperationException(
+                $"Conan Exiles Enhanced save slot is not a regular idle current database: {sourcePath}");
+        }
+
+        var captured = await ConanExilesEnhancedWorldState.CaptureDetectedWorldAsync(
+            world,
+            cancellationToken);
+        if (ConanExilesEnhancedWorldDiscovery.IsSafelyCapturableDatabase(sourcePath))
+        {
+            return captured;
+        }
+
+        try
+        {
+            File.Delete(captured.Package.Path);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+        }
+
+        throw new InvalidOperationException(
+            $"Conan Exiles Enhanced save slot became active while Steward was capturing it: {sourcePath}");
+    }
 
     public Task<PreparedWorld> PrepareEnvironmentAsync(
         GameInstallation installation,

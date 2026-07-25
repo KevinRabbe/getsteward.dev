@@ -18,6 +18,7 @@ internal static partial class ProjectZomboidWorldState
         ProjectZomboidWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
 
         var installation = world.Installation;
+        RequireDedicatedServerInstalled(installation);
         var serverRoot = GetRequiredInstallationMetadata(
             installation,
             ProjectZomboidInstallationDiscovery.DedicatedServerRootPathKey,
@@ -49,6 +50,20 @@ internal static partial class ProjectZomboidWorldState
                 "-servername",
                 serverName
             ]);
+    }
+
+    private static void RequireDedicatedServerInstalled(GameInstallation installation)
+    {
+        ArgumentNullException.ThrowIfNull(installation);
+        if (installation.Metadata is null ||
+            !installation.Metadata.TryGetValue(
+                ProjectZomboidInstallationDiscovery.DedicatedServerInstallStateKey,
+                out var state) ||
+            !string.Equals(state, "installed", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Project Zomboid Dedicated Server is not installed on this device.");
+        }
     }
 
     private static string GetRequiredInstallationMetadata(

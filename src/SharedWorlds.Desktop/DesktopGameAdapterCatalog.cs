@@ -1,5 +1,6 @@
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.GameAdapters.Factorio;
+using SharedWorlds.GameAdapters.Necesse;
 using SharedWorlds.GameAdapters.Palworld;
 using SharedWorlds.GameAdapters.ProjectZomboid;
 using SharedWorlds.GameAdapters.SevenDaysToDie;
@@ -19,7 +20,8 @@ internal static class DesktopGameAdapterCatalog
             new SevenDaysToDieAdapter(),
             new ProjectZomboidAdapter(),
             new TerrariaAdapter(),
-            new StardewValleyAdapter()
+            new StardewValleyAdapter(),
+            new NecesseAdapter()
         ];
 
         return adapters.ToDictionary(adapter => adapter.Id, StringComparer.Ordinal);

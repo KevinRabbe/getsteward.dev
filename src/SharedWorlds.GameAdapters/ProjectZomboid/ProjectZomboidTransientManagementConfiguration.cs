@@ -6,7 +6,6 @@ namespace SharedWorlds.GameAdapters.ProjectZomboid;
 
 internal sealed record ProjectZomboidTransientManagementConfiguration(
     int Port,
-    byte[] OriginalBytes,
     byte[] RuntimeBytes);
 
 internal static class ProjectZomboidTransientManagementConfigurationBuilder
@@ -33,7 +32,6 @@ internal static class ProjectZomboidTransientManagementConfigurationBuilder
                 $"Project Zomboid server configuration exceeds Steward's {MaximumConfigurationBytes}-byte management safety limit.");
         }
 
-        var originalBytes = sourceBytes.ToArray();
         var hasBom = sourceBytes.AsSpan().StartsWith(Utf8Bom);
         var contentBytes = hasBom
             ? sourceBytes.AsSpan(Utf8Bom.Length)
@@ -134,7 +132,6 @@ internal static class ProjectZomboidTransientManagementConfigurationBuilder
             : runtimeContent;
         return new ProjectZomboidTransientManagementConfiguration(
             port.Value,
-            originalBytes,
             runtimeBytes);
     }
 

@@ -52,6 +52,10 @@ internal static partial class FactorioWorldOperations
         }
 
         var destination = GetPreparedSavePath(world);
+        FactorioWorkspaceOwnership.RequireOwnedPath(
+            world.WorkingDirectory,
+            destination,
+            "prepared save");
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         await CopyFileAsync(state.Path, destination, overwrite: true, cancellationToken);
     }
@@ -61,6 +65,11 @@ internal static partial class FactorioWorldOperations
         CancellationToken cancellationToken)
     {
         var savesDirectory = GetWorkspaceSavesDirectory(world);
+        FactorioWorkspaceOwnership.RequireOwnedPath(
+            world.WorkingDirectory,
+            savesDirectory,
+            "saves directory");
+
         var savePath = Directory.Exists(savesDirectory)
             ? Directory
                 .EnumerateFiles(savesDirectory, "*.zip", SearchOption.TopDirectoryOnly)
@@ -75,6 +84,11 @@ internal static partial class FactorioWorldOperations
                 "The isolated Factorio workspace has no non-autosave save to capture.",
                 savesDirectory);
         }
+
+        FactorioWorkspaceOwnership.RequireOwnedPath(
+            world.WorkingDirectory,
+            savePath,
+            "captured save");
 
         var package = CreatePackagePath();
         await CopyFileAsync(savePath, package, overwrite: false, cancellationToken);

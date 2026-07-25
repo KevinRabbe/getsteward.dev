@@ -12,6 +12,10 @@ internal static partial class FactorioWorldOperations
         cancellationToken.ThrowIfCancellationRequested();
 
         var savePath = GetPreparedSavePath(world);
+        FactorioWorkspaceOwnership.RequireOwnedPath(
+            world.WorkingDirectory,
+            savePath,
+            "prepared save");
         EnsurePreparedSaveExists(savePath, "local Factorio session");
 
         var process = StartFactorio(
@@ -27,6 +31,10 @@ internal static partial class FactorioWorldOperations
         cancellationToken.ThrowIfCancellationRequested();
 
         var savePath = GetPreparedSavePath(world);
+        FactorioWorkspaceOwnership.RequireOwnedPath(
+            world.WorkingDirectory,
+            savePath,
+            "prepared save");
         EnsurePreparedSaveExists(savePath, "Factorio host");
 
         var process = StartFactorio(
@@ -65,6 +73,15 @@ internal static partial class FactorioWorldOperations
                 $"Cannot determine Factorio executable directory for '{executable}'.");
         var configPath = GetWorkspaceConfigPath(world);
         var workspaceModDirectory = GetWorkspaceModsDirectory(world);
+
+        FactorioWorkspaceOwnership.RequireOwnedPath(
+            world.WorkingDirectory,
+            configPath,
+            "config");
+        FactorioWorkspaceOwnership.RequireOwnedPath(
+            world.WorkingDirectory,
+            workspaceModDirectory,
+            "mod directory");
 
         if (!File.Exists(configPath))
         {

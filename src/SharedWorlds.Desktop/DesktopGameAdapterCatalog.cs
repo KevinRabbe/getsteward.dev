@@ -1,4 +1,5 @@
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.GameAdapters.CoreKeeper;
 using SharedWorlds.GameAdapters.Factorio;
 using SharedWorlds.GameAdapters.Necesse;
 using SharedWorlds.GameAdapters.Palworld;
@@ -21,7 +22,8 @@ internal static class DesktopGameAdapterCatalog
             new ProjectZomboidAdapter(),
             new TerrariaAdapter(),
             new StardewValleyAdapter(),
-            new NecesseAdapter()
+            new NecesseAdapter(),
+            new CoreKeeperAdapter()
         ];
 
         return adapters.ToDictionary(adapter => adapter.Id, StringComparer.Ordinal);

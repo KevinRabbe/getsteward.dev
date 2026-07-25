@@ -28,9 +28,9 @@ It also passed all five workflows. PR #72 changes only Desktop adapter compositi
 
 ## Latest qualified product line
 
-Normal adapter expansion has continued without reopening the platform. The latest qualified product line is Terraria PR #77:
+Normal adapter expansion has continued without reopening the platform. The latest qualified product line is Stardew Valley PR #79:
 
-> `0a6bbd198dfb42aaf22fa5568d7cb09e4faf9cf8`
+> `5983389769bcd2d9131e5e91c7ea56ac24415ebf`
 
 On that exact head all five repository workflows are green again, including Quality, Ubuntu/Windows build-and-test, backend container, PostgreSQL, S3-compatible integration, and Windows acceptance.
 
@@ -40,9 +40,10 @@ The aggregate adapter counts on that line are:
 - Palworld: 75/75;
 - 7 Days to Die: 47/47;
 - Project Zomboid: 94/94;
-- Terraria: 8/8 on both Ubuntu and Windows.
+- Terraria: 8/8;
+- Stardew Valley: 11/11 on both Ubuntu and Windows.
 
-PR #77 is the intended post-platform extension pattern: one new adapter project, game-owned discovery/environment/state behavior, truthful capability exposure, adapter-specific tests, solution/Desktop registration, and exact combined qualification. It does not modify Core, backend, Infrastructure, or generic Desktop lifecycle contracts.
+PR #79 extends the same post-platform pattern already proven by Terraria: one independent adapter project, game-owned discovery/environment/state behavior, truthful capability exposure, adapter-specific tests, solution/Desktop registration, and exact combined qualification. It does not modify Core, backend, Infrastructure, or generic Desktop lifecycle contracts.
 
 ## What "platform complete" means
 
@@ -82,10 +83,13 @@ Current adapters:
 | 7 Days to Die | discovery/import/environment/state support; launch/hosting remains unavailable until its adapter proves truthful runtime semantics |
 | Project Zomboid | discovery/import/environment/state support; launch/hosting remains unavailable until its adapter proves truthful runtime semantics |
 | Terraria | local vanilla `.wld` discovery/import, exact Steam build identity, opaque capture/restore, and owned workspace handling; Steam Cloud, tModLoader, launch, Host, Stop, and Join remain unsupported |
+| Stardew Valley | host-owned local vanilla save discovery/import, exact Steam build identity, exact two-file current-state capture/restore, and owned workspace handling; SMAPI/modded environments, launch, Host, Stop, and Join remain unsupported |
 
 Registration does not grant capabilities. The Desktop reads each adapter's `GameAdapterCapabilities`; adding an adapter to the catalog cannot silently make Start, Host, Join, or Stop available.
 
-Terraria currently advertises only `ExactGameVersion`. Its state-only entry is deliberate evidence that an adapter can join the product before launch/hosting semantics are proven.
+Terraria and Stardew Valley currently advertise only `ExactGameVersion`. Their state-only entries are deliberate evidence that adapters can join the product before launch/hosting semantics are proven.
+
+Stardew Valley additionally refuses a detected SMAPI or non-empty Mods environment rather than recording an incomplete vanilla `EnvironmentManifest` for a modded installation.
 
 ## Normal path for adding a game
 
@@ -144,7 +148,7 @@ These remain recorded in `DEFERRED_EMPIRICAL_TESTS.md` and related acceptance do
 
 Older E6/E8 status files preserve useful historical evidence, but checkpoint statements such as `62517139` being the last globally green head or "reconcile the E6/E8 stack onto the newer Factorio tree" are superseded by this document.
 
-The current line contains the E6 commercial UI stack, the E8 deterministic hardening stack, the later adapter hardening work, the PR #72 Desktop composition correction, and post-platform adapter expansion through qualified Terraria PR #77 on one all-workflows-green ancestry.
+The current line contains the E6 commercial UI stack, the E8 deterministic hardening stack, the later adapter hardening work, the PR #72 Desktop composition correction, and post-platform adapter expansion through qualified Terraria #77 and Stardew Valley #79 on one all-workflows-green ancestry.
 
 Use this file for the current implementation mode. Use E6/E8 documents for the detailed evidence and deferred acceptance categories they describe.
 

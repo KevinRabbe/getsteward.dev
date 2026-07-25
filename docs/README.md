@@ -35,8 +35,8 @@ When documents disagree, use this order:
 2. [Product Boundary](PRODUCT_BOUNDARY.md)
 3. [Design Decisions](DECISIONS.md)
 4. [Architecture](ARCHITECTURE.md)
-5. Detailed subsystem and adapter documents
-6. [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) for current implementation/checkpoint mode
+5. [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) for current implementation/checkpoint mode
+6. Detailed subsystem and adapter documents
 7. [Master Roadmap](ROADMAP.md) and its workstream roadmaps
 
 The first two documents define what Steward is and what it must not become. Lower-level documents may add detail but may not silently expand or contradict the product boundary.
@@ -108,6 +108,6 @@ Before accepting a meaningful product or architecture change, check:
 - Is Steam or the game already responsible for the proposed feature?
 - Does it directly help different players continue the same World across devices or times?
 - Does it add commercial reliability rather than uncontrolled scope?
-- Does the implementation map to the current platform/adaptor boundary or a documented release acceptance item?
+- Does the implementation map to the current platform/adapter boundary or a documented release acceptance item?
 
 When a boundary changes deliberately, update the authoritative documentation before implementation.

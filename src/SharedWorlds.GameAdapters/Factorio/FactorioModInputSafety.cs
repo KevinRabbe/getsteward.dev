@@ -10,6 +10,7 @@ internal static class FactorioModInputSafety
     public static void RequireInspectionInputs(GameInstallation installation)
     {
         var modsDirectory = GetModsDirectory(installation);
+        RequireRegularModsDirectoryIfPresent(modsDirectory);
         RequireRegularFileIfPresent(modsDirectory, ModListFileName, "mod-list");
         RequireRegularFileIfPresent(modsDirectory, ModSettingsFileName, "startup-settings");
     }
@@ -17,6 +18,7 @@ internal static class FactorioModInputSafety
     public static void RequireReproductionInputs(GameInstallation installation)
     {
         var modsDirectory = GetModsDirectory(installation);
+        RequireRegularModsDirectoryIfPresent(modsDirectory);
         RequireRegularFileIfPresent(modsDirectory, ModSettingsFileName, "startup-settings");
     }
 
@@ -52,6 +54,40 @@ internal static class FactorioModInputSafety
         {
             throw new InvalidOperationException(
                 $"Factorio {description} file '{path}' is linked or a reparse point. Steward will not treat bytes outside the Factorio mod directory as this World's environment.");
+        }
+    }
+
+    private static void RequireRegularModsDirectoryIfPresent(string modsDirectory)
+    {
+        var path = Path.GetFullPath(modsDirectory);
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (Exception exception) when (
+            exception is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return;
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"Steward could not inspect Factorio mods directory '{path}'.",
+                exception);
+        }
+
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new InvalidOperationException(
+                $"Factorio mods directory '{path}' is linked or a reparse point. Steward will not treat a redirected directory as this World's environment.");
+        }
+
+        if ((attributes & FileAttributes.Directory) == 0)
+        {
+            throw new InvalidOperationException(
+                $"Factorio mods path '{path}' is not a directory.");
         }
     }
 

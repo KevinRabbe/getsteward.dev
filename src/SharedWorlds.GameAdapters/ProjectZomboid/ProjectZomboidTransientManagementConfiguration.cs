@@ -10,7 +10,7 @@ internal sealed record ProjectZomboidTransientManagementConfiguration(
 
 internal static class ProjectZomboidTransientManagementConfigurationBuilder
 {
-    private const int MaximumConfigurationBytes = 4 * 1024 * 1024;
+    internal const int MaximumConfigurationBytes = 4 * 1024 * 1024;
     private const int TransientPasswordBytes = 32;
     private static readonly byte[] Utf8Bom = [0xEF, 0xBB, 0xBF];
     private static readonly UTF8Encoding StrictUtf8 = new(

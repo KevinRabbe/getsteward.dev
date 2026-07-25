@@ -1,6 +1,7 @@
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.GameAdapters.Astroneer;
 using SharedWorlds.GameAdapters.CoreKeeper;
+using SharedWorlds.GameAdapters.Enshrouded;
 using SharedWorlds.GameAdapters.Factorio;
 using SharedWorlds.GameAdapters.Necesse;
 using SharedWorlds.GameAdapters.Palworld;
@@ -29,7 +30,8 @@ internal static class DesktopGameAdapterCatalog
             new CoreKeeperAdapter(),
             new PlanetCrafterAdapter(),
             new SatisfactoryAdapter(),
-            new AstroneerAdapter()
+            new AstroneerAdapter(),
+            new EnshroudedAdapter()
         ];
 
         return adapters.ToDictionary(adapter => adapter.Id, StringComparer.Ordinal);

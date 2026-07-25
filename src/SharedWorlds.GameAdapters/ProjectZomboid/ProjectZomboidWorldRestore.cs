@@ -63,7 +63,10 @@ internal static partial class ProjectZomboidWorldState
         try
         {
             await ExtractPackageAsync(packagePath, stagingRoot, cancellationToken);
-            ValidateSingleServerBundle(stagingRoot);
+            var serverName = ValidateSingleServerBundle(stagingRoot);
+            await ProjectZomboidPortableServerConfiguration.SanitizeFileAsync(
+                Path.Combine(stagingRoot, "Server", serverName + ".ini"),
+                cancellationToken);
 
             if (Directory.Exists(destinationRoot))
             {

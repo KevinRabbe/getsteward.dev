@@ -83,12 +83,26 @@ internal static partial class ProjectZomboidWorldState
             foreach (var suffix in ServerConfigSuffixes)
             {
                 var configPath = Path.Combine(serverRoot, serverName + suffix);
-                if (File.Exists(configPath))
+                if (!File.Exists(configPath))
+                {
+                    continue;
+                }
+
+                var entryPath = Path.Combine("Server", serverName + suffix);
+                if (string.Equals(suffix, ".ini", StringComparison.OrdinalIgnoreCase))
+                {
+                    await AddPortableServerConfigurationAsync(
+                        archive,
+                        configPath,
+                        entryPath,
+                        cancellationToken);
+                }
+                else
                 {
                     await AddFileAsync(
                         archive,
                         configPath,
-                        Path.Combine("Server", serverName + suffix),
+                        entryPath,
                         cancellationToken);
                 }
             }
@@ -120,6 +134,21 @@ internal static partial class ProjectZomboidWorldState
         }
     }
 
+    private static async Task AddPortableServerConfigurationAsync(
+        ZipArchive archive,
+        string sourcePath,
+        string entryPath,
+        CancellationToken cancellationToken)
+    {
+        RejectLinkedCapturePath(sourcePath);
+        var portableBytes = await ProjectZomboidPortableServerConfiguration.ReadSanitizedFileAsync(
+            sourcePath,
+            cancellationToken);
+        var entry = archive.CreateEntry(ToArchiveEntryName(entryPath), CompressionLevel.Fastest);
+        await using var destinationStream = entry.Open();
+        await destinationStream.WriteAsync(portableBytes, cancellationToken);
+    }
+
     private static async Task AddFileAsync(
         ZipArchive archive,
         string sourcePath,
@@ -128,13 +157,7 @@ internal static partial class ProjectZomboidWorldState
     {
         RejectLinkedCapturePath(sourcePath);
 
-        var entryName = entryPath.Replace(Path.DirectorySeparatorChar, '/');
-        if (Path.AltDirectorySeparatorChar != Path.DirectorySeparatorChar)
-        {
-            entryName = entryName.Replace(Path.AltDirectorySeparatorChar, '/');
-        }
-
-        var entry = archive.CreateEntry(entryName, CompressionLevel.Fastest);
+        var entry = archive.CreateEntry(ToArchiveEntryName(entryPath), CompressionLevel.Fastest);
         await using var sourceStream = new FileStream(
             sourcePath,
             FileMode.Open,
@@ -144,6 +167,17 @@ internal static partial class ProjectZomboidWorldState
             useAsync: true);
         await using var destinationStream = entry.Open();
         await sourceStream.CopyToAsync(destinationStream, cancellationToken);
+    }
+
+    private static string ToArchiveEntryName(string entryPath)
+    {
+        var entryName = entryPath.Replace(Path.DirectorySeparatorChar, '/');
+        if (Path.AltDirectorySeparatorChar != Path.DirectorySeparatorChar)
+        {
+            entryName = entryName.Replace(Path.AltDirectorySeparatorChar, '/');
+        }
+
+        return entryName;
     }
 
     private static IEnumerable<string> EnumerateCaptureFiles(string sourceRoot)

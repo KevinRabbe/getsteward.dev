@@ -6,7 +6,7 @@ A game adapter isolates everything specific to one game while letting Core run t
 
 > Core knows what must happen. The adapter knows how this game makes it happen.
 
-Current first-party adapters are Factorio, Palworld, 7 Days to Die, Project Zomboid, Terraria, Stardew Valley, Necesse, and Core Keeper. Their proven capability sets intentionally differ. Future adapters must preserve the same boundary without forcing their edge cases into Core.
+Current first-party adapters are Factorio, Palworld, 7 Days to Die, Project Zomboid, Terraria, Stardew Valley, Necesse, Core Keeper, and The Planet Crafter. Their proven capability sets intentionally differ. Future adapters must preserve the same boundary without forcing their edge cases into Core.
 
 ## Product contract
 
@@ -76,7 +76,9 @@ It decides:
 
 Discovery is read-only. It must not upload, publish, host, or mutate a discovered World.
 
-Physical proximity is not ownership. A game may store World state, character state, maps, configuration, and recovery data in the same profile tree. The adapter must classify those objects by semantics rather than directory adjacency. Core Keeper is the current concrete example: character saves and player exploration maps remain player-owned even though the game stores them beside World files.
+Physical proximity is not ownership. A game may store World state, character state, maps, configuration, and recovery data in the same profile tree. The adapter must classify those objects by semantics rather than directory adjacency. Core Keeper is a concrete example: character saves and player exploration maps remain player-owned even though the game stores them beside World files.
+
+A native recovery file is not another current World. The Planet Crafter, for example, exposes `Backup.json` beside current save files; the adapter deliberately hides it from normal World discovery.
 
 ## Environment inspection
 
@@ -92,7 +94,9 @@ Examples include:
 
 Core stores the manifest but does not interpret the game's semantics.
 
-An adapter must not claim an exact environment by silently omitting a game-specific input it knows may matter. A narrower adapter may refuse unsupported environments instead. Stardew Valley currently uses this rule to reject detected SMAPI/non-empty Mods installations until mod reproduction exists; Necesse applies the same rule to a linked or non-empty local mods directory; Core Keeper applies it across manual install Mods, Steam Workshop content, and per-profile Mods.
+An adapter must not claim an exact environment by silently omitting a game-specific input it knows may matter. A narrower adapter may refuse unsupported environments instead. Stardew Valley uses this rule for detected SMAPI/non-empty Mods installations; Necesse applies it to a linked or non-empty local mods directory; Core Keeper applies it across manual install Mods, Steam Workshop content, and per-profile Mods; The Planet Crafter refuses known BepInEx bootstrap markers.
+
+The adapter does not need to enumerate every individual mod merely to know that it cannot truthfully reproduce the environment. A proven loader/bootstrap marker can be enough to refuse the narrower vanilla-only capability.
 
 ## Import capture
 
@@ -115,6 +119,8 @@ Native backup/recovery history is not automatically canonical World state. An ad
 When the game already stores the current World in a portable archive, do not automatically unpack and rebuild it. Necesse demonstrates the simpler rule: preserve the game-native World ZIP as opaque bytes unless Steward has a concrete need to interpret its contents.
 
 When a World is spread across several files, capture only the smallest complete World-owned bundle proven necessary. Core Keeper demonstrates this rule with exactly three slot-matched files: World data, World metadata, and World-generation parameters. Character saves, player maps, and recovery copies are not included.
+
+When the game already stores the complete current World in one native file, do not invent an internal schema merely to move it. The Planet Crafter demonstrates this rule: Steward copies the native `.json` bytes exactly and does not parse or re-encode the game's save grammar.
 
 ## Environment preparation
 
@@ -207,6 +213,8 @@ Game-specific helpers, SDKs, parsers, commands, and dependencies stay inside the
 
 Adding Palworld-specific dedicated-server behavior must not add Palworld fields to Core. Adding a Factorio-specific RCON or mod behavior must not become a universal requirement.
 
+Not every adapter needs a game-specific parser. If opaque byte preservation is enough to implement the proven capability, adding a parser creates another trust and maintenance boundary without product value.
+
 ## What an adapter must not decide
 
 An adapter must not redefine:
@@ -231,26 +239,27 @@ Implement in this order, stopping capability growth whenever the next game-speci
 2. installation discovery;
 3. existing-World discovery;
 4. classify World-owned state separately from player-owned and recovery state;
-5. safe import capture;
-6. environment inspection;
-7. environment preparation where required by the supported slice;
-8. state restore;
-9. local launch only when its ownership/session semantics are proven;
-10. real session observation;
-11. safe state capture and validation;
-12. temporary host launch only when its server/runtime semantics are proven;
-13. graceful hosted-session shutdown;
-14. optional automatic Join;
-15. exact environment reproduction where justified;
-16. expose only the `GameAdapterCapabilities` proven by the implemented slice;
-17. add adapter-specific deterministic tests and a dedicated CI lane where appropriate;
-18. add the Desktop project reference and one entry to `DesktopGameAdapterCatalog`;
-19. qualify the adapter head independently before mechanical integration;
-20. rerun the full five-workflow matrix on the exact combined SHA.
+5. identify the smallest complete native World representation;
+6. safe import capture without parsing/re-encoding unless that is actually required;
+7. environment inspection;
+8. environment preparation where required by the supported slice;
+9. state restore;
+10. local launch only when its ownership/session semantics are proven;
+11. real session observation;
+12. safe state capture and validation;
+13. temporary host launch only when its server/runtime semantics are proven;
+14. graceful hosted-session shutdown;
+15. optional automatic Join;
+16. exact environment reproduction where justified;
+17. expose only the `GameAdapterCapabilities` proven by the implemented slice;
+18. add adapter-specific deterministic tests and a dedicated CI lane where appropriate;
+19. add the Desktop project reference and one entry to `DesktopGameAdapterCatalog`;
+20. qualify the adapter head independently before mechanical integration;
+21. rerun the full five-workflow matrix on the exact combined SHA.
 
 The first target is one truthful vertical slice, not many partially claimed workflows. An adapter that safely supports discovery/import/environment/state handling may be visible in Steward while launch/hosting remains unavailable; missing runtime evidence is represented by absent capability flags, not invented generic behavior.
 
-Terraria, Stardew Valley, Necesse, and Core Keeper are current concrete examples of that narrower entry point. Terraria preserves one opaque vanilla `.wld`; Stardew Valley preserves exactly its two current vanilla save files while excluding `_old` recovery files; Necesse preserves the game's native compressed World ZIP byte-for-byte instead of adding a second archive layer; Core Keeper preserves exactly the three slot-matched World-owned files while excluding character and map state. All four verify the exact Steam build and advertise only `ExactGameVersion`; launch/hosting capabilities remain absent.
+Terraria, Stardew Valley, Necesse, Core Keeper, and The Planet Crafter are current concrete examples of that narrower entry point. Terraria preserves one opaque vanilla `.wld`; Stardew Valley preserves exactly its two current vanilla save files while excluding `_old` recovery files; Necesse preserves the game's native compressed World ZIP byte-for-byte instead of adding a second archive layer; Core Keeper preserves exactly the three slot-matched World-owned files while excluding character and map state; The Planet Crafter preserves one opaque non-empty native `.json` World while excluding `Backup.json`. All five verify the exact Steam build and advertise only `ExactGameVersion`; launch/hosting capabilities remain absent.
 
 Adding a game normally does **not** require changes to Core, backend, Infrastructure, or ordinary Desktop action logic. If implementation appears to require such a change, first prove that the need is genuinely universal rather than an adapter-specific edge case.
 
@@ -262,8 +271,9 @@ For a discovery/import/state-only slice, prove at minimum:
 
 ```text
 discover intended installation/World without mutation
--> identify the smallest complete World-owned state bundle
+-> identify the smallest complete World-owned state representation
 -> exclude player-owned/recovery state unless evidence says otherwise
+-> preserve native bytes directly where interpretation is unnecessary
 -> import copied/controlled World while preserving source
 -> inspect exact supported environment
 -> capture portable state

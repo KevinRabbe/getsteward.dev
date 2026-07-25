@@ -109,6 +109,34 @@ public sealed class ProjectZomboidPortableServerConfigurationTests : IDisposable
             ProjectZomboidPortableServerConfiguration.Sanitize(invalid));
     }
 
+    [Fact]
+    public async Task OversizedConfigurationIsRejectedBeforePortableFileReadOrRewrite()
+    {
+        Directory.CreateDirectory(_root);
+        var path = Path.Combine(_root, "oversized.ini");
+        await using (var stream = new FileStream(
+                         path,
+                         FileMode.CreateNew,
+                         FileAccess.Write,
+                         FileShare.None))
+        {
+            stream.SetLength((4L * 1024 * 1024) + 1);
+        }
+
+        var readException = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            ProjectZomboidPortableServerConfiguration.ReadSanitizedFileAsync(
+                path,
+                CancellationToken.None));
+        var rewriteException = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            ProjectZomboidPortableServerConfiguration.SanitizeFileAsync(
+                path,
+                CancellationToken.None));
+
+        Assert.Contains("portable-state safety limit", readException.Message, StringComparison.Ordinal);
+        Assert.Contains("portable-state safety limit", rewriteException.Message, StringComparison.Ordinal);
+        Assert.Equal((4L * 1024 * 1024) + 1, new FileInfo(path).Length);
+    }
+
     private string CreateServerBundle(string serverName)
     {
         var userData = Path.Combine(_root, $"user-data-{Guid.NewGuid():N}");

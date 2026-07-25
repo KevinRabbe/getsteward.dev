@@ -154,6 +154,81 @@ public sealed class SevenDaysToDieEnvironmentInputSafetyTests : IDisposable
     }
 
     [Fact]
+    public void InspectionRejectsOversizedSteamManifestBeforeRead()
+    {
+        var serverRoot = CreateServerRoot();
+        var manifest = Path.Combine(_root, "steamapps", "oversized-appmanifest.acf");
+        Directory.CreateDirectory(Path.GetDirectoryName(manifest)!);
+        using (var stream = new FileStream(
+                   manifest,
+                   FileMode.CreateNew,
+                   FileAccess.Write,
+                   FileShare.None))
+        {
+            stream.SetLength(SevenDaysToDieEnvironment.MaximumSteamManifestBytes + 1L);
+        }
+
+        var installation = CreateInstallation(serverRoot, manifest);
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            SevenDaysToDieEnvironment.Inspect(installation));
+
+        Assert.Contains("Steam manifest", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("safety limit", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(
+            SevenDaysToDieEnvironment.MaximumSteamManifestBytes + 1L,
+            new FileInfo(manifest).Length);
+    }
+
+    [Fact]
+    public void InspectionRejectsOversizedModInfoBeforeXmlLoad()
+    {
+        var serverRoot = CreateServerRoot();
+        var modRoot = Path.Combine(serverRoot, "Mods", "OversizedMetadata");
+        Directory.CreateDirectory(modRoot);
+        var modInfoPath = Path.Combine(modRoot, "ModInfo.xml");
+        using (var stream = new FileStream(
+                   modInfoPath,
+                   FileMode.CreateNew,
+                   FileAccess.Write,
+                   FileShare.None))
+        {
+            stream.SetLength(SevenDaysToDieEnvironment.MaximumModInfoBytes + 1L);
+        }
+
+        var installation = CreateInstallation(serverRoot, CreateManifest("1000"));
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            SevenDaysToDieEnvironment.Inspect(installation));
+
+        Assert.Contains("ModInfo.xml", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("safety limit", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(
+            SevenDaysToDieEnvironment.MaximumModInfoBytes + 1L,
+            new FileInfo(modInfoPath).Length);
+    }
+
+    [Fact]
+    public void InspectionRejectsExcessiveTopLevelModDirectoryCount()
+    {
+        var serverRoot = CreateServerRoot();
+        var modsRoot = Path.Combine(serverRoot, "Mods");
+        Directory.CreateDirectory(modsRoot);
+        for (var index = 0; index <= SevenDaysToDieEnvironment.MaximumModDirectories; index++)
+        {
+            Directory.CreateDirectory(Path.Combine(modsRoot, $"mod-{index:D4}"));
+        }
+
+        var installation = CreateInstallation(serverRoot, CreateManifest("1000"));
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            SevenDaysToDieEnvironment.Inspect(installation));
+
+        Assert.Contains("Mods directory", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("directory environment inventory safety limit", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void InspectionStillAcceptsRegularManifestRootAndModMetadata()
     {
         var serverRoot = CreateServerRoot();

@@ -199,7 +199,7 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
                 decoderMemory: nint.Zero,
                 decoderMemorySize: 0,
                 threadPhase: DecodeThreadPhaseAll);
-        
+
             if (decoded != destination.Length)
             {
                 throw new InvalidDataException(

@@ -420,3 +420,164 @@ Host is starting
 or
 -> wait until available
 ```
+
+### Switch host
+
+```text
+current host finishes and commits
+-> Ready
+-> another device selects same World
+-> Host World
+```
+
+### Switch game
+
+```text
+finish current World
+-> select another game
+-> select one of its Worlds
+-> Start World or Host World
+```
+
+### Backend unavailable before start
+
+```text
+shared World
+-> authority cannot be verified
+-> Connection required
+-> Retry connection
+```
+
+### Backend unavailable during active session
+
+```text
+Running / Hosting
+-> connection lost
+-> continue session
+-> capture safely at end
+-> Waiting to sync
+-> reconnect and revalidate
+-> Ready
+or
+-> Recovery needed
+```
+
+### Close main window
+
+```text
+close window
+-> window hides
+-> tray remains
+-> responsibility continues
+```
+
+## User-visible state/action contract
+
+| State | Primary action(s) | Secondary behavior |
+|---|---|---|
+| Ready / Only on this PC | Start World; Host World when supported | Share World |
+| Sharing | None | Retry sharing/cancel only when rollback is safe |
+| Ready / Shared | Start World; Host World when supported | Manage access |
+| Connection required | Retry connection | Cached information only |
+| Preparing | None | Cancel only before launch when safe |
+| Running | Open Steward/game | None |
+| Hosting | Open Steward/game | Stop and Save when supported |
+| Host is starting | Wait | Refresh/status |
+| Someone is playing | Join when supported | Wait/refresh |
+| Saving World | None | None |
+| Waiting to sync | Automatic bounded retry; Retry when useful | Diagnostics |
+| Action required | Resolve issue | Diagnostics |
+| Recovery needed | Best proven-safe recovery action | Other proven-safe recovery/export actions |
+
+## Progress contract
+
+Only real lifecycle work is shown, such as:
+- Checking latest state;
+- Reserving World;
+- Downloading World;
+- Preparing game;
+- Restoring World;
+- Starting game/server;
+- Waiting for host readiness;
+- Waiting for session end;
+- Stopping server;
+- Capturing changes;
+- Uploading changes;
+- Waiting for connection;
+- Verifying state;
+- Finishing handoff.
+
+No theatrical progress or fake animation is required.
+
+## Error and warning contract
+
+Every failure surface should answer:
+
+1. What failed?
+2. Is the last valid state safe?
+3. Is a newer candidate preserved?
+4. What action is safe now?
+5. Where are optional technical details?
+
+## UI milestones after planning unlock
+
+### UI-1: Shell/navigation
+- Games Library;
+- game workspace routing;
+- persistent tray lifetime;
+- remove transitional obsolete composition where safe.
+
+### UI-2: World library/import
+- per-game Worlds;
+- responsive details;
+- search/sort;
+- import workspace;
+- local-first result;
+- Share World entry point.
+
+### UI-3: Lifecycle binding
+- generic state-driven UI;
+- Start/Host/Join;
+- real progress;
+- tray/background lifetime;
+- safe Quit gating.
+
+### UI-4: Shared World/access
+- Sharing;
+- invitation acceptance;
+- Manage access;
+- active-elsewhere/readiness;
+- Connection required;
+- Waiting to sync.
+
+### UI-5: Recovery/action required
+- evidence-driven recovery;
+- Retry recovery;
+- Export recovery copy;
+- Continue from last safe state;
+- environment/identity limitation handling;
+- diagnostics.
+
+### UI-6: Commercial polish
+- keyboard navigation;
+- high-DPI behavior;
+- screen-reader labels;
+- localization-ready strings;
+- installer/update behavior;
+- tray accessibility;
+- real Windows acceptance testing.
+
+## UI-0 completion gate
+
+Status: **complete with the documented first-release automatic-Join boundary.**
+
+UI-0 is approved because:
+- UI-D001 through UI-D009 are approved;
+- every visible state/action is mapped in `CROSS_WORKSTREAM_CONTRACT.md`;
+- Host World remains independent of persistent sharing;
+- Join is capability-driven and requires a validated automatic path in first release;
+- tray/background semantics match AR-0;
+- recovery semantics match BE-D005/BE-D006/BE-D008/BE-D009;
+- no UI path depends on social roles, ownership hierarchy, branches, merging, or permanent game-server infrastructure.
+
+Implementation is active and remains constrained by this executable first-release contract.

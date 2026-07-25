@@ -2,7 +2,7 @@
 
 This is the final adapter/runtime planning checkpoint.
 
-Status: **AR-0 approved. Master planning lock is lifted; AR-1 may begin under E1.**
+Status: **AR-0 approved. Master planning lock is lifted; implementation is active.**
 
 The authoritative runtime/adapter contract is `ADAPTER_RUNTIME_ROADMAP.md`.
 
@@ -23,7 +23,7 @@ The authoritative runtime/adapter contract is `ADAPTER_RUNTIME_ROADMAP.md`.
 | Close/update | Hide to tray; guard Quit; defer self-update; scan recovery on startup |
 | Connectivity loss | Active session may continue; reservation becomes Uncertain; candidate remains local; no competing writer |
 | Cache/materialization | Runtime owns cache/recovery lifecycle; adapter owns workspace layout/restore/capture/cleanup authority |
-| Join capability | Generic result supports Steam/game-native automatic, adapter automatic, guided manual, unsupported |
+| Join capability | First release supports validated automatic Join or explicit unsupported/blocked results; guided manual Join is deferred until a complete lifecycle exists |
 | Factorio host | Temporary local host using validated game-native/process model; no permanent Steward host |
 | Palworld host | Temporary dedicated-server session with readiness/graceful-save proof |
 | Palworld identity | Portability proceeds only with explicit safe handling of game-specific identity limitation |
@@ -46,17 +46,20 @@ Evidence may include process IDs/start times, server readiness, shutdown respons
 
 ## Capability result contract
 
-Generic outcomes include:
+First-release Join outcomes are:
 
 ```text
 SupportedAutomatic
-SupportedGuidedManual
 Unsupported
 BlockedByEnvironment
 BlockedByIdentityLimitation
 ```
 
-The UI exposes one generic action such as Join. Adapter-specific instructions/data are returned only when needed for guided manual operation. Core/UI never branch on game name.
+The UI exposes one generic **Join** action only for a validated automatic path. Core/UI never branch on game name.
+
+Earlier AR-0 planning carried `SupportedGuidedManual`, but no adapter uses it and the runtime never defined how a prepared environment remains owned while a user manually launches/joins, how that manual session's completion is proven, or when cleanup is safe. The executable first-release contract therefore removes that dead result instead of inventing a lifecycle solely to preserve it.
+
+Guided manual Join may be reconsidered only with a real adapter need and a complete preparation/guidance/completion/cleanup contract.
 
 ## Final UI mapping
 
@@ -87,7 +90,7 @@ Implementation/release evidence must verify:
 8. launcher/process handoff does not end a session prematurely;
 9. BE-D005 uncertainty keeps World unavailable to competing writers;
 10. BE-D008 outage flow can enter Waiting to sync and safely revalidate;
-11. guided manual Join is representable without game-name branches;
+11. automatic Join capability/blocked outcomes are representable without game-name branches;
 12. Factorio local/host/capture/replay is proven;
 13. Palworld dedicated readiness/stop/capture/restore is proven;
 14. application restart surfaces unresolved recovery before Ready;
@@ -95,6 +98,6 @@ Implementation/release evidence must verify:
 
 ## AR-0 gate
 
-Status: **complete and approved**.
+Status: **complete and approved with the documented first-release automatic-Join boundary.**
 
-AR-1 implementation is allowed under E1 and must remain inside this frozen contract.
+Implementation remains allowed and must stay inside this executable contract.

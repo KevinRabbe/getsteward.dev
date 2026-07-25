@@ -17,9 +17,9 @@ Steward is background-first because this runtime remains responsible while the u
 
 ## Planning status
 
-Status: **AR-0 approved; master planning lock remains active**.
+Status: **AR-0 approved; implementation is active. First-release boundary changes must update this roadmap with executable evidence.**
 
-No production runtime refactor, adapter contract change, background/tray implementation, process supervisor, or shared-backend integration begins until the master lock is explicitly lifted.
+Production runtime/adapter work must remain inside the approved product boundary and evidence rules.
 
 ## Runtime boundary
 
@@ -43,7 +43,7 @@ The adapter owns:
 - graceful/safe stop behavior;
 - safe capture timing;
 - game-specific package validation;
-- validated Join capability: Steam/game-native automatic, adapter-controlled automatic, guided manual, or unsupported;
+- validated automatic Join capability or an explicit unsupported/blocked result;
 - game-specific identity/environment limitations.
 
 The UI owns presentation/user commands. The backend owns shared durable authority.
@@ -309,7 +309,7 @@ Minimum planned capability areas:
 - World discovery/import;
 - local launch;
 - temporary host launch;
-- validated Join capability;
+- validated automatic Join capability;
 - session observation;
 - host readiness evidence;
 - graceful hosted stop;
@@ -322,15 +322,16 @@ Minimum planned capability areas:
 - repair where validated;
 - explicit identity/environment limitation result.
 
-Generic capability outcomes include:
+First-release Join capability outcomes are:
 
 ```text
 SupportedAutomatic
-SupportedGuidedManual
 Unsupported
 BlockedByEnvironment
 BlockedByIdentityLimitation
 ```
+
+Guided manual Join is not an executable first-release capability. No current adapter uses it, and Core has no truthful generic lifecycle for keeping a prepared environment alive through a user-controlled manual launch/Join and then proving completion/cleanup. Reintroduce it only with a real adapter need and a complete adapter/runtime lifecycle contract.
 
 UI/Core never branch on game name to interpret these outcomes.
 
@@ -353,7 +354,7 @@ Implementation/release evidence still required:
 - readiness proof;
 - graceful stop/safe capture proof;
 - exact shared-environment repair behavior;
-- final Join capability result;
+- final automatic Join acceptance evidence;
 - two-device handoff.
 
 These are implementation/acceptance evidence requirements, not unresolved AR-0 product-model questions.
@@ -374,7 +375,7 @@ Substantially validated:
 Implementation/release evidence still required:
 - validated graceful save/shutdown control;
 - server readiness proof;
-- final Join automatic/guided-manual result;
+- validated automatic Join capability or explicit unsupported result;
 - duplicate discovery behavior;
 - explicit player-identity limitation handling;
 - two-device handoff.
@@ -398,7 +399,7 @@ Every release-supported adapter must prove with controlled data:
 11. commit through canonical transaction;
 12. restore and visibly confirm change next session;
 13. preserve recovery evidence under injected failure;
-14. represent Join capability without game-name branching;
+14. represent automatic Join capability or explicit unsupported/blocked result without game-name branching;
 15. complete shared two-device handoff before commercial release.
 
 Hosted support additionally proves client exit does not incorrectly terminate/complete a still-running authoritative server.
@@ -424,7 +425,7 @@ Real-system validation:
 - network interruption during Running/Hosting/Saving World;
 - PC A -> PC B -> PC A handoff;
 - application restart with unresolved recovery;
-- Join capability/fallback validation;
+- automatic Join capability validation;
 - environment/identity safe blocking.
 
 # Adapter/runtime milestones after planning unlock
@@ -447,7 +448,7 @@ Real-system validation:
 - readiness/graceful stop;
 - safe capture evidence;
 - environment mismatch/repair behavior;
-- Join capability;
+- automatic Join capability;
 - failure-injection acceptance runs.
 
 ## AR-3: Palworld completion
@@ -456,7 +457,7 @@ Real-system validation:
 - graceful save/shutdown;
 - safe capture evidence;
 - duplicate discovery;
-- Join capability/fallback;
+- automatic Join capability or explicit unsupported result;
 - player identity limitation UX/result;
 - failure-injection acceptance runs.
 
@@ -488,7 +489,7 @@ Real-system validation:
 
 # AR-0 completion gate
 
-Status: **complete and approved**.
+Status: **complete and approved with the documented first-release automatic-Join boundary.**
 
 AR-0 is complete because:
 - process/tray model is accepted;
@@ -502,4 +503,4 @@ AR-0 is complete because:
 - release acceptance evidence is specified;
 - no runtime behavior depends on merging, branches, social governance, or permanent Steward game-server infrastructure.
 
-Production runtime/adapter changes remain blocked only by the master planning lock.
+Implementation is active and remains constrained by these product/evidence contracts.

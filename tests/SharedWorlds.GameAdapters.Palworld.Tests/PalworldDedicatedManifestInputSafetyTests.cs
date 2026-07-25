@@ -46,15 +46,15 @@ public sealed class PalworldDedicatedManifestInputSafetyTests : IDisposable
     }
 
     [Fact]
-    public async Task DedicatedHostingReadOwnerRejectsOversizedManifestWithoutAdapterPreflight()
+    public void DedicatedHostingReadOwnerRejectsOversizedManifestWithoutAdapterPreflight()
     {
         var manifestPath = Path.Combine(_root, "steamapps", "appmanifest_2394010.acf");
         Directory.CreateDirectory(Path.GetDirectoryName(manifestPath)!);
-        await using (var stream = new FileStream(
-                         manifestPath,
-                         FileMode.CreateNew,
-                         FileAccess.Write,
-                         FileShare.None))
+        using (var stream = new FileStream(
+                   manifestPath,
+                   FileMode.CreateNew,
+                   FileAccess.Write,
+                   FileShare.None))
         {
             stream.SetLength(PalworldDedicatedRuntimeInputSafety.MaximumDedicatedServerManifestBytes + 1L);
         }

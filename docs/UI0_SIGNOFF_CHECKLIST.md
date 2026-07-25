@@ -2,7 +2,7 @@
 
 This is the final UI planning checkpoint for the first commercial release.
 
-Status: **UI-0 approved. Master planning lock is lifted; UI-1 may begin under E1.**
+Status: **UI-0 approved. Master planning lock is lifted; implementation is active.**
 
 The authoritative UI decisions are UI-D001 through UI-D009 in `UI_ROADMAP.md`.
 
@@ -14,7 +14,7 @@ The authoritative UI decisions are UI-D001 through UI-D009 in `UI_ROADMAP.md`.
 | UI-D002 | Responsive Games -> Worlds master-detail workspace |
 | UI-D003 | Import local-first; temporary Host is independent of persistent sharing |
 | UI-D004 | Shared authority must be verified before a new writer; active session may continue through outage |
-| UI-D005 | One generic Join action with automatic or guided-manual adapter capability |
+| UI-D005 | One generic Join action backed only by a validated automatic adapter Join path in first release |
 | UI-D006 | Evidence-driven recovery with Retry recovery, Export recovery copy, and Continue from last safe state when safe |
 | UI-D007 | Tray is present whenever the Steward user-session process is running |
 | UI-D008 | Fixed first-release terminology |
@@ -79,6 +79,12 @@ Internal state names do not replace these terms.
 - Access Manager may add/remove members and atomically transfer access management.
 - Revocation of an active writer remains pending until the responsibility resolves safely.
 
+## Join boundary change
+
+Earlier planning allowed a guided-manual fallback behind the same **Join** action. First-release implementation removed that dead contract instead of inventing a manual-session lifecycle no adapter uses today.
+
+First release therefore requires a validated automatic Join path. Guided manual Join may be reconsidered only when a real adapter needs it and the adapter/runtime can prove preparation ownership, user guidance, manual session completion, and cleanup without brittle input automation.
+
 ## UI-0 acceptance checks
 
 1. Import produces `Only on this PC` and never silently shares.
@@ -86,7 +92,7 @@ Internal state names do not replace these terms.
 3. Failed sharing preserves local usability.
 4. World-access invitations remain separate from multiplayer invitations.
 5. `Connection required` disables new writable and Join actions.
-6. `Someone is playing` exposes Join only after host readiness and capability proof.
+6. `Someone is playing` exposes Join only after host readiness and validated automatic capability proof.
 7. `Waiting to sync` preserves the candidate and never presents Ready prematurely.
 8. `Recovery needed` exposes only proven-safe recovery actions.
 9. Tray/close/update behavior matches AR-0.
@@ -95,6 +101,6 @@ Internal state names do not replace these terms.
 
 ## UI-0 gate
 
-Status: **complete and approved**.
+Status: **complete and approved with the documented first-release Join boundary change above**.
 
-UI-1 implementation is allowed under E1 and must remain inside this frozen contract.
+Implementation must remain inside this executable first-release contract.

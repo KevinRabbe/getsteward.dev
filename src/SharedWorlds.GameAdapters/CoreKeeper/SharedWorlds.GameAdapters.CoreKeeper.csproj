@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>SharedWorlds.GameAdapters.CoreKeeper</AssemblyName>
+    <RootNamespace>SharedWorlds.GameAdapters.CoreKeeper</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../SharedWorlds.Core/SharedWorlds.Core.csproj" />
+  </ItemGroup>
+</Project>

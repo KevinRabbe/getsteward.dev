@@ -171,28 +171,6 @@ internal static class PalworldDedicatedRuntimeInputSafety
         return current;
     }
 
-    public static void RequireAbsentOrRegularDirectory(string path, string description)
-    {
-        try
-        {
-            var attributes = File.GetAttributes(path);
-            ValidateRegularAttributes(path, description, expectDirectory: true, attributes);
-        }
-        catch (Exception exception) when (
-            exception is FileNotFoundException or DirectoryNotFoundException)
-        {
-            // Absence is allowed when the caller is about to materialize this directory under a
-            // previously validated regular parent.
-        }
-        catch (Exception exception) when (
-            exception is IOException or UnauthorizedAccessException)
-        {
-            throw new InvalidOperationException(
-                $"{description} could not be inspected safely: {path}: {exception.Message}",
-                exception);
-        }
-    }
-
     private static bool TryRequireRegularDirectory(string path, string description)
         => TryRequireRegularPath(path, description, expectDirectory: true);
 

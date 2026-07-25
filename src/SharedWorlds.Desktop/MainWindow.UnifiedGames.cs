@@ -6,19 +6,13 @@ using System.Windows.Data;
 using System.Windows.Media;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
-using SharedWorlds.GameAdapters.Factorio;
-using SharedWorlds.GameAdapters.Palworld;
 
 namespace SharedWorlds.Desktop;
 
 public partial class MainWindow
 {
     private readonly IReadOnlyDictionary<string, IGameAdapter> _registeredGameAdapters =
-        new Dictionary<string, IGameAdapter>(StringComparer.Ordinal)
-        {
-            ["factorio"] = new FactorioAdapter(),
-            ["palworld"] = new PalworldAdapter()
-        };
+        DesktopGameAdapterCatalog.Create();
 
     private readonly GameIconResolver _gameIconResolver = new();
     private readonly Dictionary<string, GamePresentation> _gamePresentationCache =

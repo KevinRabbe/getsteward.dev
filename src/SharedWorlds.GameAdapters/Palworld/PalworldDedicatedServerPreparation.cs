@@ -182,16 +182,25 @@ internal static partial class PalworldDedicatedServerHosting
 
     private static void CopyDirectory(string sourcePath, string destinationPath)
     {
+        PalworldDedicatedRuntimeInputSafety.RequireRegularDirectory(
+            sourcePath,
+            "Palworld detected World directory");
         Directory.CreateDirectory(destinationPath);
 
         foreach (var filePath in Directory.EnumerateFiles(sourcePath))
         {
+            PalworldDedicatedRuntimeInputSafety.RequireRegularFile(
+                filePath,
+                "Palworld detected World file");
             var destinationFilePath = Path.Combine(destinationPath, Path.GetFileName(filePath));
             File.Copy(filePath, destinationFilePath);
         }
 
         foreach (var directoryPath in Directory.EnumerateDirectories(sourcePath))
         {
+            PalworldDedicatedRuntimeInputSafety.RequireRegularDirectory(
+                directoryPath,
+                "Palworld detected World directory");
             var destinationDirectoryPath = Path.Combine(
                 destinationPath,
                 Path.GetFileName(directoryPath));

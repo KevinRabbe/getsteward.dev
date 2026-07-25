@@ -1,5 +1,6 @@
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Environment;
+using Xunit;
 
 namespace SharedWorlds.GameAdapters.Terraria.Tests;
 

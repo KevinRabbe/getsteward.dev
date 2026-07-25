@@ -6,7 +6,7 @@ A game adapter isolates everything specific to one game while letting Core run t
 
 > Core knows what must happen. The adapter knows how this game makes it happen.
 
-Current first-party adapters are Factorio, Palworld, 7 Days to Die, Project Zomboid, and Terraria. Their proven capability sets intentionally differ. Future adapters must preserve the same boundary without forcing their edge cases into Core.
+Current first-party adapters are Factorio, Palworld, 7 Days to Die, Project Zomboid, Terraria, and Stardew Valley. Their proven capability sets intentionally differ. Future adapters must preserve the same boundary without forcing their edge cases into Core.
 
 ## Product contract
 
@@ -89,6 +89,8 @@ Examples include:
 
 Core stores the manifest but does not interpret the game's semantics.
 
+An adapter must not claim an exact environment by silently omitting a game-specific input it knows may matter. A narrower adapter may refuse unsupported environments instead. Stardew Valley currently uses this rule to reject detected SMAPI/non-empty Mods installations until mod reproduction exists.
+
 ## Import capture
 
 The adapter converts a detected World into a portable `StatePackage` suitable for initial durable storage.
@@ -103,6 +105,8 @@ The package may represent:
 - launcher-managed state.
 
 Import must leave the source untouched.
+
+Native backup/recovery history is not automatically canonical World state. An adapter should include only the files required for the current authoritative state unless game-specific evidence says otherwise.
 
 ## Environment preparation
 
@@ -237,7 +241,7 @@ Implement in this order, stopping capability growth whenever the next game-speci
 
 The first target is one truthful vertical slice, not many partially claimed workflows. An adapter that safely supports discovery/import/environment/state handling may be visible in Steward while launch/hosting remains unavailable; missing runtime evidence is represented by absent capability flags, not invented generic behavior.
 
-Terraria is the current concrete example of that narrower entry point: its first qualified slice discovers/imports local vanilla `.wld` Worlds, preserves opaque state, and verifies the exact Steam build while advertising only `ExactGameVersion`. Launch, Host, Stop, Join, Steam Cloud, and tModLoader remain outside that proven slice.
+Terraria and Stardew Valley are the current concrete examples of that narrower entry point. Terraria preserves one opaque vanilla `.wld`; Stardew Valley preserves exactly its two current vanilla save files while excluding `_old` recovery files. Both verify the exact Steam build and advertise only `ExactGameVersion`; launch/hosting capabilities remain absent.
 
 Adding a game normally does **not** require changes to Core, backend, Infrastructure, or ordinary Desktop action logic. If implementation appears to require such a change, first prove that the need is genuinely universal rather than an adapter-specific edge case.
 

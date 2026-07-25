@@ -308,15 +308,20 @@ internal static class PalworldWorldState
 
     private static bool ShouldExclude(string relativePath)
     {
-        return relativePath
-            .Split(
-                new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
-                StringSplitOptions.RemoveEmptyEntries)
-            .Any(segment =>
-                string.Equals(segment, "backup", StringComparison.OrdinalIgnoreCase) ||
-                segment.Contains(".sharedworlds-backup", StringComparison.OrdinalIgnoreCase) ||
-                segment.Contains(".sharedworlds-staging-", StringComparison.OrdinalIgnoreCase) ||
-                segment.Contains(".sharedworlds-rollback-", StringComparison.OrdinalIgnoreCase));
+        var segments = relativePath.Split(
+            new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+            StringSplitOptions.RemoveEmptyEntries);
+
+        if (segments.Length > 0 &&
+            string.Equals(segments[0], "backup", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return segments.Any(segment =>
+            segment.Contains(".sharedworlds-backup", StringComparison.OrdinalIgnoreCase) ||
+            segment.Contains(".sharedworlds-staging-", StringComparison.OrdinalIgnoreCase) ||
+            segment.Contains(".sharedworlds-rollback-", StringComparison.OrdinalIgnoreCase));
     }
 
     private static string CreatePackagePath(string worldId)

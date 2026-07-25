@@ -46,8 +46,8 @@ public sealed class PalworldNativeBackupCaptureTests : IDisposable
         Assert.Contains("LevelMeta.sav", entryNames);
         Assert.Contains("Players/player.sav", entryNames);
         Assert.Contains("custom/backup/keep.txt", entryNames);
-        Assert.False(entryNames.Any(entryName =>
-            entryName.StartsWith("backup/", StringComparison.OrdinalIgnoreCase)));
+        Assert.DoesNotContain(entryNames, entryName =>
+            entryName.StartsWith("backup/", StringComparison.OrdinalIgnoreCase));
     }
 
     public void Dispose()

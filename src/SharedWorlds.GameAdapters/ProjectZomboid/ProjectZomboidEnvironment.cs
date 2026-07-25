@@ -175,11 +175,9 @@ internal static partial class ProjectZomboidEnvironment
         }
 
         var fullManifestPath = Path.GetFullPath(manifestPath);
-        if (!File.Exists(fullManifestPath))
-        {
-            throw new InvalidOperationException(
-                $"Project Zomboid Dedicated Server Steam manifest was not found: {fullManifestPath}");
-        }
+        RequireRegularFile(
+            fullManifestPath,
+            "Project Zomboid Dedicated Server Steam manifest");
 
         string text;
         try
@@ -208,12 +206,14 @@ internal static partial class ProjectZomboidEnvironment
         string serverName)
     {
         var userDataRoot = GetRequiredUserDataRoot(installation);
-        var configPath = Path.Combine(userDataRoot, "Server", serverName + ".ini");
-        if (!File.Exists(configPath))
-        {
-            throw new InvalidOperationException(
-                $"Project Zomboid server definition was not found: {configPath}");
-        }
+        var serverConfigRoot = Path.Combine(userDataRoot, "Server");
+        RequireRegularDirectory(
+            serverConfigRoot,
+            "Project Zomboid Server configuration directory");
+        var configPath = Path.Combine(serverConfigRoot, serverName + ".ini");
+        RequireRegularFile(
+            configPath,
+            "Project Zomboid server definition");
 
         string[] lines;
         try
@@ -238,9 +238,26 @@ internal static partial class ProjectZomboidEnvironment
         GameInstallation installation)
     {
         var serverRoot = GetRequiredDedicatedServerRoot(installation);
-        var workshopRoot = Path.Combine(serverRoot, "steamapps", "workshop");
+        var steamAppsRoot = Path.Combine(serverRoot, "steamapps");
+        if (!TryRequireRegularDirectory(
+                steamAppsRoot,
+                "Project Zomboid Dedicated Server steamapps directory"))
+        {
+            return new Dictionary<string, InstalledWorkshopItem>(StringComparer.Ordinal);
+        }
+
+        var workshopRoot = Path.Combine(steamAppsRoot, "workshop");
+        if (!TryRequireRegularDirectory(
+                workshopRoot,
+                "Project Zomboid Workshop directory"))
+        {
+            return new Dictionary<string, InstalledWorkshopItem>(StringComparer.Ordinal);
+        }
+
         var manifestPath = Path.Combine(workshopRoot, "appworkshop_108600.acf");
-        if (!File.Exists(manifestPath))
+        if (!TryRequireRegularFile(
+                manifestPath,
+                "Project Zomboid Workshop manifest"))
         {
             return new Dictionary<string, InstalledWorkshopItem>(StringComparer.Ordinal);
         }
@@ -276,12 +293,18 @@ internal static partial class ProjectZomboidEnvironment
             }
 
             var manifestId = manifest.Groups[1].Value;
-            var contentPath = Path.Combine(workshopRoot, "content", "108600", workshopId);
-            if (!Directory.Exists(contentPath))
-            {
-                throw new InvalidOperationException(
-                    $"Project Zomboid Workshop item {workshopId} is marked installed but its content directory is missing: {contentPath}");
-            }
+            var contentRoot = Path.Combine(workshopRoot, "content");
+            RequireRegularDirectory(
+                contentRoot,
+                "Project Zomboid Workshop content directory");
+            var appContentRoot = Path.Combine(contentRoot, "108600");
+            RequireRegularDirectory(
+                appContentRoot,
+                "Project Zomboid Workshop app content directory");
+            var contentPath = Path.Combine(appContentRoot, workshopId);
+            RequireRegularDirectory(
+                contentPath,
+                $"Project Zomboid Workshop item {workshopId} content directory");
 
             if (!result.TryAdd(
                     workshopId,
@@ -558,12 +581,9 @@ internal static partial class ProjectZomboidEnvironment
         }
 
         var fullRoot = Path.GetFullPath(serverRoot);
-        if (!Directory.Exists(fullRoot))
-        {
-            throw new InvalidOperationException(
-                $"Project Zomboid Dedicated Server root does not exist: {fullRoot}");
-        }
-
+        RequireRegularDirectory(
+            fullRoot,
+            "Project Zomboid Dedicated Server root");
         return fullRoot;
     }
 
@@ -579,7 +599,72 @@ internal static partial class ProjectZomboidEnvironment
                 "Project Zomboid installation is missing its user-data path.");
         }
 
-        return Path.GetFullPath(userDataRoot);
+        var fullRoot = Path.GetFullPath(userDataRoot);
+        RequireRegularDirectory(
+            fullRoot,
+            "Project Zomboid user-data root");
+        return fullRoot;
+    }
+
+    private static bool TryRequireRegularFile(string path, string description)
+        => TryRequireRegularPath(path, description, expectDirectory: false);
+
+    private static bool TryRequireRegularDirectory(string path, string description)
+        => TryRequireRegularPath(path, description, expectDirectory: true);
+
+    private static void RequireRegularFile(string path, string description)
+    {
+        if (!TryRequireRegularFile(path, description))
+        {
+            throw new InvalidOperationException($"{description} was not found: {path}");
+        }
+    }
+
+    private static void RequireRegularDirectory(string path, string description)
+    {
+        if (!TryRequireRegularDirectory(path, description))
+        {
+            throw new InvalidOperationException($"{description} was not found: {path}");
+        }
+    }
+
+    private static bool TryRequireRegularPath(
+        string path,
+        string description,
+        bool expectDirectory)
+    {
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (Exception exception) when (
+            exception is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"{description} could not be inspected safely: {path}: {exception.Message}",
+                exception);
+        }
+
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new InvalidOperationException(
+                $"{description} is linked or a reparse point. Steward will not use bytes outside the Project Zomboid environment: {path}");
+        }
+
+        var isDirectory = (attributes & FileAttributes.Directory) != 0;
+        if (isDirectory != expectDirectory)
+        {
+            throw new InvalidOperationException(
+                $"{description} is not a {(expectDirectory ? "directory" : "regular file")}: {path}");
+        }
+
+        return true;
     }
 
     private static string GetServerName(string worldPath)

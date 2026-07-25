@@ -4,6 +4,7 @@ namespace SharedWorlds.GameAdapters.ProjectZomboid;
 
 internal static class ProjectZomboidPortableServerConfiguration
 {
+    private static readonly byte[] Utf8Bom = [0xEF, 0xBB, 0xBF];
     private static readonly UTF8Encoding StrictUtf8 = new(
         encoderShouldEmitUTF8Identifier: false,
         throwOnInvalidBytes: true);
@@ -15,9 +16,9 @@ internal static class ProjectZomboidPortableServerConfiguration
     {
         ArgumentNullException.ThrowIfNull(sourceBytes);
 
-        var hasBom = sourceBytes.AsSpan().StartsWith(Encoding.UTF8.Preamble);
+        var hasBom = sourceBytes.AsSpan().StartsWith(Utf8Bom);
         var content = hasBom
-            ? sourceBytes.AsSpan(Encoding.UTF8.Preamble.Length)
+            ? sourceBytes.AsSpan(Utf8Bom.Length)
             : sourceBytes.AsSpan();
 
         string sourceText;
@@ -39,10 +40,25 @@ internal static class ProjectZomboidPortableServerConfiguration
             return sanitizedContent;
         }
 
-        var result = new byte[Encoding.UTF8.Preamble.Length + sanitizedContent.Length];
-        Encoding.UTF8.Preamble.CopyTo(result);
-        sanitizedContent.CopyTo(result.AsSpan(Encoding.UTF8.Preamble.Length));
+        var result = new byte[Utf8Bom.Length + sanitizedContent.Length];
+        Utf8Bom.CopyTo(result, 0);
+        sanitizedContent.CopyTo(result.AsSpan(Utf8Bom.Length));
         return result;
+    }
+
+    internal static async Task SanitizeFileAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var sourceBytes = await File.ReadAllBytesAsync(path, cancellationToken);
+        var sanitizedBytes = Sanitize(sourceBytes);
+        if (sourceBytes.AsSpan().SequenceEqual(sanitizedBytes))
+        {
+            return;
+        }
+
+        await File.WriteAllBytesAsync(path, sanitizedBytes, cancellationToken);
     }
 
     internal static string SanitizeText(string sourceText)

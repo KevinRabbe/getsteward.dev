@@ -115,6 +115,42 @@ public sealed class FactorioModInputSafetyTests : IDisposable
     }
 
     [Fact]
+    public async Task InspectionRejectsOversizedModListBeforeJsonParse()
+    {
+        var installationRoot = Path.Combine(_root, "oversized-mod-list-install");
+        var baseData = Path.Combine(installationRoot, "data", "base");
+        Directory.CreateDirectory(baseData);
+        await File.WriteAllTextAsync(
+            Path.Combine(baseData, "info.json"),
+            "{\"version\":\"2.0.0\"}");
+
+        var userData = Path.Combine(_root, "oversized-mod-list-user-data");
+        var mods = Path.Combine(userData, "mods");
+        Directory.CreateDirectory(mods);
+        var modListPath = Path.Combine(mods, "mod-list.json");
+        using (var stream = new FileStream(
+                   modListPath,
+                   FileMode.CreateNew,
+                   FileAccess.Write,
+                   FileShare.None))
+        {
+            stream.SetLength(FactorioEnvironmentInspector.MaximumModListBytes + 1L);
+        }
+
+        var adapter = new FactorioAdapter();
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            adapter.InspectEnvironmentAsync(
+                Installation(userData, installationRoot),
+                new DetectedWorld("test", "Test", Path.Combine(_root, "test.zip"))));
+
+        Assert.Contains("mod-list", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("safety limit", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(
+            FactorioEnvironmentInspector.MaximumModListBytes + 1L,
+            new FileInfo(modListPath).Length);
+    }
+
+    [Fact]
     public async Task InspectionRejectsLinkedStartupSettingsBeforeReadingEnvironment()
     {
         if (!OperatingSystem.IsWindows())
@@ -225,10 +261,12 @@ public sealed class FactorioModInputSafetyTests : IDisposable
         FactorioModInputSafety.RequireReproductionInputs(installation);
     }
 
-    private static GameInstallation Installation(string userData)
+    private static GameInstallation Installation(
+        string userData,
+        string? installationRoot = null)
         => new(
             "factorio:test",
-            Path.Combine(Path.GetTempPath(), "factorio-test-install"),
+            installationRoot ?? Path.Combine(Path.GetTempPath(), "factorio-test-install"),
             "test",
             new Dictionary<string, string>(StringComparer.Ordinal)
             {

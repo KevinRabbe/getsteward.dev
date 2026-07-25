@@ -3,6 +3,7 @@ using SharedWorlds.GameAdapters.CoreKeeper;
 using SharedWorlds.GameAdapters.Factorio;
 using SharedWorlds.GameAdapters.Necesse;
 using SharedWorlds.GameAdapters.Palworld;
+using SharedWorlds.GameAdapters.PlanetCrafter;
 using SharedWorlds.GameAdapters.ProjectZomboid;
 using SharedWorlds.GameAdapters.SevenDaysToDie;
 using SharedWorlds.GameAdapters.StardewValley;
@@ -23,7 +24,8 @@ internal static class DesktopGameAdapterCatalog
             new TerrariaAdapter(),
             new StardewValleyAdapter(),
             new NecesseAdapter(),
-            new CoreKeeperAdapter()
+            new CoreKeeperAdapter(),
+            new PlanetCrafterAdapter()
         ];
 
         return adapters.ToDictionary(adapter => adapter.Id, StringComparer.Ordinal);

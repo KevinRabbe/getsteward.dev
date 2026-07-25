@@ -6,6 +6,8 @@ namespace SharedWorlds.GameAdapters.SevenDaysToDie;
 
 internal static partial class SevenDaysToDieEnvironment
 {
+    internal const int MaximumModDirectories = 1024;
+
     internal static IReadOnlyList<EnvironmentComponent> ReadDedicatedServerMods(GameInstallation installation)
     {
         var serverRoot = GetRequiredDedicatedServerRoot(installation);
@@ -19,10 +21,22 @@ internal static partial class SevenDaysToDieEnvironment
 
         var mods = new List<EnvironmentComponent>();
         var names = new HashSet<string>(StringComparer.Ordinal);
-        IEnumerable<string> directories;
+        var directories = new List<string>();
         try
         {
-            directories = Directory.EnumerateDirectories(modsRoot, "*", SearchOption.TopDirectoryOnly).ToArray();
+            foreach (var directory in Directory.EnumerateDirectories(
+                         modsRoot,
+                         "*",
+                         SearchOption.TopDirectoryOnly))
+            {
+                if (directories.Count >= MaximumModDirectories)
+                {
+                    throw new InvalidOperationException(
+                        $"7 Days to Die Dedicated Server Mods directory contains more than Steward's {MaximumModDirectories}-directory environment inventory safety limit.");
+                }
+
+                directories.Add(directory);
+            }
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
@@ -47,6 +61,10 @@ internal static partial class SevenDaysToDieEnvironment
                 continue;
             }
 
+            RequireFileWithinLimit(
+                modInfoPath,
+                "7 Days to Die ModInfo.xml",
+                MaximumModInfoBytes);
             var (name, version) = ReadModInfo(modInfoPath);
             if (!names.Add(name))
             {

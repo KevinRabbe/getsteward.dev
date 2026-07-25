@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>SharedWorlds.GameAdapters.Enshrouded</AssemblyName>
+    <RootNamespace>SharedWorlds.GameAdapters.Enshrouded</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../SharedWorlds.Core/SharedWorlds.Core.csproj" />
+  </ItemGroup>
+</Project>

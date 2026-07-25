@@ -47,6 +47,40 @@ A deferred test is not evidence that the behavior works. It is an explicit bound
 
 **Promotion rule:** Only after this evidence exists may the adapter add the corresponding automatic launch/stop capability flags.
 
+## 7 Days to Die — V3 sandbox configuration authority
+
+**Frozen product state:** 7 Days to Die does not advertise automatic host launch, automatic host stop, or automatic client join. Steward can deterministically transform a bounded `serverconfig.xml` template for an isolated restored World, but it does not yet claim where an imported V3 World's authoritative sandbox gameplay configuration comes from.
+
+**Already deterministic/CI-proven:**
+
+- Steam client and dedicated-server installation discovery.
+- Exact dedicated-server Steam build inspection and verification.
+- Canonical `Saves/<GameWorld>/<GameName>` plus matching `GeneratedWorlds/<GameWorld>` bundle capture/restore.
+- Isolated adapter-owned user-data workspace preparation and recovery-preserving finalization.
+- Bounded managed `serverconfig.xml` transformation for `GameWorld`, `GameName`, `UserDataFolder`, and `SaveGameFolder`.
+- An existing `SandboxCode` is treated as opaque game-owned data: Steward does not decode, regenerate, or silently replace it.
+
+**Empirical question:** For an existing V3 World with deliberately non-default sandbox settings, does the canonical World bundle itself carry enough authoritative information to reproduce the exact effective sandbox configuration when the original `serverconfig.xml` is withheld, or must Steward capture a separate authoritative sandbox configuration input during import?
+
+**Test setup:**
+
+- Windows machine with the current 7 Days to Die client and dedicated server installed.
+- One known V3 World configured with several deliberately non-default sandbox options.
+- Record the original generated `SandboxCode` and the game's reported effective sandbox settings as an oracle only.
+- Capture the World through Steward's existing canonical bundle path.
+- Prepare an isolated restored copy from that bundle without supplying the original `serverconfig.xml` or another external sandbox configuration source.
+- Use only a disposable copy for any game launch needed to observe the effective settings; the source World remains read-only.
+
+**Acceptance evidence:**
+
+- The test identifies whether the isolated World alone reproduces the same effective sandbox settings/code as the oracle.
+- If the World is authoritative, the exact stable recovery source and reproduction rule are identified so they can be implemented and regression-tested without depending on unrelated machine-local configuration.
+- If the World is not authoritative, the failure is recorded as the result: Steward must define and capture an explicit separate sandbox configuration input during import rather than infer it from a local dedicated-server `serverconfig.xml`.
+- In either outcome, a second isolated reproduction using the chosen authority rule reports the same effective sandbox settings as the oracle.
+- No capability flag is promoted merely because configuration authority is resolved; launch/readiness/safe-stop behavior still requires its own evidence.
+
+**Promotion rule:** Do not wire imported-World hosting to an assumed `SandboxCode` source. First establish and implement the authoritative configuration rule above; automatic host/stop capabilities remain frozen until the corresponding real lifecycle evidence also exists.
+
 ## Desktop — real Windows UI acceptance
 
 **Frozen product state:** CI proves compilation, packaging, neutral `DesktopText` resource resolution on Windows, deterministic accessibility metadata, live-region event wiring, and the per-monitor DPI manifest. CI does not claim that a real assistive technology or monitor transition has been observed.

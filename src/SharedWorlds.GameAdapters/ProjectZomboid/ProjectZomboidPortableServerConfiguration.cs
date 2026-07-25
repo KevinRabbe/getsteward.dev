@@ -4,6 +4,7 @@ namespace SharedWorlds.GameAdapters.ProjectZomboid;
 
 internal static class ProjectZomboidPortableServerConfiguration
 {
+    private const int MaximumConfigurationBytes = 4 * 1024 * 1024;
     private static readonly byte[] Utf8Bom = [0xEF, 0xBB, 0xBF];
     private static readonly UTF8Encoding StrictUtf8 = new(
         encoderShouldEmitUTF8Identifier: false,
@@ -15,6 +16,11 @@ internal static class ProjectZomboidPortableServerConfiguration
     internal static byte[] Sanitize(byte[] sourceBytes)
     {
         ArgumentNullException.ThrowIfNull(sourceBytes);
+        if (sourceBytes.Length > MaximumConfigurationBytes)
+        {
+            throw new InvalidDataException(
+                $"Project Zomboid server configuration exceeds Steward's {MaximumConfigurationBytes}-byte portable-state safety limit.");
+        }
 
         var hasBom = sourceBytes.AsSpan().StartsWith(Utf8Bom);
         var content = hasBom
@@ -46,12 +52,39 @@ internal static class ProjectZomboidPortableServerConfiguration
         return result;
     }
 
-    internal static async Task SanitizeFileAsync(
+    internal static async Task<byte[]> ReadSanitizedFileAsync(
         string path,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var file = new FileInfo(path);
+        if (!file.Exists)
+        {
+            throw new FileNotFoundException(
+                "Project Zomboid server configuration does not exist.",
+                path);
+        }
+
+        if (file.Length > MaximumConfigurationBytes)
+        {
+            throw new InvalidDataException(
+                $"Project Zomboid server configuration exceeds Steward's {MaximumConfigurationBytes}-byte portable-state safety limit.");
+        }
+
+        return Sanitize(await File.ReadAllBytesAsync(path, cancellationToken));
+    }
+
+    internal static async Task SanitizeFileAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
         var sourceBytes = await File.ReadAllBytesAsync(path, cancellationToken);
+        if (sourceBytes.Length > MaximumConfigurationBytes)
+        {
+            throw new InvalidDataException(
+                $"Project Zomboid server configuration exceeds Steward's {MaximumConfigurationBytes}-byte portable-state safety limit.");
+        }
+
         var sanitizedBytes = Sanitize(sourceBytes);
         if (sourceBytes.AsSpan().SequenceEqual(sanitizedBytes))
         {

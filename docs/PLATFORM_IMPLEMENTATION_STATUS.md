@@ -6,7 +6,7 @@ This checkpoint records the first point at which Steward's generic product shell
 
 It does **not** claim that real-machine, real-provider, real-Steam, or final release acceptance has happened. Those evidence gates remain separate and must not be replaced with CI claims.
 
-## Canonical code checkpoint
+## Canonical platform-completion checkpoint
 
 The platform-completion code slice is PR #72:
 
@@ -24,7 +24,25 @@ The immediately preceding hardening/integration checkpoint is:
 
 > `5d48b3d83956c12664be713341c4e538f56cd9c9`
 
-It also passed all five workflows. PR #72 changes only Desktop adapter composition: it creates one first-party adapter catalog and makes all four existing adapters available to the generic Games/Import shell without changing any adapter capability.
+It also passed all five workflows. PR #72 changes only Desktop adapter composition: it creates one first-party adapter catalog and makes all four then-existing adapters available to the generic Games/Import shell without changing any adapter capability.
+
+## Latest qualified product line
+
+Normal adapter expansion has continued without reopening the platform. The latest qualified product line is Terraria PR #77:
+
+> `0a6bbd198dfb42aaf22fa5568d7cb09e4faf9cf8`
+
+On that exact head all five repository workflows are green again, including Quality, Ubuntu/Windows build-and-test, backend container, PostgreSQL, S3-compatible integration, and Windows acceptance.
+
+The aggregate adapter counts on that line are:
+
+- Factorio: 41/41;
+- Palworld: 75/75;
+- 7 Days to Die: 47/47;
+- Project Zomboid: 94/94;
+- Terraria: 8/8 on both Ubuntu and Windows.
+
+PR #77 is the intended post-platform extension pattern: one new adapter project, game-owned discovery/environment/state behavior, truthful capability exposure, adapter-specific tests, solution/Desktop registration, and exact combined qualification. It does not modify Core, backend, Infrastructure, or generic Desktop lifecycle contracts.
 
 ## What "platform complete" means
 
@@ -53,7 +71,7 @@ Otherwise keep the platform stable.
 
 ## Current first-party adapter composition
 
-Desktop now has one explicit first-party composition point, `DesktopGameAdapterCatalog`.
+Desktop has one explicit first-party composition point, `DesktopGameAdapterCatalog`.
 
 Current adapters:
 
@@ -63,8 +81,11 @@ Current adapters:
 | Palworld | dedicated-server/World lifecycle path with explicit game-specific limitations; remaining work is adapter/release evidence where still recorded |
 | 7 Days to Die | discovery/import/environment/state support; launch/hosting remains unavailable until its adapter proves truthful runtime semantics |
 | Project Zomboid | discovery/import/environment/state support; launch/hosting remains unavailable until its adapter proves truthful runtime semantics |
+| Terraria | local vanilla `.wld` discovery/import, exact Steam build identity, opaque capture/restore, and owned workspace handling; Steam Cloud, tModLoader, launch, Host, Stop, and Join remain unsupported |
 
 Registration does not grant capabilities. The Desktop reads each adapter's `GameAdapterCapabilities`; adding an adapter to the catalog cannot silently make Start, Host, Join, or Stop available.
+
+Terraria currently advertises only `ExactGameVersion`. Its state-only entry is deliberate evidence that an adapter can join the product before launch/hosting semantics are proven.
 
 ## Normal path for adding a game
 
@@ -123,7 +144,7 @@ These remain recorded in `DEFERRED_EMPIRICAL_TESTS.md` and related acceptance do
 
 Older E6/E8 status files preserve useful historical evidence, but checkpoint statements such as `62517139` being the last globally green head or "reconcile the E6/E8 stack onto the newer Factorio tree" are superseded by this document.
 
-The current line already contains the E6 commercial UI stack, the E8 deterministic hardening stack, the later adapter hardening work, and the PR #72 Desktop composition correction on one all-workflows-green ancestry.
+The current line contains the E6 commercial UI stack, the E8 deterministic hardening stack, the later adapter hardening work, the PR #72 Desktop composition correction, and post-platform adapter expansion through qualified Terraria PR #77 on one all-workflows-green ancestry.
 
 Use this file for the current implementation mode. Use E6/E8 documents for the detailed evidence and deferred acceptance categories they describe.
 

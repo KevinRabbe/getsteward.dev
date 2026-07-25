@@ -1,23 +1,24 @@
 # Steward Documentation
 
-Steward is a commercial product moving from validated technical foundations toward a dependable user-facing system.
+Steward is a commercial Windows desktop product with its generic platform code/CI boundary complete and release acceptance still in progress.
 
 This directory is the canonical home for active product, architecture, engineering, lifecycle, adapter, storage, recovery, and planning documentation.
 
 ## Current project mode
 
-> **Implementation is unlocked. BE-1 through BE-5 are complete and green at the development-contract level. E4 has composed the remote stack into the Windows Desktop, including the real Steam Web API ticket code path, stable installation identity, canonical shared-World routing, exact-environment Verify/Repair gating, deterministic local/remote pending recovery, cleanup-only recovery, Share/Invites/Manage access, and explicit recover-or-discard handling for crash-found interrupted sessions. Production Steam credentials and the final real-Steam two-installation acceptance are intentionally deferred until Steward is otherwise release-candidate quality; they are not a development blocker.**
+> **The generic Steward platform is code/CI complete. Core/backend/runtime contracts, deterministic hardening, and the commercial Desktop shell are composed on one qualified line. Normal implementation work is now game-adapter work. Do not reopen generic Core/UI/platform construction unless a concrete universal defect or requirement proves it necessary. Real EU deployment, real-game, real-Windows, and final Steam/two-installation acceptance remain explicit empirical release gates rather than current coding blockers.**
 
-Start with the [Master Roadmap](ROADMAP.md), then work through the three implementation workstreams:
+Start with the [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) for the current checkpoint and development rule. Use the [Master Roadmap](ROADMAP.md) and workstream roadmaps for detailed product contracts and historical implementation sequencing:
 
 1. [UI and UX Roadmap](UI_ROADMAP.md)
 2. [Backend Roadmap](BACKEND_ROADMAP.md)
 3. [Adapter and Background Runtime Roadmap](ADAPTER_RUNTIME_ROADMAP.md)
 
-The roadmaps are separate for clarity but define one product. Their states, actions, failure semantics, and acceptance criteria must continue to agree as implementation replaces the simulated boundaries with real services.
+The roadmaps are separate for clarity but define one product. Their states, actions, failure semantics, and acceptance criteria must continue to agree. Older milestone/checkpoint wording is historical where the Platform Implementation Status explicitly supersedes it.
 
-Current backend/runtime completion evidence:
+Current completion evidence:
 
+- [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) — current all-workflows-green platform checkpoint, the stable extension boundary, adapter-addition workflow, and remaining empirical release gates;
 - [BE-2 Status](BE2_STATUS.md) — authenticated World/access/revision metadata with durable PostgreSQL persistence;
 - [BE-3 S3 Checkpoint](BE3_S3_CHECKPOINT.md) — immutable transfer, S3-compatible protocol proof, cleanup/retention, and desktop verified caching/materialization;
 - [BE-4 Status](BE4_STATUS.md) — durable one-writer reservation/generation authority, canonical commit, reclaim, late-writer rejection, and transactional idempotency;
@@ -34,8 +35,9 @@ When documents disagree, use this order:
 2. [Product Boundary](PRODUCT_BOUNDARY.md)
 3. [Design Decisions](DECISIONS.md)
 4. [Architecture](ARCHITECTURE.md)
-5. Detailed subsystem and adapter documents
-6. [Master Roadmap](ROADMAP.md) and its workstream roadmaps
+5. [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) for current implementation/checkpoint mode
+6. Detailed subsystem and adapter documents
+7. [Master Roadmap](ROADMAP.md) and its workstream roadmaps
 
 The first two documents define what Steward is and what it must not become. Lower-level documents may add detail but may not silently expand or contradict the product boundary.
 
@@ -60,6 +62,7 @@ Steward moves the latest valid World state into a playable session and returns t
 
 ## Planning and execution
 
+- [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) — current code/CI completion boundary and normal adapter-expansion rule.
 - [Master Roadmap](ROADMAP.md) — workstream dependencies, drift-control rules, implementation order, and release boundary.
 - [UI and UX Roadmap](UI_ROADMAP.md) — navigation, user journeys, state/action contract, tray/background experience, recovery UX, milestones, and unresolved UI decisions.
 - [UI-0 Sign-off Checklist](UI0_SIGNOFF_CHECKLIST.md) — approved flat sharing flow, tray behavior, terminology, and UI planning checks.
@@ -105,6 +108,6 @@ Before accepting a meaningful product or architecture change, check:
 - Is Steam or the game already responsible for the proposed feature?
 - Does it directly help different players continue the same World across devices or times?
 - Does it add commercial reliability rather than uncontrolled scope?
-- Does the implementation map to the currently active numbered milestone and acceptance criterion?
+- Does the implementation map to the current platform/adapter boundary or a documented release acceptance item?
 
 When a boundary changes deliberately, update the authoritative documentation before implementation.

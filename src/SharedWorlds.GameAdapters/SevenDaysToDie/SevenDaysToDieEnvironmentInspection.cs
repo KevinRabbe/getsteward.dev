@@ -6,6 +6,9 @@ namespace SharedWorlds.GameAdapters.SevenDaysToDie;
 
 internal static partial class SevenDaysToDieEnvironment
 {
+    internal const long MaximumSteamManifestBytes = 4L * 1024 * 1024;
+    internal const long MaximumModInfoBytes = 4L * 1024 * 1024;
+
     public static EnvironmentManifest Inspect(GameInstallation installation)
     {
         ArgumentNullException.ThrowIfNull(installation);
@@ -36,6 +39,10 @@ internal static partial class SevenDaysToDieEnvironment
         RequireRegularFile(
             fullManifestPath,
             "7 Days to Die Dedicated Server Steam manifest");
+        RequireFileWithinLimit(
+            fullManifestPath,
+            "7 Days to Die Dedicated Server Steam manifest",
+            MaximumSteamManifestBytes);
 
         string text;
         try
@@ -89,6 +96,30 @@ internal static partial class SevenDaysToDieEnvironment
         if (!TryRequireRegularFile(path, description))
         {
             throw new InvalidOperationException($"{description} was not found: {path}");
+        }
+    }
+
+    private static void RequireFileWithinLimit(
+        string path,
+        string description,
+        long maximumBytes)
+    {
+        long length;
+        try
+        {
+            length = new FileInfo(path).Length;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"{description} size could not be inspected safely: {path}: {exception.Message}",
+                exception);
+        }
+
+        if (length > maximumBytes)
+        {
+            throw new InvalidOperationException(
+                $"{description} exceeds Steward's {maximumBytes}-byte environment metadata safety limit: {path}");
         }
     }
 

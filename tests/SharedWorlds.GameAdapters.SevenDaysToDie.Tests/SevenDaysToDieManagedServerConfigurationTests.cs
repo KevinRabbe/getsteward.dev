@@ -186,7 +186,9 @@ public sealed class SevenDaysToDieManagedServerConfigurationTests
             "Navezgane",
             "Managed Save");
 
-        Assert.True(transformed.AsSpan().StartsWith([0xEF, 0xBB, 0xBF]));
+        Assert.Equal((byte)0xEF, transformed[0]);
+        Assert.Equal((byte)0xBB, transformed[1]);
+        Assert.Equal((byte)0xBF, transformed[2]);
     }
 
     private static byte[] Utf8(string value)

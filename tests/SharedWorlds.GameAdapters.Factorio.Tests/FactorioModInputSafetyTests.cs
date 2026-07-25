@@ -76,7 +76,7 @@ public sealed class FactorioModInputSafetyTests : IDisposable
     }
 
     [Fact]
-    public async Task ReproductionRejectsLinkedStartupSettingsBeforeVersionWork()
+    public async Task ReproductionRejectsLinkedStartupSettingsBeforeWorkspaceWork()
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -93,16 +93,16 @@ public sealed class FactorioModInputSafetyTests : IDisposable
 
         try
         {
-            var adapter = new FactorioAdapter();
             var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                adapter.PrepareEnvironmentAsync(
+                FactorioWorldOperations.PrepareEnvironmentAsync(
                     Installation(userData),
                     new EnvironmentManifest(
                         1,
                         "factorio",
                         "test-version",
                         [],
-                        new Dictionary<string, string>())));
+                        new Dictionary<string, string>()),
+                    CancellationToken.None));
 
             Assert.Contains("startup-settings", exception.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("linked or a reparse point", exception.Message, StringComparison.OrdinalIgnoreCase);

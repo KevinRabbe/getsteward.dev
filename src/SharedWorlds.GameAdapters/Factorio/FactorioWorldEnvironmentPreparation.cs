@@ -8,6 +8,8 @@ namespace SharedWorlds.GameAdapters.Factorio;
 
 internal static partial class FactorioWorldOperations
 {
+    internal const long MaximumSourceConfigBytes = 4L * 1024 * 1024;
+
     public static async Task<PreparedWorld> PrepareEnvironmentAsync(
         GameInstallation installation,
         EnvironmentManifest requiredEnvironment,
@@ -235,6 +237,7 @@ internal static partial class FactorioWorldOperations
         string[] lines;
         if (File.Exists(sourceConfigPath))
         {
+            RequireSafeSourceConfigInput(sourceConfigPath);
             lines = await File.ReadAllLinesAsync(sourceConfigPath, cancellationToken);
         }
         else
@@ -249,6 +252,72 @@ internal static partial class FactorioWorldOperations
 
         var rewritten = RewriteWriteDataPath(lines, Path.GetFullPath(workspaceUserDataDirectory));
         await File.WriteAllLinesAsync(destinationConfigPath, rewritten, cancellationToken);
+    }
+
+    private static void RequireSafeSourceConfigInput(string sourceConfigPath)
+    {
+        var fullPath = Path.GetFullPath(sourceConfigPath);
+        var configDirectory = Path.GetDirectoryName(fullPath)
+            ?? throw new InvalidOperationException(
+                $"Could not determine Factorio source config directory for '{fullPath}'.");
+
+        RequireRegularSourceConfigPath(
+            configDirectory,
+            expectDirectory: true,
+            "Factorio source config directory");
+        RequireRegularSourceConfigPath(
+            fullPath,
+            expectDirectory: false,
+            "Factorio source config file");
+
+        long length;
+        try
+        {
+            length = new FileInfo(fullPath).Length;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"Steward could not inspect Factorio source config file size '{fullPath}'.",
+                exception);
+        }
+
+        if (length > MaximumSourceConfigBytes)
+        {
+            throw new InvalidOperationException(
+                $"Factorio source config file '{fullPath}' exceeds Steward's {MaximumSourceConfigBytes}-byte safety limit.");
+        }
+    }
+
+    private static void RequireRegularSourceConfigPath(
+        string path,
+        bool expectDirectory,
+        string description)
+    {
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"Steward could not inspect {description} '{path}'.",
+                exception);
+        }
+
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new InvalidOperationException(
+                $"{description} '{path}' is linked or a reparse point. Steward will not import runtime configuration through redirected paths.");
+        }
+
+        var isDirectory = (attributes & FileAttributes.Directory) != 0;
+        if (isDirectory != expectDirectory)
+        {
+            throw new InvalidOperationException(
+                $"{description} '{path}' is not a {(expectDirectory ? "directory" : "regular file")}.");
+        }
     }
 
     private static IReadOnlyList<string> RewriteWriteDataPath(

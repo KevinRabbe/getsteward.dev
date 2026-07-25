@@ -76,8 +76,19 @@ internal static class ProjectZomboidRuntimeManagementConfigurationWriter
             inputs.CacheDirectory,
             configurationPath,
             "runtime server configuration");
-        await ProjectZomboidPortableServerConfiguration.SanitizeFileAsync(
+        PreflightConfigurationFile(configurationPath);
+
+        var currentBytes = await File.ReadAllBytesAsync(configurationPath, cancellationToken);
+        var scrubbedBytes = ProjectZomboidPortableServerConfiguration.Sanitize(currentBytes);
+        if (currentBytes.AsSpan().SequenceEqual(scrubbedBytes))
+        {
+            return;
+        }
+
+        await PublishAtomicallyAsync(
+            inputs.CacheDirectory,
             configurationPath,
+            scrubbedBytes,
             cancellationToken);
     }
 

@@ -33,5 +33,6 @@
     <ProjectReference Include="../SharedWorlds.GameAdapters/PlanetCrafter/SharedWorlds.GameAdapters.PlanetCrafter.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/Satisfactory/SharedWorlds.GameAdapters.Satisfactory.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/Astroneer/SharedWorlds.GameAdapters.Astroneer.csproj" />
+    <ProjectReference Include="../SharedWorlds.GameAdapters/Enshrouded/SharedWorlds.GameAdapters.Enshrouded.csproj" />
   </ItemGroup>
 </Project>

@@ -6,7 +6,7 @@ A game adapter isolates everything specific to one game while letting Core run t
 
 > Core knows what must happen. The adapter knows how this game makes it happen.
 
-Current first-party adapters are Factorio, Palworld, 7 Days to Die, Project Zomboid, Terraria, and Stardew Valley. Their proven capability sets intentionally differ. Future adapters must preserve the same boundary without forcing their edge cases into Core.
+Current first-party adapters are Factorio, Palworld, 7 Days to Die, Project Zomboid, Terraria, Stardew Valley, and Necesse. Their proven capability sets intentionally differ. Future adapters must preserve the same boundary without forcing their edge cases into Core.
 
 ## Product contract
 
@@ -89,7 +89,7 @@ Examples include:
 
 Core stores the manifest but does not interpret the game's semantics.
 
-An adapter must not claim an exact environment by silently omitting a game-specific input it knows may matter. A narrower adapter may refuse unsupported environments instead. Stardew Valley currently uses this rule to reject detected SMAPI/non-empty Mods installations until mod reproduction exists.
+An adapter must not claim an exact environment by silently omitting a game-specific input it knows may matter. A narrower adapter may refuse unsupported environments instead. Stardew Valley currently uses this rule to reject detected SMAPI/non-empty Mods installations until mod reproduction exists; Necesse applies the same rule to a linked or non-empty local mods directory.
 
 ## Import capture
 
@@ -98,7 +98,8 @@ The adapter converts a detected World into a portable `StatePackage` suitable fo
 The package may represent:
 
 - one opaque save file;
-- one ZIP;
+- one game-native archive;
+- one Steward-owned ZIP;
 - a directory archive;
 - a database;
 - several related files;
@@ -107,6 +108,8 @@ The package may represent:
 Import must leave the source untouched.
 
 Native backup/recovery history is not automatically canonical World state. An adapter should include only the files required for the current authoritative state unless game-specific evidence says otherwise.
+
+When the game already stores the current World in a portable archive, do not automatically unpack and rebuild it. Necesse demonstrates the simpler rule: preserve the game-native World ZIP as opaque bytes unless Steward has a concrete need to interpret its contents.
 
 ## Environment preparation
 
@@ -241,7 +244,7 @@ Implement in this order, stopping capability growth whenever the next game-speci
 
 The first target is one truthful vertical slice, not many partially claimed workflows. An adapter that safely supports discovery/import/environment/state handling may be visible in Steward while launch/hosting remains unavailable; missing runtime evidence is represented by absent capability flags, not invented generic behavior.
 
-Terraria and Stardew Valley are the current concrete examples of that narrower entry point. Terraria preserves one opaque vanilla `.wld`; Stardew Valley preserves exactly its two current vanilla save files while excluding `_old` recovery files. Both verify the exact Steam build and advertise only `ExactGameVersion`; launch/hosting capabilities remain absent.
+Terraria, Stardew Valley, and Necesse are current concrete examples of that narrower entry point. Terraria preserves one opaque vanilla `.wld`; Stardew Valley preserves exactly its two current vanilla save files while excluding `_old` recovery files; Necesse preserves the game's native compressed World ZIP byte-for-byte instead of adding a second archive layer. All three verify the exact Steam build and advertise only `ExactGameVersion`; launch/hosting capabilities remain absent.
 
 Adding a game normally does **not** require changes to Core, backend, Infrastructure, or ordinary Desktop action logic. If implementation appears to require such a change, first prove that the need is genuinely universal rather than an adapter-specific edge case.
 

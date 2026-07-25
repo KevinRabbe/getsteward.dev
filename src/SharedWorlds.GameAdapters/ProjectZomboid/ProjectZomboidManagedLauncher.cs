@@ -9,6 +9,7 @@ internal sealed record ProjectZomboidManagedLauncher(
 internal static class ProjectZomboidManagedLauncherWriter
 {
     private const string ManagedLauncherFileName = "StartServer64.sharedworlds.bat";
+    private const string QuotedSourceDirectoryToken = "\"%~dp0\"";
     private const string SourceDirectoryToken = "%~dp0";
     private const string ForwardedArgumentsToken = "%1 %2";
     private const string GameServerMarker = "zombie.network.GameServer";
@@ -17,6 +18,7 @@ internal static class ProjectZomboidManagedLauncherWriter
         ProjectZomboidDedicatedServerHostInputs inputs)
     {
         ArgumentNullException.ThrowIfNull(inputs);
+        ProjectZomboidWorkspaceOwnership.RequireOwned(inputs.CacheDirectory);
 
         var operationRoot = Directory.GetParent(inputs.CacheDirectory)?.FullName
             ?? throw new InvalidOperationException(
@@ -51,7 +53,7 @@ internal static class ProjectZomboidManagedLauncherWriter
         ArgumentNullException.ThrowIfNull(sourceText);
         ArgumentNullException.ThrowIfNull(inputs);
 
-        var serverRootLiteral = QuoteBatchValue(inputs.WorkingDirectory, "dedicated-server root");
+        var serverRoot = ValidateBatchValue(inputs.WorkingDirectory, "dedicated-server root");
         var cacheArgumentLiteral = QuoteBatchValue(
             "-cachedir=" + inputs.CacheDirectory,
             "cache directory");
@@ -70,14 +72,14 @@ internal static class ProjectZomboidManagedLauncherWriter
 
         var sourceDirectoryLineIndexes = lines
             .Select((line, index) => (line, index))
-            .Where(item => item.line.Contains(SourceDirectoryToken, StringComparison.OrdinalIgnoreCase) &&
+            .Where(item => item.line.Contains(QuotedSourceDirectoryToken, StringComparison.OrdinalIgnoreCase) &&
                            item.line.Contains("cd", StringComparison.OrdinalIgnoreCase))
             .Select(item => item.index)
             .ToArray();
         if (sourceDirectoryLineIndexes.Length != 1)
         {
             throw new InvalidOperationException(
-                $"Project Zomboid launcher must contain exactly one '{SourceDirectoryToken}' working-directory line; found {sourceDirectoryLineIndexes.Length}.");
+                $"Project Zomboid launcher must contain exactly one quoted '{SourceDirectoryToken}' working-directory line; found {sourceDirectoryLineIndexes.Length}.");
         }
 
         var gameServerLineIndexes = lines
@@ -107,12 +109,10 @@ internal static class ProjectZomboidManagedLauncherWriter
         }
 
         var sourceDirectoryIndex = sourceDirectoryLineIndexes[0];
-        var sourceDirectoryLine = lines[sourceDirectoryIndex];
-        var tokenIndex = sourceDirectoryLine.IndexOf(SourceDirectoryToken, StringComparison.OrdinalIgnoreCase);
-        lines[sourceDirectoryIndex] = string.Concat(
-            sourceDirectoryLine.AsSpan(0, tokenIndex),
-            serverRootLiteral.AsSpan(1, serverRootLiteral.Length - 2),
-            sourceDirectoryLine.AsSpan(tokenIndex + SourceDirectoryToken.Length));
+        lines[sourceDirectoryIndex] = lines[sourceDirectoryIndex].Replace(
+            SourceDirectoryToken,
+            serverRoot,
+            StringComparison.OrdinalIgnoreCase);
 
         lines[gameServerIndex] = gameServerLine.Replace(
             ForwardedArgumentsToken,
@@ -124,6 +124,9 @@ internal static class ProjectZomboidManagedLauncherWriter
     }
 
     private static string QuoteBatchValue(string value, string description)
+        => '"' + ValidateBatchValue(value, description) + '"';
+
+    private static string ValidateBatchValue(string value, string description)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value);
         if (value.IndexOfAny(['"', '%', '!', '\r', '\n']) >= 0)
@@ -132,7 +135,7 @@ internal static class ProjectZomboidManagedLauncherWriter
                 $"Project Zomboid {description} contains characters Steward will not embed in a Windows batch launcher.");
         }
 
-        return '"' + value + '"';
+        return value;
     }
 
     private static int CountOccurrences(string value, string token)

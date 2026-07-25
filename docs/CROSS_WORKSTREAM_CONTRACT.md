@@ -2,7 +2,7 @@
 
 This document is the shared first-release contract between UI, backend, runtime, and adapters.
 
-Status: **complete and approved for planning; master planning lock remains active**.
+Status: **complete and approved for implementation; first-release boundary changes must update this contract with their executable evidence.**
 
 No workstream may assign a different meaning to a user-visible state/action without updating this contract first.
 
@@ -18,7 +18,7 @@ No workstream may assign a different meaning to a user-visible state/action with
 | **Running** | This device owns the valid writable session generation when shared | Local/non-hosted session is active and observed | Open Steward/game | Session observation and safe capture | Runtime + adapter evidence; backend reservation when shared |
 | **Hosting** | This device owns the valid writable session generation when shared | Temporary hosted session is active and observed | Open Steward/game; Stop and Save when supported | Host launch/readiness/observation; safe stop for Stop and Save | Runtime + adapter evidence; backend reservation when shared |
 | **Host is starting** | Another device owns the active reservation | Remote hosted session exists but readiness is not proven | Wait; refresh/status | Remote host/readiness evidence where available | Backend reservation + host status |
-| **Someone is playing** | Another device owns the active writable reservation | Competing writable start is blocked | Join when capability/readiness permits; otherwise wait | Validated adapter Join capability | Backend reservation + adapter capability |
+| **Someone is playing** | Another device owns the active writable reservation | Competing writable start is blocked | Join when automatic capability/readiness permits; otherwise wait | Validated automatic adapter Join capability | Backend reservation + adapter capability |
 | **Saving World** | Reservation remains held while candidate publication/commit is unresolved | Session ended or safe stop completed; capture/store/verify/commit/finalize is incomplete | None; safe retry only where operation contract permits | Safe capture and package validation | Runtime phase + backend transaction result |
 | **Waiting to sync** | Candidate is preserved locally; remote upload/commit cannot currently finish | Background retry/reconnect responsibility remains active | Automatic bounded retry; Retry when useful; diagnostics | Candidate remains valid/restorable | Local recovery evidence + backend operation status |
 | **Action required** | Authority may be valid, but required environment/capability/identity condition blocks safe continuation | Lifecycle cannot safely proceed until condition is resolved | Resolve issue; diagnostics | Explicit adapter limitation/failure result | Failing boundary |
@@ -60,19 +60,22 @@ Important:
 
 Join is capability-driven and never acquires a second writable World reservation.
 
-The validated adapter Join capability may be:
+The first-release validated Join capability is deliberately smaller than the earlier planning draft:
 
 ```text
 Steam/game-native automatic
 -> adapter-controlled automatic
--> guided manual
 -> unsupported
 ```
 
 The UI exposes the single action **Join** only when:
 - another device owns the hosted writable session;
 - host readiness is proven;
-- the adapter exposes a validated Join capability.
+- the adapter exposes a validated automatic Join capability.
+
+Guided manual Join is **not** a first-release executable capability. No current adapter uses it, and Steward does not have a truthful generic lifecycle for keeping an adapter-prepared environment alive while the user manually launches/joins and then proving when that manual session has ended so cleanup can occur. Carrying a `SupportedGuidedManual` result without that lifecycle made the contract promise behavior Core could not safely execute.
+
+Reconsider guided manual Join only when a real adapter needs it and the adapter/runtime contract can prove preparation ownership, user guidance, session completion, and cleanup without brittle keyboard/mouse automation.
 
 Steam/game multiplayer-session invitations remain outside the Steward World-access membership system.
 
@@ -229,4 +232,4 @@ Each scenario records:
 - AR-0: **complete and approved**.
 - Cross-workstream matrix: **complete and reconciled**.
 - First-release acceptance plan: **specified; execution occurs during implementation/release validation**.
-- Master planning lock: **still active pending explicit product-owner lock lift**.
+- Master planning lock: **lifted; implementation is active.**

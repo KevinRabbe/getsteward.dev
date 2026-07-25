@@ -6,7 +6,7 @@ A game adapter isolates everything specific to one game while letting Core run t
 
 > Core knows what must happen. The adapter knows how this game makes it happen.
 
-Current validation adapters are Factorio and Palworld. Future adapters must preserve the same boundary without forcing their edge cases into Core.
+Current first-party adapters are Factorio, Palworld, 7 Days to Die, and Project Zomboid. Their proven capability sets intentionally differ. Future adapters must preserve the same boundary without forcing their edge cases into Core.
 
 ## Product contract
 
@@ -24,6 +24,8 @@ find World
 ```
 
 An adapter is not complete merely because it can launch the game.
+
+An adapter may enter the product with a narrower truthful capability set while later runtime semantics remain unproven. Registration never grants capabilities: unsupported Start, Host, Join, or Stop behavior stays unavailable until the adapter has evidence for the corresponding `GameAdapterCapabilities` flag.
 
 ## Identity and capabilities
 
@@ -210,36 +212,59 @@ Those either belong to Core or are outside Steward's product scope.
 
 ## Adding a new game
 
-Implement in this order:
+Implement in this order, stopping capability growth whenever the next game-specific behavior is not yet proven:
 
-1. installation discovery;
-2. existing-World discovery;
-3. safe import capture;
-4. environment inspection;
-5. environment preparation;
-6. state restore;
-7. local launch;
-8. real session observation;
-9. safe state capture and validation;
-10. temporary host launch;
-11. graceful hosted-session shutdown;
-12. optional native join;
-13. exact environment reproduction where justified.
+1. create the independent adapter project and implement its stable id/display name;
+2. installation discovery;
+3. existing-World discovery;
+4. safe import capture;
+5. environment inspection;
+6. environment preparation where required by the supported slice;
+7. state restore;
+8. local launch only when its ownership/session semantics are proven;
+9. real session observation;
+10. safe state capture and validation;
+11. temporary host launch only when its server/runtime semantics are proven;
+12. graceful hosted-session shutdown;
+13. optional automatic Join;
+14. exact environment reproduction where justified;
+15. expose only the `GameAdapterCapabilities` proven by the implemented slice;
+16. add adapter-specific deterministic tests and a dedicated CI lane where appropriate;
+17. add the Desktop project reference and one entry to `DesktopGameAdapterCatalog`;
+18. qualify the adapter head independently before mechanical integration;
+19. rerun the full five-workflow matrix on the exact combined SHA.
 
-The first target is one complete vertical handoff, not many partially supported workflows.
+The first target is one truthful vertical slice, not many partially claimed workflows. An adapter that safely supports discovery/import/environment/state handling may be visible in Steward while launch/hosting remains unavailable; missing runtime evidence is represented by absent capability flags, not invented generic behavior.
 
-## Acceptance test
+Adding a game normally does **not** require changes to Core, backend, Infrastructure, or ordinary Desktop action logic. If implementation appears to require such a change, first prove that the need is genuinely universal rather than an adapter-specific edge case.
 
-A new adapter is product-relevant only when it can prove:
+## Acceptance tests
+
+Every exposed capability must have evidence at its actual trust/ownership boundary.
+
+For a discovery/import/state-only slice, prove at minimum:
 
 ```text
-import known World
--> restore it
+discover intended installation/World without mutation
+-> import copied/controlled World while preserving source
+-> inspect exact supported environment
+-> capture portable state
+-> restore it into an owned workspace
+-> validate restored state/package invariants
+```
+
+A launch-capable adapter additionally proves the complete writable handoff:
+
+```text
+restore known World
 -> launch it
+-> prove the real session owner
 -> make a visible gameplay change
 -> observe safe session end
 -> capture and commit the change
 -> restore the committed result in the next session
 ```
 
-Hosted support additionally proves that the server state, not merely a client process, controls the capture boundary.
+Hosted support additionally proves that the authoritative server/session state, not merely a client process, controls readiness, stop, and the capture boundary.
+
+Automatic Join must remain read-only with respect to Steward World authority and must consume a proven ready host connection without acquiring another writable reservation.

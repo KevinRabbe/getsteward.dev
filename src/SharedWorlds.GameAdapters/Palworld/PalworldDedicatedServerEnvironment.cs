@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.RegularExpressions;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Environment;
@@ -10,6 +11,7 @@ internal static partial class PalworldDedicatedServerHosting
     private const string DedicatedServerNameKey = "dedicatedServerName";
     private const string DedicatedHostingMode = "dedicated-server";
     private const string UnknownGameVersion = "unknown";
+    private const int ManifestReadBufferBytes = 64 * 1024;
 
     public static EnvironmentManifest InspectEnvironment(
         GameInstallation installation,
@@ -74,7 +76,7 @@ internal static partial class PalworldDedicatedServerHosting
         string manifestText;
         try
         {
-            manifestText = File.ReadAllText(manifestPath);
+            manifestText = ReadDedicatedServerManifestText(manifestPath);
         }
         catch (IOException exception)
         {
@@ -97,6 +99,58 @@ internal static partial class PalworldDedicatedServerHosting
         buildId = match.Groups[1].Value;
         return true;
     }
+
+    private static string ReadDedicatedServerManifestText(string manifestPath)
+    {
+        var maximumBytes = PalworldDedicatedRuntimeInputSafety.MaximumDedicatedServerManifestBytes;
+        using var manifestStream = new FileStream(
+            manifestPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            ManifestReadBufferBytes,
+            FileOptions.SequentialScan);
+
+        if (manifestStream.Length > maximumBytes)
+        {
+            throw CreateOversizedManifestException(manifestPath, maximumBytes);
+        }
+
+        using var boundedBytes = new MemoryStream(capacity: checked((int)manifestStream.Length));
+        var buffer = new byte[ManifestReadBufferBytes];
+        long totalBytes = 0;
+        while (true)
+        {
+            var remainingWithOverflowSentinel = maximumBytes - totalBytes + 1L;
+            var readLength = (int)Math.Min(buffer.Length, remainingWithOverflowSentinel);
+            var bytesRead = manifestStream.Read(buffer, 0, readLength);
+            if (bytesRead == 0)
+            {
+                break;
+            }
+
+            totalBytes += bytesRead;
+            if (totalBytes > maximumBytes)
+            {
+                throw CreateOversizedManifestException(manifestPath, maximumBytes);
+            }
+
+            boundedBytes.Write(buffer, 0, bytesRead);
+        }
+
+        boundedBytes.Position = 0;
+        using var reader = new StreamReader(
+            boundedBytes,
+            Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: true);
+        return reader.ReadToEnd();
+    }
+
+    private static InvalidOperationException CreateOversizedManifestException(
+        string manifestPath,
+        long maximumBytes)
+        => new(
+            $"Palworld dedicated-server Steam manifest exceeds Steward's {maximumBytes}-byte input safety limit: {manifestPath}");
 
     [GeneratedRegex(
         @"^(?<prefix>\s*DedicatedServerName\s*=\s*)[^\r\n]*",

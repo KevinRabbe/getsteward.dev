@@ -56,21 +56,7 @@ internal static class ProjectZomboidPortableServerConfiguration
         string path,
         CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        var file = new FileInfo(path);
-        if (!file.Exists)
-        {
-            throw new FileNotFoundException(
-                "Project Zomboid server configuration does not exist.",
-                path);
-        }
-
-        if (file.Length > MaximumConfigurationBytes)
-        {
-            throw new InvalidDataException(
-                $"Project Zomboid server configuration exceeds Steward's {MaximumConfigurationBytes}-byte portable-state safety limit.");
-        }
-
+        PreflightFile(path);
         return Sanitize(await File.ReadAllBytesAsync(path, cancellationToken));
     }
 
@@ -78,13 +64,8 @@ internal static class ProjectZomboidPortableServerConfiguration
         string path,
         CancellationToken cancellationToken)
     {
+        PreflightFile(path);
         var sourceBytes = await File.ReadAllBytesAsync(path, cancellationToken);
-        if (sourceBytes.Length > MaximumConfigurationBytes)
-        {
-            throw new InvalidDataException(
-                $"Project Zomboid server configuration exceeds Steward's {MaximumConfigurationBytes}-byte portable-state safety limit.");
-        }
-
         var sanitizedBytes = Sanitize(sourceBytes);
         if (sourceBytes.AsSpan().SequenceEqual(sanitizedBytes))
         {
@@ -138,5 +119,23 @@ internal static class ProjectZomboidPortableServerConfiguration
         }
 
         return builder.ToString();
+    }
+
+    private static void PreflightFile(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var file = new FileInfo(path);
+        if (!file.Exists)
+        {
+            throw new FileNotFoundException(
+                "Project Zomboid server configuration does not exist.",
+                path);
+        }
+
+        if (file.Length > MaximumConfigurationBytes)
+        {
+            throw new InvalidDataException(
+                $"Project Zomboid server configuration exceeds Steward's {MaximumConfigurationBytes}-byte portable-state safety limit.");
+        }
     }
 }

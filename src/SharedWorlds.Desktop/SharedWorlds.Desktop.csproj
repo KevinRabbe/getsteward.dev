@@ -26,5 +26,6 @@
     <ProjectReference Include="../SharedWorlds.GameAdapters/Palworld/SharedWorlds.GameAdapters.Palworld.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/SevenDaysToDie/SharedWorlds.GameAdapters.SevenDaysToDie.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/ProjectZomboid/SharedWorlds.GameAdapters.ProjectZomboid.csproj" />
+    <ProjectReference Include="../SharedWorlds.GameAdapters/Terraria/SharedWorlds.GameAdapters.Terraria.csproj" />
   </ItemGroup>
 </Project>

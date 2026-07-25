@@ -6,7 +6,7 @@ A game adapter isolates everything specific to one game while letting Core run t
 
 > Core knows what must happen. The adapter knows how this game makes it happen.
 
-Current first-party adapters are Factorio, Palworld, 7 Days to Die, and Project Zomboid. Their proven capability sets intentionally differ. Future adapters must preserve the same boundary without forcing their edge cases into Core.
+Current first-party adapters are Factorio, Palworld, 7 Days to Die, Project Zomboid, and Terraria. Their proven capability sets intentionally differ. Future adapters must preserve the same boundary without forcing their edge cases into Core.
 
 ## Product contract
 
@@ -95,6 +95,7 @@ The adapter converts a detected World into a portable `StatePackage` suitable fo
 
 The package may represent:
 
+- one opaque save file;
 - one ZIP;
 - a directory archive;
 - a database;
@@ -235,6 +236,8 @@ Implement in this order, stopping capability growth whenever the next game-speci
 19. rerun the full five-workflow matrix on the exact combined SHA.
 
 The first target is one truthful vertical slice, not many partially claimed workflows. An adapter that safely supports discovery/import/environment/state handling may be visible in Steward while launch/hosting remains unavailable; missing runtime evidence is represented by absent capability flags, not invented generic behavior.
+
+Terraria is the current concrete example of that narrower entry point: its first qualified slice discovers/imports local vanilla `.wld` Worlds, preserves opaque state, and verifies the exact Steam build while advertising only `ExactGameVersion`. Launch, Host, Stop, Join, Steam Cloud, and tModLoader remain outside that proven slice.
 
 Adding a game normally does **not** require changes to Core, backend, Infrastructure, or ordinary Desktop action logic. If implementation appears to require such a change, first prove that the need is genuinely universal rather than an adapter-specific edge case.
 

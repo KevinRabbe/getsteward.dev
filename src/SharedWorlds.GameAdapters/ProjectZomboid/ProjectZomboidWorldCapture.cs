@@ -141,8 +141,9 @@ internal static partial class ProjectZomboidWorldState
         CancellationToken cancellationToken)
     {
         RejectLinkedCapturePath(sourcePath);
-        var sourceBytes = await File.ReadAllBytesAsync(sourcePath, cancellationToken);
-        var portableBytes = ProjectZomboidPortableServerConfiguration.Sanitize(sourceBytes);
+        var portableBytes = await ProjectZomboidPortableServerConfiguration.ReadSanitizedFileAsync(
+            sourcePath,
+            cancellationToken);
         var entry = archive.CreateEntry(ToArchiveEntryName(entryPath), CompressionLevel.Fastest);
         await using var destinationStream = entry.Open();
         await destinationStream.WriteAsync(portableBytes, cancellationToken);

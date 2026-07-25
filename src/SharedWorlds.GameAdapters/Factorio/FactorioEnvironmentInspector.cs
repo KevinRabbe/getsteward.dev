@@ -10,6 +10,7 @@ namespace SharedWorlds.GameAdapters.Factorio;
 internal static partial class FactorioEnvironmentInspector
 {
     internal const string ModSettingsHashConfigurationKey = "factorio.mod-settings.sha256";
+    internal const long MaximumModListBytes = 4L * 1024 * 1024;
 
     public static async Task<EnvironmentManifest> InspectAsync(
         GameInstallation installation,
@@ -101,6 +102,12 @@ internal static partial class FactorioEnvironmentInspector
         }
 
         using var stream = File.OpenRead(modListPath);
+        if (stream.Length > MaximumModListBytes)
+        {
+            throw new InvalidOperationException(
+                $"Factorio mod-list file '{modListPath}' exceeds Steward's {MaximumModListBytes}-byte environment metadata safety limit.");
+        }
+
         using var document = JsonDocument.Parse(stream);
         if (!document.RootElement.TryGetProperty("mods", out var mods) ||
             mods.ValueKind != JsonValueKind.Array)

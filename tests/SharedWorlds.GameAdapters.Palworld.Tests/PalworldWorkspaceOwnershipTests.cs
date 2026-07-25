@@ -45,6 +45,55 @@ public sealed class PalworldWorkspaceOwnershipTests : IDisposable
                 prepared,
                 new StatePackage("missing", Path.Combine(_root, "missing.zip"))));
         Assert.Contains("unrecognized Palworld dedicated World path", restore.Message, StringComparison.OrdinalIgnoreCase);
+
+        var launch = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            adapter.LaunchHostAsync(prepared));
+        Assert.Contains("unrecognized Palworld dedicated World path", launch.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AdapterRefusesLinkedSaveGamesAncestorBeforeStateAccess()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var serverRoot = Path.Combine(_root, "linked-server");
+        var savedRoot = Path.Combine(serverRoot, "Pal", "Saved");
+        Directory.CreateDirectory(savedRoot);
+
+        var worldId = "FEDCBA9876543210";
+        var outsideSaveGames = Path.Combine(_root, "outside-save-games");
+        var outsideWorld = Path.Combine(outsideSaveGames, "0", worldId);
+        Directory.CreateDirectory(outsideWorld);
+        var outsideLevel = Path.Combine(outsideWorld, "Level.sav");
+        await File.WriteAllBytesAsync(outsideLevel, [7, 8, 9]);
+
+        var linkedSaveGames = Path.Combine(savedRoot, "SaveGames");
+        Directory.CreateSymbolicLink(linkedSaveGames, outsideSaveGames);
+        var workingDirectory = Path.Combine(linkedSaveGames, "0", worldId);
+        var prepared = Prepared(serverRoot, workingDirectory, worldId);
+        var adapter = new PalworldAdapter();
+
+        try
+        {
+            var capture = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                adapter.CaptureStateAsync(prepared));
+            Assert.Contains("linked/reparse", capture.Message, StringComparison.OrdinalIgnoreCase);
+
+            var restore = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                adapter.RestoreStateAsync(
+                    prepared,
+                    new StatePackage("missing", Path.Combine(_root, "missing-linked.zip"))));
+            Assert.Contains("linked/reparse", restore.Message, StringComparison.OrdinalIgnoreCase);
+
+            Assert.Equal([7, 8, 9], await File.ReadAllBytesAsync(outsideLevel));
+        }
+        finally
+        {
+            Directory.Delete(linkedSaveGames);
+        }
     }
 
     [Theory]

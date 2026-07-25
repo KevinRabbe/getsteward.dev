@@ -12,13 +12,14 @@ internal static class SevenDaysToDieWorldDiscovery
         ArgumentNullException.ThrowIfNull(installation);
         if (installation.Metadata is null ||
             !installation.Metadata.TryGetValue(SevenDaysToDieInstallationDiscovery.UserDataPathKey, out var userDataPath) ||
-            string.IsNullOrWhiteSpace(userDataPath))
+            string.IsNullOrWhiteSpace(userDataPath) ||
+            !IsSafeDiscoveryDirectory(userDataPath))
         {
             return [];
         }
 
         var savesRoot = Path.Combine(userDataPath, SavesDirectoryName);
-        if (!Directory.Exists(savesRoot))
+        if (!IsSafeDiscoveryDirectory(savesRoot))
         {
             return [];
         }
@@ -26,6 +27,11 @@ internal static class SevenDaysToDieWorldDiscovery
         var worlds = new List<DetectedWorld>();
         foreach (var worldDirectory in EnumerateDirectoriesSafely(savesRoot))
         {
+            if (!IsSafeDiscoveryDirectory(worldDirectory))
+            {
+                continue;
+            }
+
             var worldName = Path.GetFileName(Path.TrimEndingDirectorySeparator(worldDirectory));
             if (string.IsNullOrWhiteSpace(worldName))
             {
@@ -34,7 +40,8 @@ internal static class SevenDaysToDieWorldDiscovery
 
             foreach (var saveDirectory in EnumerateDirectoriesSafely(worldDirectory))
             {
-                if (!HasKnownWorldMarker(saveDirectory))
+                if (!IsSafeDiscoveryDirectory(saveDirectory) ||
+                    !HasKnownWorldMarker(saveDirectory))
                 {
                     continue;
                 }
@@ -45,7 +52,17 @@ internal static class SevenDaysToDieWorldDiscovery
                     continue;
                 }
 
-                var fullPath = Path.GetFullPath(saveDirectory);
+                string fullPath;
+                try
+                {
+                    fullPath = Path.GetFullPath(saveDirectory);
+                }
+                catch (Exception exception) when (
+                    exception is ArgumentException or NotSupportedException or PathTooLongException)
+                {
+                    continue;
+                }
+
                 worlds.Add(new DetectedWorld(
                     Id: fullPath,
                     DisplayName: $"{saveName} ({worldName})",
@@ -60,12 +77,38 @@ internal static class SevenDaysToDieWorldDiscovery
     }
 
     internal static bool HasKnownWorldMarker(string saveDirectory)
-        => MainWorldFileNames.Any(name => File.Exists(Path.Combine(saveDirectory, name)));
+        => MainWorldFileNames.Any(name => IsSafeDiscoveryFile(Path.Combine(saveDirectory, name)));
 
     private static DateTime GetWorldLastWriteTimeUtc(string saveDirectory)
         => MainWorldFileNames
             .Select(name => GetLastWriteTimeUtcSafe(Path.Combine(saveDirectory, name)))
             .Max();
+
+    private static bool IsSafeDiscoveryDirectory(string path)
+        => TryGetSafeDiscoveryAttributes(path, out var attributes) &&
+           (attributes & FileAttributes.Directory) != 0;
+
+    private static bool IsSafeDiscoveryFile(string path)
+        => TryGetSafeDiscoveryAttributes(path, out var attributes) &&
+           (attributes & FileAttributes.Directory) == 0;
+
+    private static bool TryGetSafeDiscoveryAttributes(
+        string path,
+        out FileAttributes attributes)
+    {
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
+        {
+            attributes = default;
+            return false;
+        }
+
+        return (attributes & FileAttributes.ReparsePoint) == 0;
+    }
 
     private static IEnumerable<string> EnumerateDirectoriesSafely(string path)
     {
@@ -84,9 +127,14 @@ internal static class SevenDaysToDieWorldDiscovery
 
     private static DateTime GetLastWriteTimeUtcSafe(string path)
     {
+        if (!IsSafeDiscoveryFile(path))
+        {
+            return DateTime.MinValue;
+        }
+
         try
         {
-            return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
+            return File.GetLastWriteTimeUtc(path);
         }
         catch (Exception exception) when (
             exception is IOException or

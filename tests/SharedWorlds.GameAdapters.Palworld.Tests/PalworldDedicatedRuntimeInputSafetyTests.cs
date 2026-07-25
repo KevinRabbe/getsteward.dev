@@ -249,6 +249,44 @@ public sealed class PalworldDedicatedRuntimeInputSafetyTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData("GameUserSettings.ini")]
+    [InlineData("PalWorldSettings.ini")]
+    public async Task LaunchHostRejectsOversizedManagedConfigurationBeforeRead(string fileName)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var prepared = CreatePreparedWorld();
+        var path = Path.Combine(
+            ServerRoot(prepared.Installation),
+            "Pal",
+            "Saved",
+            "Config",
+            "WindowsServer",
+            fileName);
+        using (var stream = new FileStream(
+                   path,
+                   FileMode.Create,
+                   FileAccess.Write,
+                   FileShare.None))
+        {
+            stream.SetLength(PalworldDedicatedRuntimeInputSafety.MaximumManagedConfigurationBytes + 1L);
+        }
+
+        var adapter = new PalworldAdapter();
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            adapter.LaunchHostAsync(prepared));
+
+        Assert.Contains(fileName, exception.Message, StringComparison.Ordinal);
+        Assert.Contains("safety limit", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(
+            PalworldDedicatedRuntimeInputSafety.MaximumManagedConfigurationBytes + 1L,
+            new FileInfo(path).Length);
+    }
+
     private PreparedWorld CreatePreparedWorld()
     {
         var installation = CreateRegularInstallation();

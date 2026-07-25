@@ -4,6 +4,8 @@ namespace SharedWorlds.GameAdapters.Palworld;
 
 internal static class PalworldDedicatedRuntimeInputSafety
 {
+    internal const long MaximumDedicatedServerManifestBytes = 4L * 1024 * 1024;
+    internal const long MaximumManagedConfigurationBytes = 4L * 1024 * 1024;
     private static readonly string[] ConfigDirectories = ["Pal", "Saved", "Config", "WindowsServer"];
 
     public static void ValidateEnvironmentInspection(GameInstallation installation)
@@ -18,11 +20,11 @@ internal static class PalworldDedicatedRuntimeInputSafety
             return;
         }
 
-        // Missing manifest remains the existing truthful "unknown build" state. A linked manifest is
-        // different: its bytes exist, but Steward must not promote bytes outside this installation to
-        // an exact Palworld build identity.
+        // Missing manifest remains the existing truthful "unknown build" state. When bytes exist,
+        // this boundary establishes path ownership only; the actual build-id reader owns the byte limit.
+        var fullManifestPath = Path.GetFullPath(manifestPath);
         _ = TryRequireRegularFile(
-            Path.GetFullPath(manifestPath),
+            fullManifestPath,
             "Palworld dedicated-server Steam manifest");
     }
 
@@ -83,22 +85,32 @@ internal static class PalworldDedicatedRuntimeInputSafety
                 ConfigDirectories,
                 "GameUserSettings.ini",
                 "Palworld GameUserSettings.ini",
-                out _))
+                out var gameUserSettingsPath))
         {
             throw new InvalidOperationException(
                 "PalServer has not initialized GameUserSettings.ini yet. Start the dedicated server once and stop it before Steward hosts this World.");
         }
+
+        RequireFileSizeAtMost(
+            gameUserSettingsPath,
+            MaximumManagedConfigurationBytes,
+            "Palworld GameUserSettings.ini");
 
         if (!TryGetRegularFileUnderRoot(
                 serverRoot,
                 ConfigDirectories,
                 "PalWorldSettings.ini",
                 "Palworld PalWorldSettings.ini",
-                out _))
+                out var palWorldSettingsPath))
         {
             throw new InvalidOperationException(
                 "PalWorldSettings.ini does not exist. Start and stop the dedicated server once before Steward manages this World.");
         }
+
+        RequireFileSizeAtMost(
+            palWorldSettingsPath,
+            MaximumManagedConfigurationBytes,
+            "Palworld PalWorldSettings.ini");
     }
 
     public static void RequireRegularDirectory(string path, string description)
@@ -169,6 +181,30 @@ internal static class PalworldDedicatedRuntimeInputSafety
         }
 
         return current;
+    }
+
+    private static void RequireFileSizeAtMost(
+        string path,
+        long maximumBytes,
+        string description)
+    {
+        long length;
+        try
+        {
+            length = new FileInfo(path).Length;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"{description} size could not be inspected safely: {path}: {exception.Message}",
+                exception);
+        }
+
+        if (length > maximumBytes)
+        {
+            throw new InvalidOperationException(
+                $"{description} exceeds Steward's {maximumBytes}-byte input safety limit: {path}");
+        }
     }
 
     private static bool TryRequireRegularDirectory(string path, string description)

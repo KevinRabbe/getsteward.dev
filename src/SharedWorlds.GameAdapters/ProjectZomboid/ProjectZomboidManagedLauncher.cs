@@ -8,6 +8,7 @@ internal sealed record ProjectZomboidManagedLauncher(
 
 internal static class ProjectZomboidManagedLauncherWriter
 {
+    internal const long MaximumSourceLauncherBytes = 4L * 1024 * 1024;
     private const string ManagedLauncherFileName = "StartServer64.sharedworlds.bat";
     private const string QuotedSourceDirectoryToken = "\"%~dp0\"";
     private const string SourceDirectoryToken = "%~dp0";
@@ -19,12 +20,13 @@ internal static class ProjectZomboidManagedLauncherWriter
     {
         ArgumentNullException.ThrowIfNull(inputs);
         ProjectZomboidWorkspaceOwnership.RequireOwned(inputs.CacheDirectory);
+        PreflightSourceLauncher(inputs);
 
         var operationRoot = Directory.GetParent(inputs.CacheDirectory)?.FullName
             ?? throw new InvalidOperationException(
                 "Could not determine the Steward Project Zomboid operation root.");
         var managedPath = Path.Combine(operationRoot, ManagedLauncherFileName);
-        var sourceText = File.ReadAllText(inputs.LaunchPath);
+        var sourceText = File.ReadAllText(Path.GetFullPath(inputs.LaunchPath));
         var managedText = Transform(sourceText, inputs);
 
         using (var stream = new FileStream(
@@ -122,6 +124,82 @@ internal static class ProjectZomboidManagedLauncherWriter
         var result = string.Join(newline, lines);
         return hadTrailingNewline ? result + newline : result;
     }
+
+    private static void PreflightSourceLauncher(ProjectZomboidDedicatedServerHostInputs inputs)
+    {
+        var workingDirectory = Path.GetFullPath(inputs.WorkingDirectory);
+        var launchPath = Path.GetFullPath(inputs.LaunchPath);
+        if (!Directory.Exists(workingDirectory))
+        {
+            throw new DirectoryNotFoundException(
+                $"Project Zomboid dedicated-server root does not exist: {workingDirectory}");
+        }
+
+        FileAttributes rootAttributes;
+        try
+        {
+            rootAttributes = File.GetAttributes(workingDirectory);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"Steward could not inspect Project Zomboid dedicated-server root '{workingDirectory}'.",
+                exception);
+        }
+
+        if ((rootAttributes & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new InvalidOperationException(
+                $"Project Zomboid dedicated-server root is linked or a reparse point: {workingDirectory}");
+        }
+
+        var launchDirectory = Path.GetDirectoryName(launchPath);
+        if (launchDirectory is null || !PathsEqual(launchDirectory, workingDirectory))
+        {
+            throw new InvalidOperationException(
+                "Project Zomboid Dedicated Server launcher is outside the supplied dedicated-server root.");
+        }
+
+        var file = new FileInfo(launchPath);
+        if (!file.Exists)
+        {
+            throw new FileNotFoundException(
+                "Project Zomboid Dedicated Server launcher does not exist.",
+                launchPath);
+        }
+
+        FileAttributes launcherAttributes;
+        try
+        {
+            launcherAttributes = File.GetAttributes(launchPath);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"Steward could not inspect Project Zomboid Dedicated Server launcher '{launchPath}'.",
+                exception);
+        }
+
+        if ((launcherAttributes & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new InvalidOperationException(
+                $"Project Zomboid Dedicated Server launcher is linked or a reparse point: {launchPath}");
+        }
+
+        if (file.Length > MaximumSourceLauncherBytes)
+        {
+            throw new InvalidDataException(
+                $"Project Zomboid Dedicated Server launcher exceeds Steward's {MaximumSourceLauncherBytes}-byte safety limit.");
+        }
+    }
+
+    private static bool PathsEqual(string left, string right)
+        => string.Equals(
+            Path.GetFullPath(left),
+            Path.GetFullPath(right),
+            OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal);
 
     private static string QuoteBatchValue(string value, string description)
         => '"' + ValidateBatchValue(value, description) + '"';

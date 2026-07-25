@@ -115,6 +115,90 @@ public sealed class ProjectZomboidManagedLauncherTests : IDisposable
         Assert.Contains("-servername \"steward-test\"", managedText, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void MaterializeRejectsOversizedLauncherBeforeOutputCreation()
+    {
+        Directory.CreateDirectory(_root);
+        var serverRoot = Path.Combine(_root, "oversized-server");
+        Directory.CreateDirectory(serverRoot);
+        var sourcePath = Path.Combine(serverRoot, "StartServer64.bat");
+        using (var stream = new FileStream(
+                   sourcePath,
+                   FileMode.CreateNew,
+                   FileAccess.Write,
+                   FileShare.None))
+        {
+            stream.SetLength(ProjectZomboidManagedLauncherWriter.MaximumSourceLauncherBytes + 1L);
+        }
+
+        var cacheDirectory = CreateOwnedCacheDirectory();
+        var inputs = Inputs(sourcePath, serverRoot, cacheDirectory, "steward-test");
+        var managedPath = Path.Combine(
+            Directory.GetParent(cacheDirectory)!.FullName,
+            "StartServer64.sharedworlds.bat");
+
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            ProjectZomboidManagedLauncherWriter.Materialize(inputs));
+
+        Assert.Contains("safety limit", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(managedPath));
+        Assert.Equal(
+            ProjectZomboidManagedLauncherWriter.MaximumSourceLauncherBytes + 1L,
+            new FileInfo(sourcePath).Length);
+    }
+
+    [Fact]
+    public void MaterializeRejectsLauncherOutsideSuppliedServerRoot()
+    {
+        Directory.CreateDirectory(_root);
+        var serverRoot = Path.Combine(_root, "server-root");
+        Directory.CreateDirectory(serverRoot);
+        var outsideRoot = Path.Combine(_root, "outside-root");
+        Directory.CreateDirectory(outsideRoot);
+        var sourcePath = Path.Combine(outsideRoot, "StartServer64.bat");
+        File.WriteAllText(sourcePath, SourceBatch);
+        var cacheDirectory = CreateOwnedCacheDirectory();
+        var inputs = Inputs(sourcePath, serverRoot, cacheDirectory, "steward-test");
+        var managedPath = Path.Combine(
+            Directory.GetParent(cacheDirectory)!.FullName,
+            "StartServer64.sharedworlds.bat");
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            ProjectZomboidManagedLauncherWriter.Materialize(inputs));
+
+        Assert.Contains("outside the supplied dedicated-server root", exception.Message, StringComparison.Ordinal);
+        Assert.False(File.Exists(managedPath));
+    }
+
+    [Fact]
+    public void MaterializeRejectsLinkedLauncherAtReadBoundary()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(_root);
+        var serverRoot = Path.Combine(_root, "linked-launcher-server");
+        Directory.CreateDirectory(serverRoot);
+        var outsidePath = Path.Combine(_root, "outside-launcher.bat");
+        File.WriteAllText(outsidePath, SourceBatch);
+        var sourcePath = Path.Combine(serverRoot, "StartServer64.bat");
+        File.CreateSymbolicLink(sourcePath, outsidePath);
+        var cacheDirectory = CreateOwnedCacheDirectory();
+        var inputs = Inputs(sourcePath, serverRoot, cacheDirectory, "steward-test");
+        var managedPath = Path.Combine(
+            Directory.GetParent(cacheDirectory)!.FullName,
+            "StartServer64.sharedworlds.bat");
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            ProjectZomboidManagedLauncherWriter.Materialize(inputs));
+
+        Assert.Contains("linked or a reparse point", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(managedPath));
+        Assert.Equal(SourceBatch, File.ReadAllText(outsidePath));
+    }
+
     private static ProjectZomboidDedicatedServerHostInputs Inputs(
         string launchPath = @"C:\PZ\StartServer64.bat",
         string workingDirectory = @"C:\PZ",

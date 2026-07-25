@@ -143,7 +143,7 @@ internal static class PalworldSaveDiscovery
             attributes = File.GetAttributes(path);
         }
         catch (Exception exception) when (
-            exception is IOException or UnauthorizedAccessException or FileNotFoundException or DirectoryNotFoundException)
+            exception is IOException or UnauthorizedAccessException)
         {
             attributes = default;
             return false;

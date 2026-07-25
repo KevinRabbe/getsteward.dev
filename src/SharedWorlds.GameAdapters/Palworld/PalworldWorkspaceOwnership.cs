@@ -26,8 +26,9 @@ internal static class PalworldWorkspaceOwnership
             throw Refuse(world.WorkingDirectory);
         }
 
+        var fullServerRoot = Path.GetFullPath(serverRoot);
         var expected = Path.GetFullPath(Path.Combine(
-            serverRoot,
+            fullServerRoot,
             "Pal",
             "Saved",
             "SaveGames",
@@ -38,6 +39,59 @@ internal static class PalworldWorkspaceOwnership
         {
             throw Refuse(world.WorkingDirectory);
         }
+
+        RequireExistingRegularDirectoryChain(
+            fullServerRoot,
+            ["Pal", "Saved", "SaveGames", "0", worldId],
+            world.WorkingDirectory);
+    }
+
+    private static void RequireExistingRegularDirectoryChain(
+        string root,
+        IReadOnlyList<string> relativeDirectories,
+        string workingDirectory)
+    {
+        var current = root;
+        if (!TryRequireRegularDirectory(current, workingDirectory))
+        {
+            return;
+        }
+
+        foreach (var segment in relativeDirectories)
+        {
+            current = Path.Combine(current, segment);
+            if (!TryRequireRegularDirectory(current, workingDirectory))
+            {
+                return;
+            }
+        }
+    }
+
+    private static bool TryRequireRegularDirectory(string path, string workingDirectory)
+    {
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (Exception exception) when (
+            exception is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
+        {
+            throw RefuseUnsafePath(workingDirectory, path, exception);
+        }
+
+        if ((attributes & FileAttributes.ReparsePoint) != 0 ||
+            (attributes & FileAttributes.Directory) == 0)
+        {
+            throw RefuseUnsafePath(workingDirectory, path);
+        }
+
+        return true;
     }
 
     private static bool IsSafeWorldId(string worldId)
@@ -54,4 +108,12 @@ internal static class PalworldWorkspaceOwnership
     private static InvalidOperationException Refuse(string workingDirectory)
         => new(
             $"Refusing to use unrecognized Palworld dedicated World path '{workingDirectory}'.");
+
+    private static InvalidOperationException RefuseUnsafePath(
+        string workingDirectory,
+        string path,
+        Exception? innerException = null)
+        => new(
+            $"Refusing to use Palworld dedicated World '{workingDirectory}' because ownership path '{path}' is linked/reparse or is not a regular directory.",
+            innerException);
 }

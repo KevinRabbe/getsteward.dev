@@ -52,6 +52,18 @@ public sealed class ProjectZomboidTransientManagementConfigurationTests
     }
 
     [Fact]
+    public void CreateAllowsWhitespaceAroundPortValue()
+    {
+        var source = Encoding.UTF8.GetBytes("RCONPort= 27015 \nRCONPassword=\n");
+
+        var configuration = ProjectZomboidTransientManagementConfigurationBuilder.Create(
+            source,
+            Password);
+
+        Assert.Equal(27015, configuration.Port);
+    }
+
+    [Fact]
     public void ExistingManagementPasswordIsRejectedInsteadOfOverwritten()
     {
         var bytes = Encoding.UTF8.GetBytes(
@@ -83,8 +95,7 @@ public sealed class ProjectZomboidTransientManagementConfigurationTests
     [InlineData("0")]
     [InlineData("65536")]
     [InlineData("not-a-port")]
-    [InlineData(" 27015 ")]
-    public void InvalidOrNonCanonicalPortIsRejected(string port)
+    public void InvalidPortIsRejected(string port)
     {
         var source = $"RCONPort={port}\nRCONPassword=\n";
 

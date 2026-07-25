@@ -30,5 +30,6 @@
     <ProjectReference Include="../SharedWorlds.GameAdapters/StardewValley/SharedWorlds.GameAdapters.StardewValley.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/Necesse/SharedWorlds.GameAdapters.Necesse.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/CoreKeeper/SharedWorlds.GameAdapters.CoreKeeper.csproj" />
+    <ProjectReference Include="../SharedWorlds.GameAdapters/PlanetCrafter/SharedWorlds.GameAdapters.PlanetCrafter.csproj" />
   </ItemGroup>
 </Project>

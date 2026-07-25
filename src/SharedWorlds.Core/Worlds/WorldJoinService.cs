@@ -99,7 +99,6 @@ public sealed class WorldJoinService
             {
                 throw new InvalidOperationException(
                     capability.Reason ??
-                    capability.Guidance ??
                     $"{adapter.DisplayName} cannot automatically Join this host.");
             }
 

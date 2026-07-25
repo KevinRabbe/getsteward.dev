@@ -69,6 +69,8 @@ internal static class FactorioWorldOperations
                 nameof(requiredEnvironment));
         }
 
+        FactorioModInputSafety.RequireReproductionInputs(installation);
+
         var workspace = Path.Combine(
             GetLocalWorkRoot(),
             Guid.NewGuid().ToString("N"));

@@ -93,6 +93,7 @@ internal static partial class TerrariaInstallationDiscovery
         return installations;
     }
 
+    [SupportedOSPlatform("windows")]
     private static IEnumerable<string> DiscoverSteamLibraries()
     {
         var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

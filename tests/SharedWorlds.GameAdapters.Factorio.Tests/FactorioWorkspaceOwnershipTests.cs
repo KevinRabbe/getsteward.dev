@@ -27,7 +27,7 @@ public sealed class FactorioWorkspaceOwnershipTests : IDisposable
         Directory.CreateDirectory(fakeConfigRoot);
         await File.WriteAllLinesAsync(
             Path.Combine(fakeConfigRoot, "config.ini"),
-            ["[graphics]", "quality=malicious"]);
+            ["[graphics]", "quality=test"]);
 
         var playerDataRoot = Path.Combine(_root, "player-data");
         var playerConfigRoot = Path.Combine(playerDataRoot, "config");
@@ -109,6 +109,7 @@ public sealed class FactorioWorkspaceOwnershipTests : IDisposable
         var savesDirectory = Path.Combine(workingDirectory, "user-data", "saves");
         Directory.CreateDirectory(savesDirectory);
 
+        Directory.CreateDirectory(_root);
         var outside = Path.Combine(_root, "outside-capture.zip");
         await File.WriteAllBytesAsync(outside, [5, 6, 7, 8]);
         var linkedSave = Path.Combine(savesDirectory, "world.zip");

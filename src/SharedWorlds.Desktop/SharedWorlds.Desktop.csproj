@@ -28,5 +28,6 @@
     <ProjectReference Include="../SharedWorlds.GameAdapters/ProjectZomboid/SharedWorlds.GameAdapters.ProjectZomboid.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/Terraria/SharedWorlds.GameAdapters.Terraria.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/StardewValley/SharedWorlds.GameAdapters.StardewValley.csproj" />
+    <ProjectReference Include="../SharedWorlds.GameAdapters/Necesse/SharedWorlds.GameAdapters.Necesse.csproj" />
   </ItemGroup>
 </Project>

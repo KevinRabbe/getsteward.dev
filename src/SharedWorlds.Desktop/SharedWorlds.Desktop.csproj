@@ -31,5 +31,6 @@
     <ProjectReference Include="../SharedWorlds.GameAdapters/Necesse/SharedWorlds.GameAdapters.Necesse.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/CoreKeeper/SharedWorlds.GameAdapters.CoreKeeper.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/PlanetCrafter/SharedWorlds.GameAdapters.PlanetCrafter.csproj" />
+    <ProjectReference Include="../SharedWorlds.GameAdapters/Satisfactory/SharedWorlds.GameAdapters.Satisfactory.csproj" />
   </ItemGroup>
 </Project>

@@ -5,6 +5,7 @@ using SharedWorlds.GameAdapters.Necesse;
 using SharedWorlds.GameAdapters.Palworld;
 using SharedWorlds.GameAdapters.PlanetCrafter;
 using SharedWorlds.GameAdapters.ProjectZomboid;
+using SharedWorlds.GameAdapters.Satisfactory;
 using SharedWorlds.GameAdapters.SevenDaysToDie;
 using SharedWorlds.GameAdapters.StardewValley;
 using SharedWorlds.GameAdapters.Terraria;
@@ -25,7 +26,8 @@ internal static class DesktopGameAdapterCatalog
             new StardewValleyAdapter(),
             new NecesseAdapter(),
             new CoreKeeperAdapter(),
-            new PlanetCrafterAdapter()
+            new PlanetCrafterAdapter(),
+            new SatisfactoryAdapter()
         ];
 
         return adapters.ToDictionary(adapter => adapter.Id, StringComparer.Ordinal);

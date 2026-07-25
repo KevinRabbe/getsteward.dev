@@ -43,6 +43,7 @@ public sealed partial class PalworldAdapter : IGameAdapter
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        PalworldDedicatedRuntimeInputSafety.ValidatePreparationInputs(installation);
         return Task.FromResult(PalworldDedicatedServerHosting.PrepareDetectedWorld(installation, world));
     }
 
@@ -53,6 +54,7 @@ public sealed partial class PalworldAdapter : IGameAdapter
     {
         ArgumentNullException.ThrowIfNull(installation);
         cancellationToken.ThrowIfCancellationRequested();
+        PalworldDedicatedRuntimeInputSafety.ValidateEnvironmentInspection(installation);
         return Task.FromResult(PalworldDedicatedServerHosting.InspectEnvironment(installation, world));
     }
 
@@ -71,6 +73,7 @@ public sealed partial class PalworldAdapter : IGameAdapter
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        PalworldDedicatedRuntimeInputSafety.ValidatePreparationInputs(installation);
         return Task.FromResult(
             PalworldDedicatedServerHosting.PrepareEnvironment(installation, requiredEnvironment));
     }
@@ -103,6 +106,7 @@ public sealed partial class PalworldAdapter : IGameAdapter
         PreparedWorld world,
         CancellationToken cancellationToken = default)
     {
+        PalworldDedicatedRuntimeInputSafety.ValidateManagedHostInputs(world);
         var managed = await PalworldManagedHostSession.StartAsync(world, cancellationToken);
         var handle = managed.Handle;
         if (!_managedHosts.TryAdd(handle.ProcessId, managed))

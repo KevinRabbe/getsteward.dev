@@ -28,9 +28,9 @@ It also passed all five workflows. PR #72 changes only Desktop adapter compositi
 
 ## Latest qualified product line
 
-Normal adapter expansion has continued without reopening the platform. The latest qualified product line is Necesse PR #81:
+Normal adapter expansion has continued without reopening the platform. The latest qualified product line is Core Keeper PR #83:
 
-> `42420385e0800b34fa3af7f985607bf3fe15561e`
+> `da835d7b458e982a44b89193561ec7e8fdc5ddf6`
 
 On that exact head all five repository workflows are green again, including Quality, Ubuntu/Windows build-and-test, backend container, PostgreSQL, S3-compatible integration, and Windows acceptance.
 
@@ -42,9 +42,12 @@ The aggregate adapter counts on that line are:
 - Project Zomboid: 94/94;
 - Terraria: 8/8;
 - Stardew Valley: 11/11;
-- Necesse: 9/9 on both Ubuntu and Windows.
+- Necesse: 9/9;
+- Core Keeper: 14/14 on both Ubuntu and Windows.
 
-PR #81 extends the same post-platform pattern already proven by Terraria and Stardew Valley: one independent adapter project, game-owned discovery/environment/state behavior, truthful capability exposure, adapter-specific tests, solution/Desktop registration, and exact combined qualification. It does not modify Core, backend, Infrastructure, or generic Desktop lifecycle contracts.
+PR #83 extends the same post-platform pattern already proven by Terraria, Stardew Valley, and Necesse: one independent adapter project, game-owned discovery/environment/state behavior, truthful capability exposure, adapter-specific tests, solution/Desktop registration, and exact combined qualification. It does not modify Core, backend, Infrastructure, or generic Desktop lifecycle contracts.
+
+Core Keeper adds one important ownership distinction: files being physically adjacent inside a game's save profile does not make them part of the World. Its canonical World bundle contains only the slot-matched World data, World metadata, and World-generation parameters; character saves and player map exploration remain player-owned and are deliberately excluded.
 
 ## What "platform complete" means
 
@@ -86,14 +89,17 @@ Current adapters:
 | Terraria | local vanilla `.wld` discovery/import, exact Steam build identity, opaque capture/restore, and owned workspace handling; Steam Cloud, tModLoader, launch, Host, Stop, and Join remain unsupported |
 | Stardew Valley | host-owned local vanilla save discovery/import, exact Steam build identity, exact two-file current-state capture/restore, and owned workspace handling; SMAPI/modded environments, launch, Host, Stop, and Join remain unsupported |
 | Necesse | local vanilla compressed-World ZIP discovery/import, exact Steam build identity, raw byte-preserving capture/restore, and owned workspace handling; uncompressed `-zipsaves 0` Worlds, mods, launch, Host, Stop, and Join remain unsupported |
+| Core Keeper | local vanilla slot-based World discovery/import, exact Steam build identity, exact three-file World-owned capture/restore, and owned workspace handling; character/map state, mods, launch, Host, Stop, and Join remain unsupported |
 
 Registration does not grant capabilities. The Desktop reads each adapter's `GameAdapterCapabilities`; adding an adapter to the catalog cannot silently make Start, Host, Join, or Stop available.
 
-Terraria, Stardew Valley, and Necesse currently advertise only `ExactGameVersion`. Their state-only entries are deliberate evidence that adapters can join the product before launch/hosting semantics are proven.
+Terraria, Stardew Valley, Necesse, and Core Keeper currently advertise only `ExactGameVersion`. Their state-only entries are deliberate evidence that adapters can join the product before launch/hosting semantics are proven.
 
-Stardew Valley refuses a detected SMAPI or non-empty Mods environment rather than recording an incomplete vanilla `EnvironmentManifest` for a modded installation. Necesse applies the same principle to its local mods directory.
+Stardew Valley refuses a detected SMAPI or non-empty Mods environment rather than recording an incomplete vanilla `EnvironmentManifest` for a modded installation. Necesse applies the same principle to its local mods directory. Core Keeper applies it across manual install Mods, Steam Workshop content, and per-profile Mods.
 
-Necesse also demonstrates a simpler state rule: when the game's native current World artifact is already a portable ZIP, Steward preserves those bytes directly instead of unpacking and rebuilding a second archive format.
+Necesse demonstrates a simpler state rule: when the game's native current World artifact is already a portable ZIP, Steward preserves those bytes directly instead of unpacking and rebuilding a second archive format.
+
+Core Keeper demonstrates the complementary ownership rule: storage adjacency is not identity. Character saves and player exploration maps are excluded even though they live in the same game-managed profile tree as the World files.
 
 ## Normal path for adding a game
 
@@ -152,7 +158,7 @@ These remain recorded in `DEFERRED_EMPIRICAL_TESTS.md` and related acceptance do
 
 Older E6/E8 status files preserve useful historical evidence, but checkpoint statements such as `62517139` being the last globally green head or "reconcile the E6/E8 stack onto the newer Factorio tree" are superseded by this document.
 
-The current line contains the E6 commercial UI stack, the E8 deterministic hardening stack, the later adapter hardening work, the PR #72 Desktop composition correction, and post-platform adapter expansion through qualified Terraria #77, Stardew Valley #79, and Necesse #81 on one all-workflows-green ancestry.
+The current line contains the E6 commercial UI stack, the E8 deterministic hardening stack, the later adapter hardening work, the PR #72 Desktop composition correction, and post-platform adapter expansion through qualified Terraria #77, Stardew Valley #79, Necesse #81, and Core Keeper #83 on one all-workflows-green ancestry.
 
 Use this file for the current implementation mode. Use E6/E8 documents for the detailed evidence and deferred acceptance categories they describe.
 

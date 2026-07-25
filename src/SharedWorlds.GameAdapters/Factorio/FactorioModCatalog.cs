@@ -5,6 +5,8 @@ namespace SharedWorlds.GameAdapters.Factorio;
 
 internal static class FactorioModCatalog
 {
+    internal const long MaximumInfoJsonBytes = 4L * 1024 * 1024;
+
     public static IReadOnlyList<FactorioModArtifact> Discover(string modsDirectory)
     {
         if (!Directory.Exists(modsDirectory))
@@ -63,6 +65,11 @@ internal static class FactorioModCatalog
         try
         {
             using var stream = File.OpenRead(infoPath);
+            if (stream.Length > MaximumInfoJsonBytes)
+            {
+                return null;
+            }
+
             var identity = ReadIdentity(stream);
             return identity is null
                 ? null
@@ -95,7 +102,7 @@ internal static class FactorioModCatalog
             var infoEntry = archive.Entries.FirstOrDefault(entry =>
                 entry.FullName.Equals("info.json", StringComparison.OrdinalIgnoreCase) ||
                 entry.FullName.EndsWith("/info.json", StringComparison.OrdinalIgnoreCase));
-            if (infoEntry is null)
+            if (infoEntry is null || infoEntry.Length > MaximumInfoJsonBytes)
             {
                 return null;
             }

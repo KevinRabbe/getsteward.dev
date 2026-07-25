@@ -60,11 +60,10 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
             }
 
             var fullExplicitPath = Path.GetFullPath(explicitLibrary);
-            var explicitFile = new FileInfo(fullExplicitPath);
-            if (!explicitFile.Exists || (explicitFile.Attributes & FileAttributes.Directory) != 0)
+            if (!IsRegularFile(fullExplicitPath))
             {
                 throw new FileNotFoundException(
-                    $"{AcceptanceLibraryEnvironmentVariable} does not reference an existing regular file.",
+                    $"{AcceptanceLibraryEnvironmentVariable} does not reference an existing regular non-linked file.",
                     fullExplicitPath);
             }
 
@@ -75,8 +74,9 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
     }
 
     /// <summary>
-    /// Production lookup. Only already-installed files beneath the discovered Palworld client/server
-    /// roots are eligible. The acceptance environment-variable override is intentionally ignored.
+    /// Production lookup. Only already-installed regular files beneath regular discovered Palworld
+    /// client/server roots are eligible. Reparse directories and linked DLLs are never traversed or
+    /// loaded. The acceptance environment-variable override is intentionally ignored.
     /// </summary>
     public static PalworldOodleCodec LoadInstalledFromPalworldRoots(params string[] roots)
     {
@@ -86,40 +86,7 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
                 "The Palworld WorldOption Oodle path currently supports Windows only.");
         }
 
-        ArgumentNullException.ThrowIfNull(roots);
-        var candidates = new List<string>();
-        foreach (var root in roots.Where(root => !string.IsNullOrWhiteSpace(root)))
-        {
-            var fullRoot = Path.GetFullPath(root);
-            if (!Directory.Exists(fullRoot))
-            {
-                continue;
-            }
-
-            AddCandidate(candidates, Path.Combine(fullRoot, LibraryFileName));
-            AddCandidate(candidates, Path.Combine(fullRoot, "Pal", "Binaries", "Win64", LibraryFileName));
-            AddCandidate(candidates, Path.Combine(fullRoot, "Engine", "Binaries", "ThirdParty", "Oodle", "Win64", LibraryFileName));
-
-            try
-            {
-                foreach (var candidate in Directory.EnumerateFiles(
-                             fullRoot,
-                             LibraryFileName,
-                             SearchOption.AllDirectories))
-                {
-                    AddCandidate(candidates, candidate);
-                }
-            }
-            catch (Exception exception) when (
-                exception is IOException or
-                UnauthorizedAccessException or
-                DirectoryNotFoundException)
-            {
-                // A partially inaccessible subtree must not prevent checking other known Palworld roots.
-            }
-        }
-
-        foreach (var candidate in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (var candidate in DiscoverInstalledLibraryCandidates(roots))
         {
             try
             {
@@ -135,7 +102,67 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
         }
 
         throw new FileNotFoundException(
-            $"Palworld's current PlM save format requires {LibraryFileName}, but no usable installed copy was found under the discovered Palworld client/server roots. Steward will not search unrelated games, download, copy, or redistribute this runtime.");
+            $"Palworld's current PlM save format requires {LibraryFileName}, but no usable installed copy was found under the discovered Palworld client/server roots. Steward will not search unrelated games, follow linked paths, download, copy, or redistribute this runtime.");
+    }
+
+    internal static IReadOnlyList<string> DiscoverInstalledLibraryCandidates(params string[] roots)
+    {
+        ArgumentNullException.ThrowIfNull(roots);
+        var comparer = OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+        var candidates = new List<string>();
+        var seenCandidates = new HashSet<string>(comparer);
+
+        foreach (var root in roots.Where(root => !string.IsNullOrWhiteSpace(root)))
+        {
+            string fullRoot;
+            try
+            {
+                fullRoot = Path.GetFullPath(root);
+            }
+            catch (Exception exception) when (
+                exception is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                continue;
+            }
+
+            if (!IsRegularDirectory(fullRoot))
+            {
+                continue;
+            }
+
+            AddCandidate(candidates, seenCandidates, Path.Combine(fullRoot, LibraryFileName));
+            AddCandidate(
+                candidates,
+                seenCandidates,
+                Path.Combine(fullRoot, "Pal", "Binaries", "Win64", LibraryFileName));
+            AddCandidate(
+                candidates,
+                seenCandidates,
+                Path.Combine(fullRoot, "Engine", "Binaries", "ThirdParty", "Oodle", "Win64", LibraryFileName));
+
+            var pending = new Stack<string>();
+            pending.Push(fullRoot);
+            while (pending.Count > 0)
+            {
+                var current = pending.Pop();
+                foreach (var directory in EnumerateDirectoriesSafe(current))
+                {
+                    if (IsRegularDirectory(directory))
+                    {
+                        pending.Push(directory);
+                    }
+                }
+
+                foreach (var file in EnumerateFilesSafe(current, LibraryFileName))
+                {
+                    AddCandidate(candidates, seenCandidates, file);
+                }
+            }
+        }
+
+        return candidates;
     }
 
     public byte[] Decompress(ReadOnlySpan<byte> compressed, int uncompressedLength)
@@ -172,7 +199,7 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
                 decoderMemory: nint.Zero,
                 decoderMemorySize: 0,
                 threadPhase: DecodeThreadPhaseAll);
-
+        
             if (decoded != destination.Length)
             {
                 throw new InvalidDataException(
@@ -199,11 +226,76 @@ internal sealed class PalworldOodleCodec : IPalworldOodleCodec, IDisposable
         _disposed = true;
     }
 
-    private static void AddCandidate(List<string> candidates, string path)
+    private static void AddCandidate(
+        ICollection<string> candidates,
+        ISet<string> seenCandidates,
+        string path)
     {
-        if (File.Exists(path))
+        string fullPath;
+        try
         {
-            candidates.Add(Path.GetFullPath(path));
+            fullPath = Path.GetFullPath(path);
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return;
+        }
+
+        if (IsRegularFile(fullPath) && seenCandidates.Add(fullPath))
+        {
+            candidates.Add(fullPath);
+        }
+    }
+
+    private static bool IsRegularDirectory(string path)
+        => TryGetAttributes(path, out var attributes) &&
+           (attributes & FileAttributes.Directory) != 0 &&
+           (attributes & FileAttributes.ReparsePoint) == 0;
+
+    private static bool IsRegularFile(string path)
+        => TryGetAttributes(path, out var attributes) &&
+           (attributes & FileAttributes.Directory) == 0 &&
+           (attributes & FileAttributes.ReparsePoint) == 0;
+
+    private static bool TryGetAttributes(string path, out FileAttributes attributes)
+    {
+        try
+        {
+            attributes = File.GetAttributes(path);
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
+        {
+            attributes = default;
+            return false;
+        }
+    }
+
+    private static IReadOnlyList<string> EnumerateDirectoriesSafe(string path)
+    {
+        try
+        {
+            return Directory.EnumerateDirectories(path, "*", SearchOption.TopDirectoryOnly).ToArray();
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+        {
+            return [];
+        }
+    }
+
+    private static IReadOnlyList<string> EnumerateFilesSafe(string path, string searchPattern)
+    {
+        try
+        {
+            return Directory.EnumerateFiles(path, searchPattern, SearchOption.TopDirectoryOnly).ToArray();
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+        {
+            return [];
         }
     }
 

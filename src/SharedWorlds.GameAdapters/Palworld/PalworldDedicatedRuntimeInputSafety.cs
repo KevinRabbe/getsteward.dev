@@ -4,6 +4,7 @@ namespace SharedWorlds.GameAdapters.Palworld;
 
 internal static class PalworldDedicatedRuntimeInputSafety
 {
+    internal const long MaximumDedicatedServerManifestBytes = 4L * 1024 * 1024;
     internal const long MaximumManagedConfigurationBytes = 4L * 1024 * 1024;
     private static readonly string[] ConfigDirectories = ["Pal", "Saved", "Config", "WindowsServer"];
 
@@ -19,11 +20,20 @@ internal static class PalworldDedicatedRuntimeInputSafety
             return;
         }
 
-        // Missing manifest remains the existing truthful "unknown build" state. A linked manifest is
-        // different: its bytes exist, but Steward must not promote bytes outside this installation to
-        // an exact Palworld build identity.
-        _ = TryRequireRegularFile(
-            Path.GetFullPath(manifestPath),
+        // Missing manifest remains the existing truthful "unknown build" state. A linked or oversized
+        // manifest is different: its bytes exist, but Steward must not promote unsafe/unbounded bytes
+        // to an exact Palworld build identity.
+        var fullManifestPath = Path.GetFullPath(manifestPath);
+        if (!TryRequireRegularFile(
+                fullManifestPath,
+                "Palworld dedicated-server Steam manifest"))
+        {
+            return;
+        }
+
+        RequireFileSizeAtMost(
+            fullManifestPath,
+            MaximumDedicatedServerManifestBytes,
             "Palworld dedicated-server Steam manifest");
     }
 
@@ -202,7 +212,7 @@ internal static class PalworldDedicatedRuntimeInputSafety
         if (length > maximumBytes)
         {
             throw new InvalidOperationException(
-                $"{description} exceeds Steward's {maximumBytes}-byte managed configuration safety limit: {path}");
+                $"{description} exceeds Steward's {maximumBytes}-byte input safety limit: {path}");
         }
     }
 

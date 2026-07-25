@@ -98,11 +98,9 @@ internal static partial class SevenDaysToDieEnvironment
         }
 
         var fullManifestPath = Path.GetFullPath(manifestPath);
-        if (!File.Exists(fullManifestPath))
-        {
-            throw new InvalidOperationException(
-                $"7 Days to Die Dedicated Server Steam manifest was not found: {fullManifestPath}");
-        }
+        RequireRegularFile(
+            fullManifestPath,
+            "7 Days to Die Dedicated Server Steam manifest");
 
         string text;
         try
@@ -130,7 +128,9 @@ internal static partial class SevenDaysToDieEnvironment
     {
         var serverRoot = GetRequiredDedicatedServerRoot(installation);
         var modsRoot = Path.Combine(serverRoot, "Mods");
-        if (!Directory.Exists(modsRoot))
+        if (!TryRequireRegularDirectory(
+                modsRoot,
+                "7 Days to Die Dedicated Server Mods directory"))
         {
             return [];
         }
@@ -152,8 +152,14 @@ internal static partial class SevenDaysToDieEnvironment
 
         foreach (var directory in directories.OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
         {
+            RequireRegularDirectory(
+                directory,
+                "7 Days to Die Dedicated Server mod directory");
+
             var modInfoPath = Path.Combine(directory, "ModInfo.xml");
-            if (!File.Exists(modInfoPath))
+            if (!TryRequireRegularFile(
+                    modInfoPath,
+                    "7 Days to Die ModInfo.xml"))
             {
                 // ModInfo.xml is required for the game to recognize a mod folder.
                 continue;
@@ -307,13 +313,71 @@ internal static partial class SevenDaysToDieEnvironment
         }
 
         var fullRoot = Path.GetFullPath(serverRoot);
-        if (!Directory.Exists(fullRoot))
+        RequireRegularDirectory(
+            fullRoot,
+            "7 Days to Die Dedicated Server root");
+        return fullRoot;
+    }
+
+    private static bool TryRequireRegularFile(string path, string description)
+        => TryRequireRegularPath(path, description, expectDirectory: false);
+
+    private static bool TryRequireRegularDirectory(string path, string description)
+        => TryRequireRegularPath(path, description, expectDirectory: true);
+
+    private static void RequireRegularFile(string path, string description)
+    {
+        if (!TryRequireRegularFile(path, description))
+        {
+            throw new InvalidOperationException($"{description} was not found: {path}");
+        }
+    }
+
+    private static void RequireRegularDirectory(string path, string description)
+    {
+        if (!TryRequireRegularDirectory(path, description))
+        {
+            throw new InvalidOperationException($"{description} was not found: {path}");
+        }
+    }
+
+    private static bool TryRequireRegularPath(
+        string path,
+        string description,
+        bool expectDirectory)
+    {
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (Exception exception) when (
+            exception is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
         {
             throw new InvalidOperationException(
-                $"7 Days to Die Dedicated Server root does not exist: {fullRoot}");
+                $"{description} could not be inspected safely: {path}: {exception.Message}",
+                exception);
         }
 
-        return fullRoot;
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new InvalidOperationException(
+                $"{description} is linked or a reparse point. Steward will not use bytes outside the 7 Days to Die environment: {path}");
+        }
+
+        var isDirectory = (attributes & FileAttributes.Directory) != 0;
+        if (isDirectory != expectDirectory)
+        {
+            throw new InvalidOperationException(
+                $"{description} is not a {(expectDirectory ? "directory" : "regular file")}: {path}");
+        }
+
+        return true;
     }
 
     [GeneratedRegex("\"buildid\"\\s+\"([^\"]+)\"", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]

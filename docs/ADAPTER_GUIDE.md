@@ -6,7 +6,7 @@ A game adapter isolates everything specific to one game while letting Core run t
 
 > Core knows what must happen. The adapter knows how this game makes it happen.
 
-Current first-party adapters are Factorio, Palworld, 7 Days to Die, Project Zomboid, Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, and ASTRONEER. Their proven capability sets intentionally differ. Future adapters must preserve the same boundary without forcing their edge cases into Core.
+Current first-party adapters are Factorio, Palworld, 7 Days to Die, Project Zomboid, Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, and Enshrouded. Their proven capability sets intentionally differ. Future adapters must preserve the same boundary without forcing their edge cases into Core.
 
 ## Product contract
 
@@ -73,6 +73,7 @@ It decides:
 - which nearby files belong to player identity, account/config persistence, or auxiliary state rather than World state;
 - which storefront/account namespace belongs to the discovered installation source;
 - which autosaves, backups, auxiliary assets, or temporary states should be hidden;
+- whether native selector/index metadata is required to identify the current authoritative state;
 - how duplicate native sources are collapsed;
 - which display name is shown;
 - which source should be preferred when the same World appears in multiple locations.
@@ -84,6 +85,8 @@ Physical proximity is not ownership. A game may store World state, character sta
 Persistence itself is not enough to establish World ownership. ASTRONEER stores `*.savegame` World state beside `*.savecfg` account/custom-game configuration; Steward imports the former and deliberately leaves the latter outside World revisions.
 
 A native recovery file is not another current World. The Planet Crafter, for example, exposes `Backup.json` beside current save files; the adapter deliberately hides it from normal World discovery.
+
+A native recovery ring is also not automatically one current World bundle. Enshrouded keeps rolling World-data and `_info` generations while separate bounded index files identify the active member of each ring. Discovery follows those selectors and leaves inactive generations outside the current World revision.
 
 Auxiliary user assets are not automatically World state either. Satisfactory's backup and blueprint trees are deliberately outside its current `.sav` World boundary, and adjacent non-Steam account profiles are outside the Steam adapter's identity scope.
 
@@ -101,9 +104,9 @@ Examples include:
 
 Core stores the manifest but does not interpret the game's semantics.
 
-An adapter must not claim an exact environment by silently omitting a game-specific input it knows may matter. A narrower adapter may refuse unsupported environments instead. Stardew Valley uses this rule for detected SMAPI/non-empty Mods installations; Necesse applies it to a linked or non-empty local mods directory; Core Keeper applies it across manual install Mods, Steam Workshop content, and per-profile Mods; The Planet Crafter refuses known BepInEx bootstrap markers; Satisfactory refuses linked/non-empty `FactoryGame/Mods` and Steam Workshop content; ASTRONEER refuses linked/non-empty `Saved/Mods` and `Saved/Paks`.
+An adapter must not claim an exact environment by silently omitting a game-specific input it knows may matter. A narrower adapter may refuse unsupported environments instead. Stardew Valley uses this rule for detected SMAPI/non-empty Mods installations; Necesse applies it to a linked or non-empty local mods directory; Core Keeper applies it across manual install Mods, Steam Workshop content, and per-profile Mods; The Planet Crafter refuses known BepInEx bootstrap markers; Satisfactory refuses linked/non-empty `FactoryGame/Mods` and Steam Workshop content; ASTRONEER refuses linked/non-empty `Saved/Mods` and `Saved/Paks`; Enshrouded refuses known EML/Shroudtopia loader markers and a linked/non-empty root `mods` directory.
 
-The adapter does not need to enumerate every individual mod merely to know that it cannot truthfully reproduce the environment. A proven loader/bootstrap or mod-root boundary can be enough to refuse the narrower vanilla-only capability. Satisfactory demonstrates this by refusing a non-empty `FactoryGame/Mods`; an installed SML environment is caught there without a separate SML abstraction. ASTRONEER similarly uses its known mod-integration roots without interpreting individual packages.
+The adapter does not need to enumerate every individual mod merely to know that it cannot truthfully reproduce the environment. A proven loader/bootstrap or mod-root boundary can be enough to refuse the narrower vanilla-only capability. Satisfactory demonstrates this by refusing a non-empty `FactoryGame/Mods`; an installed SML environment is caught there without a separate SML abstraction. ASTRONEER similarly uses its known mod-integration roots without interpreting individual packages. Enshrouded applies the same restraint to known loader bootstrap files and its root mod surface.
 
 ## Import capture
 
@@ -129,6 +132,8 @@ When a World is spread across several files, capture only the smallest complete 
 
 When the game already stores the complete current World in one native file, do not invent an internal schema merely to move it. The Planet Crafter demonstrates this rule with one opaque `.json`; Satisfactory does the same with one opaque `.sav`; ASTRONEER does the same with one opaque `.savegame`. Steward copies those native bytes exactly and avoids a parser/re-encoder trust boundary that its proven state capability does not need.
 
+When the current authoritative bytes live inside a bounded native rolling-recovery scheme, parsing minimal selector metadata can be the simpler path. Enshrouded reads only its small data and `_info` index files, uses each `latest` selector to identify the active native body independently, and packages exactly those four files. It does not parse the large save bodies and does not copy the inactive recovery generations.
+
 ## Environment preparation
 
 The adapter creates or selects a playable environment matching the requested manifest.
@@ -150,6 +155,8 @@ The strategy remains an adapter detail.
 The adapter restores the opaque state package into its prepared workspace.
 
 It must validate trust boundaries and must not assume that a path is safe to overwrite merely because it resembles a save location.
+
+If selector metadata is part of the portable state, restore must validate that the package actually contains the files selected by that metadata rather than trusting filenames or archive contents independently.
 
 ## Launch local play
 
@@ -220,7 +227,7 @@ Game-specific helpers, SDKs, parsers, commands, and dependencies stay inside the
 
 Adding Palworld-specific dedicated-server behavior must not add Palworld fields to Core. Adding a Factorio-specific RCON or mod behavior must not become a universal requirement.
 
-Not every adapter needs a game-specific parser. If opaque byte preservation is enough to implement the proven capability, adding a parser creates another trust and maintenance boundary without product value.
+Not every adapter needs a game-specific parser. If opaque byte preservation is enough to implement the proven capability, adding a parser creates another trust and maintenance boundary without product value. When interpretation is genuinely required only to locate current authoritative bytes, keep that parser as small and bounded as the native selector format allows rather than extending it into the opaque save body.
 
 ## What an adapter must not decide
 
@@ -248,26 +255,27 @@ Implement in this order, stopping capability growth whenever the next game-speci
 4. existing-World discovery;
 5. classify World-owned state separately from player-owned, account/config, auxiliary, and recovery state;
 6. identify the smallest complete native World representation;
-7. safe import capture without parsing/re-encoding unless that is actually required;
-8. environment inspection;
-9. environment preparation where required by the supported slice;
-10. state restore;
-11. local launch only when its ownership/session semantics are proven;
-12. real session observation;
-13. safe state capture and validation;
-14. temporary host launch only when its server/runtime semantics are proven;
-15. graceful hosted-session shutdown;
-16. optional automatic Join;
-17. exact environment reproduction where justified;
-18. expose only the `GameAdapterCapabilities` proven by the implemented slice;
-19. add adapter-specific deterministic tests and a dedicated CI lane where appropriate;
-20. add the Desktop project reference and one entry to `DesktopGameAdapterCatalog`;
-21. qualify the adapter head independently before mechanical integration;
-22. rerun the full five-workflow matrix on the exact combined SHA.
+7. identify any bounded native selector metadata required to locate the current authoritative members;
+8. safe import capture without parsing/re-encoding beyond what is actually required;
+9. environment inspection;
+10. environment preparation where required by the supported slice;
+11. state restore;
+12. local launch only when its ownership/session semantics are proven;
+13. real session observation;
+14. safe state capture and validation;
+15. temporary host launch only when its server/runtime semantics are proven;
+16. graceful hosted-session shutdown;
+17. optional automatic Join;
+18. exact environment reproduction where justified;
+19. expose only the `GameAdapterCapabilities` proven by the implemented slice;
+20. add adapter-specific deterministic tests and a dedicated CI lane where appropriate;
+21. add the Desktop project reference and one entry to `DesktopGameAdapterCatalog`;
+22. qualify the adapter head independently before mechanical integration;
+23. rerun the full five-workflow matrix on the exact combined SHA.
 
 The first target is one truthful vertical slice, not many partially claimed workflows. An adapter that safely supports discovery/import/environment/state handling may be visible in Steward while launch/hosting remains unavailable; missing runtime evidence is represented by absent capability flags, not invented generic behavior.
 
-Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, and ASTRONEER are current concrete examples of that narrower entry point. Terraria preserves one opaque vanilla `.wld`; Stardew Valley preserves exactly its two current vanilla save files while excluding `_old` recovery files; Necesse preserves the game's native compressed World ZIP byte-for-byte instead of adding a second archive layer; Core Keeper preserves exactly the three slot-matched World-owned files while excluding character and map state; The Planet Crafter preserves one opaque non-empty native `.json` World while excluding `Backup.json`; Satisfactory preserves one opaque Steam-profile `.sav` while excluding non-Steam profiles, backup trees, and blueprints; ASTRONEER preserves one opaque `.savegame` while excluding adjacent `.savecfg` account/custom-game configuration. All seven verify the exact Steam build and advertise only `ExactGameVersion`; launch/hosting capabilities remain absent.
+Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, and Enshrouded are current concrete examples of that narrower entry point. Terraria preserves one opaque vanilla `.wld`; Stardew Valley preserves exactly its two current vanilla save files while excluding `_old` recovery files; Necesse preserves the game's native compressed World ZIP byte-for-byte instead of adding a second archive layer; Core Keeper preserves exactly the three slot-matched World-owned files while excluding character and map state; The Planet Crafter preserves one opaque non-empty native `.json` World while excluding `Backup.json`; Satisfactory preserves one opaque Steam-profile `.sav` while excluding non-Steam profiles, backup trees, and blueprints; ASTRONEER preserves one opaque `.savegame` while excluding adjacent `.savecfg` account/custom-game configuration; Enshrouded uses two bounded selector indexes to preserve only the current World-data and `_info` members while excluding inactive native recovery generations and user configuration. All eight verify the exact Steam build and advertise only `ExactGameVersion`; launch/hosting capabilities remain absent.
 
 Adding a game normally does **not** require changes to Core, backend, Infrastructure, or ordinary Desktop action logic. If implementation appears to require such a change, first prove that the need is genuinely universal rather than an adapter-specific edge case.
 
@@ -283,6 +291,7 @@ discover intended installation without mutation
 -> discover intended World without mutation
 -> distinguish World persistence from nearby account/config/auxiliary/recovery persistence
 -> identify the smallest complete World-owned state representation
+-> resolve bounded native selectors where required to identify the authoritative current bytes
 -> preserve native bytes directly where interpretation is unnecessary
 -> import copied/controlled World while preserving source
 -> inspect exact supported environment

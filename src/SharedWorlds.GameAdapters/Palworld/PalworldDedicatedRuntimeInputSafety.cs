@@ -20,20 +20,11 @@ internal static class PalworldDedicatedRuntimeInputSafety
             return;
         }
 
-        // Missing manifest remains the existing truthful "unknown build" state. A linked or oversized
-        // manifest is different: its bytes exist, but Steward must not promote unsafe/unbounded bytes
-        // to an exact Palworld build identity.
+        // Missing manifest remains the existing truthful "unknown build" state. When bytes exist,
+        // this boundary establishes path ownership only; the actual build-id reader owns the byte limit.
         var fullManifestPath = Path.GetFullPath(manifestPath);
-        if (!TryRequireRegularFile(
-                fullManifestPath,
-                "Palworld dedicated-server Steam manifest"))
-        {
-            return;
-        }
-
-        RequireFileSizeAtMost(
+        _ = TryRequireRegularFile(
             fullManifestPath,
-            MaximumDedicatedServerManifestBytes,
             "Palworld dedicated-server Steam manifest");
     }
 

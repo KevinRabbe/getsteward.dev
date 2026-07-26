@@ -111,7 +111,12 @@ internal static class SevenDaysToDieManagedServerConfiguration
                 root,
                 "TelnetPort",
                 managedControl.Port.ToString(CultureInfo.InvariantCulture));
-            SetOwnedProperty(root, "TelnetPassword", managedControl.Password);
+
+            // Current V3 server documentation defines an empty TelnetPassword as the mode that binds
+            // the service interface only to local loopback. Steward's lifecycle control is local, so
+            // deliberately use that narrower game-native boundary instead of creating a remote-capable
+            // management credential and an authentication protocol we do not need.
+            SetOwnedProperty(root, "TelnetPassword", string.Empty);
         }
 
         var transformedContent = StrictUtf8.GetBytes(document.ToString(SaveOptions.DisableFormatting));

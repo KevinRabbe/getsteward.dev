@@ -33,6 +33,23 @@ public interface IGameAdapter
         DetectedWorld world,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Asks the game/adapter to create a new native World and return its initial exact environment
+    /// plus a portable captured state. The opaque settings bag is adapter-owned; Core never interprets
+    /// game-specific creation fields or writes native save formats itself.
+    /// </summary>
+    Task<NativeWorldCreationResult> CreateWorldAsync(
+        GameInstallation installation,
+        WorldCreationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(installation);
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        throw new NotSupportedException(
+            $"{DisplayName} does not expose a validated native World creation path.");
+    }
+
     Task<PreparedWorld> PrepareEnvironmentAsync(
         GameInstallation installation,
         EnvironmentManifest requiredEnvironment,
@@ -187,7 +204,8 @@ public enum GameAdapterCapabilities
     ExactModVersions = 1 << 4,
     EnvironmentIsolation = 1 << 5,
     AutomaticLocalLaunch = 1 << 6,
-    AutomaticHostStop = 1 << 7
+    AutomaticHostStop = 1 << 7,
+    NativeWorldCreation = 1 << 8
 }
 
 public enum JoinCapabilityKind
@@ -239,6 +257,22 @@ public sealed record GameInstallation(
     IReadOnlyDictionary<string, string>? Metadata = null);
 
 public sealed record DetectedWorld(string Id, string DisplayName, string SourcePath);
+
+/// <summary>
+/// Generic creation request. Only DisplayName has cross-game meaning. Settings are deliberately
+/// opaque adapter-owned key/value inputs so Core never accumulates game-specific creation rules.
+/// </summary>
+public sealed record WorldCreationRequest(
+    string DisplayName,
+    IReadOnlyDictionary<string, string>? Settings = null);
+
+/// <summary>
+/// Initial native World materialized by an adapter. The environment and state are persisted as the
+/// first immutable Steward revisions; the captured state follows the same disposal contract as import.
+/// </summary>
+public sealed record NativeWorldCreationResult(
+    EnvironmentManifest Environment,
+    CapturedState State);
 
 public sealed record PreparedWorld(
     GameInstallation Installation,

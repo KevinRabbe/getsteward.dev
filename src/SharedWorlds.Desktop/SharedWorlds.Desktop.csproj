@@ -36,5 +36,6 @@
     <ProjectReference Include="../SharedWorlds.GameAdapters/Enshrouded/SharedWorlds.GameAdapters.Enshrouded.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/ConanExilesEnhanced/SharedWorlds.GameAdapters.ConanExilesEnhanced.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/Raft/SharedWorlds.GameAdapters.Raft.csproj" />
+    <ProjectReference Include="../SharedWorlds.GameAdapters/AbioticFactor/SharedWorlds.GameAdapters.AbioticFactor.csproj" />
   </ItemGroup>
 </Project>

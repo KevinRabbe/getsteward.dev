@@ -1,38 +1,41 @@
 # Storage
 
+Status: **CURRENT — local and authenticated shared storage are both implemented.**
+
 ## Purpose
 
 Storage exists to preserve the latest valid World state between sessions, players, devices, and time periods.
 
-It must support the product promise:
+It supports the product promise:
 
 > **One shared World. Different Steam players. Different times. No always-on game server.**
 
-Storage is not a branching, merging, social, or ownership system.
+Storage is not a branching, merging, social, hosting, or ownership system.
 
 ## Boundary
 
-Durable persistence is defined by `IWorldStorage` and the canonical state commit boundary.
+Core depends on `IWorldStorage` rather than a specific filesystem, database, cloud provider, or Steam API.
 
-Core depends on storage abstractions rather than a specific filesystem, database, cloud provider, or Steam API.
+The storage boundary provides the World/revision data Core needs:
 
-Durable responsibilities include:
+- load/list World metadata;
+- load/save immutable environment revisions;
+- load/store immutable state revisions and opaque package bytes;
+- expose the current canonical head;
+- verify integrity at trust boundaries;
+- preserve previously valid state when a replacement fails.
 
-- save and load World metadata;
-- save and load environment revisions;
-- store and load state revision metadata;
-- store and open opaque state payloads;
-- preserve immutable published revisions;
-- advance the current World head only after successful storage;
-- validate integrity at trust boundaries.
+Live writable-session availability is separate and belongs to `IWorldSessionCoordinator`.
 
-Live session availability is separate. It belongs to `IWorldSessionCoordinator`.
+For shared Worlds, the backend transaction that advances the current head is also separate from the object store that holds package bytes.
 
-## Local filesystem implementation
+## Current storage implementations
 
-The current local backend stores data under the platform local application-data root.
+### Local-only Worlds
 
-A representative layout is:
+`LocalWorldStorage` stores local Steward data beneath the platform local application-data root.
+
+A representative local layout is:
 
 ```text
 <LocalApplicationData>/SharedWorlds/data/
@@ -47,53 +50,135 @@ A representative layout is:
           payload.bin
 ```
 
-The exact layout is an implementation detail, but these semantics are required:
+The exact physical layout is an implementation detail. Required semantics include:
 
-- `world.json` contains mutable current-head metadata;
+- mutable World/current-head metadata is distinct from immutable revisions;
 - environment revisions are immutable after publication;
-- state revision metadata and payload are published together;
-- opaque payload bytes are never interpreted by Core.
+- state revision metadata binds the stored payload/integrity information;
+- opaque payload bytes are not interpreted by Core;
+- persisted metadata is versioned and integrity-protected under the current persistence contract;
+- path/storage identity is validated rather than trusting only valid JSON/checksum content.
 
-For Factorio, the payload may be a copied save ZIP. For Palworld, it may represent an archived World directory. Other adapters may use different portable package formats.
+A Factorio payload may be a native save ZIP. A Palworld payload may represent an archived World directory. Other adapters define their own smallest complete portable state.
+
+### Shared Worlds
+
+Shared Worlds already use authenticated remote storage through `StewardWorldStorage` and the Backend.Api contracts.
+
+The logical shape is:
+
+```text
+Desktop / StewardWorldStorage
+        |
+        | HTTPS metadata/authority
+        v
+Backend.Api
+        |
+        +-> PostgreSQL
+        |     World metadata
+        |     environment/state revision metadata
+        |     current canonical heads
+        |     access / reservation / commit authority
+        |
+        `-> transfer authorization
+                |
+                v
+          private S3-compatible object storage
+                opaque immutable package bytes
+
+Desktop <--------------------------> object storage
+        direct authorized verified transfer
+```
+
+The responsibilities are deliberately split:
+
+- **PostgreSQL/backend authority** decides which revision is published/current and whether a caller may perform the operation;
+- **object storage** stores immutable opaque bytes and never advances a World head;
+- **Desktop/Infrastructure** downloads/uploads through short-lived authorization and verifies expected size/hash before using the package;
+- **adapters** interpret only their own game-specific package semantics at restore/capture boundaries.
+
+This shared layer is implemented, not a future architecture milestone.
 
 ## Publication and atomicity
 
-A state commit has two logical stages:
+The universal logical ordering is:
 
 ```text
-store immutable candidate revision
--> advance mutable World head
+produce candidate
+-> store/publish immutable candidate safely
+-> verify durable candidate
+-> validate expected current head + writable authority
+-> advance mutable canonical World head last
 ```
 
 The order must never be reversed.
 
-If candidate storage fails, the current head remains unchanged.
+If candidate storage/upload/publication fails, the current head remains unchanged.
 
-If candidate storage succeeds but head advancement fails, the result may be an unreferenced immutable candidate. That is safer than a head pointing to incomplete or missing data.
+If immutable candidate publication succeeds but canonical head advancement does not, the candidate may remain unreferenced/recovery material. That is safer than a current head pointing to incomplete or unverified bytes.
 
-The canonical commit implementation additionally protects head advancement with an expected-head check. A stale writer receives `HeadChanged` instead of overwriting a newer result.
+A stale expected head or invalid reservation generation cannot overwrite a newer canonical state.
 
-## Canonical state transaction
+## Local canonical transaction
 
-The filesystem canonical state store follows these rules:
+The local implementation preserves the same safety semantics without a remote backend:
 
-- hash the package while copying it into controlled storage;
-- store immutable revision content keyed by its content identity;
-- serialize concurrent commit attempts for one World;
-- durably write candidate data before touching the head;
-- atomically replace `head.json` or equivalent current-head metadata;
-- return `Unchanged` for an identical candidate;
-- return `HeadChanged` when the caller started from a stale head;
-- delete a temporary candidate only after a durable committed or unchanged result;
-- leave the previous head authoritative on any failure.
+- hash/package data while bringing it into controlled storage;
+- write immutable revision content before changing the World head;
+- serialize conflicting local commits for one World;
+- use expected-head checks;
+- atomically replace mutable persisted head metadata where required;
+- return `Unchanged` for an identical candidate where the contract permits;
+- return `HeadChanged` for a stale writer;
+- clean temporary candidate material only after durable outcome is known;
+- leave the previous head authoritative on failure.
 
-The user does not see these transaction concepts. They exist to guarantee that the next player receives a complete valid state.
+The user does not see these transaction concepts. They exist so the next session receives a complete valid World.
+
+## Shared publication and commit
+
+Shared storage separates package publication from canonical commit.
+
+Conceptually:
+
+```text
+caller is authorized
+-> declare candidate revision + expected size/hash
+-> obtain resumable scoped upload authorization
+-> upload missing parts directly to object storage
+-> backend/provider verifies complete object
+-> publish immutable revision metadata
+-> commit through exact reservation generation + expected-head transaction
+```
+
+An uploaded object cannot make itself canonical.
+
+A verified revision may remain non-canonical if commit fails or authority changed.
+
+A successful canonical commit is decided transactionally by backend/PostgreSQL, not by S3 object existence, timestamps, or “newest file” heuristics.
+
+## Verified download/cache/materialization
+
+Shared package retrieval uses a verified local cache/materialization boundary.
+
+Important rules:
+
+- download authorization is scoped to an authorized immutable package;
+- remote plaintext non-loopback package URLs are rejected;
+- redirects are not used to silently move credentials/authorized transfer to another origin;
+- download writes are bounded by the authorized package size;
+- interrupted downloads may remain as bounded resumable partials;
+- final byte count and SHA-256 must match before the package is opened/restored;
+- disposable verified cache data has an explicit capacity/eviction policy;
+- recovery candidates/workspaces are not cache entries and are never evicted merely to satisfy cache pressure.
+
+The cache is an optimization/materialization layer, not canonical authority.
 
 ## Immutability
 
 Published environment and state revisions are immutable.
 
-The mutable data is the World's current pointer:
+The mutable authority is the World's current pointer:
 
 ```text
 World
@@ -101,85 +186,106 @@ World
   CurrentStateRevisionId       -> S144
 ```
 
-Previous revisions remain addressable for:
+Previous revisions remain addressable when required for:
 
 - recovery;
-- diagnostics;
-- audit and support investigation;
+- retention/current+prior safety policy;
+- diagnostics/support investigation;
 - compatibility checks;
-- safe rollback when explicitly required;
-- orphan detection and retention decisions.
+- pinned in-flight/recovery dependencies;
+- orphan/cleanup decisions.
 
-They are not a user-facing Git history, branch graph, or merge system.
+They are not a user-facing Git history, branch graph, or merge source.
 
-## Orphans and retention
+## Retention and cleanup
 
-Interrupted operations may leave immutable revisions not referenced by the current World head.
+Cleanup is evidence/authority-driven, not age-only deletion.
 
-A maintenance subsystem must distinguish:
+The system distinguishes at least:
 
-- the current referenced revision;
-- retained recovery or diagnostic revisions;
-- temporary transfer artifacts;
-- truly unreferenced data eligible for cleanup.
+- current canonical revisions;
+- previous canonical revisions retained by policy;
+- revisions/packages pinned by active authority or recovery;
+- unresolved local recovery candidates/workspaces;
+- verified but uncommitted remote candidates within their grace/hold;
+- partial/incomplete transfers;
+- disposable verified cache entries;
+- truly unreferenced cleanup-eligible data.
 
-Deletion eligibility must never be inferred from age alone. Recovery evidence and user-owned data must be preserved conservatively.
+Current shared canonical retention normally keeps:
 
-## Shared durable storage
+> **current canonical revision + previous two successfully committed canonical revisions**
 
-The next commercial storage milestone is a shared implementation that lets another trusted Steam identity or device retrieve the latest state.
+with additional pinning where active recovery/transactions require older dependencies.
 
-Required properties:
+Unresolved local gameplay candidates are never deleted merely because time passed or retries failed.
 
-- immutable state objects;
-- explicit current-head metadata;
-- resumable and retryable transfer;
-- integrity validation;
-- idempotent publication where possible;
-- local caching;
-- conservative failure behavior;
-- support for the same expected-head commit rule across devices.
-
-The exact Steam storage mechanism must be validated with real accounts and real state sizes before becoming permanent architecture.
+Deletion happens after authority/durability classification, never as a shortcut for making a stuck World look Ready.
 
 ## Storage versus transfer
 
-Durable storage and fast transfer are separate concerns.
+Durable World authority and byte transport are separate concerns.
 
-A future implementation may combine:
+Current implementation already uses direct authorized object transfer so large package bytes normally do not pass through Backend.Api JSON/control responses.
 
-- durable shared storage for the current valid state and recovery;
-- direct peer-to-peer transfer for speed;
-- local cache to avoid repeated downloads.
+Future transfer optimizations—CDN, peer assistance, delta/chunk reuse, alternative replication—require measurement. Any faster transport must still preserve:
 
-A fast transport path must not bypass durable commit and integrity rules.
+- backend authorization;
+- immutable package identity;
+- size/hash verification;
+- canonical commit ordering;
+- recovery retention.
+
+Do not add a peer-to-peer path merely because one is possible.
 
 ## Storage versus session coordination
 
 Do not use storage presence as proof that a World is currently active.
 
-Do not use a live Steam lobby or transient peer connection as the only durable copy of World state.
+Do not use a live Steam lobby, Host-presence row, process, or transient peer connection as the durable copy/authority of World state.
 
 ```text
 IWorldStorage
--> durable World state
+-> durable World/revision data
 
 IWorldSessionCoordinator
--> transient one-writer reservation
+-> writable-session authority
+
+IGameAdapter
+-> game/session readiness + safe-capture evidence
 ```
 
-Both are needed for a safe two-device handoff.
+All three cooperate in a safe handoff but own different facts.
+
+For shared Worlds, Steam identity authentication does not make session coordination “Steam storage” or “Steam locking.” The reservation generation and canonical commit live in Steward's backend authority.
+
+## Provider boundary
+
+The production architecture remains provider-neutral at Core/contract level:
+
+- PostgreSQL-compatible transactional authority;
+- private S3-compatible immutable package storage;
+- HTTPS control plane/direct authorized transfer;
+- EU-capable deployment;
+- backup/restore, retention, security, and operational evidence.
+
+The first disposable acceptance topology currently documented uses a Scaleway Instance + Caddy + managed PostgreSQL + private S3-compatible Object Storage. That is an acceptance candidate, not a provider-specific Core/storage contract.
 
 ## Explicit non-goals
 
 Storage does not provide:
 
 - generic save merging;
-- branch or Fork graphs;
+- branch/Fork graphs;
 - merge conflict resolution;
 - permanent host ownership;
 - social roles;
-- tracking or deleting every external copy;
-- a permanently running game server.
+- public server browsing;
+- tracking or deleting every external authorized copy;
+- a permanently running game server;
+- object-store-based lock/authority semantics;
+- speculative P2P/CDN machinery without measured need.
 
-Its job is smaller and stricter: preserve one latest valid shared World state and make it safely retrievable for the next session.
+Its job is smaller and stricter:
+
+> **Preserve one latest valid World state and make the exact durable state safely available to the next authorized session.**

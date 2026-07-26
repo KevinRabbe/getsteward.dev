@@ -34,11 +34,14 @@ internal sealed class DeviceSettingsStore
             return initial;
         }
 
-        await using var stream = File.OpenRead(_path);
-        var envelope = await JsonSerializer.DeserializeAsync<DeviceSettingsEnvelope>(
-            stream,
-            SerializerOptions,
-            cancellationToken);
+        DeviceSettingsEnvelope? envelope;
+        await using (var stream = File.OpenRead(_path))
+        {
+            envelope = await JsonSerializer.DeserializeAsync<DeviceSettingsEnvelope>(
+                stream,
+                SerializerOptions,
+                cancellationToken);
+        }
 
         if (envelope is null ||
             !string.Equals(envelope.DocumentType, DocumentType, StringComparison.Ordinal) ||
@@ -60,6 +63,8 @@ internal sealed class DeviceSettingsStore
 
         // v1 predated installation-bound Steward authentication. Preserve the user's existing
         // hosting preference and add exactly one stable installation identity during migration.
+        // The source stream must already be closed here: Windows does not permit replacing the
+        // destination file while the read handle is still open without delete sharing.
         var migrated = new DeviceSettings(
             envelope.Payload.AllowHosting,
             envelope.Payload.HostingPreferenceExplicit,

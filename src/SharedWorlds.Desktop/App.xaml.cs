@@ -13,7 +13,10 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
         base.OnStartup(e);
 
-        var window = new MainWindow();
+        var window = new MainWindow
+        {
+            Title = $"Steward {StewardBuildVersion.Current}"
+        };
         MainWindow = window;
 
         // Start initialization before showing the window so the legacy Loaded handler is removed

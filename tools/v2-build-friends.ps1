@@ -61,7 +61,8 @@ try {
         -Configuration $Configuration `
         -Runtime 'win-x64' `
         -OutputDirectory $packageDirectory `
-        -FriendsBuildApiBaseUrl $uri.AbsoluteUri
+        -FriendsBuildApiBaseUrl $uri.AbsoluteUri `
+        -BuildVersion $Version
     if ($LASTEXITCODE -ne 0) {
         Fail "Desktop package builder failed with exit code $LASTEXITCODE."
     }
@@ -69,10 +70,16 @@ try {
     $friendsConfigurationPath = Join-Path $packageDirectory 'steward-friends-build.json'
     $manifestPath = Join-Path $packageDirectory 'acceptance-build.json'
     $executablePath = Join-Path $packageDirectory 'SharedWorlds.Desktop.exe'
-    foreach ($requiredPath in @($friendsConfigurationPath, $manifestPath, $executablePath)) {
+    $managedDesktopPath = Join-Path $packageDirectory 'SharedWorlds.Desktop.dll'
+    foreach ($requiredPath in @($friendsConfigurationPath, $manifestPath, $executablePath, $managedDesktopPath)) {
         if (-not [IO.File]::Exists($requiredPath)) {
             Fail "Friends Build package is incomplete: $requiredPath"
         }
+    }
+
+    $productVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($managedDesktopPath).ProductVersion
+    if (-not [string]::Equals($productVersion, $Version, [StringComparison]::Ordinal)) {
+        Fail "Published Steward binary version '$productVersion' does not match requested Friends Build version '$Version'."
     }
 
     $configurationDocument = Get-Content -LiteralPath $friendsConfigurationPath -Raw | ConvertFrom-Json
@@ -108,6 +115,7 @@ try {
 
     Write-Host
     Write-Host '[OK] Steward V2 Friends Build package is ready.'
+    Write-Host "  Version: $Version"
     Write-Host "  ZIP: $zipPath"
     Write-Host "  SHA-256: $zipHash"
     Write-Host "  Checksum file: $checksumPath"

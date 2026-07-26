@@ -40,5 +40,6 @@
     <ProjectReference Include="../SharedWorlds.GameAdapters/Smalland/SharedWorlds.GameAdapters.Smalland.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/AbioticFactor/SharedWorlds.GameAdapters.AbioticFactor.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/VRising/SharedWorlds.GameAdapters.VRising.csproj" />
+    <ProjectReference Include="../SharedWorlds.GameAdapters/SpaceEngineers/SharedWorlds.GameAdapters.SpaceEngineers.csproj" />
   </ItemGroup>
 </Project>

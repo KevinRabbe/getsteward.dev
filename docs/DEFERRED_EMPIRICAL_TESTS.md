@@ -88,18 +88,21 @@ A deferred test is not evidence that the behavior works. It is an explicit bound
 **Already deterministic/CI-proven:**
 
 - A shared writable reservation is acquired before managed Host launch.
-- Factorio creates a private dedicated-server session with an ephemeral game UDP port and per-session random password.
-- The adapter can expose only that game-owned port/password as managed-host connection material.
+- Factorio creates a private dedicated-server session on its standard UDP game port `34197` with a per-session random password.
+- The adapter exposes only that game-owned standard port/password as managed-host connection material; loopback RCON remains on a separate ephemeral TCP port.
 - The shared-session coordinator can publish `Starting`, then `Ready`, and refresh the same exact reservation generation through the existing reservation heartbeat rather than a second timer.
 - Backend.Api can fill a missing Ready address from the authenticated HTTP connection's observed IPv4 peer while preserving an explicit supplied address.
-- Existing Join consumes the resulting `HostConnection` and launches Factorio with direct `--mp-connect <address>:<port> --password <token>` arguments.
+- Existing Join consumes the resulting `HostConnection` and launches Factorio with direct `--mp-connect <address>:34197 --password <token>` arguments.
 - Ending the managed host removes host presence before state capture/commit continues.
+
+The standard-port choice is deliberate. Factorio documents UDP `34197` as its normal server port and the ordinary router-forwarding target when NAT punching is insufficient. Steward therefore does not generate a different external networking problem on every hosted session merely to avoid a fixed game-owned coordinate.
 
 **Empirical questions:**
 
 1. In the selected real HTTPS deployment topology, does Backend.Api observe an IPv4 address that is actually reachable as the host's Internet address rather than a reverse-proxy/load-balancer/internal peer address?
-2. Is Factorio's selected ephemeral UDP game port reachable from a friend's separate network without Steward adding UPnP, explicit port forwarding, STUN, relay, Steam listing, or another traversal mechanism?
-3. Does the existing direct Factorio client launch successfully join the exact managed private server using the published address, port, and per-session password?
+2. Can PC B reach PC A's Factorio UDP `34197` through the real router/NAT/firewall topology without Steward adding UPnP, STUN, relay, Steam listing, or another traversal mechanism?
+3. If direct/NAT-punched reachability fails, does one ordinary router forward of Factorio's documented UDP `34197` make the same managed host reachable without any Steward networking code change?
+4. Does the existing direct Factorio client launch successfully join the exact managed private server using the published address, standard port, and per-session password?
 
 **Test setup:**
 
@@ -108,13 +111,14 @@ A deferred test is not evidence that the behavior works. It is an explicit bound
 - Factorio installed on both PCs with matching verified environment.
 - One shared Factorio World with both Friends Build identities authorized.
 - No manual edit of host-presence rows and no external public-IP helper added for the test.
+- First run with the host router's existing configuration unchanged. Only if UDP `34197` is unreachable, optionally repeat after one explicit UDP `34197` forward to distinguish a normal router prerequisite from a missing Steward mechanism.
 
 **Acceptance evidence:**
 
 ```text
 PC A Host
 -> backend presence becomes Starting then Ready
--> Ready contains the address observed by the deployed API plus A's real game port/password
+-> Ready contains the address observed by the deployed API + UDP 34197 + A's random session password
 -> PC B Join reads that Ready endpoint
 -> Factorio on B reaches A's managed private server and enters the same World
 -> A ends the hosted session
@@ -126,11 +130,12 @@ Also record:
 
 - the address returned by host presence;
 - the address actually visible/reachable from PC B;
-- whether any router/NAT configuration was already present on PC A;
-- whether UDP reachability failed before the Factorio client could authenticate;
+- whether Factorio's direct/NAT-punched path worked with the router unchanged;
+- whether a one-time UDP `34197` router forward was required and sufficient;
+- whether Windows Firewall or another host firewall blocked UDP before Factorio could authenticate;
 - whether the deployed reverse proxy changed the peer address seen by Backend.Api.
 
-**Promotion rule:** Do not add generic public-IP lookup, forwarded-header trust, UPnP, STUN, relay, Steam-server listing, or other NAT traversal merely because such mechanisms exist. First run this exact two-network proof. If it fails, implement only the smallest mechanism that removes the measured failure, then repeat the same acceptance sequence.
+**Promotion rule:** Do not add generic public-IP lookup, forwarded-header trust, UPnP, STUN, relay, Steam-server listing, or other NAT traversal merely because such mechanisms exist. First run this exact two-network proof using the stable game-owned port. If it fails even with the smallest ordinary network prerequisite identified above, implement only the smallest mechanism that removes the measured remaining failure, then repeat the same acceptance sequence.
 
 ## Desktop — real Windows UI acceptance
 

@@ -8,7 +8,7 @@ namespace SharedWorlds.Infrastructure.Tests.Remote;
 public sealed class StewardFriendsBuildSessionClientTests
 {
     [Fact]
-    public async Task AuthenticateFriendsBuildSendsPrivateCredentialAndMapsNormalSessionTokens()
+    public async Task AuthenticateFriendsBuildSendsPrivateCredentialAndMapsVerifiedIdentityAndTokens()
     {
         var handler = new RecordingHandler(_ => JsonResponse(
             HttpStatusCode.OK,
@@ -16,10 +16,17 @@ public sealed class StewardFriendsBuildSessionClientTests
             {
               "code": "Authenticated",
               "data": {
-                "accessToken": "access-1",
-                "accessExpiresAt": "2026-07-26T12:15:00Z",
-                "refreshToken": "refresh-1",
-                "refreshExpiresAt": "2026-08-25T12:00:00Z"
+                "tokens": {
+                  "accessToken": "access-1",
+                  "accessExpiresAt": "2026-07-26T12:15:00Z",
+                  "refreshToken": "refresh-1",
+                  "refreshExpiresAt": "2026-08-25T12:00:00Z"
+                },
+                "identity": {
+                  "provider": "friends-build",
+                  "externalId": "friend-0001",
+                  "displayName": "Alex"
+                }
               },
               "retryable": false
             }
@@ -35,6 +42,10 @@ public sealed class StewardFriendsBuildSessionClientTests
         Assert.NotNull(result.Tokens);
         Assert.Equal("access-1", result.Tokens.AccessToken);
         Assert.Equal("refresh-1", result.Tokens.RefreshToken);
+        Assert.NotNull(result.Identity);
+        Assert.Equal("friends-build", result.Identity.Provider);
+        Assert.Equal("friend-0001", result.Identity.ExternalId);
+        Assert.Equal("Alex", result.Identity.DisplayName);
 
         var request = Assert.Single(handler.Requests);
         Assert.Equal("https://steward.test/api/v1/auth/friends/session", request.Uri);
@@ -62,6 +73,40 @@ public sealed class StewardFriendsBuildSessionClientTests
 
         Assert.Equal(RemoteFriendsBuildAuthenticationStatus.InvalidCredential, result.Status);
         Assert.Null(result.Tokens);
+        Assert.Null(result.Identity);
+    }
+
+    [Fact]
+    public async Task MalformedAuthenticatedIdentityIsRejected()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(
+            HttpStatusCode.OK,
+            """
+            {
+              "code": "Authenticated",
+              "data": {
+                "tokens": {
+                  "accessToken": "access-1",
+                  "accessExpiresAt": "2026-07-26T12:15:00Z",
+                  "refreshToken": "refresh-1",
+                  "refreshExpiresAt": "2026-08-25T12:00:00Z"
+                },
+                "identity": {
+                  "provider": "",
+                  "externalId": "friend-0001",
+                  "displayName": "Alex"
+                }
+              },
+              "retryable": false
+            }
+            """));
+        using var http = CreateHttpClient(handler);
+        var client = new StewardSessionClient(http);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            client.AuthenticateFriendsBuildAsync(
+                "st_friend_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq",
+                "device-a"));
     }
 
     [Fact]

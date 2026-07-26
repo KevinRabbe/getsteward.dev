@@ -1,5 +1,6 @@
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.GameAdapters.Astroneer;
+using SharedWorlds.GameAdapters.ConanExilesEnhanced;
 using SharedWorlds.GameAdapters.CoreKeeper;
 using SharedWorlds.GameAdapters.Enshrouded;
 using SharedWorlds.GameAdapters.Factorio;
@@ -31,7 +32,8 @@ internal static class DesktopGameAdapterCatalog
             new PlanetCrafterAdapter(),
             new SatisfactoryAdapter(),
             new AstroneerAdapter(),
-            new EnshroudedAdapter()
+            new EnshroudedAdapter(),
+            new ConanExilesEnhancedAdapter()
         ];
 
         return adapters.ToDictionary(adapter => adapter.Id, StringComparer.Ordinal);

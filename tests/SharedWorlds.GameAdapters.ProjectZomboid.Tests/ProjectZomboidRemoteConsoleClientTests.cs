@@ -74,10 +74,11 @@ public sealed class ProjectZomboidRemoteConsoleClientTests
         var serverTask = Task.Run(async () =>
         {
             using var server = await listener.AcceptTcpClientAsync();
-            await using var stream = server.GetStream();
-            _ = await ProjectZomboidRemoteConsoleProtocol.ReadAsync(stream, CancellationToken.None);
             try
             {
+                // The client only needs a connected peer that never answers. Parsing its authentication
+                // packet here creates an unrelated scheduling race: under load the client's bounded
+                // timeout may close the socket before this fake server gets CPU time to read it.
                 await Task.Delay(Timeout.InfiniteTimeSpan, releaseServer.Token);
             }
             catch (OperationCanceledException)
@@ -178,11 +179,7 @@ public sealed class ProjectZomboidRemoteConsoleClientTests
         await serverTask;
     }
 
-    private static async Task WriteAsync(
-        NetworkStream stream,
-        int requestId,
-        int type,
-        string body)
+    private static async Task WriteAsync(Stream stream, int requestId, int type, string body)
     {
         var bytes = ProjectZomboidRemoteConsoleProtocol.Encode(requestId, type, body);
         await stream.WriteAsync(bytes);

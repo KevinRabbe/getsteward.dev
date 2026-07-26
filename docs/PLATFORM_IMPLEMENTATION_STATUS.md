@@ -28,9 +28,9 @@ It also passed all five workflows. PR #72 changes only Desktop adapter compositi
 
 ## Latest qualified product line
 
-Normal adapter expansion has continued without reopening the platform. The latest qualified product line is Conan Exiles Enhanced PR #94:
+Normal adapter expansion has continued without reopening the platform. The latest qualified product line is Raft PR #96:
 
-> `c6ae8159825298991c20582764f2a3cbbaaca0de`
+> `9fd828bb493e9ad1bfa83014a69c518d9ad4f94e`
 
 On that exact head all five repository workflows are green again, including Quality, Ubuntu/Windows build-and-test, backend container, PostgreSQL, S3-compatible integration, and Windows acceptance.
 
@@ -48,11 +48,12 @@ The aggregate adapter counts on that line are:
 - Satisfactory: 12/12;
 - ASTRONEER: 12/12;
 - Enshrouded: 14/14;
-- Conan Exiles Enhanced: 15/15 on both Ubuntu and Windows.
+- Conan Exiles Enhanced: 15/15;
+- Raft: 13/13 on both Ubuntu and Windows.
 
-PR #94 extends the same post-platform pattern already proven by Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, and Enshrouded: one independent adapter project, game-owned discovery/environment/state behavior, truthful capability exposure, adapter-specific tests, solution/Desktop registration, and exact combined qualification. It does not modify Core, backend, Infrastructure, or generic Desktop lifecycle contracts.
+PR #96 extends the same post-platform pattern already proven by Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, Enshrouded, and Conan Exiles Enhanced: one independent adapter project, game-owned discovery/environment/state behavior, truthful capability exposure, adapter-specific tests, solution/Desktop registration, and exact combined qualification. It does not modify Core, backend, Infrastructure, or generic Desktop lifecycle contracts.
 
-Conan Exiles Enhanced adds two useful boundaries without adding platform machinery. Steam's bounded appmanifest owns the current install-directory name, so Steward does not hardcode a folder name across product migrations. Its accepted local World representation is one opaque `game_0.db` through `game_9.db` SQLite file only while that file is idle; `-wal`, `-shm`, or `-journal` sidecars make the slot ineligible for capture rather than forcing Steward to implement online database snapshotting.
+Raft adds another identity boundary without adding platform machinery. Under one canonical `User_<SteamID64>` profile, current World state lives at `World/<name>/<name>.rgd`, while player-owned persistence such as `Player/RGD_Users.rgd` belongs to a different revision domain. Steward captures the current World artifact only; backup/history `.rgd` files and player inventory/persona state remain outside the World revision.
 
 ## What "platform complete" means
 
@@ -100,12 +101,13 @@ Current adapters:
 | ASTRONEER | local vanilla non-empty `.savegame` World discovery/import, exact Steam build identity, raw byte-preserving capture/restore, and owned workspace handling; adjacent `.savecfg` account/custom-game state, modded environments, launch, Host, Stop, and Join remain unsupported |
 | Enshrouded | local vanilla indexed-World discovery/import, exact Steam build identity, bounded selector-index parsing, exact four-file current-state capture/restore, and owned workspace handling; inactive recovery generations, `enshrouded_user.json`, Steam Cloud, dedicated-server saves, modded environments, launch, Host, Stop, and Join remain unsupported |
 | Conan Exiles Enhanced | local vanilla ten-slot `game_0.db` through `game_9.db` discovery/import, manifest-derived install identity, exact Steam build identity, opaque SQLite capture/restore, SQLite-sidecar refusal, and owned workspace handling; live-database snapshotting, modded environments, dedicated-server lifecycle, launch, Host, Stop, and Join remain unsupported |
+| Raft | local vanilla canonical `User_<SteamID64>` World discovery/import using the same-name current `<World>.rgd`, exact Steam build identity, opaque capture/restore, backup/player-state exclusion, and owned workspace handling; player inventory/persona migration, backup selection, RaftModLoader environments, launch, Host, Stop, and Join remain unsupported |
 
 Registration does not grant capabilities. The Desktop reads each adapter's `GameAdapterCapabilities`; adding an adapter to the catalog cannot silently make Start, Host, Join, or Stop available.
 
-Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, Enshrouded, and Conan Exiles Enhanced currently advertise only `ExactGameVersion`. Their state-only entries are deliberate evidence that adapters can join the product before launch/hosting semantics are proven.
+Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, Enshrouded, Conan Exiles Enhanced, and Raft currently advertise only `ExactGameVersion`. Their state-only entries are deliberate evidence that adapters can join the product before launch/hosting semantics are proven.
 
-Stardew Valley refuses a detected SMAPI or non-empty Mods environment rather than recording an incomplete vanilla `EnvironmentManifest` for a modded installation. Necesse applies the same principle to its local mods directory. Core Keeper applies it across manual install Mods, Steam Workshop content, and per-profile Mods. The Planet Crafter refuses known BepInEx bootstrap markers rather than enumerating or pretending to reproduce individual mods. Satisfactory refuses linked/non-empty `FactoryGame/Mods` and Steam Workshop content; this also catches an installed SML environment without requiring Steward to understand individual mods. ASTRONEER refuses linked/non-empty `Saved/Mods` or `Saved/Paks` rather than claiming a vanilla environment while mod-integration content is present. Enshrouded refuses known EML/Shroudtopia loader markers and a linked/non-empty root `mods` directory rather than interpreting individual mod packages. Conan Exiles Enhanced refuses a linked or non-empty `ConanSandbox/Mods/modlist.txt` activation surface rather than enumerating individual mod packages.
+Stardew Valley refuses a detected SMAPI or non-empty Mods environment rather than recording an incomplete vanilla `EnvironmentManifest` for a modded installation. Necesse applies the same principle to its local mods directory. Core Keeper applies it across manual install Mods, Steam Workshop content, and per-profile Mods. The Planet Crafter refuses known BepInEx bootstrap markers rather than enumerating or pretending to reproduce individual mods. Satisfactory refuses linked/non-empty `FactoryGame/Mods` and Steam Workshop content; this also catches an installed SML environment without requiring Steward to understand individual mods. ASTRONEER refuses linked/non-empty `Saved/Mods` or `Saved/Paks` rather than claiming a vanilla environment while mod-integration content is present. Enshrouded refuses known EML/Shroudtopia loader markers and a linked/non-empty root `mods` directory rather than interpreting individual mod packages. Conan Exiles Enhanced refuses a linked or non-empty `ConanSandbox/Mods/modlist.txt` activation surface rather than enumerating individual mod packages. Raft refuses linked/non-empty game-root `mods` and roaming `RaftModLoader` surfaces rather than enumerating individual mods.
 
 Necesse demonstrates a simple state rule: when the game's native current World artifact is already a portable ZIP, Steward preserves those bytes directly instead of unpacking and rebuilding a second archive format.
 
@@ -120,6 +122,8 @@ ASTRONEER demonstrates that persistence type matters even inside one directory. 
 Enshrouded demonstrates the narrow exception to opaque-only handling: when a small bounded native index is required to identify authoritative current bytes inside a rolling recovery ring, Steward should parse only that selector metadata. The large selected World bodies remain opaque, and inactive recovery generations remain outside the current revision.
 
 Conan Exiles Enhanced demonstrates that location identity and state capture safety can often be proven without learning more game internals. Steam's own manifest gives the install-directory identity, and the presence of SQLite transient sidecars is enough to know a database is not an idle standalone artifact. Steward refuses that state instead of understanding Conan's database schema or implementing a live snapshot protocol.
+
+Raft demonstrates that one account/profile namespace can contain multiple independent persistence identities. Its current World artifact and its player/inventory state live under the same `User_<SteamID64>` profile but do not belong to the same World revision. Steward moves the World without silently moving the host's personal state.
 
 ## Normal path for adding a game
 
@@ -178,7 +182,7 @@ These remain recorded in `DEFERRED_EMPIRICAL_TESTS.md` and related acceptance do
 
 Older E6/E8 status files preserve useful historical evidence, but checkpoint statements such as `62517139` being the last globally green head or "reconcile the E6/E8 stack onto the newer Factorio tree" are superseded by this document.
 
-The current line contains the E6 commercial UI stack, the E8 deterministic hardening stack, the later adapter/test hardening work, the PR #72 Desktop composition correction, and post-platform adapter expansion through qualified Terraria #77, Stardew Valley #79, Necesse #81, Core Keeper #83, The Planet Crafter #85, Satisfactory #87, ASTRONEER #89, Enshrouded #92, and Conan Exiles Enhanced #94 on one all-workflows-green ancestry.
+The current line contains the E6 commercial UI stack, the E8 deterministic hardening stack, the later adapter/test hardening work, the PR #72 Desktop composition correction, and post-platform adapter expansion through qualified Terraria #77, Stardew Valley #79, Necesse #81, Core Keeper #83, The Planet Crafter #85, Satisfactory #87, ASTRONEER #89, Enshrouded #92, Conan Exiles Enhanced #94, and Raft #96 on one all-workflows-green ancestry.
 
 Use this file for the current implementation mode. Use E6/E8 documents for the detailed evidence and deferred acceptance categories they describe.
 

@@ -8,10 +8,9 @@ using SharedWorlds.Infrastructure.Remote;
 namespace SharedWorlds.Desktop;
 
 /// <summary>
-/// Owns the authenticated shared-World runtime used by the Windows desktop after Steam identity has
-/// already been verified. Steam ticket acquisition is intentionally outside this composition root;
-/// once authenticated, all shared World metadata, transfer, authority, commit, recovery, flat
-/// access-management, and host-presence traffic flows through production remote Infrastructure.
+/// Owns the authenticated shared-World runtime used by the Windows desktop after external identity has
+/// already been verified. Once authenticated, all shared World metadata, transfer, authority, commit,
+/// recovery, flat access-management, and host-presence traffic flows through remote Infrastructure.
 /// </summary>
 internal sealed class StewardDesktopRemoteRuntime : IDisposable
 {
@@ -21,6 +20,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
     private readonly StewardAccessSession _accessSession;
     private readonly StewardWorldMetadataClient _metadata;
     private readonly StewardHostPresenceClient _hostPresence;
+    private readonly StewardWorldSessionCoordinator _coordinator;
     private bool _disposed;
 
     private StewardDesktopRemoteRuntime(
@@ -30,6 +30,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         StewardAccessSession accessSession,
         StewardWorldMetadataClient metadata,
         StewardHostPresenceClient hostPresence,
+        StewardWorldSessionCoordinator coordinator,
         StewardWorldStorage storage,
         WorldLifecycleService lifecycle,
         WorldJoinService join,
@@ -44,6 +45,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         _accessSession = accessSession;
         _metadata = metadata;
         _hostPresence = hostPresence;
+        _coordinator = coordinator;
         Storage = storage;
         Lifecycle = lifecycle;
         Join = join;
@@ -75,6 +77,14 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
     {
         var accessToken = await _accessSession.GetAccessTokenAsync(cancellationToken);
         return await _hostPresence.GetAsync(worldId, accessToken, cancellationToken);
+    }
+
+    public IGameAdapter CoordinateManagedHost(WorldId worldId, IGameAdapter adapter)
+    {
+        ArgumentNullException.ThrowIfNull(adapter);
+        return adapter is IManagedHostEndpointProvider endpointProvider
+            ? new CoordinatedHostGameAdapter(adapter, endpointProvider, _coordinator, worldId)
+            : adapter;
     }
 
     public static StewardDesktopRemoteRuntime Create(
@@ -145,7 +155,8 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 accessSession,
                 recoveryStore,
                 reservations,
-                installationId);
+                installationId,
+                hostPresence: hostPresence);
             var storage = new StewardWorldStorage(
                 metadata,
                 packages,
@@ -177,6 +188,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 accessSession,
                 metadata,
                 hostPresence,
+                coordinator,
                 storage,
                 lifecycle,
                 join,

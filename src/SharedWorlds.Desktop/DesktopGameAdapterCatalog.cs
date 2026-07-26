@@ -12,6 +12,7 @@ using SharedWorlds.GameAdapters.ProjectZomboid;
 using SharedWorlds.GameAdapters.Raft;
 using SharedWorlds.GameAdapters.Satisfactory;
 using SharedWorlds.GameAdapters.SevenDaysToDie;
+using SharedWorlds.GameAdapters.Smalland;
 using SharedWorlds.GameAdapters.StardewValley;
 using SharedWorlds.GameAdapters.Terraria;
 
@@ -37,7 +38,8 @@ internal static class DesktopGameAdapterCatalog
             new EnshroudedAdapter(),
             new ConanExilesEnhancedAdapter(),
             new RaftAdapter(),
-            new IcarusAdapter()
+            new IcarusAdapter(),
+            new SmallandAdapter()
         ];
 
         return adapters.ToDictionary(adapter => adapter.Id, StringComparer.Ordinal);

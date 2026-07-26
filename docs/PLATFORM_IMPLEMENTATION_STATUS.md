@@ -1,18 +1,16 @@
 # Platform Implementation Status
 
-Status: **PLATFORM CODE/CI COMPLETE — NORMAL PRODUCT EXPANSION IS GAME-ADAPTER WORK. RELEASE EMPIRICAL ACCEPTANCE REMAINS OPEN.**
+Status: **PLATFORM CODE/CI COMPLETE — V3 STEAM RELEASE CANDIDATE IS THE ACTIVE PRODUCT GOAL; RELEASE EMPIRICAL ACCEPTANCE REMAINS OPEN.**
 
-This checkpoint records the first point at which Steward's generic product shell, lifecycle/runtime contracts, backend/storage/authority stack, commercial Desktop surface, and deterministic hardening are composed on one exact all-workflows-green line.
-
-It does **not** claim that real-machine, real-provider, real-Steam, or final release acceptance has happened. Those evidence gates remain separate and must not be replaced with CI claims.
+This checkpoint records the stable generic Steward platform boundary and the current qualified release-candidate line. It does **not** claim that real-machine, real-provider, real-Steam, or final game-release acceptance has happened. Those evidence gates remain separate and must not be replaced with CI claims.
 
 ## Canonical platform-completion checkpoint
 
-The platform-completion code slice is PR #72:
+The generic platform-completion code slice remains PR #72:
 
 > `9db4765948e3b69b4d07bc1442d7a1be5c2e3fc7`
 
-On that exact head all five repository workflows are green:
+On that exact head all five repository workflows were green:
 
 - General CI;
 - Palworld read-only CI;
@@ -20,50 +18,45 @@ On that exact head all five repository workflows are green:
 - Project Zomboid adapter CI;
 - Windows acceptance package.
 
-The immediately preceding hardening/integration checkpoint is:
+PR #72 created the explicit `DesktopGameAdapterCatalog` composition point and proved that adding an adapter to the commercial Games/Import shell does not grant unsupported lifecycle capabilities.
 
-> `5d48b3d83956c12664be713341c4e538f56cd9c9`
+That generic platform boundary remains frozen unless concrete evidence demonstrates a missing universal contract or defect.
 
-It also passed all five workflows. PR #72 changes only Desktop adapter composition: it creates one first-party adapter catalog and makes all four then-existing adapters available to the generic Games/Import shell without changing any adapter capability.
+## Current qualified product line
 
-## Latest qualified product line
+The latest qualified product line is V3-C / PR #135:
 
-Normal adapter expansion has continued without reopening the platform. The latest qualified product line is the Abiotic Factor + V Rising integration PR #104, containing 18 first-party adapters:
+> `b68a527281f1026d06d76e4cfc5cde03c2227557`
 
-> `e99065b6a3cf354e91db0ae4534da93846ba8f87`
+On that exact head all five top-level workflow groups are green:
 
-On that exact head all five repository workflows are green again, including Quality, Ubuntu/Windows build-and-test, backend container, PostgreSQL, S3-compatible integration, Windows acceptance, and the dedicated Palworld/7 Days to Die/Project Zomboid lanes.
+- CI — Ubuntu build/test, Windows build/test, Quality, PostgreSQL integration, S3-compatible integration, backend container;
+- Windows acceptance package, including exact V3 Steam depot-content staging, client/backend public Steam identity matching, and the existing V2 Friends Build path;
+- Palworld read-only CI;
+- 7 Days to Die adapter CI;
+- Project Zomboid adapter CI.
 
-The aggregate adapter counts on that line are:
+The current V3 deterministic release shape qualified through that line includes:
 
-- Factorio: 41/41;
-- Palworld: 75/75;
-- 7 Days to Die: 47/47;
-- Project Zomboid: 94/94;
-- Terraria: 8/8;
-- Stardew Valley: 11/11;
-- Necesse: 9/9;
-- Core Keeper: 14/14;
-- The Planet Crafter: 12/12;
-- Satisfactory: 12/12;
-- ASTRONEER: 12/12;
-- Enshrouded: 14/14;
-- Conan Exiles Enhanced: 15/15;
-- Raft: 13/13;
-- ICARUS: 13/13;
-- Smalland: 14/14;
-- Abiotic Factor: 15/15;
-- V Rising: 16/16 on both Ubuntu and Windows.
+- V3-A package-owned non-secret Steam release configuration;
+- V3-B exact self-contained Release `win-x64` depot content with external size/SHA-256 evidence;
+- V3-C one-source client/backend public Steam AppID + Web API identity with publisher credentials remaining backend-secret and Friends Build explicitly disabled for production release evidence.
 
-PR #104 composes independently qualified Abiotic Factor PR #102 and V Rising PR #103 on one fresh integration branch. The combined line preserves the same post-platform pattern already proven by earlier state-only adapters: independent game-owned discovery/environment/state behavior, truthful capability exposure, adapter-specific tests, Desktop/solution registration, and exact combined qualification. It does not modify Core, backend, Infrastructure, generic Desktop lifecycle contracts, or CI policy.
+The real Steam AppID/publisher/depot/install/ticket/two-machine proof remains external V3-F acceptance.
 
-Abiotic Factor makes a useful subtree-ownership boundary explicit. A canonical Steam profile can contain account/profile persistence above `Worlds`, while one direct `Worlds/<World>` subtree is the complete World-owned revision and may itself legitimately contain nested native player/sandbox state. Steward archives that World subtree without promoting the whole profile to World state and without parsing the native save grammar.
+## Latest adapter-composition checkpoint
 
-V Rising makes a different current-state boundary explicit. A `v4` session can contain rolling `AutoSave_*` recovery generations, World gameplay rules, session identity/time metadata, and machine host configuration in one directory. Steward packages only the latest native autosave plus `ServerGameSettings.json`, `SessionId.json`, and `StartDate.json`; older autosaves and `ServerHostSettings.json` remain outside the portable current World revision. That follows the game's native transfer contract without parsing or re-encoding the autosave body.
+The latest adapter addition before the V2/V3 goal transition was Space Engineers PR #106:
+
+> `90e3c700d842c0f1fabc61f3f3404043206380f2`
+
+Space Engineers became the nineteenth first-party adapter. V2 and V3 work since then has changed product depth, packaging, deployment, and release boundaries without increasing adapter count.
+
+The current executable `DesktopGameAdapterCatalog` therefore contains **19** first-party adapters.
 
 ## What "platform complete" means
 
-For current first-release development, the generic Steward platform is considered complete when all of the following remain true:
+For current release-candidate development, the generic Steward platform is considered complete while all of the following remain true:
 
 1. Core owns only universal World/session/revision/recovery lifecycle behavior.
 2. Backend owns authenticated shared authority, membership, immutable revision publication, one-writer reservation, idempotency, and durable persistence.
@@ -74,13 +67,13 @@ For current first-release development, the generic Steward platform is considere
 7. Deterministic trust boundaries remain bounded and fail closed where Steward owns the bytes/state.
 8. The exact integrated head passes the full five-workflow matrix.
 
-The platform is **not** reopened merely because another abstraction, security wrapper, UI polish pass, or generic feature could be imagined.
+The platform is **not** reopened merely because another abstraction, security wrapper, UI polish pass, release-tier enum, or generic feature could be imagined.
 
 Reopen generic platform implementation only when at least one of these is true:
 
 - a concrete generic correctness/security/recovery defect is demonstrated;
 - a real adapter proves a genuinely universal contract is missing;
-- a first-release product requirement cannot be implemented through the existing generic contracts;
+- a release product requirement cannot be implemented through the existing generic contracts;
 - deterministic CI exposes a generic defect;
 - deferred real-system acceptance exposes a specific platform failure.
 
@@ -88,126 +81,137 @@ Otherwise keep the platform stable.
 
 ## Current first-party adapter composition
 
-Desktop has one explicit first-party composition point, `DesktopGameAdapterCatalog`.
+Desktop has one explicit first-party composition point: `DesktopGameAdapterCatalog`.
 
-Current adapters:
+Catalog registration means only that Steward includes the adapter's proven discovery/environment/state behavior. It is **not** a blanket promise of Start, Host, Join, Stop, mod reproduction, or complete multiplayer support.
 
-| Adapter | Current product role |
+| Adapter | Current proven product role |
 |---|---|
-| Factorio | mature local/host/shared lifecycle path; remaining work is adapter/release evidence where still recorded |
-| Palworld | dedicated-server/World lifecycle path with explicit game-specific limitations; remaining work is adapter/release evidence where still recorded |
-| 7 Days to Die | discovery/import/environment/state support; launch/hosting remains unavailable until its adapter proves truthful runtime semantics |
-| Project Zomboid | discovery/import/environment/state support; launch/hosting remains unavailable until its adapter proves truthful runtime semantics |
-| Terraria | local vanilla `.wld` discovery/import, exact Steam build identity, opaque capture/restore, and owned workspace handling; Steam Cloud, tModLoader, launch, Host, Stop, and Join remain unsupported |
-| Stardew Valley | host-owned local vanilla save discovery/import, exact Steam build identity, exact two-file current-state capture/restore, and owned workspace handling; SMAPI/modded environments, launch, Host, Stop, and Join remain unsupported |
-| Necesse | local vanilla compressed-World ZIP discovery/import, exact Steam build identity, raw byte-preserving capture/restore, and owned workspace handling; uncompressed `-zipsaves 0` Worlds, mods, launch, Host, Stop, and Join remain unsupported |
-| Core Keeper | local vanilla slot-based World discovery/import, exact Steam build identity, exact three-file World-owned capture/restore, and owned workspace handling; character/map state, mods, launch, Host, Stop, and Join remain unsupported |
-| The Planet Crafter | local vanilla non-empty `.json` World discovery/import, exact Steam build identity, raw byte-preserving capture/restore, and owned workspace handling; `Backup.json`, BepInEx environments, launch, Host, Stop, and Join remain unsupported |
-| Satisfactory | Steam-profile-only vanilla non-empty `.sav` World discovery/import, exact Steam build identity, raw byte-preserving capture/restore, and owned workspace handling; non-Steam profiles, backup/blueprint trees, modded environments, launch, Host, Stop, and Join remain unsupported |
-| ASTRONEER | local vanilla non-empty `.savegame` World discovery/import, exact Steam build identity, raw byte-preserving capture/restore, and owned workspace handling; adjacent `.savecfg` account/custom-game state, modded environments, launch, Host, Stop, and Join remain unsupported |
-| Enshrouded | local vanilla indexed-World discovery/import, exact Steam build identity, bounded selector-index parsing, exact four-file current-state capture/restore, and owned workspace handling; inactive recovery generations, `enshrouded_user.json`, Steam Cloud, dedicated-server saves, modded environments, launch, Host, Stop, and Join remain unsupported |
-| Conan Exiles Enhanced | local vanilla ten-slot `game_0.db` through `game_9.db` discovery/import, manifest-derived install identity, exact Steam build identity, opaque SQLite capture/restore, SQLite-sidecar refusal, and owned workspace handling; live-database snapshotting, modded environments, dedicated-server lifecycle, launch, Host, Stop, and Join remain unsupported |
-| Raft | local vanilla canonical `User_<SteamID64>` World discovery/import using the same-name current `<World>.rgd`, exact Steam build identity, opaque capture/restore, backup/player-state exclusion, and owned workspace handling; player inventory/persona migration, backup selection, RaftModLoader environments, launch, Host, Stop, and Join remain unsupported |
-| ICARUS | local vanilla canonical numeric SteamID64 Prospect discovery/import using one current `<Prospect>.json`, exact Steam build identity, opaque capture/restore, rolling-backup/player-state exclusion, and owned workspace handling; character/profile/meta-inventory migration, backup selection, Paks mods, launch, Host, Stop, and Join remain unsupported |
-| Smalland | local vanilla direct `Worlds/<World>.wld` discovery/import, exact Steam build identity, opaque capture/restore, player/map-state exclusion, conservative extra-Pak refusal, and owned workspace handling; player-character/map-annotation migration, mod reproduction, dedicated-server lifecycle, launch, Host, Stop, and Join remain unsupported |
-| Abiotic Factor | local vanilla canonical SteamID64-profile `Worlds/<World>` directory discovery/import, exact Steam build identity, opaque World-subtree capture/restore, profile-scope separation, UE4SS refusal, and owned workspace handling; account/profile-root migration, mod reproduction, launch, Host, Stop, and Join remain unsupported |
-| V Rising | local non-cloud vanilla `Saves/v4/<SessionGuid>` discovery/import, exact Steam build identity, latest-autosave selection, exact four-member current-state capture/restore, host-config/recovery exclusion, BepInEx refusal, and owned workspace handling; CloudSaves, mod reproduction, dedicated-server lifecycle, launch, Host, Stop, and Join remain unsupported |
+| Factorio | Mature import/environment/state path plus automatic local launch, Host, Join, native creation, exact game version, and mod support; final Internet Host/Join/safe-handoff release evidence remains empirical. |
+| Palworld | Dedicated-server/World lifecycle with automatic Host + Host Stop + exact game version; automatic client Join is not advertised and real Internet/native Join + handoff remains empirical. |
+| 7 Days to Die | Discovery/import/environment/state + mods/exact game version; automatic Host/Stop/Join remains unavailable pending the recorded V3 server lifecycle evidence. |
+| Project Zomboid | Discovery/import/environment/state + mods/exact game/exact mod versions; managed runtime capability remains empirical/frozen. |
+| Terraria | Local vanilla `.wld` discovery/import, exact Steam build identity, opaque capture/restore; Steam Cloud, tModLoader, Start/Host/Stop/Join unsupported. |
+| Stardew Valley | Host-owned local vanilla two-file save discovery/import/capture/restore; SMAPI/mod reproduction and Start/Host/Stop/Join unsupported. |
+| Necesse | Local vanilla compressed-World ZIP state/import; uncompressed Worlds, mods and Start/Host/Stop/Join unsupported. |
+| Core Keeper | Local vanilla slot World bundle state/import; character/map state, mods and Start/Host/Stop/Join unsupported. |
+| The Planet Crafter | Local vanilla opaque `.json` World state/import; known modded environments and Start/Host/Stop/Join unsupported. |
+| Satisfactory | Steam-profile vanilla `.sav` state/import; non-Steam profiles, modded environments and Start/Host/Stop/Join unsupported. |
+| ASTRONEER | Local vanilla `.savegame` state/import; adjacent account/custom-game state, mods and Start/Host/Stop/Join unsupported. |
+| Enshrouded | Local vanilla indexed current-World projection with bounded selector parsing; recovery generations/mods and Start/Host/Stop/Join unsupported. |
+| Conan Exiles Enhanced | Local vanilla slot SQLite World state/import with transient-sidecar refusal; live snapshot/modded/dedicated lifecycle and Start/Host/Stop/Join unsupported. |
+| Raft | Local vanilla current World state/import with player/inventory/backup exclusion; mod reproduction and Start/Host/Stop/Join unsupported. |
+| ICARUS | Local vanilla Prospect state/import with account/meta-inventory/backup exclusion; Paks mods and Start/Host/Stop/Join unsupported. |
+| Smalland | Local vanilla `.wld` World state/import with player/map-state separation and extra-Pak refusal; Start/Host/Stop/Join unsupported. |
+| Abiotic Factor | Local vanilla `Worlds/<World>` subtree state/import with profile-scope separation and UE4SS refusal; Start/Host/Stop/Join unsupported. |
+| V Rising | Local non-cloud vanilla current-session projection using latest autosave + gameplay/session metadata; CloudSaves/mod reproduction/dedicated lifecycle and Start/Host/Stop/Join unsupported. |
+| Space Engineers | Local vanilla SteamID64-profile World-directory state/import with native Backup exclusion and bounded transactional restore; Start/Host/Stop/Join unsupported. |
 
-Registration does not grant capabilities. The Desktop reads each adapter's `GameAdapterCapabilities`; adding an adapter to the catalog cannot silently make Start, Host, Join, or Stop available.
+## Capability claims are action-specific
 
-Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, Enshrouded, Conan Exiles Enhanced, Raft, ICARUS, Smalland, Abiotic Factor, and V Rising currently advertise only `ExactGameVersion`. Their state-only entries are deliberate evidence that adapters can join the product before launch/hosting semantics are proven.
+`GameAdapterCapabilities` remains the executable source of truth.
 
-Stardew Valley refuses a detected SMAPI or non-empty Mods environment rather than recording an incomplete vanilla `EnvironmentManifest` for a modded installation. Necesse applies the same principle to its local mods directory. Core Keeper applies it across manual install Mods, Steam Workshop content, and per-profile Mods. The Planet Crafter refuses known BepInEx bootstrap markers rather than enumerating or pretending to reproduce individual mods. Satisfactory refuses linked/non-empty `FactoryGame/Mods` and Steam Workshop content; this also catches an installed SML environment without requiring Steward to understand individual mods. ASTRONEER refuses linked/non-empty `Saved/Mods` or `Saved/Paks` rather than claiming a vanilla environment while mod-integration content is present. Enshrouded refuses known EML/Shroudtopia loader markers and a linked/non-empty root `mods` directory rather than interpreting individual mod packages. Conan Exiles Enhanced refuses a linked or non-empty `ConanSandbox/Mods/modlist.txt` activation surface rather than enumerating individual mod packages. Raft refuses linked/non-empty game-root `mods` and roaming `RaftModLoader` surfaces rather than enumerating individual mods. ICARUS refuses a linked or non-empty active `Icarus/Content/Paks/mods` directory rather than enumerating individual Paks. Smalland accepts only regular stock-style top-level `pakchunkN-WindowsNoEditor.pak` members in its gameplay Paks directory and refuses linked or extra non-stock-named Paks rather than parsing mod content. Abiotic Factor refuses the known UE4SS `dwmapi.dll` proxy or `ue4ss` loader directory instead of enumerating mod scripts. V Rising refuses known BepInEx/bootstrap markers in the game root instead of claiming reproducibility for a modded environment.
+Release/user-facing claims map directly to current capability/evidence:
 
-Necesse demonstrates a simple state rule: when the game's native current World artifact is already a portable ZIP, Steward preserves those bytes directly instead of unpacking and rebuilding a second archive format.
+```text
+Start World
+    -> AutomaticLocalLaunch
 
-Core Keeper demonstrates the complementary ownership rule: storage adjacency is not identity. Character saves and player exploration maps are excluded even though they live in the same game-managed profile tree as the World files.
+Host World
+    -> AutomaticHostLaunch
 
-The Planet Crafter demonstrates the same restraint for an opaque native file: Steward does not need to understand the internal save grammar to preserve, transfer, restore, and verify the exact bytes it owns.
+Join
+    -> AutomaticClientJoin
+       + current GetJoinCapabilityAsync result
 
-Satisfactory demonstrates that the source platform is also part of discovery scope. When Steam and non-Steam account namespaces coexist below one game save root, the Steam adapter remains inside canonical Steam profile identities instead of importing every directory that happens to contain a `.sav` file.
+Stop and Save
+    -> AutomaticHostStop
 
-ASTRONEER demonstrates that persistence type matters even inside one directory. A file being persistent and adjacent to a World does not make it World-owned state; account/custom-game `.savecfg` remains outside the `.savegame` World revision.
+Create World
+    -> NativeWorldCreation
+```
 
-Enshrouded demonstrates the narrow exception to opaque-only handling: when a small bounded native index is required to identify authoritative current bytes inside a rolling recovery ring, Steward should parse only that selector metadata. The large selected World bodies remain opaque, and inactive recovery generations remain outside the current revision.
+The Desktop already applies these flags when enabling actions. Registration cannot silently grant play behavior.
 
-Conan Exiles Enhanced demonstrates that location identity and state capture safety can often be proven without learning more game internals. Steam's own manifest gives the install-directory identity, and the presence of SQLite transient sidecars is enough to know a database is not an idle standalone artifact. Steward refuses that state instead of understanding Conan's database schema or implementing a live snapshot protocol.
+Do **not** add a second `ReleaseSupported`, maturity tier, marketing tier, or release-capability model. If release material needs to describe a game, describe the exact proven slice. A statement such as "full multiplayer support for all 19 games" would be false.
 
-Raft demonstrates that one account/profile namespace can contain multiple independent persistence identities. Its current World artifact and its player/inventory state live under the same `User_<SteamID64>` profile but do not belong to the same World revision. Steward moves the World without silently moving the host's personal state.
+## Normal path for adding or deepening a game
 
-ICARUS reinforces that boundary with a different native layout. A canonical numeric SteamID64 profile owns current Prospect Worlds under `Prospects`, but profile-level `Characters.json`, `Profile.json`, and `MetaInventory.json` belong to player/account progression instead. Rolling `.json.backup_*` copies are recovery history. Steward moves only the current Prospect bytes.
+A new game or deeper capability should:
 
-Smalland demonstrates that the same separation can be encoded directly by a game's native directory layout without any account-profile parser. `SaveGames/Worlds` is the World namespace, `SaveGames/Players` is player persistence, and root-level `.sav` objects are auxiliary map annotations. Steward follows that ownership structure and moves only the direct `.wld` World bytes.
-
-Abiotic Factor demonstrates that a World-owned object can itself be a directory subtree rather than one flat file. Steward enters only canonical SteamID64 profile identities and only their `Worlds` namespace, then preserves the complete selected World subtree—including legitimate nested native state—without absorbing profile-level persistence above `Worlds` or parsing the `.sav` bodies.
-
-V Rising demonstrates that "current World" can be a projection of one native session directory rather than the whole directory. Steward selects the numerically latest `AutoSave_*` generation and packages it with gameplay rules plus session identity/time metadata, while excluding older recovery generations and machine-specific `ServerHostSettings.json`. The save body remains opaque.
-
-## Normal path for adding a game
-
-From this checkpoint, adding another supported game should normally be an adapter project, not a platform project.
-
-A new game should:
-
-1. implement `IGameAdapter` using game-owned discovery and state/environment rules;
-2. prove safe import while preserving the native source;
-3. implement portable capture/restore and exact environment semantics appropriate to that game;
-4. expose only capabilities backed by deterministic or empirical evidence;
-5. add adapter-specific tests and CI coverage;
-6. add the Desktop project reference and one entry to `DesktopGameAdapterCatalog`;
-7. integrate only after the adapter head is independently qualified;
+1. implement/prove the game-owned discovery/environment/state or lifecycle behavior inside its adapter;
+2. preserve native source state during import;
+3. expose only capabilities backed by deterministic or empirical evidence;
+4. add adapter-specific tests/CI evidence;
+5. update Desktop composition only when introducing a genuinely new adapter;
+6. independently qualify the adapter head;
+7. integrate on the current product line;
 8. rerun the full five-workflow matrix on the exact combined SHA.
 
-A new game must **not** add game-name branches to Core, backend, Infrastructure, or normal Desktop behavior. If a game is unusual, keep the unusual behavior inside its adapter unless evidence proves a universal contract is missing.
+A game must **not** add game-name branches to Core, backend, Infrastructure, or normal Desktop behavior. If a game is unusual, keep the unusual behavior inside its adapter unless evidence proves a universal contract is missing.
 
-## What remains outside platform implementation
+## What remains outside deterministic platform/release implementation
 
-The following are still required before Steward can be called fully release-accepted, but they do not justify continuing generic platform construction now:
+### V2/E4-A — real deployment/Friends evidence
 
-### E4-A — real deployment acceptance
+Still external:
 
-- deploy the actual Backend.Api container to a disposable EU environment;
-- real PostgreSQL;
-- real S3-compatible object storage;
-- HTTPS, readiness, restart, logging, transfer and backup/restore probes;
-- verify provider/residency configuration.
+- create the disposable EU provider resources/DNS/secrets;
+- deploy the actual Backend.Api container against real PostgreSQL + S3-compatible object storage;
+- prove HTTPS/readiness/restart/logging/transfer/backup/restore behavior;
+- execute the recorded Friends Build real-machine acceptance batch.
 
-No private Steam publisher credential is required for this phase.
+Qualified #131 already defines the first small deployment topology; absence of cloud-account access is an external resource boundary, not a reason to add another Steward deployment subsystem.
 
-### E4-B — Steam production acceptance
+### V3-E — real Windows release acceptance
 
-Only near release-candidate quality:
+Still external/empirical:
+
+- clean Steam installation/launch;
+- keyboard/focus traversal;
+- Narrator/UI Automation observation;
+- mixed-DPI monitor transitions;
+- tray/background behavior on real Windows;
+- representative real package/capture/restore/transfer timings;
+- long real game sessions.
+
+### V3-F — real Steam production acceptance
+
+Still external/empirical:
 
 - real Steward Steam AppID;
-- publisher credential;
-- real Web API ticket verification;
+- publisher credential injected only into Backend.Api;
+- real depot identity/SteamPipe upload;
+- Steam installation/update behavior;
+- real Web API tickets verified by the deployed backend;
 - two Steam accounts/installations;
-- real PC A -> PC B -> PC A World handoff;
-- competing-writer rejection and Join/host behavior at the real Steam/game boundary.
+- real shared-World handoff;
+- advertised Host/Join behavior at the real game/network boundary.
 
-There is no production authentication bypass and no reason to make these credentials a current coding blocker.
-
-### Other empirical release evidence
-
-- representative real-World capture/package/restore/transfer measurements;
-- real game-process long-session/endurance behavior;
-- real Windows keyboard/focus, assistive-technology, and mixed-DPI acceptance;
-- real Steam depot/release/update acceptance.
-
-These remain recorded in `DEFERRED_EMPIRICAL_TESTS.md` and related acceptance documents.
+There is no production authentication bypass and no reason to invent placeholder Steam infrastructure to make these external values look complete.
 
 ## Relationship to older status documents
 
-Older E6/E8 status files preserve useful historical evidence, but checkpoint statements such as `62517139` being the last globally green head or "reconcile the E6/E8 stack onto the newer Factorio tree" are superseded by this document.
+Older E6/E8 status files preserve useful historical evidence. Their old checkpoint statements are historical where this file or the active V3 specification supersedes them.
 
-The current line contains the E6 commercial UI stack, the E8 deterministic hardening stack, the later adapter/test hardening work, the PR #72 Desktop composition correction, and post-platform adapter expansion through qualified Terraria #77, Stardew Valley #79, Necesse #81, Core Keeper #83, The Planet Crafter #85, Satisfactory #87, ASTRONEER #89, Enshrouded #92, Conan Exiles Enhanced #94, Raft #96, ICARUS #98, Smalland #100, Abiotic Factor #102, and V Rising integration #104 on one all-workflows-green ancestry.
+The current ancestry includes:
 
-Use this file for the current implementation mode. Use E6/E8 documents for the detailed evidence and deferred acceptance categories they describe.
+- E6 commercial UI completion;
+- E8 deterministic hardening;
+- platform composition #72;
+- post-platform state-adapter expansion through Space Engineers #106;
+- V2 Friends Build product/deployment preparation through #131;
+- V3 release-candidate goal #132;
+- V3-A release configuration #133;
+- V3-B exact Steam depot content #134;
+- V3-C matched production public Steam auth configuration #135.
+
+Use `V3_STEAM_RELEASE_CANDIDATE.md` for the active release goal, this file for the stable platform/product checkpoint, and the adapter-specific documents/PR evidence for game-level details.
 
 ## Development rule from here
 
-> **Platform stable. Games are adapters. Add evidence where a game needs it; do not grow Core/UI to accommodate speculation.**
+> **Platform stable. Release claims are capability/evidence-driven. Remove release blockers; do not grow Core/UI to accommodate speculation.**
 
-When work reaches an empirical uncertainty that cannot be settled in CI, record the exact deferred test, freeze that assumption, and continue on an independent deterministic adapter path.
+When work reaches an empirical uncertainty that cannot be settled in CI, record/freeze the exact test and move to another independent deterministic path.
 
 When a problem can be eliminated rather than solved, eliminate it.

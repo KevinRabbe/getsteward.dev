@@ -49,9 +49,10 @@ public static class StewardHostPresenceApi
         try
         {
             // A managed host already reaches Steward through the authenticated HTTPS connection. When
-            // the adapter does not know a public address, reuse that observed peer address instead of
-            // introducing a second external "what is my IP" service. Do not trust forwarded headers
-            // here; real reverse-proxy topology remains an explicit deployment acceptance check.
+            // the adapter does not know a public address, reuse that connection peer instead of adding
+            // a second external "what is my IP" service. Direct deployments expose the raw peer; an
+            // explicitly configured trusted proxy may normalize RemoteIpAddress before this endpoint.
+            // Host presence itself never parses or trusts forwarding headers.
             var address = ResolvePublishAddress(
                 request.State,
                 request.Address,

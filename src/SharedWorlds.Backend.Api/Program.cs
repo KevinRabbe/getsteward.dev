@@ -10,6 +10,9 @@ using SharedWorlds.Backend.Worlds;
 
 var builder = WebApplication.CreateBuilder(args);
 ConfigureListenPort(builder);
+var useForwardedClientAddress = StewardForwardedClientAddress.Configure(
+    builder.Services,
+    builder.Configuration);
 
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -167,6 +170,10 @@ builder.Services.AddSingleton(services => new SharedRevisionRetentionCleanupServ
 builder.Services.AddHostedService<SharedRevisionRetentionCleanupWorker>();
 
 var app = builder.Build();
+if (useForwardedClientAddress)
+{
+    app.UseForwardedHeaders();
+}
 
 var dataSource = app.Services.GetRequiredService<NpgsqlDataSource>();
 await PostgreSqlBackendSchema.InitializeAsync(dataSource);

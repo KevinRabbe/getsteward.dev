@@ -1,6 +1,6 @@
 # V3 Steam Release Candidate
 
-Status: **DETERMINISTIC V3 RELEASE-CANDIDATE PREPARATION COMPLETE — REAL WINDOWS/STEAM/PROVIDER/GAME ACCEPTANCE REMAINS OPEN**
+Status: **DETERMINISTIC V3 RELEASE-CANDIDATE PREPARATION COMPLETE — V3-E HAS STARTED; REAL WINDOWS/STEAM/PROVIDER/GAME ACCEPTANCE REMAINS OPEN**
 
 V3 begins after the deterministic V2 Friends Build line is complete. V2 proved and prepared the private-product path; its remaining real-provider, real-machine, and real-friend acceptance items stay recorded as empirical evidence and do not justify keeping V2 as the active coding goal.
 
@@ -8,7 +8,7 @@ V3 is the stage between a private Friends Build and public Steam Early Access.
 
 Its purpose is not to add more platform architecture. Its purpose is to remove the remaining development/private-build assumptions from the already-composed product until Steward can be uploaded to Steam and exercised through the real production identity/distribution boundary without a parallel Steward-owned platform.
 
-The deterministic V3 implementation/preparation goal is complete through qualified PR #137. V3 is **not** release-accepted yet: V3-E and V3-F deliberately require real Windows, provider, Steam, network, and game evidence.
+The deterministic V3 implementation/preparation goal is complete through qualified PR #137. V3 is **not** release-accepted yet. V3-E has begun with real Windows evidence, while the remaining V3-E and all V3-F evidence still require real Windows, provider, Steam, network, and game boundaries.
 
 ## Goal
 
@@ -20,19 +20,36 @@ The decisive V3 question is:
 
 V3 therefore optimizes the distance from the qualified product to a real Steam release candidate, not adapter count, speculative features, or a second distribution/account system.
 
-## Current qualified deterministic line
+## Current qualified V3 line
 
-The complete deterministic V3 release-candidate preparation line is:
+The deterministic V3 release-candidate preparation line is:
 
 - **V3-A / PR #133** — package-owned Steam release configuration, exact head `180597b0c701a3e00ba29aae456b71717ce80f74`;
 - **V3-B / PR #134** — exact self-contained Steam depot content + external byte evidence, exact head `3cb8eef77382c7a958ec62bbaa0472cc55708b53`;
 - **V3-C / PR #135** — client/backend public Steam identity derived from one release input while publisher credentials stay server-secret, exact head `b68a527281f1026d06d76e4cfc5cde03c2227557`;
 - **V3-D / PR #136** — release claims resolved onto the existing capability model without a second support taxonomy, exact head `2240561378bc361b39d118caaf9905f1d8055593`;
-- **Final deterministic gate / PR #137** — one-pass V3-E/V3-F real acceptance contract aligned to the exact V3 artifacts and Steam-owned install/update boundary, exact head `821750349db246ded47c8faa50d368efbbc07861`.
+- **Final deterministic gate / PR #137** — one-pass V3-E/V3-F real acceptance contract aligned to the exact V3 artifacts and Steam-owned install/update boundary, exact qualified head `8765394c63d5d6257479269b11ab5c1f86bd7865`.
 
-Each exact head passed all five top-level workflow groups.
+Each deterministic V3 head above passed all five top-level workflow groups.
 
-There is no honest V3-G deterministic subsystem to add merely to create activity. The next V3 information-producing step is the real external acceptance batch defined by `STEAM_RELEASE_GATE.md`. Any later code change must come from concrete evidence, a demonstrated defect, or a deliberately chosen post-V3 product goal.
+The first evidence-driven post-deterministic implementation is:
+
+- **V3-E / PR #138** — real Windows v1 -> v2 device-settings migration defect reproduced, fixed, and regression-tested, exact qualified head `e63c6f7d20d103cd2ea3d9a922b73de3c3ba1f5f`.
+
+The real run found that `DeviceSettingsStore.LoadOrCreateAsync` kept the legacy `device.json` read handle open while migration attempted to atomically replace that same file. Windows correctly rejected the replacement. The fix closes the read boundary before the migration write; the schema meaning and fail-closed behavior did not change.
+
+That is exactly how V3-E is supposed to work:
+
+```text
+real Windows evidence
+-> concrete narrow defect
+-> smallest safe fix + regression
+-> resume empirical acceptance
+```
+
+It does **not** mean V3-E is complete. Keyboard/focus, assistive technology, mixed DPI, tray/background, real timing/endurance, and the final Steam-installed path remain open.
+
+There is no honest V3-G deterministic subsystem to add merely to create activity. Further V3 code must come from concrete V3-E/V3-F evidence or another demonstrated release blocker.
 
 ## Relationship to V2
 
@@ -239,7 +256,7 @@ Desktop already consumes those flags directly: unsupported Start/Host actions re
 
 #### Current capability truth relevant to release claims
 
-- **Factorio** currently advertises `AutomaticLocalLaunch`, `AutomaticHostLaunch`, `AutomaticClientJoin`, `NativeWorldCreation`, exact game version, and mod support. It is the only current adapter structurally exposing the complete Start/Host/Join action set, but real Internet Host/Join + safe handoff evidence still gates any final release claim.
+- **Factorio** currently advertises `AutomaticLocalLaunch`, `AutomaticHostLaunch`, `AutomaticClientJoin`, `NativeWorldCreation`, exact game version, and mod support. It is the only current adapter structurally exposing the complete Start/Host/Join action set, but real Internet Host/Join + safe handoff evidence still gates any final release claim. Its current managed Host path uses the explicit `IGameAdapter` dedicated-server/RCON implementation; `AutomaticHostStop` is not advertised.
 - **Palworld** currently advertises automatic Host + automatic Host Stop + exact game version. It does not advertise automatic client Join. Real Internet endpoint/native Join + safe handoff evidence remains required before that claim can expand.
 - **7 Days to Die** advertises its proven mods/exact-version/state slice only. Automatic Host/Stop/Join remains unavailable until the recorded current-V3 lifecycle evidence exists.
 - **Project Zomboid** advertises its proven mods/exact-game/exact-mod-version state slice only. Managed runtime capability remains empirical/frozen.
@@ -255,12 +272,23 @@ This means V3-D needs no product-code change now. New code is justified only if 
 
 V3 does not impose an arbitrary game-count target.
 
-### V3-E — Real Windows release acceptance — EMPIRICAL
+### V3-E — Real Windows release acceptance — STARTED / EMPIRICAL
 
-Use real Windows machines to close the categories CI cannot prove:
+V3-E is no longer entirely deferred. The first real Windows run already produced one concrete defect:
 
-- clean Steam installation/launch;
-- keyboard navigation;
+```text
+legacy v1 device settings
+-> Desktop startup migration
+-> Windows rejects atomic replacement while source read handle remains open
+-> hosting/shared Worlds correctly fail closed
+```
+
+PR #138 closes that defect by disposing the source read handle before writing/replacing the migrated v2 document and adds a Windows-relevant migration regression. The real failure was useful evidence; it did not justify a new persistence subsystem.
+
+Still open on real Windows/release machines:
+
+- clean Steam installation/launch through the actual release path;
+- keyboard navigation/focus;
 - assistive-technology labels/live regions;
 - mixed-DPI behavior;
 - tray/background behavior;
@@ -312,7 +340,7 @@ V3 is complete when:
 2. the exact depot-ready content is reproducible and byte-verifiable before upload — **deterministically satisfied by V3-B**;
 3. production client/backend Steam public configuration is explicit, matched, and secrets remain server-only — **deterministically satisfied by V3-C**;
 4. release claims map directly to existing truthful adapter capabilities rather than catalog presence or a second support taxonomy — **deterministic contract resolved by V3-D; final advertised action claims still require their empirical gates**;
-5. real Windows/release acceptance has no unresolved release-blocking defect — **open V3-E evidence**;
+5. real Windows/release acceptance has no unresolved release-blocking defect — **V3-E started; #138 closed the first observed defect, remaining empirical evidence is open**;
 6. the genuine Steam AppID/publisher/ticket/two-installation handoff passes without bypasses — **open V3-F evidence**;
 7. Steam depot installation/update behavior is proven — **open V3-F evidence**;
 8. the private Friends Build remains a test tool, not a hidden production dependency — **deterministically true; real release execution still verifies it**.

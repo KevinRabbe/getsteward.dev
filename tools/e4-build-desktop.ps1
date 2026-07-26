@@ -3,6 +3,7 @@ param(
     [string]$Configuration = 'Release',
     [string]$Runtime = 'win-x64',
     [string]$OutputDirectory,
+    [string]$FriendsBuildApiBaseUrl,
     [switch]$FrameworkDependent
 )
 
@@ -15,6 +16,28 @@ function Fail([string]$Message) {
     }
     Write-Error $Message
     exit 1
+}
+
+function Get-NormalizedFriendsBuildApiBaseUrl([string]$Value) {
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $null
+    }
+
+    $uri = $null
+    if (-not [Uri]::TryCreate($Value, [UriKind]::Absolute, [ref]$uri) -or
+        -not [string]::Equals($uri.Scheme, [Uri]::UriSchemeHttps, [StringComparison]::OrdinalIgnoreCase) -or
+        -not [string]::IsNullOrEmpty($uri.UserInfo) -or
+        -not [string]::IsNullOrEmpty($uri.Query) -or
+        -not [string]::IsNullOrEmpty($uri.Fragment)) {
+        Fail 'FriendsBuildApiBaseUrl must be an absolute HTTPS URL without credentials, query, or fragment.'
+    }
+
+    $absolute = $uri.AbsoluteUri
+    if (-not $absolute.EndsWith('/', [StringComparison]::Ordinal)) {
+        $absolute += '/'
+    }
+
+    return $absolute
 }
 
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -33,6 +56,7 @@ if ([IO.Directory]::Exists($output)) {
 }
 [IO.Directory]::CreateDirectory($output) | Out-Null
 
+$friendsBuildApiBaseUrl = Get-NormalizedFriendsBuildApiBaseUrl $FriendsBuildApiBaseUrl
 $selfContained = -not $FrameworkDependent.IsPresent
 $selfContainedText = if ($selfContained) { 'true' } else { 'false' }
 
@@ -42,6 +66,9 @@ Write-Host "  Runtime: $Runtime"
 Write-Host "  Configuration: $Configuration"
 Write-Host "  Self-contained: $selfContainedText"
 Write-Host "  Output: $output"
+if ($null -ne $friendsBuildApiBaseUrl) {
+    Write-Host '  Deployment: Friends Build package'
+}
 Write-Host
 
 $publishArguments = @(
@@ -91,6 +118,19 @@ foreach ($requiredFile in $requiredFiles) {
         Add-Content -LiteralPath (Join-Path $repoRoot 'build.log') -Value "Missing E4 package file: $requiredFile"
     }
     Fail "Published acceptance package is incomplete: $requiredFile"
+}
+
+if ($null -ne $friendsBuildApiBaseUrl) {
+    $friendsBuildConfiguration = [ordered]@{
+        schemaVersion = 1
+        apiBaseUrl = $friendsBuildApiBaseUrl
+    }
+    $friendsBuildConfigurationJson = $friendsBuildConfiguration | ConvertTo-Json -Compress
+    $friendsBuildConfigurationPath = Join-Path $output 'steward-friends-build.json'
+    [IO.File]::WriteAllText(
+        $friendsBuildConfigurationPath,
+        $friendsBuildConfigurationJson,
+        [Text.UTF8Encoding]::new($false))
 }
 
 $desktopExecutable = Join-Path $output 'SharedWorlds.Desktop.exe'
@@ -144,5 +184,11 @@ Write-Host "  Production adapters: Factorio, Palworld, 7 Days to Die, Project Zo
 Write-Host "  Hashed package files: $($packageFiles.Count)"
 Write-Host "  Metadata: $metadataPath"
 Write-Host
-Write-Host 'No Steam AppID, API URL, Web API identity, tickets, or backend secrets are embedded by this script.'
-Write-Host 'Use tools/e4-live-acceptance.ps1 to verify this exact package and supply the non-secret runtime coordinates.'
+if ($null -ne $friendsBuildApiBaseUrl) {
+    Write-Host 'The Friends Build HTTPS API coordinate is embedded in steward-friends-build.json and covered by the package manifest.'
+    Write-Host 'No private friend credential, Steam AppID, Web API identity, ticket, or backend secret is embedded.'
+}
+else {
+    Write-Host 'No Steam AppID, API URL, Web API identity, tickets, or backend secrets are embedded by this script.'
+    Write-Host 'Use tools/e4-live-acceptance.ps1 to verify this exact package and supply the non-secret runtime coordinates.'
+}

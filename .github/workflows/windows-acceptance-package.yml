@@ -98,6 +98,49 @@ jobs:
             -Version $version `
             -OutputDirectory "$env:RUNNER_TEMP/steward-v2-friends"
 
+      - name: Verify Friends Build friend provisioning
+        shell: pwsh
+        run: |
+          $configurationPath = "$env:RUNNER_TEMP/friend-provisioning.json"
+          $credentialPath = "$env:RUNNER_TEMP/friend-provisioning.secret"
+          ./tools/v2-provision-friend.ps1 `
+            -DisplayName 'CI Friend' `
+            -Index 0 `
+            -ConfigurationOutputPath $configurationPath `
+            -CredentialOutputPath $credentialPath `
+            -Quiet
+
+          $configuration = Get-Content -LiteralPath $configurationPath -Raw | ConvertFrom-Json
+          $credential = [IO.File]::ReadAllText($credentialPath)
+          if (-not $credential.StartsWith('st_friend_', [StringComparison]::Ordinal) -or $credential.Length -ne 53) {
+            throw 'Provisioned Friends Build credential has the wrong format.'
+          }
+
+          $credentialBytes = [Text.Encoding]::UTF8.GetBytes($credential)
+          try {
+            $actualDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($credentialBytes))
+          }
+          finally {
+            [Security.Cryptography.CryptographicOperations]::ZeroMemory($credentialBytes)
+          }
+
+          $expectedDigest = [string]$configuration.PSObject.Properties['FriendsBuild__Identities__0__CredentialSha256'].Value
+          if (-not [string]::Equals($actualDigest, $expectedDigest, [StringComparison]::Ordinal)) {
+            throw 'Provisioned Friends Build credential does not match the backend digest.'
+          }
+          if ([string]$configuration.FriendsBuild__Enabled -ne 'true' -or
+              [string]$configuration.PSObject.Properties['FriendsBuild__Identities__0__DisplayName'].Value -ne 'CI Friend' -or
+              -not ([string]$configuration.PSObject.Properties['FriendsBuild__Identities__0__Id'].Value).StartsWith('friend-', [StringComparison]::Ordinal)) {
+            throw 'Provisioned Friends Build backend configuration is invalid.'
+          }
+
+          $configurationText = [IO.File]::ReadAllText($configurationPath)
+          if ($configurationText.Contains($credential, [StringComparison]::Ordinal)) {
+            throw 'Plaintext Friends Build credential leaked into backend configuration.'
+          }
+
+          Remove-Item -LiteralPath $credentialPath -Force
+
       - name: Upload exact acceptance package
         uses: actions/upload-artifact@v6
         with:

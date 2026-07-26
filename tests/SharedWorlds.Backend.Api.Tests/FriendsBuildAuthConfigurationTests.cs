@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using SharedWorlds.Backend.Api;
 using SharedWorlds.Backend.Identity;
+using Xunit;
 
 namespace SharedWorlds.Backend.Api.Tests;
 

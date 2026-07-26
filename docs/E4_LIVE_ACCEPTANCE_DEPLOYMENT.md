@@ -1,25 +1,31 @@
 # E4 Live Acceptance Deployment
 
-Reviewed: **2026-07-22**
+Reviewed: **2026-07-26**
 
 Status: **DISPOSABLE ACCEPTANCE ENVIRONMENT SPECIFICATION. NOT A FINAL PRODUCTION-PROVIDER DECISION.**
 
 ## Purpose
 
-E4 no longer needs another simulated backend. It needs one real EU deployment that the Windows Desktop can reach through the same public HTTPS boundary a released Steward client will use.
+Steward no longer needs another simulated backend. It needs one real EU deployment that the private Friends Build can reach through the same HTTPS/PostgreSQL/S3 boundaries used by the production architecture.
 
-The acceptance environment exists to answer one question:
+The acceptance environment exists to answer the real deployment questions without pulling Steam release credentials forward:
 
-> Does the already-composed Steward product work end to end when Steam identity, PostgreSQL authority, S3-compatible object transfer, the Windows Desktop, and a real Factorio session are separated by actual deployment/network boundaries?
+> Does the already-composed Steward product work end to end when Friends Build identity, PostgreSQL authority, S3-compatible object transfer, the Windows Desktop, and real game/network boundaries are separated by an actual Internet deployment?
 
-Any failure discovered there becomes concrete engineering evidence. The deployment must not redefine Core, authority, transfer, or adapter contracts merely to fit a provider.
+Any failure discovered there becomes concrete engineering evidence. The deployment must not redefine Core, authority, transfer, adapter, or identity contracts merely to fit a provider.
+
+Production Steam acceptance is a later E4-B gate. E4-A / V2 Friends Build deliberately runs with all `Steam__...` configuration absent.
 
 ## Provider-neutral deployment shape
 
 ```text
-Windows Steward installation A/B
+Windows Friends Build A/B
         |
         | HTTPS control requests
+        v
+one public TLS reverse proxy
+        |
+        | local/private HTTP
         v
 Steward Backend.Api container
         |
@@ -39,24 +45,45 @@ Windows Desktop <-----------------------> object storage
 
 Object storage still never decides which revision is canonical. Backend authority and PostgreSQL transactions remain the source of truth.
 
-## First disposable candidate: Scaleway Paris
+The first acceptance deployment uses exactly one API process and exactly one HTTPS proxy. Do not introduce load balancing, proxy fleets, scale-to-zero, or multiple cleanup workers while proving the first real handoff.
 
-Scaleway `fr-par` is the first deployment shape to test, not an approved long-term vendor decision.
+## First disposable candidate: Scaleway Paris Instance + Caddy
 
-Current official documentation confirms the pieces needed for the disposable acceptance environment:
+Scaleway `fr-par` remains the first provider/region to test, not an approved long-term vendor decision.
 
-- Serverless Containers accepts ordinary container images, injects a `PORT` environment variable, supports secret environment variables, health checks, configurable min/max scaling, and VPC/private-network integration;
-- Managed PostgreSQL is available in the Paris `fr-par` region;
-- Object Storage exposes an S3-compatible Paris endpoint at `https://s3.fr-par.scw.cloud/` with region `fr-par`.
+The first Host/Join candidate is now a small **Scaleway Instance with a flexible public IPv4**, not Serverless Containers.
 
-References:
+Why:
 
-- https://www.scaleway.com/en/docs/serverless-containers/reference-content/port-parameter-variable/
-- https://www.scaleway.com/en/docs/serverless-containers/concepts/
-- https://www.scaleway.com/en/docs/serverless-containers/reference-content/containers-autoscaling/
-- https://www.scaleway.com/en/docs/serverless-containers/how-to/manage-a-container/
-- https://www.scaleway.com/en/developers/api/managed-database-postgre-mysql
-- https://www.scaleway.com/en/docs/object-storage/concepts/
+- current Scaleway Serverless Container documentation says the platform supplies `X-Forwarded-For`, but Steward's qualified #124 boundary intentionally accepts that header only from one explicitly known proxy peer;
+- the current Serverless documentation does not give this project a stable exact ingress-proxy peer address to pin for that purpose;
+- broadening Steward to trust arbitrary forwarded-header senders, provider CIDR ranges, or an unspecified proxy fleet would add a new security problem merely to fit the first deployment;
+- a normal Instance gives the acceptance environment a directly routed public IPv4 under our deployment control;
+- Caddy can be the **only** public HTTPS proxy, on that same Instance, and Backend.Api can therefore trust one exact local peer: `127.0.0.1`.
+
+The resulting trust shape is intentionally small:
+
+```text
+Internet client
+-> Caddy :443 on the Instance public IPv4
+-> Caddy sets the real X-Forwarded-For client address
+-> Caddy -> 127.0.0.1:8080
+-> Backend.Api raw peer = 127.0.0.1
+-> ReverseProxy__KnownProxyIp=127.0.0.1
+-> Steward accepts exactly one forwarded client-address hop
+```
+
+Caddy's default reverse-proxy behavior ignores spoofable incoming `X-Forwarded-*` values before constructing the upstream forwarding headers. Steward still performs its own exact-proxy trust check; neither component relies on arbitrary client-supplied forwarding metadata.
+
+Current provider/reference material rechecked 2026-07-26:
+
+- Scaleway Flexible IP: https://www.scaleway.com/en/docs/instances/reference-content/flexible-ips/
+- Scaleway Instances networking: https://www.scaleway.com/en/docs/instances/reference-content/network/
+- Scaleway Managed PostgreSQL / Private Networks: https://www.scaleway.com/en/docs/managed-databases/postgresql-and-mysql/how-to/connect-to-database/
+- Scaleway Object Storage: https://www.scaleway.com/en/docs/object-storage/concepts/
+- Scaleway Serverless forwarded headers: https://www.scaleway.com/en/docs/serverless-containers/reference-content/headers/
+- Caddy `reverse_proxy`: https://caddyserver.com/docs/caddyfile/directives/reverse_proxy
+- Docker host networking: https://docs.docker.com/engine/network/drivers/host/
 
 The provider remains replaceable because the application contract is still:
 
@@ -64,31 +91,39 @@ The provider remains replaceable because the application contract is still:
 containerized ASP.NET API
 + PostgreSQL
 + S3-compatible private object storage
++ one explicit HTTPS boundary
 ```
 
-### Acceptance scaling rule
+## Acceptance Instance shape
 
-For the first E4 deployment set:
+Use one small Linux Instance in `fr-par` with:
+
+- one flexible public IPv4;
+- public DNS name pointing to that IPv4;
+- Caddy as the only Internet-facing HTTPS process;
+- Docker for the exact qualified Backend.Api image;
+- no public PostgreSQL requirement when a private/VPC endpoint is available;
+- no public exposure of Backend.Api port `8080`.
+
+Public network policy for the first proof should be only what the machine actually needs:
 
 ```text
-min scale = 1
-max scale = 1
+80/tcp   -> Caddy certificate/bootstrap redirect path
+443/tcp  -> Caddy HTTPS
+22/tcp   -> restricted administrative source(s) only, if SSH is used
+8080/tcp -> NOT public
 ```
 
-This is deliberate, not a permanent scalability limit.
-
-`Backend.Api` currently contains periodic cleanup hosted services. A scale-to-zero deployment would suspend that periodic work while no instance exists, and multiple replicas would run multiple cleanup loops. PostgreSQL authority itself is designed for concurrent API processes, but E4 is not the milestone to introduce another deployment variable while proving the first real handoff.
-
-After live acceptance we can separately prove multi-instance cleanup behavior or move periodic maintenance to an explicit scheduled worker before raising max scale. Until then, one always-available acceptance replica removes an unnecessary variable.
+Do not expose PostgreSQL or a management dashboard publicly merely for convenience.
 
 ## Backend image
 
-The production image is built from the repository root:
+Build the production image from the exact qualified repository head used for the Friends Build:
 
 ```bash
 docker build \
   --file src/SharedWorlds.Backend.Api/Dockerfile \
-  --tag steward-backend:acceptance \
+  --tag steward-backend:<qualified-sha> \
   .
 ```
 
@@ -96,14 +131,55 @@ The runtime image:
 
 - uses the official .NET 10 ASP.NET runtime;
 - runs as the built-in non-root `app` user;
-- defaults to port `8080` locally;
-- honors a platform-provided `PORT` value after validating `1..65535`.
+- defaults to port `8080`;
+- validates a platform-provided `PORT` when one is supplied.
 
-CI builds the exact Dockerfile and starts it against a real disposable PostgreSQL service, then requires both health probes to succeed. Deployment packaging therefore cannot silently drift away from the normal code matrix.
+CI builds this exact Dockerfile and smoke-tests it against PostgreSQL before a head is considered qualified.
+
+### Run one Backend.Api process
+
+For this first Instance deployment, run the container with Linux host networking and keep `PORT=8080`:
+
+```bash
+docker run -d \
+  --name steward-backend \
+  --restart unless-stopped \
+  --network host \
+  --env-file /etc/steward/backend.env \
+  steward-backend:<qualified-sha>
+```
+
+No Docker `-p` publication is needed with host networking.
+
+Because Backend.Api listens on the host network, the cloud firewall/security group must not expose TCP `8080` to the Internet. The host firewall should likewise deny non-loopback access to `8080` where practical. Caddy reaches the API locally through `127.0.0.1:8080`.
+
+This is an acceptance topology, not a rule that production must permanently use Docker host networking.
+
+## Caddy HTTPS boundary
+
+Minimal Caddy configuration:
+
+```caddyfile
+<acceptance-api-host> {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+Caddy owns certificate issuance/renewal and the public TLS socket. Backend.Api remains ordinary HTTP on the same machine.
+
+The corresponding Steward setting is:
+
+```text
+ReverseProxy__KnownProxyIp=127.0.0.1
+```
+
+Do **not** use `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true`, provider-wide trusted networks, or arbitrary proxy CIDRs. If a later deployment genuinely requires multiple proxies or changing proxy addresses, that becomes a new measured topology requirement rather than something added preemptively to this proof.
+
+Before interpreting any Factorio/Palworld Host presence, confirm once from deployment evidence that Backend.Api actually observes Caddy as `127.0.0.1`. If that assumption is false on the chosen host configuration, stop and record the exact transport peer rather than widening trust.
 
 ## Health boundary
 
-The container exposes two non-secret operational probes:
+Backend.Api exposes two non-secret operational probes:
 
 ```text
 GET /health/live
@@ -115,150 +191,191 @@ GET /health/ready
     503 otherwise
 ```
 
-`/health/ready` deliberately does not return database exception details. Concrete diagnostics belong in provider/application logs, not the public health response.
+`/health/ready` deliberately does not return database exception details. Concrete diagnostics belong in application/provider logs, not the public health response.
 
-Object-storage viability is proven by the actual immutable transfer acceptance flow rather than by adding a second fake authority or broad storage-health abstraction.
+Object-storage viability is proven by the real immutable transfer path rather than by adding another storage-health abstraction.
 
-## Required backend configuration
+## Required V2 / E4-A backend configuration
 
 ASP.NET Core maps double underscores in environment-variable names to configuration sections.
 
 ### Secrets
 
-These values must be provider secrets and must never be committed:
+These values must be injected outside the repository and must never be committed:
 
 ```text
 ConnectionStrings__Steward
-Steam__PublisherApiKey
 ObjectStorage__AccessKeyId
 ObjectStorage__SecretAccessKey
+FriendsBuild__Identities__<n>__CredentialSha256
 ```
 
-### Non-secret deployment configuration
+The friend bootstrap credential itself is **not** backend configuration; only its SHA-256 digest is.
+
+### Non-secret / deployment configuration
+
+For the Scaleway Paris candidate:
 
 ```text
-Steam__AppId=<real Steward Steam AppID>
-Steam__Identity=<real Steward Web API ticket identity>
-
 ObjectStorage__ServiceUrl=https://s3.fr-par.scw.cloud/
 ObjectStorage__AuthenticationRegion=fr-par
 ObjectStorage__BucketName=<private disposable Steward bucket>
 ObjectStorage__ForcePathStyle=false
+
+FriendsBuild__Enabled=true
+FriendsBuild__Identities__0__Id=<opaque friend id>
+FriendsBuild__Identities__0__DisplayName=<friend display name>
+FriendsBuild__Identities__1__Id=<opaque friend id>
+FriendsBuild__Identities__1__DisplayName=<friend display name>
+
+ReverseProxy__KnownProxyIp=127.0.0.1
 
 Cleanup__IntervalMinutes=15
 Cleanup__VerifiedCandidateRetentionDays=7
 Cleanup__BatchSize=100
 ```
 
-`ObjectStorage__ForcePathStyle=false` is the initial standard-S3 setting for the candidate deployment; the acceptance transfer test, not this document, decides whether that setting is valid for the chosen endpoint.
+Add the digest key corresponding to each configured Friends Build identity.
 
-Serverless Containers owns `PORT`; do not create a second competing port variable.
+Do **not** configure any `Steam__...` value for the Friends-Build-only E4-A deployment. Backend startup deliberately treats complete Steam absence as Steam authentication unavailable while Friends Build authentication remains usable. Partial Steam configuration is invalid and must fail closed.
 
-## Required Desktop configuration
+`ObjectStorage__ForcePathStyle=false` is the initial standard-S3 setting for Scaleway. The actual transfer proof, not this document, decides whether the selected storage endpoint behaves correctly.
 
-Both Windows acceptance installations must use the same deployment identity values:
+## PostgreSQL and object storage
 
-```text
-STEWARD_API_BASE_URL=https://<acceptance-api-host>/
-STEWARD_STEAM_APP_ID=<same real Steward Steam AppID>
-STEWARD_STEAM_WEB_API_IDENTITY=<same Web API ticket identity expected by backend>
+Use a disposable PostgreSQL database in the same EU region and prefer a Private Network/private endpoint between the Instance and database where the selected Scaleway product permits it.
+
+Use TLS verification for PostgreSQL with the provider's current CA/certificate guidance. Do not weaken certificate validation merely to make the acceptance environment connect.
+
+Create one private Object Storage bucket in `fr-par` and one dedicated least-privilege credential pair for Steward. The Windows clients continue to upload/download package bytes directly through authorized S3 URLs; Backend.Api does not proxy the package body.
+
+## Provision Friends Build identities
+
+Create one identity per participating person with the existing repository helper:
+
+```powershell
+./tools/v2-provision-friend.ps1 -DisplayName "Kevin" -Index 0
+./tools/v2-provision-friend.ps1 -DisplayName "Alex"  -Index 1
 ```
 
-The two PCs must retain different durable Steward installation IDs. Do not copy the Desktop device-settings file from A to B.
+Each invocation generates an opaque external identity, a plaintext `st_friend_...` bootstrap credential for that person, and the digest-only backend configuration.
+
+Only the digest belongs in `/etc/steward/backend.env` or the equivalent secret/config store. Deliver the plaintext credential to the intended friend separately and delete any temporary plaintext credential file after delivery.
+
+## E4-A backend preflight
+
+Reuse the existing backend-only E4 preflight; do not create another checker:
+
+```powershell
+./tools/e4-live-acceptance.ps1 `
+  -ApiBaseUrl "https://<acceptance-api-host>/" `
+  -SteamAppId "" `
+  -SteamWebApiIdentity ""
+```
+
+Pass requires at least:
+
+```text
+public HTTPS works
+-> /health/live = 200
+-> /health/ready = 200
+```
+
+Do not pass `-DesktopExecutable` for a Friends ZIP. That E4 helper path injects `STEWARD_API_BASE_URL`; a Friends package already carries its backend coordinate in adjacent `steward-friends-build.json`, and Steward intentionally rejects those two routing sources together as ambiguous.
+
+## Build the exact Friends ZIP
+
+After the real HTTPS coordinate exists, produce one immutable package from the same qualified code head.
+
+Locally:
+
+```powershell
+./tools/v2-build-friends.ps1 `
+  -ApiBaseUrl "https://<acceptance-api-host>/" `
+  -Version "2.0.0-alpha.1"
+```
+
+Or manually dispatch the repository's **Windows acceptance package** workflow with:
+
+```text
+friends_api_base_url = https://<acceptance-api-host>/
+friends_version      = 2.0.0-alpha.1
+```
+
+The workflow uses the same `v2-build-friends.ps1` code path already exercised by normal CI and uploads the resulting ZIP + SHA-256 only when a real URL is supplied.
+
+Launch the extracted Friends ZIP normally. Do not inject repository-local `STEWARD_*` routing variables.
+
+## Real Friends Build acceptance
+
+The canonical real-machine execution plan is `V2_REAL_ACCEPTANCE_BATCH.md`.
+
+Use that runbook rather than the older Steam-specific sequence that previously lived in this document.
+
+The first high-information path remains:
+
+```text
+real HTTPS backend ready
+-> exact Friends ZIP
+-> A/B private identities
+-> invitation / visible membership
+-> Factorio A Hosts
+-> B Joins from another real network
+-> safe end/capture/upload/commit
+-> B later Hosts returned state
+-> optional C completes A -> B -> C -> A
+```
+
+The same setup window then gathers Palworld native `IP:port` evidence, Windows UI evidence, real package timings, and the optional current-V3 7DTD lifecycle trace where available.
+
+Do not add UPnP, STUN, relay, another public-IP service, broader forwarded-header trust, or a load balancer during the batch. Record the first measured failure boundary first.
+
+## E4-B — later Steam production acceptance
+
+The same provider-neutral backend architecture can later be used for E4-B, but Steam production credentials are introduced only when Steward is actually entering Steam onboarding/release acceptance.
+
+At that later gate configure the real Steward AppID/publisher verification material and prove real Steam ticket verification plus the two-installation release path.
+
+Do not make E4-B credentials a prerequisite for E4-A or the private Friends Build.
 
 ## Disposable resource rules
 
-For the acceptance environment:
+For this acceptance environment:
 
-1. use one EU region for API-adjacent infrastructure, PostgreSQL, object storage, and backups where the provider permits it;
+1. keep API-adjacent compute, PostgreSQL, object storage, and backups in the intended EU boundary where the selected provider permits it;
 2. create a private bucket dedicated to the acceptance deployment;
 3. create dedicated least-privilege object-storage credentials rather than account-owner credentials;
-4. keep the database non-public where the selected container/network configuration can reach it privately;
-5. require HTTPS for the public Backend.Api endpoint;
-6. inject credentials through provider secrets only;
-7. run one always-available API replica for the first acceptance proof;
-8. collect application/container/database logs without logging Steam tickets, refresh credentials, object-storage secrets, RCON passwords, game passwords, or World contents;
-9. delete disposable users/credentials/resources after acceptance evidence is recorded.
-
-## Acceptance bootstrap
-
-Before opening Steward on either test PC:
-
-```text
-1. PostgreSQL exists and its TLS connection string is stored as a secret.
-2. Private S3-compatible bucket exists.
-3. Scoped object-storage credentials exist.
-4. Real Steward Steam AppID / publisher key / Web API identity are available.
-5. Backend image is deployed with min scale = max scale = 1.
-6. GET /health/live -> 200.
-7. GET /health/ready -> 200.
-8. Desktop A and B receive the three STEWARD_* deployment variables.
-```
-
-A healthy API is necessary but not sufficient. The real transfer and Steam verification still have to succeed.
-
-## E4 live acceptance sequence
-
-Use Factorio first because its local/host lifecycle was already experimentally characterized before the generic architecture was extracted.
-
-```text
-PC A launches Steward under real Steam
--> SteamAPI.Init succeeds for Steward AppID
--> Web API ticket returned for configured identity
--> deployed backend verifies ticket with Steam
--> authenticated shared World catalog loads
--> import/share or prepared acceptance World becomes canonical
--> exact Factorio environment Verify = Ready
--> PC A acquires generation
--> canonical package downloads and verifies
--> authoritative dedicated Factorio server reaches authenticated RCON readiness
--> host client plays
--> host client exits
--> RCON /server-save
--> save refresh is observed
--> server stops
--> candidate captured
--> direct multipart upload/finalization succeeds
--> expected-head commit advances canonical state
--> PC B authenticates with its own installation ID
--> PC B lists the same World and sees A's new revision
--> PC B verifies exact environment
--> PC B continues/hosts that revision
--> PC B commits the next revision
--> PC A observes the new canonical head
-```
-
-## Failure injections worth running before E4 sign-off
-
-After the happy path works, deliberately test at least:
-
-- kill Steward after workspace journal creation;
-- kill Steward after gameplay but before candidate publication;
-- lose the commit response after backend commit succeeds;
-- temporarily break API connectivity during an active generation;
-- attempt a second writer while A owns authority;
-- allow reclaim after the configured uncertainty/grace behavior;
-- change local Factorio environment and confirm Verify blocks writable shared play;
-- create `CleanupPending` and prove cleanup never changes canonical state;
-- restart with a crash-found `Active` record and prove **Recover changes** / confirmed **Discard interrupted session** behave as documented.
-
-No test may resolve ambiguity by deleting the recovery journal or by force-moving a canonical head.
+4. prefer private database networking and never expose PostgreSQL merely for convenience;
+5. require HTTPS for the public Backend.Api coordinate;
+6. keep Backend.Api port `8080` non-public;
+7. inject credentials through files/provider secrets/environment at deploy time, never Git;
+8. run one API process for the first proof;
+9. collect application/container/database logs without logging friend bootstrap credentials, Steward session tokens, object-storage secrets, game passwords, or World contents;
+10. delete disposable credentials/resources after acceptance evidence is recorded.
 
 ## Evidence to record
 
 Record without secrets:
 
-- deployed backend image commit SHA;
+- exact Backend.Api source/head SHA;
+- exact Friends ZIP version + SHA-256;
 - provider/region and resource classes;
-- API health results;
-- Steam AppID only (never publisher key/ticket);
-- PC A and PC B installation IDs in redacted/hashed form if needed;
-- World/revision/generation IDs;
+- Instance/flexible-IP identity without private credentials;
+- public API hostname;
+- public HTTPS/live/ready results;
+- confirmation that Backend.Api sees Caddy as the exact configured trusted proxy peer;
+- PostgreSQL endpoint type (private/public) and TLS mode, without connection secrets;
+- bucket region and direct-transfer result;
+- World/revision/generation IDs when useful to diagnose a failure;
 - package sizes and transfer timings;
 - reservation/acquire/reclaim outcomes;
-- Factorio server readiness/save evidence;
+- Factorio/Palworld Host address and reachability observations;
 - recovery outcomes;
 - errors and operational friction;
 - measured monthly-cost inputs from the acceptance workload.
 
-The final provider decision belongs in `BE_PROVIDER_EVALUATION.md` only after this evidence exists. A successful Scaleway acceptance run proves the deployment shape; it does not by itself prove that Scaleway is the best long-term commercial provider.
+## Provider decision remains separate
+
+A successful Scaleway acceptance run proves that this deployment shape works. It does not prove Scaleway is the best long-term commercial provider.
+
+The final provider decision belongs in `BE_PROVIDER_EVALUATION.md` after real workload, residency, operational-friction, and cost evidence exists.

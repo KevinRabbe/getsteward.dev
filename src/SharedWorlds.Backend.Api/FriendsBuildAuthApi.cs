@@ -52,6 +52,9 @@ public static class FriendsBuildAuthApi
         }
 
         var identity = verification.Identity;
+        var displayName = identity.DisplayName
+            ?? throw new InvalidOperationException(
+                "Friends Build identity verification succeeded without a display name.");
         var tokens = await sessionService.CreateSessionAsync(
             identity,
             request.InstallationId,
@@ -61,7 +64,7 @@ public static class FriendsBuildAuthApi
             new FriendsBuildIdentityData(
                 identity.Subject.Provider,
                 identity.Subject.ExternalId,
-                identity.DisplayName));
+                displayName));
         return Results.Ok(new FriendsBuildAuthResponse("Authenticated", data, false));
     }
 

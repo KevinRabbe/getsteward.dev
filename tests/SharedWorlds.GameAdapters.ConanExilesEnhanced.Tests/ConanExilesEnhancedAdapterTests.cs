@@ -154,6 +154,7 @@ public sealed class ConanExilesEnhancedAdapterTests : IDisposable
         var modsRoot = installation.Metadata![ConanExilesEnhancedInstallationDiscovery.ModsRootPathKey];
         var outside = Path.Combine(_root, "outside-mods");
         Directory.CreateDirectory(outside);
+        Directory.CreateDirectory(Path.GetDirectoryName(modsRoot)!);
         Directory.CreateSymbolicLink(modsRoot, outside);
         try
         {

@@ -155,7 +155,7 @@ public partial class MainWindow
             runtime is null ||
             !_remoteWorldIds.Contains(world.Id) ||
             !TryGetAdapter(world.GameAdapterId, out var adapter) ||
-            !adapter.Capabilities.HasFlag(GameAdapterCapabilities.AutomaticClientJoin))
+            !SupportsJoinPresentation(adapter))
         {
             return;
         }
@@ -217,12 +217,12 @@ public partial class MainWindow
         }
 
         if (!TryGetAdapter(world.GameAdapterId, out var adapter) ||
-            !adapter.Capabilities.HasFlag(GameAdapterCapabilities.AutomaticClientJoin))
+            !SupportsJoinPresentation(adapter))
         {
             SetJoinAvailability(
                 button,
                 false,
-                $"{adapter?.DisplayName ?? world.GameAdapterId} does not support one-click Join yet.");
+                $"{adapter?.DisplayName ?? world.GameAdapterId} does not support one-click or native direct-connect Join yet.");
             return;
         }
 
@@ -274,12 +274,42 @@ public partial class MainWindow
             return;
         }
 
+        if (!adapter.Capabilities.HasFlag(GameAdapterCapabilities.AutomaticClientJoin) &&
+            adapter is IManualDirectConnectProvider manualDirectConnect)
+        {
+            try
+            {
+                var guidance = manualDirectConnect.GetManualDirectConnectInstruction(
+                    new HostConnection(
+                        presence.Address,
+                        presence.Port,
+                        presence.JoinToken));
+                SetJoinAvailability(button, false, guidance.Instruction);
+            }
+            catch (InvalidOperationException)
+            {
+                SetJoinAvailability(
+                    button,
+                    false,
+                    "The host is ready, but it did not publish a complete native direct-connect endpoint.");
+            }
+
+            return;
+        }
+
         SetJoinAvailability(
             button,
             !_isBusy,
             _isBusy
                 ? "Another Steward operation is in progress."
                 : "A host is ready. You can join now.");
+    }
+
+    private static bool SupportsJoinPresentation(IGameAdapter adapter)
+    {
+        ArgumentNullException.ThrowIfNull(adapter);
+        return adapter.Capabilities.HasFlag(GameAdapterCapabilities.AutomaticClientJoin) ||
+               adapter is IManualDirectConnectProvider;
     }
 
     private void SetJoinAvailability(Button button, bool isEnabled, string helpText)

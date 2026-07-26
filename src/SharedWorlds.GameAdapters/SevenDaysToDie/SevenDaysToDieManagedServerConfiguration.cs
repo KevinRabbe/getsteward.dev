@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Xml;
 using System.Xml.Linq;
@@ -15,6 +16,35 @@ internal static class SevenDaysToDieManagedServerConfiguration
         string userDataDirectory,
         string worldName,
         string gameName)
+        => TransformCore(
+            sourceBytes,
+            userDataDirectory,
+            worldName,
+            gameName,
+            managedControl: null);
+
+    internal static byte[] TransformForManagedHost(
+        byte[] sourceBytes,
+        string userDataDirectory,
+        string worldName,
+        string gameName,
+        SevenDaysToDieManagedControl managedControl)
+    {
+        ArgumentNullException.ThrowIfNull(managedControl);
+        return TransformCore(
+            sourceBytes,
+            userDataDirectory,
+            worldName,
+            gameName,
+            managedControl);
+    }
+
+    private static byte[] TransformCore(
+        byte[] sourceBytes,
+        string userDataDirectory,
+        string worldName,
+        string gameName,
+        SevenDaysToDieManagedControl? managedControl)
     {
         ArgumentNullException.ThrowIfNull(sourceBytes);
         ArgumentException.ThrowIfNullOrWhiteSpace(userDataDirectory);
@@ -70,9 +100,19 @@ internal static class SevenDaysToDieManagedServerConfiguration
         var fullUserDataDirectory = Path.GetFullPath(userDataDirectory);
         SetRequiredProperty(root, "GameWorld", worldName);
         SetRequiredProperty(root, "GameName", gameName);
-        SetOwnedPathProperty(root, "UserDataFolder", fullUserDataDirectory);
-        SetOwnedPathProperty(root, "SaveGameFolder", Path.Combine(fullUserDataDirectory, "Saves"));
+        SetOwnedProperty(root, "UserDataFolder", fullUserDataDirectory);
+        SetOwnedProperty(root, "SaveGameFolder", Path.Combine(fullUserDataDirectory, "Saves"));
         ValidateOptionalUnambiguousProperty(root, "SandboxCode");
+
+        if (managedControl is not null)
+        {
+            SetOwnedProperty(root, "TelnetEnabled", "true");
+            SetOwnedProperty(
+                root,
+                "TelnetPort",
+                managedControl.Port.ToString(CultureInfo.InvariantCulture));
+            SetOwnedProperty(root, "TelnetPassword", managedControl.Password);
+        }
 
         var transformedContent = StrictUtf8.GetBytes(document.ToString(SaveOptions.DisableFormatting));
         return hasBom ? Combine(Utf8Bom, transformedContent) : transformedContent;
@@ -89,7 +129,7 @@ internal static class SevenDaysToDieManagedServerConfiguration
         valueAttribute.Value = value;
     }
 
-    private static void SetOwnedPathProperty(XElement root, string name, string value)
+    private static void SetOwnedProperty(XElement root, string name, string value)
     {
         var property = FindSingleProperty(root, name);
         if (property is null)

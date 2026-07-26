@@ -1,5 +1,9 @@
 using System.Net;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using SharedWorlds.Backend.Api;
 using Xunit;
 
@@ -28,7 +32,9 @@ public sealed class StewardForwardedClientAddressTests
             .Build();
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
-            StewardForwardedClientAddress.Configure(services, configuration));
+        {
+            _ = StewardForwardedClientAddress.Configure(services, configuration);
+        });
 
         Assert.Contains(
             StewardForwardedClientAddress.KnownProxyIpConfigurationKey,

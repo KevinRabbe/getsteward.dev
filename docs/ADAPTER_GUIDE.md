@@ -1,346 +1,438 @@
 # Game Adapter Guide
 
+Status: **CURRENT — stable adapter construction rules; changing per-game capability status lives in `PLATFORM_IMPLEMENTATION_STATUS.md`.**
+
 ## Purpose
 
-A game adapter isolates everything specific to one game while letting Core run the same complete World handoff lifecycle.
+A game adapter isolates everything specific to one game while Core runs the same safe World lifecycle.
 
-> Core knows what must happen. The adapter knows how this game makes it happen.
+> **Core knows what must happen. The adapter knows how this game makes it happen.**
 
-Current first-party adapters are Factorio, Palworld, 7 Days to Die, Project Zomboid, Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, Enshrouded, Conan Exiles Enhanced, Raft, ICARUS, Smalland, Abiotic Factor, and V Rising. Their proven capability sets intentionally differ. Future adapters must preserve the same boundary without forcing their edge cases into Core.
+The current Desktop catalog contains 19 first-party adapters. Their proven capabilities intentionally differ. Catalog membership means Steward can represent that adapter's proven slice; it does not mean every game can Start, Host, Join, Stop, or Create.
 
-## Product contract
+Do not duplicate the full changing capability matrix here. Use `PLATFORM_IMPLEMENTATION_STATUS.md` for current per-game claims.
 
-Every useful adapter contributes to this lifecycle:
+## Core rule
+
+A new game must not make Core, backend, Infrastructure, or normal Desktop behavior branch on the game name.
+
+Game-specific complexity belongs behind adapter contracts unless evidence proves a missing rule is genuinely universal.
+
+## Primary adapter contract
+
+`IGameAdapter` owns game-specific behavior including:
+
+- stable adapter ID and display name;
+- capability flags;
+- installation discovery;
+- existing-World discovery;
+- environment inspection;
+- environment verification/repair where supported;
+- import capture;
+- environment preparation;
+- state restore/capture;
+- local launch where supported;
+- managed Host launch where supported;
+- automatic client Join where supported;
+- managed Host stop where supported;
+- session-end observation;
+- workspace finalization;
+- native World creation where supported.
+
+Core owns ordering, one-writer semantics, revision authority, recovery, and durable commit.
+
+## Capability truth
+
+Current executable flags are:
 
 ```text
-find World
--> inspect required environment
--> prepare device
--> restore latest state
--> launch local play or temporary host
--> observe the real session
--> determine safe capture point
--> capture and validate updated state
+Mods
+AutomaticHostLaunch
+AutomaticClientJoin
+ExactGameVersion
+ExactModVersions
+EnvironmentIsolation
+AutomaticLocalLaunch
+AutomaticHostStop
+NativeWorldCreation
 ```
 
-An adapter is not complete merely because it can launch the game.
+Capabilities describe **proven product behavior**, not useful code that happens to exist inside an adapter.
 
-An adapter may enter the product with a narrower truthful capability set while later runtime semantics remain unproven. Registration never grants capabilities: unsupported Start, Host, Join, or Stop behavior stays unavailable until the adapter has evidence for the corresponding `GameAdapterCapabilities` flag.
+Action mapping is direct:
 
-## Identity and capabilities
+```text
+Start World -> AutomaticLocalLaunch
+Host World  -> AutomaticHostLaunch
+Join        -> AutomaticClientJoin + current JoinCapabilityResult
+Stop/Save   -> AutomaticHostStop
+Create      -> NativeWorldCreation
+```
 
-An adapter exposes:
+An adapter that supports only discovery/import/environment/state can still be a valid product adapter. Missing runtime evidence is represented by absent flags, not fake implementations.
 
-- stable adapter id;
-- display name;
-- supported capabilities.
+## Optional supporting contracts
 
-Capabilities may include:
+Some game-owned behavior does not belong in the base capability enum.
 
-- local launch;
-- temporary host launch;
-- native client join;
-- exact game-version handling;
-- mod/environment inspection;
-- isolated environment preparation;
-- automatic capture;
-- graceful host shutdown.
+### Managed Host endpoint
 
-Core uses capabilities. It does not branch on the game name.
+A Host-capable adapter may expose the game-owned endpoint material that an already-running managed Host actually uses.
+
+That material can feed short-lived shared Host presence, but Host presence remains non-authoritative and tied to the exact writable reservation generation.
+
+Do not expose management/RCON/REST secrets merely because they exist internally.
+
+### Manual direct-connect presentation
+
+`IManualDirectConnectProvider` is deliberately narrower than automatic Join.
+
+It may format an already-ready `HostConnection` into native endpoint/instructions for a game whose own UI accepts direct connection but for which Steward does not own a validated client-launch lifecycle.
+
+It does **not**:
+
+- prepare a manual client workspace;
+- launch the game;
+- observe the manual client session;
+- own cleanup;
+- grant `AutomaticClientJoin`.
+
+Palworld currently uses this presentation-only distinction.
+
+The removed generic guided-manual Join lifecycle must not be recreated through this interface.
 
 ## Installation discovery
 
-The adapter finds supported installations using game-relevant sources such as:
+The adapter discovers supported installations from game/platform-native evidence such as:
 
-- Steam libraries;
+- Steam libraries/app manifests;
 - launcher metadata;
-- registry entries;
-- conventional paths;
-- portable installations;
-- user-selected paths.
+- registry values;
+- conventional locations;
+- portable/user-selected paths where genuinely required.
 
-Core does not know how discovery works.
+Prefer authoritative launcher/store metadata over duplicated hard-coded assumptions when the platform already owns installation identity.
 
-The installation source also constrains the identity namespace the adapter may claim. If Steam, Epic, launcher-specific, or other account profiles share one broader game save root, a Steam-discovered adapter should not automatically treat every neighboring profile as Steam-owned state. Satisfactory is a concrete example: its Steam adapter enters only canonical numeric Steam profile directories.
+### Negative installation evidence
 
-When authoritative launcher metadata already owns the installation directory name, prefer that identity over another hardcoded path assumption. Conan Exiles Enhanced demonstrates this after a product migration: Steward reads Steam's bounded appmanifest `installdir` and derives the install root from it instead of needing to know whether a legacy or renamed folder string is current.
+Absence can be enough.
+
+If a capability requires a dedicated-server installation and that tool is not installed, Steward already knows that device cannot execute that Host/creation path.
+
+Do not build a generic “host eligibility” subsystem to rediscover an impossible runtime state.
 
 ## World discovery
 
-The adapter identifies existing saves or server Worlds that can be imported.
+Discovery is read-only.
 
-It decides:
+The adapter must determine:
 
-- which files or directories form one World;
-- which nearby files belong to player identity, account/config persistence, or auxiliary state rather than World state;
-- which objects belong to the same account/profile namespace but still represent a different persistence identity;
-- which storefront/account namespace belongs to the discovered installation source;
-- which autosaves, backups, auxiliary assets, or temporary states should be hidden;
-- whether native selector/index metadata is required to identify the current authoritative state;
-- whether native journal/transaction sidecars mean a nominal state artifact is not currently safe to capture alone;
-- how duplicate native sources are collapsed;
-- which display name is shown;
-- which source should be preferred when the same World appears in multiple locations.
+- which native object(s) form one current World;
+- which adjacent state is player/account/configuration data instead;
+- which backups/recovery generations are not current state;
+- whether native selector/index metadata identifies the authoritative generation;
+- whether journal/transaction sidecars make an otherwise copyable artifact currently unsafe;
+- which storefront/account namespace belongs to the discovered installation;
+- how duplicate native sources are collapsed.
 
-Discovery is read-only. It must not upload, publish, host, or mutate a discovered World.
+Physical proximity is not ownership.
 
-Physical proximity is not ownership. A game may store World state, character state, maps, configuration, and recovery data in the same profile tree. The adapter must classify those objects by semantics rather than directory adjacency. Core Keeper is a concrete example: character saves and player exploration maps remain player-owned even though the game stores them beside World files.
+A save directory can contain World state, player state, maps, configuration, backups and transaction data together. Steward captures only the smallest complete **World-owned current state** proven by the game-specific evidence.
 
-A shared account/profile namespace also does not make every object part of one revision. Raft keeps current World state and player-owned inventory/persona state under the same `User_<SteamID64>` profile. ICARUS does the same kind of separation under a numeric SteamID64 profile: current Prospect Worlds live under `Prospects`, while `Characters.json`, `Profile.json`, and `MetaInventory.json` remain player/account persistence. Steward discovers the World state and deliberately leaves the personal state outside the World revision.
+## Prefer opaque native state
 
-A game-owned save root can itself contain authoritative persistence namespaces. Smalland stores direct World files under `SaveGames/Worlds`, player-character files under `SaveGames/Players`, and map-annotation `.sav` files at the `SaveGames` root. Steward follows those native ownership boundaries rather than treating the entire save root as one World package.
+Do not parse or re-encode native save formats merely because Steward can.
 
-A profile namespace can also contain a World-owned subtree whose internal contents should stay together. Abiotic Factor enters only canonical SteamID64 profiles and their `Worlds` namespace, then treats one direct `Worlds/<World>` directory as the persistence identity. Account/profile state above `Worlds` stays outside the revision, while legitimate nested state inside the selected World subtree stays with it.
+If the game already exposes a complete portable current artifact, preserve it byte-for-byte.
 
-One native session directory does not necessarily equal one portable current World revision. V Rising `v4` sessions can contain rolling `AutoSave_*` generations, gameplay rules, session metadata, and machine host settings side by side. Steward uses the native transfer semantics to identify the current subset rather than treating every neighboring session file as World-owned current state.
+Examples of the principle used across current adapters include:
 
-Persistence itself is not enough to establish World ownership. ASTRONEER stores `*.savegame` World state beside `*.savecfg` account/custom-game configuration; Steward imports the former and deliberately leaves the latter outside World revisions.
+- native World files preserved as opaque bytes;
+- native World directories archived without interpreting individual save bodies;
+- current save generation selected through small bounded native selector metadata;
+- SQLite-backed state accepted only while native journal/WAL sidecars prove the database is idle enough for the supported copy boundary.
 
-A native recovery file is not another current World. The Planet Crafter, for example, exposes `Backup.json` beside current save files; the adapter deliberately hides it from normal World discovery.
+A parser is justified only when interpretation is necessary to identify or safely reproduce the supported state boundary.
 
-A native recovery ring is also not automatically one current World bundle. Enshrouded keeps rolling World-data and `_info` generations while separate bounded index files identify the active member of each ring. Discovery follows those selectors and leaves inactive generations outside the current World revision.
+> **The smallest parser is often the safest parser. No parser is safer when opaque copying is enough.**
 
-A directory containing several files with the same native extension does not mean they all belong to current state. Raft uses the same-name `World/<name>/<name>.rgd` as the current World artifact while other `.rgd` members in that World directory are treated as backup/history state and excluded from normal discovery. ICARUS similarly treats the plain `<Prospect>.json` as current state while `.json.backup_*` generations remain recovery history.
+## Player/account state is not automatically World state
 
-A native database filename is not sufficient evidence that the file is an idle standalone state artifact. Conan Exiles Enhanced exposes one current SQLite database per supported slot, but Steward hides a slot while `-wal`, `-shm`, or `-journal` sidecars exist. That removes the need to reason about an in-flight transaction or invent an online snapshot protocol.
+A profile namespace can contain both World-owned and person-owned persistence.
 
-Auxiliary user assets are not automatically World state either. Satisfactory's backup and blueprint trees are deliberately outside its current `.sav` World boundary, and adjacent non-Steam account profiles are outside the Steam adapter's identity scope.
+The adapter must intentionally classify and exclude data such as:
+
+- character inventory/progression that belongs to one player;
+- account metadata;
+- exploration/map state that is player-owned;
+- launcher/configuration state;
+- native recovery history;
+- host-machine infrastructure settings.
+
+Moving a World must not silently move unrelated identity/persona state merely because the game stores it nearby.
 
 ## Environment inspection
 
-The adapter produces an `EnvironmentManifest` containing the game-specific requirements needed to reproduce the World.
+The adapter returns the minimum exact `EnvironmentManifest` required by its proven capability.
 
-Examples include:
+Possible facts include:
 
-- game version;
+- exact game/server build;
 - enabled mods;
-- exact mod versions;
-- relevant server or gameplay configuration;
-- launcher or runtime requirements.
+- exact mod/content versions;
+- relevant startup/gameplay configuration;
+- hosting mode/native tool requirement;
+- opaque game-specific reproduction inputs.
 
-Core stores the manifest but does not interpret the game's semantics.
+Core stores the manifest but does not interpret game semantics.
 
-An adapter must not claim an exact environment by silently omitting a game-specific input it knows may matter. A narrower adapter may refuse unsupported environments instead. Stardew Valley uses this rule for detected SMAPI/non-empty Mods installations; Necesse applies it to a linked or non-empty local mods directory; Core Keeper applies it across manual install Mods, Steam Workshop content, and per-profile Mods; The Planet Crafter refuses known BepInEx bootstrap markers; Satisfactory refuses linked/non-empty `FactoryGame/Mods` and Steam Workshop content; ASTRONEER refuses linked/non-empty `Saved/Mods` and `Saved/Paks`; Enshrouded refuses known EML/Shroudtopia loader markers and a linked/non-empty root `mods` directory; Conan Exiles Enhanced refuses a linked or non-empty `ConanSandbox/Mods/modlist.txt` activation surface; Raft refuses linked/non-empty game-root `mods` and roaming `RaftModLoader` surfaces; ICARUS refuses a linked or non-empty active `Icarus/Content/Paks/mods` directory; Smalland refuses linked gameplay Paks and top-level `.pak` entries that do not match the stock `pakchunkN-WindowsNoEditor.pak` naming boundary; Abiotic Factor refuses the known UE4SS `dwmapi.dll` proxy or `ue4ss` directory; V Rising refuses known BepInEx/bootstrap markers in the game root.
+### Refuse rather than fake exactness
 
-The adapter does not need to enumerate every individual mod merely to know that it cannot truthfully reproduce the environment. A proven loader/bootstrap, activation file, mod-root boundary, or conservative stock-artifact boundary can be enough to refuse the narrower vanilla-only capability. Satisfactory demonstrates this by refusing a non-empty `FactoryGame/Mods`; an installed SML environment is caught there without a separate SML abstraction. ASTRONEER similarly uses its known mod-integration roots without interpreting individual packages. Enshrouded applies the same restraint to known loader bootstrap files and its root mod surface. Conan Exiles Enhanced uses the game's own `modlist.txt` activation surface and does not need to enumerate Workshop packages. Raft applies the same rule to the game-root mod directory and the separate RaftModLoader installation surface. ICARUS applies it to the active Paks mods directory without interpreting individual `.pak` files. Smalland accepts only regular stock-style top-level Paks and fails closed on extra or linked Paks instead of parsing mod packages. Abiotic Factor applies the same rule to the UE4SS bootstrap surface, and V Rising applies it to the BepInEx/bootstrap surface; neither needs a mod-catalog abstraction for its current vanilla-only slice.
+An adapter must not silently omit a known environment input and still call the World exactly reproducible.
+
+A narrower vanilla-only adapter can fail closed when it detects a known mod-loader/activation surface instead of building a universal mod manager.
+
+Doing less is correct when the supported slice is truthful.
 
 ## Import capture
 
-The adapter converts a detected World into a portable `StatePackage` suitable for initial durable storage.
+Import must:
 
-The package may represent:
+```text
+read discovered source
+-> capture smallest complete World-owned current state into adapter-controlled package
+-> validate package
+-> leave source untouched
+```
 
-- one opaque save file;
-- one game-native archive;
-- one Steward-owned ZIP;
-- a directory archive;
-- a database;
-- several related files;
-- launcher-managed state.
+Native backups/recovery history are excluded unless evidence says they are required for the playable current state.
 
-Import must leave the source untouched.
-
-Native backup/recovery history is not automatically canonical World state. An adapter should include only the files required for the current authoritative state unless game-specific evidence says otherwise.
-
-Player-owned persistence is not automatically part of a World package either. Raft demonstrates the distinction directly: Steward captures the current `<World>.rgd` and leaves `Player/RGD_Users.rgd` outside the package. ICARUS likewise captures the current Prospect `.json` while leaving profile-level character, profile, and meta-inventory files outside the package. Smalland captures the direct `Worlds/<World>.wld` while leaving `Players/*.plr` and root-level map-annotation `.sav` state outside the package. Abiotic Factor captures the selected `Worlds/<World>` subtree while leaving profile-level persistence above `Worlds` outside the revision. Moving a World therefore does not silently move unrelated host/account state.
-
-When the game already stores the current World in a portable archive, do not automatically unpack and rebuild it. Necesse demonstrates the simpler rule: preserve the game-native World ZIP as opaque bytes unless Steward has a concrete need to interpret its contents.
-
-When a World is spread across several files, capture only the smallest complete World-owned bundle proven necessary. Core Keeper demonstrates this rule with exactly three slot-matched files: World data, World metadata, and World-generation parameters. Character saves, player maps, and recovery copies are not included.
-
-When the game already stores the complete current World in one native file, do not invent an internal schema merely to move it. The Planet Crafter demonstrates this rule with one opaque `.json`; Satisfactory does the same with one opaque `.sav`; ASTRONEER does the same with one opaque `.savegame`; Conan Exiles Enhanced does the same with one idle SQLite `.db`; Raft does the same with the same-name current `.rgd`; ICARUS does the same with one current Prospect `.json`; Smalland does the same with one direct `.wld`. Steward copies those native bytes exactly and avoids a parser/re-encoder trust boundary that its proven state capability does not need.
-
-The same restraint applies when the complete current World is already one native directory subtree. Abiotic Factor archives the selected `Worlds/<World>` tree as opaque files and directories, preserving nested native state without parsing individual `.sav` bodies and without broadening ownership to the whole profile.
-
-A one-file native database is only a one-file portable state while the game's own transactional sidecars are absent. Conan Exiles Enhanced checks for SQLite `-wal`, `-shm`, and `-journal` before capture and checks again after the copy. If the slot becomes active during import, Steward discards the temporary package and refuses the capture. Doing less here is stronger than implementing a partial live-database snapshotter.
-
-When the current authoritative bytes live inside a bounded native rolling-recovery scheme, parsing minimal selector metadata can be the simpler path. Enshrouded reads only its small data and `_info` index files, uses each `latest` selector to identify the active native body independently, and packages exactly those four files. It does not parse the large save bodies and does not copy the inactive recovery generations.
-
-A native rolling scheme can also expose the current member directly through its generation name. V Rising selects the highest numeric `AutoSave_*` generation and packages exactly that autosave with `ServerGameSettings.json`, `SessionId.json`, and `StartDate.json`. Older autosaves remain recovery history and `ServerHostSettings.json` remains machine host infrastructure, so the portable current revision is a four-member projection of the session directory rather than a wholesale directory copy.
+If the source changes across a validated capture race boundary, discard the temporary package rather than publishing mixed state.
 
 ## Environment preparation
 
-The adapter creates or selects a playable environment matching the requested manifest.
+The adapter creates/selects a controlled playable environment matching the required manifest.
 
-Possible strategies include:
+Possible strategies are game-specific:
 
-- isolated mod directories;
-- launcher profiles;
+- isolated write-data/mod directories;
 - workspace-local configuration;
-- symlinks or junctions;
-- transactional file swapping;
-- game-native dedicated-server installation;
-- separate installations only where necessary.
+- game-native server/user-data overrides;
+- controlled file swapping where unavoidable and proven recoverable;
+- separate dedicated-server installation.
 
-The strategy remains an adapter detail.
+User-owned live profiles should not become Steward workspaces by convenience.
+
+Preparation must validate path ownership before destructive cleanup.
 
 ## Restore
 
-The adapter restores the opaque state package into its prepared workspace.
-
-It must validate trust boundaries and must not assume that a path is safe to overwrite merely because it resembles a save location.
-
-If selector metadata is part of the portable state, restore must validate that the package actually contains the files selected by that metadata rather than trusting filenames or archive contents independently.
-
-## Launch local play
-
-Local launch starts the World without deliberately exposing Steward's hosted multiplayer path.
-
-Where the game has a meaningful distinction, local play and hosting remain separate adapter operations.
-
-## Launch temporary host
-
-Hosted launch starts the game or dedicated server so other players can join through Steam or the game.
-
-The adapter owns:
-
-- executable and arguments;
-- server configuration;
-- readiness checks;
-- connection information where needed;
-- graceful shutdown behavior;
-- identification of the process that actually owns the writable World.
-
-A client's exit is not automatically the end of a dedicated-server session.
-
-## Join active host
-
-An adapter may expose native joining through Steam, direct connection information, or game-specific mechanisms.
-
-Joining does not create another writable Steward session. The active host remains the only writer.
-
-## Session observation
-
-The adapter determines when the actual World session has ended.
-
-It must handle relevant realities such as:
-
-- launcher/bootstrap process exit before the game exits;
-- process replacement or handoff;
-- separate client and server processes;
-- dedicated servers outliving clients;
-- graceful save/shutdown commands;
-- files continuing to change briefly after process signals;
-- game-specific completion markers.
-
-Core must not replace this contract with a generic `Process.WaitForExit` assumption.
-
-## Capture and validation
-
-After the safe capture point, the adapter creates a new portable state package and validates the game-specific minimum required for restore.
-
-When current state is selected from a changing native generation set, selection itself is part of the capture race boundary. V Rising resolves the latest autosave before copying, resolves the session again afterward, and discards the temporary package if the selected generation or required metadata changed. The adapter does not need a live-save protocol merely to know that a mixed revision is unsafe.
-
-It must report whether the returned package is disposable after durable storage.
-
-Core then owns durable storage, verification, current-head advancement, and recovery semantics.
-
-## Workspace finalization
-
-The adapter cleans or preserves its prepared workspace according to the disposition requested by Core.
+Restore materializes the opaque package into the controlled prepared environment.
 
 Rules:
 
-- pre-launch failure may clean controlled temporary work;
-- successful commit may clean controlled work;
-- uncertain post-launch failure preserves recoverable state;
-- recursive deletion requires explicit ownership validation;
-- user-owned source saves must never be deleted.
+- archive/package members are validated before writing;
+- destination remains inside adapter-owned paths;
+- unsafe links/reparse paths are rejected where relevant;
+- required files/selector relationships are checked;
+- exact restored bytes/state are verified where the adapter contract requires it;
+- unexpected files cannot silently broaden the canonical World.
 
-## Adapter isolation
+## Native World creation
 
-Game-specific helpers, SDKs, parsers, commands, and dependencies stay inside the adapter assembly.
+When `NativeWorldCreation` is advertised, the adapter invokes the game's supported native creation path and captures the result through the same portable-state boundary used by imported Worlds.
 
-Adding Palworld-specific dedicated-server behavior must not add Palworld fields to Core. Adding a Factorio-specific RCON or mod behavior must not become a universal requirement.
+The adapter owns game-specific creation settings. Core sees only an opaque settings dictionary plus returned exact environment/captured state.
 
-Not every adapter needs a game-specific parser. If opaque byte preservation is enough to implement the proven capability, adding a parser creates another trust and maintenance boundary without product value. When interpretation is genuinely required only to locate current authoritative bytes, keep that parser as small and bounded as the native selector format allows rather than extending it into the opaque save body.
+Steward does not synthesize native save bytes merely to add a Create button.
 
-## What an adapter must not decide
+See `NATIVE_WORLD_CREATION.md`.
 
-An adapter must not redefine:
+## Local launch
 
-- the one-active-writer rule;
-- whether the current World head may advance;
-- durable revision publication order;
-- recovery policy;
-- shared-storage access policy;
-- generic product lifecycle states;
-- generic save merging;
-- branch or Fork semantics;
-- ownership or social governance.
+`AutomaticLocalLaunch` means the adapter owns and has proven the normal Steward-managed local session lifecycle.
 
-Those either belong to Core or are outside Steward's product scope.
+Local launch must not accidentally expose a multiplayer Host merely because the game supports multiplayer elsewhere.
+
+## Managed Host
+
+`AutomaticHostLaunch` means the adapter owns the temporary Host execution method required by that game.
+
+The adapter must prove what actually owns writable state:
+
+- listen-host game process;
+- dedicated server;
+- launcher-replaced process;
+- server process tree;
+- another game-specific execution shape.
+
+A client process ending is not automatically proof that a dedicated server ended.
+
+Host readiness must be evidence, not “process exists.”
+
+## Automatic Join
+
+`AutomaticClientJoin` means Steward can prepare the required read-only client environment and launch the game into the already-validated Ready Host without obtaining writable World authority.
+
+Join capability may still be blocked by the current environment or identity condition.
+
+No game-name branching is needed in Core/UI to interpret the result.
+
+## Managed Host stop
+
+`AutomaticHostStop` is a separate capability from Host launch.
+
+An adapter may Host successfully but still lack a validated user-triggered Stop-and-Save path.
+
+Advertising Host Stop means the adapter can request and prove a safe authoritative end before capture. Core does not equate it with killing a process and sleeping.
+
+## Session observation
+
+Adapters own the evidence for real session lifetime.
+
+They must handle realities such as:
+
+- bootstrap/launcher process exits before the actual game;
+- process replacement;
+- separate graphical client and authoritative server;
+- server outliving a client;
+- native save/shutdown commands;
+- file/native state changing after a superficial process event.
+
+A PID is an evidence input, not a universal session definition.
+
+## Capture
+
+After the adapter-established safe boundary:
+
+```text
+select current authoritative native state
+-> copy/archive into controlled package
+-> validate required package/state invariants
+-> return CapturedState
+```
+
+Core then owns immutable storage/publication, expected-head commit and recovery semantics.
+
+The adapter must report/obey disposable package/workspace ownership correctly.
+
+## Workspace finalization
+
+Core supplies `PreparedWorldDisposition`:
+
+- `Discard` — controlled workspace no longer needed;
+- `PreserveForRecovery` — potentially recoverable post-launch state must remain.
+
+Rules:
+
+- pre-launch temporary work may be cleaned when safe;
+- successful completion may clean controlled workspace;
+- uncertain post-launch state remains recovery material;
+- recursive deletion requires validated adapter ownership;
+- source saves/player profiles are never cleanup targets merely because a path resembles a workspace.
+
+## What an adapter must never decide
+
+An adapter does not redefine:
+
+- one-active-writer semantics;
+- canonical-head advancement ordering;
+- revision immutability;
+- shared access policy;
+- distributed reservation generation semantics;
+- generic recovery policy;
+- product lifecycle terms;
+- branch/Fork/merge behavior;
+- social/ownership governance.
+
+Those are Core/backend contracts or outside Steward.
 
 ## Adding a new game
 
-Implement in this order, stopping capability growth whenever the next game-specific behavior is not yet proven:
+Build the smallest truthful vertical slice first:
 
-1. create the independent adapter project and implement its stable id/display name;
-2. installation discovery;
-3. bind discovery to the storefront/account identity and authoritative installation locator proven by that installation source;
-4. existing-World discovery;
-5. classify World-owned state separately from player-owned, account/config, auxiliary, and recovery state, even when they share one account/profile namespace or game-owned save root;
-6. identify the smallest complete native World representation;
-7. identify any native transaction/journal companions that make an otherwise standalone artifact unsafe to copy alone;
-8. identify any bounded native selector metadata required to locate the current authoritative members;
-9. safe import capture without parsing/re-encoding beyond what is actually required;
-10. environment inspection;
-11. environment preparation where required by the supported slice;
-12. state restore;
-13. local launch only when its ownership/session semantics are proven;
-14. real session observation;
-15. safe state capture and validation;
-16. temporary host launch only when its server/runtime semantics are proven;
-17. graceful hosted-session shutdown;
-18. optional automatic Join;
-19. exact environment reproduction where justified;
-20. expose only the `GameAdapterCapabilities` proven by the implemented slice;
-21. add adapter-specific deterministic tests and a dedicated CI lane where appropriate;
-22. add the Desktop project reference and one entry to `DesktopGameAdapterCatalog`;
-23. qualify the adapter head independently before mechanical integration;
-24. rerun the full five-workflow matrix on the exact combined SHA.
+1. independent adapter project + stable ID/display name;
+2. installation identity/discovery;
+3. read-only World discovery;
+4. classify World vs player/account/config/recovery state;
+5. identify the smallest complete current native representation;
+6. handle native selector/journal activity only as much as required for safe capture;
+7. safe import capture;
+8. environment inspection;
+9. controlled restore;
+10. environment preparation where required by that slice;
+11. advertise only proven capabilities;
+12. deterministic adapter tests;
+13. dedicated CI lane where appropriate;
+14. add one Desktop catalog entry;
+15. qualify adapter head independently;
+16. rerun the full five-workflow matrix on the exact integrated SHA.
 
-The first target is one truthful vertical slice, not many partially claimed workflows. An adapter that safely supports discovery/import/environment/state handling may be visible in Steward while launch/hosting remains unavailable; missing runtime evidence is represented by absent capability flags, not invented generic behavior.
+Then add deeper capabilities independently:
 
-Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, Enshrouded, Conan Exiles Enhanced, Raft, ICARUS, Smalland, Abiotic Factor, and V Rising are current concrete examples of that narrower entry point. Terraria preserves one opaque vanilla `.wld`; Stardew Valley preserves exactly its two current vanilla save files while excluding `_old` recovery files; Necesse preserves the game's native compressed World ZIP byte-for-byte instead of adding a second archive layer; Core Keeper preserves exactly the three slot-matched World-owned files while excluding character and map state; The Planet Crafter preserves one opaque non-empty native `.json` World while excluding `Backup.json`; Satisfactory preserves one opaque Steam-profile `.sav` while excluding non-Steam profiles, backup trees, and blueprints; ASTRONEER preserves one opaque `.savegame` while excluding adjacent `.savecfg` account/custom-game configuration; Enshrouded uses two bounded selector indexes to preserve only the current World-data and `_info` members while excluding inactive native recovery generations and user configuration; Conan Exiles Enhanced preserves one opaque idle slot `.db`, derives install identity from Steam metadata, and refuses SQLite sidecar activity instead of implementing live database snapshotting; Raft preserves one same-name current `.rgd` while excluding World backup/history files and the separate player/inventory tree under the same Steam profile; ICARUS preserves one current Prospect `.json` while excluding rolling `.json.backup_*` recovery generations and profile-level character/account progression; Smalland preserves one direct `Worlds/<World>.wld` while excluding player-character and map-annotation persistence in adjacent native namespaces; Abiotic Factor preserves one complete `Worlds/<World>` directory subtree while excluding profile-level persistence above `Worlds`; V Rising preserves the latest native autosave plus exactly three World/session metadata files while excluding older recovery generations and host infrastructure. All fourteen verify the exact Steam build and advertise only `ExactGameVersion`; launch/hosting capabilities remain absent.
+```text
+local launch
+-> real session observation/capture proof
 
-Adding a game normally does **not** require changes to Core, backend, Infrastructure, or ordinary Desktop action logic. If implementation appears to require such a change, first prove that the need is genuinely universal rather than an adapter-specific edge case.
+Host
+-> authoritative Host ownership/readiness/capture proof
 
-## Acceptance tests
+Host Stop
+-> explicit safe user-triggered stop proof
+
+automatic Join
+-> exact read-only client preparation/launch proof
+
+native creation
+-> game-owned generator/capture proof
+```
+
+Do not make initial adapter acceptance wait for runtime features the game slice does not yet claim.
+
+## Current catalog
+
+The current 19 first-party adapters are:
+
+- Factorio;
+- Palworld;
+- 7 Days to Die;
+- Project Zomboid;
+- Terraria;
+- Stardew Valley;
+- Necesse;
+- Core Keeper;
+- The Planet Crafter;
+- Satisfactory;
+- ASTRONEER;
+- Enshrouded;
+- Conan Exiles Enhanced;
+- Raft;
+- ICARUS;
+- Smalland;
+- Abiotic Factor;
+- V Rising;
+- Space Engineers.
+
+The first four have deeper runtime/release-specific evidence work. The later fifteen are concrete examples of useful narrower state/import/environment slices that do not invent launch capabilities.
+
+For the exact current capability matrix, use `PLATFORM_IMPLEMENTATION_STATUS.md` rather than copying it into this guide.
+
+## Acceptance principle
 
 Every exposed capability must have evidence at its actual trust/ownership boundary.
 
-For a discovery/import/state-only slice, prove at minimum:
+A discovery/import/state slice proves its storage/environment boundary.
 
-```text
-discover intended installation without mutation
--> stay inside the source platform/account identity namespace
--> use authoritative launcher/store metadata for install identity where it already exists
--> discover intended World without mutation
--> distinguish World persistence from player/account/config/auxiliary/recovery persistence even inside one profile or game-owned save root
--> identify the smallest complete World-owned state representation
--> reject native transaction/journal activity when the chosen representation is only safe while idle
--> resolve bounded native selectors where required to identify the authoritative current bytes
--> preserve native bytes directly where interpretation is unnecessary
--> import copied/controlled World while preserving source
--> inspect exact supported environment
--> capture portable state
--> restore it into an owned workspace
--> validate restored state/package invariants
-```
+A launch-capable slice additionally proves real session ownership and safe capture/replay.
 
-A launch-capable adapter additionally proves the complete writable handoff:
+A Host slice additionally proves Host readiness/authoritative server behavior.
 
-```text
-restore known World
--> launch it
--> prove the real session owner
--> make a visible gameplay change
--> observe safe session end
--> capture and commit the change
--> restore the committed result in the next session
-```
+A Host Stop slice proves explicit safe managed shutdown.
 
-Hosted support additionally proves that the authoritative server/session state, not merely a client process, controls readiness, stop, and the capture boundary.
+An automatic Join slice proves actual client launch into Ready Host without writable authority.
 
-Automatic Join must remain read-only with respect to Steward World authority and must consume a proven ready host connection without acquiring another writable reservation.
+Shared release claims additionally require the relevant real network/two-device/game evidence.
+
+## Final rule
+
+> **Do not implement the game in Steward. Implement only the smallest adapter boundary Steward needs to move that game's latest valid World safely.**

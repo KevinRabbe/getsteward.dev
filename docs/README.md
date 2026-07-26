@@ -6,9 +6,9 @@ This directory is the canonical home for active product, architecture, engineeri
 
 ## Current project mode
 
-> **V2 Friends Build is the active execution goal. The generic Steward platform and broad adapter architecture are already proven. Normal implementation work now optimizes the real friend journey: private download/run, non-Steam Friends Build identity, visible World membership/lobby, Host/Join, safe cross-device handoff, and recovery for Factorio, Palworld, 7 Days to Die, and Valheim. Do not add unrelated adapters merely to increase game count. Production Steam publication/authentication and final release acceptance remain later gates and must not be weakened by the private V2 path.**
+> **V2 Friends Build is the active execution goal. The generic Steward platform and broad adapter architecture are already proven. Normal implementation work now optimizes the real friend journey: private download/run, non-Steam Friends Build identity, native Create World or Import existing World, visible World membership/lobby, Host/Join, safe cross-device handoff, and recovery for Factorio, Palworld, 7 Days to Die, and Valheim. Do not add unrelated adapters merely to increase game count. Production Steam publication/authentication and final release acceptance remain later gates and must not be weakened by the private V2 path.**
 
-Start with the [V2 Friends Build](V2_FRIENDS_BUILD.md) for the active product goal and execution rule. Use the [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) for the qualified technical checkpoint and stable extension boundary. Use the [Master Roadmap](ROADMAP.md) and workstream roadmaps for detailed product contracts and historical implementation sequencing:
+Start with the [V2 Friends Build](V2_FRIENDS_BUILD.md) for the active product goal and execution rule. Use [Native World Creation](NATIVE_WORLD_CREATION.md) for the rule that Steward should invoke a game's supported native generator rather than require manual pre-creation or synthesize save bytes. Use the [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) for the qualified technical checkpoint and stable extension boundary. Use the [Master Roadmap](ROADMAP.md) and workstream roadmaps for detailed product contracts and historical implementation sequencing:
 
 1. [UI and UX Roadmap](UI_ROADMAP.md)
 2. [Backend Roadmap](BACKEND_ROADMAP.md)
@@ -19,6 +19,7 @@ The roadmaps are separate for clarity but define one product. Their states, acti
 Current completion evidence and execution direction:
 
 - [V2 Friends Build](V2_FRIENDS_BUILD.md) — active product goal, private distribution/authentication boundary, minimal World lobby, four primary games, real friend handoff acceptance, and the rule that adapter count no longer defines progress;
+- [Native World Creation](NATIVE_WORLD_CREATION.md) — active V2 creation rule: Create new World invokes the game's native generator, Import existing World remains available, and a temporary game/server process never becomes a permanent Steward Server object;
 - [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) — current all-workflows-green platform checkpoint, stable extension boundary, historical adapter-addition workflow, and remaining empirical release gates;
 - [BE-2 Status](BE2_STATUS.md) — authenticated World/access/revision metadata with durable PostgreSQL persistence;
 - [BE-3 S3 Checkpoint](BE3_S3_CHECKPOINT.md) — immutable transfer, S3-compatible protocol proof, cleanup/retention, and desktop verified caching/materialization;
@@ -61,6 +62,7 @@ Steward moves the latest valid World state into a playable session and returns t
 - [Architecture](ARCHITECTURE.md) — dependency direction, adapters, storage, session coordination, revisions, and background runtime boundaries.
 - [Domain Model](DOMAIN_MODEL.md) — active persisted and runtime concepts.
 - [World Lifecycle](WORLD_LIFECYCLE.md) — import, preparation, launch, session observation, capture, commit, handoff, and recovery.
+- [Native World Creation](NATIVE_WORLD_CREATION.md) — game-native creation, initial revision persistence, settings ownership, and the explicit absence of a permanent Server domain object.
 
 ## Planning and execution
 
@@ -109,7 +111,7 @@ Before accepting a meaningful product or architecture change, check:
 - Does it complete the handoff through capture, durable storage, verification, and commit?
 - Does it preserve the previous valid state on failure?
 - Is Steam, Discord, or the game already responsible for the proposed feature?
-- Does it directly help the initial friend group obtain Steward, understand a shared World, Host/Join, hand off safely, or recover?
+- Does it directly help the initial friend group obtain Steward, create/import a World, understand a shared World, Host/Join, hand off safely, or recover?
 - Does it remove a direct blocker on the path from the Friends Build to Steam Early Access?
 - Does it add commercial reliability rather than uncontrolled scope?
 - If it adds an adapter, is it one of the four V2 primary games or required by a concrete V2 blocker?

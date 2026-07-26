@@ -26,7 +26,8 @@ public sealed partial class FactorioAdapter : IGameAdapter
         GameAdapterCapabilities.AutomaticLocalLaunch |
         GameAdapterCapabilities.AutomaticHostLaunch |
         GameAdapterCapabilities.AutomaticClientJoin |
-        GameAdapterCapabilities.ExactGameVersion;
+        GameAdapterCapabilities.ExactGameVersion |
+        GameAdapterCapabilities.NativeWorldCreation;
 
     public Task<IReadOnlyList<GameInstallation>> DiscoverInstallationsAsync(
         CancellationToken cancellationToken = default)

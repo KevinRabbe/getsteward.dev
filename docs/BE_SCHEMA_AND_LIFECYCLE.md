@@ -1,200 +1,402 @@
 # Backend Schema and Data Lifecycle
 
-This document defines the logical persistence contract behind the Steward API.
-It is provider-neutral and does not authorize a production database schema while
-the planning lock is active.
+Status: **CURRENT LOGICAL PERSISTENCE CONTRACT — IMPLEMENTED WITH POSTGRESQL-COMPATIBLE STORES**
+
+This document defines the logical relational authority behind Backend.Api. Exact SQL/table/index details remain implementation/migration concerns; the logical identities, invariants, and transaction boundaries below are product contracts.
+
+## Current PostgreSQL composition
+
+Backend.Api currently composes PostgreSQL-backed stores for:
+
+- normal Steward authentication sessions;
+- shared World/current-head/revision metadata;
+- World membership/invitations/Access Manager;
+- writable reservation generations;
+- durable idempotent authority mutation results;
+- writable-responsibility inspection;
+- narrow pre-launch reservation abandonment;
+- short-lived Host presence;
+- resumable immutable package-transfer metadata;
+- shared revision retention/cleanup metadata.
+
+Private S3-compatible storage contains opaque immutable package bytes. It does not replace these relational records and never decides which revision is canonical.
+
+The design remains provider-neutral above the PostgreSQL/S3 infrastructure boundary.
 
 ## Logical records
 
-### ExternalIdentity
+### External identity
 
-- internal identity id;
-- provider (`Steam` in the first release);
-- stable external id;
-- optional display name cache;
-- created, last-seen, and revoked timestamps.
+Logical identity contains:
 
-Authentication tickets, access tokens, refresh handles, and provider secrets are
-not stored in this record.
+- internal/external identity reference;
+- provider (`steam` for production release identity; `friends-build` only for the explicitly enabled private test path);
+- stable provider external ID;
+- optional bounded presentation metadata where required by the service;
+- session/access relationships.
 
-### World
+Authentication proof bytes and infrastructure/provider secrets are not identity-record attributes.
 
-- opaque World id;
-- adapter id;
+Steam passwords/emails/payment data are never needed.
+
+### Steward authentication session
+
+Normal Steward sessions bind:
+
+- verified external identity;
+- Steward installation ID;
+- access credential hash + expiry;
+- refresh credential hash + expiry;
+- revocation/rotation state required by the session service.
+
+Plaintext access/refresh credentials are returned only to the authenticated client and are not persisted as plaintext by the server.
+
+Credential/session expiry is not writable-World authority. An expired login session does not silently release a reservation generation.
+
+### Shared World
+
+A shared World record contains the minimum durable coordination metadata:
+
+- opaque World ID;
+- adapter ID;
 - display name;
-- current environment revision id;
-- current state revision id;
-- lifecycle status only where durable recovery requires it;
-- created/updated timestamps;
-- optimistic version.
+- current state revision ID;
+- current environment revision ID where applicable;
+- current Access Manager identity;
+- created/updated metadata.
 
-There is exactly one current state head per World. The World record does not
-contain gameplay ownership, social roles, branches, or merge history.
+There is exactly one current compatible state/environment head per World.
 
-### WorldAccess
+The record does not contain gameplay ownership, branch history, merge state, permanent host identity, or game-process information.
 
-- World id;
-- external identity id;
-- membership state (`Pending`, `Member`, `Revoked`);
-- invitation id and timestamps;
-- invited/accepted/revoked timestamps;
-- actor identity for access changes.
+### World membership/access
 
-The unique key is `(WorldId, ExternalIdentityId)` with state transitions recorded
-in audit events. Revocation prevents new sessions but does not silently terminate
-an active reservation.
+Logical access state records:
 
-### EnvironmentRevision and StateRevision
+- World ID;
+- external identity;
+- membership/revocation-pending state;
+- invitation identity and lifecycle metadata where applicable;
+- Access Manager relationship;
+- actors/timestamps required by the access service.
 
-Both revision types are immutable and include:
+Membership is flat.
 
-- revision id and World id;
-- adapter id and kind;
-- previous revision/head used for diagnostics;
-- object key/reference;
-- SHA-256 and byte size;
-- publication status;
-- created/verified timestamps.
+Pending invitations grant no package/reservation/commit access.
 
-State revisions additionally record the expected starting state head and the
-publishing session id/generation when applicable. A candidate must be verified
-before it can be referenced by the World head.
+Revoking a member with unresolved writable responsibility does not erase that responsibility; removal waits safely in the pending state defined by the access service.
 
-### SessionReservation
+### Environment revision
 
-- World id;
-- session id and generation;
-- holder external identity and device id;
-- starting state revision id;
-- mode (`Local` or `Host`);
-- state (`Active`, `Uncertain`, `RecoveryNeeded`, `Completed`);
-- acquired, heartbeat, uncertainty, and grace timestamps;
-- completion/reclaim actor and timestamps.
+An environment revision is immutable after publication and includes:
 
-Only one non-terminal reservation may exist per World. Generation is never reused
-for a different session.
+- revision ID + World relationship;
+- adapter identity;
+- structured/native artifact reference required by the World;
+- optional hosted package byte size/SHA-256 where an environment package exists;
+- publication timestamp/metadata.
 
-### Transfer
+An environment may be reproducible from game/platform-native inputs and therefore need no Steward-hosted package.
 
-- transfer id;
+Backend stores the revision relationship but does not interpret game-specific environment semantics.
+
+### State revision
+
+A state revision is immutable after publication and includes:
+
+- revision ID + World relationship;
+- adapter identity;
+- byte size;
+- SHA-256;
+- required environment revision relationship where applicable;
+- publication timestamp/metadata;
+- lineage/authority facts required to validate canonical commit.
+
+A state revision may exist as a verified non-canonical candidate. Publication is not canonical advancement.
+
+### Writable reservation
+
+The reservation authority records enough durable state to prove one writer:
+
+- World ID;
+- session ID;
+- monotonically increasing/non-reused generation semantics;
+- holder external identity;
+- holder installation ID;
+- starting state head;
+- starting environment head where applicable;
+- Active/Uncertain/available-terminal facts;
+- acquired/heartbeat/uncertainty/reclaim/completion metadata.
+
+Only one non-terminal writable reservation authority may exist for one World.
+
+A generation that has been invalidated/reclaimed can never become valid again.
+
+### Idempotency record
+
+Authority mutations whose duplicate execution would be unsafe persist:
+
+- caller/operation scope;
+- idempotency key;
+- logical request fingerprint;
+- durable logical result;
+- bounded retention metadata.
+
+Current authority use includes acquire, reclaim, and commit.
+
+The same key + same logical request replays the original result. The same key + different logical request is rejected.
+
+### Package transfer
+
+A resumable package-transfer record contains the minimum state required to safely continue/finalize a direct object-store transfer:
+
+- transfer ID;
+- caller/resource scope;
 - World/revision target;
-- direction and kind;
-- expected size and SHA-256;
-- provider upload id/object reference;
-- completed parts or provider resume metadata;
-- state (`Created`, `Uploading`, `Verified`, `Expired`, `Abandoned`);
-- expiry and finalization timestamps.
+- package kind;
+- expected byte size/SHA-256;
+- required environment relation where relevant;
+- provider upload/object reference;
+- part sizing/count/progress information;
+- expiry/state/finalization metadata.
 
-Transfer records never make a candidate canonical by themselves.
+Transfer records cannot make a revision canonical.
 
-### IdempotencyRecord and AuditEvent
+### Host presence
 
-Idempotency records bind a caller, operation, key, request fingerprint, and
-durable result. Audit events record access, authentication outcome, transfer
-publication, reservation transitions, recovery, and head commits without save
-contents, tokens, or unnecessary personal data.
+Host presence is short-lived non-authoritative evidence bound to:
 
-## Invariants
+- World;
+- exact reservation session ID;
+- exact reservation generation;
+- host installation/caller authority;
+- Starting/Ready state;
+- game-owned address/port/join material where applicable;
+- expiry/refresh metadata.
 
-The database layer must enforce or transactionally guarantee:
+A stale/uncertain/superseded reservation cannot publish newer-looking Host evidence.
 
-1. every World head references a verified immutable revision belonging to that
-   World and adapter;
-2. a state head never advances without a matching expected previous head;
-3. at most one active/uncertain/recovery-needed reservation exists per World;
-4. a reservation generation is unique and cannot be revived after invalidation;
-5. only an authorized member may read World metadata or initiate transfers;
-6. only the matching reservation holder/generation may heartbeat or commit;
-7. a verified candidate may remain unreferenced, but an unverified candidate may
-   never become current;
-8. idempotency-key reuse with a different request is rejected;
-9. revocation does not delete current heads or recovery evidence;
-10. cleanup cannot remove a current head, active transfer, or retained recovery
-    artifact.
+Presence is deleted/expired independently from canonical World history.
+
+### Retention/cleanup metadata
+
+The backend needs enough relational metadata to distinguish:
+
+- current canonical state/environment revisions;
+- previous canonical revisions retained by policy;
+- candidates pinned by active/recovery dependencies;
+- verified but uncommitted candidates inside grace/hold;
+- active/abandoned transfers;
+- cleanup-eligible objects.
+
+Object deletion is downstream of authority classification. Age alone does not prove safe deletion.
+
+## Database invariants
+
+The relational layer must enforce or transactionally guarantee:
+
+1. every current World head references immutable revision metadata for that same World/adapter;
+2. compatible state/environment relationships are validated before current-head advancement;
+3. a state head never advances unless the expected prior head is still current;
+4. at most one non-terminal writable reservation generation exists per World;
+5. reservation generation identity is never silently reused/revived;
+6. only authorized active members may read/use protected World resources;
+7. only matching reservation authority may heartbeat/commit/publish reservation-bound Host presence;
+8. an unverified/invalid package can never become a valid published State/Environment revision;
+9. object-store existence alone cannot change the canonical head;
+10. idempotency-key reuse with different logical input is rejected;
+11. revocation cannot silently delete canonical state or unresolved recovery/writer evidence;
+12. cleanup cannot remove current/pinned/in-use data;
+13. Host presence cannot grant writable authority;
+14. authentication-session expiry cannot manufacture reservation availability.
 
 ## Transaction boundaries
 
-### Acquire
-
-Read the current head and check membership, then atomically create the unique
-reservation with the expected starting head. A race returns `AlreadyReserved` or
-`HeadChanged`; it never creates two writers.
-
-### Publish candidate
-
-Verify object existence, size, hash, World, adapter, and transfer completion,
-then insert immutable revision metadata. Do not update the World head in this
-transaction.
-
-### Commit candidate
-
-In one transaction:
+### Authenticate/session issue
 
 ```text
-lock/check World head
--> check verified candidate and adapter/World match
--> check reservation session/generation and expected starting head
--> advance World current state head
--> record commit audit/idempotency result
+verify external proof
+-> derive backend-verified external identity
+-> create/rotate normal Steward session credentials
+-> persist only server-side session authority/hash state
 ```
 
-Reservation release is a separate safe transition after the commit result is
-known. If the transaction fails, the previous head remains authoritative.
+Authentication is separate from World membership and reservation authority.
+
+### Create shared World
+
+```text
+authorized verified caller
+-> create World with exact supplied Steward identity/head references
+-> establish creator membership
+-> establish one Access Manager
+```
+
+Initial sharing/publication logic verifies the referenced immutable environment/state separately. Failed publication must not silently restore local writable authority once remote creation may have become ambiguous.
+
+### Acquire reservation
+
+In one authority decision:
+
+```text
+check caller active membership
+-> lock/read current compatible World head
+-> compare expected state/environment head
+-> verify no conflicting Active/Uncertain reservation
+-> create/adopt caller's valid Active generation
+-> store idempotent logical result
+```
+
+A race produces one writer result, never two.
+
+### Heartbeat
+
+```text
+check caller + exact session/generation/installation
+-> update server-observed heartbeat
+```
+
+A stale generation cannot refresh itself.
+
+### Active -> Uncertain
+
+Server-observed missed-heartbeat time may classify an Active reservation as Uncertain.
+
+That transition blocks competing writers. It does not make the World available.
+
+### Reconnect
+
+The same still-valid generation may reconnect and return to Active while it has not been invalidated/reclaimed.
 
 ### Reclaim
 
-In one transaction:
+In one authority transaction:
 
 ```text
-check reservation is RecoveryNeeded and grace expired
--> invalidate old generation
--> record reclaim actor/audit event
--> make World available from current committed head
+verify current reservation is reclaimable Uncertain generation
+-> verify caller membership + grace/head conditions
+-> atomically invalidate old generation
+-> persist durable idempotent result
+-> leave canonical head at the last committed valid revision
 ```
 
-The next writer acquires in a separate operation and must read the new current
-head. Reclaim does not promote or delete a candidate.
+A new writer acquires separately after the old authority has been invalidated.
 
-## Schema and API versioning
+Reclaim does not promote or delete an unresolved candidate.
 
-- API routes use an explicit major version such as `/v1`.
-- Persisted documents and records carry a schema version.
-- Additive fields are preferred within a major API version.
-- Removing or changing the meaning of a field requires a new API/schema version
-  or a controlled migration with compatibility tests.
-- Every migration has forward validation, rollback/restore notes, and a tested
-  backup taken before production execution.
-- Old persisted revisions and opaque packages remain readable for the declared
-  retention period even when current metadata schemas evolve.
-- Core domain objects do not gain provider-specific columns or Steam SDK types.
+### Pre-launch abandon
 
-## Retention and cleanup
+The narrow abandon transaction validates the exact reservation identity/installation when Core proves gameplay never began.
 
-Cleanup classifies data before deletion:
+It may release that unused authority without waiting for uncertainty/reclaim.
 
-1. current World heads: retain;
-2. previous revisions required by declared recovery policy: retain;
-3. active/uncertain transfers and recovery evidence: retain;
-4. verified but unreferenced candidates inside retention: retain;
-5. expired candidates/transfers with no recovery hold: eligible for cleanup;
-6. audit and legal-retention records: retain according to policy.
+It is not valid for post-launch uncertainty where gameplay changes may exist.
 
-Age alone never proves that a package is safe to delete. Cleanup is bounded,
-observable, idempotent, and independent from gameplay transactions.
+### Publish candidate
+
+```text
+authorize transfer/resource
+-> direct object upload
+-> verify expected size/hash/provider completion
+-> publish immutable revision metadata
+```
+
+Do not update current World head in this transaction.
+
+### Commit candidate
+
+In one canonical authority transaction:
+
+```text
+lock/check current World head
+-> verify immutable candidate + World/adapter/environment relationships
+-> verify exact reservation session/generation/installation is still commit-eligible
+-> require current head == expected starting head
+-> atomically advance compatible state/environment head
+-> persist commit/idempotency result
+```
+
+Any failure leaves the previous canonical head authoritative.
+
+### Host-presence publish
+
+```text
+verify caller active membership/installation
+-> verify exact Active reservation session/generation
+-> publish/refresh bounded Starting/Ready endpoint evidence
+```
+
+No head/reservation rights are created by this operation.
+
+### Access Manager transfer/revocation
+
+Administrative access changes are transactional with the access invariants:
+
+- exactly one Access Manager remains where required;
+- pending invitation has no normal member authority;
+- active writer revocation does not invalidate a healthy write merely as an administrative shortcut;
+- leave/transfer cannot abandon unresolved responsibility.
+
+## Retention and object cleanup
+
+Current first-release canonical retention normally keeps:
+
+> **current canonical state + previous two successfully committed canonical states**
+
+plus any older state/environment package still pinned by active/recovery dependencies.
+
+Verified uncommitted remote candidates receive a bounded grace/hold. Partial transfers receive a shorter inactivity/abandonment lifetime. Exact values are operational configuration, not authority semantics.
+
+Unresolved local recovery candidates are outside backend object cleanup and are not silently deleted by backend retention.
+
+Cleanup workers:
+
+```text
+classify relational authority/dependencies
+-> identify bounded cleanup candidates
+-> delete object bytes where safe
+-> reconcile metadata/result idempotently
+```
+
+A cleanup failure is operational debt; it does not roll back a valid canonical commit.
+
+## Schema/API versioning
+
+- HTTP control routes use `/api/v1`.
+- PostgreSQL schema evolution is explicit and tested.
+- local persisted documents have their own versioned compatibility envelopes; do not conflate those schema versions with backend SQL schema/versioned API routes.
+- additive evolution is preferred.
+- incompatible changes require deliberate migration/compatibility handling.
+- Core domain types do not gain PostgreSQL/S3/Steam SDK implementation types.
 
 ## Backup and restore
 
-- Database backups and object-storage recovery copies remain encrypted and within
-  the approved EU residency boundary.
-- A restore produces an isolated environment first; it never writes directly to
-  the live authority during testing.
-- Restore validation checks World/head references, revision hashes, reservation
-  safety, access membership, idempotency records, and audit continuity.
-- After an incomplete restore, the service must fail closed for new shared
-  writable sessions rather than present uncertain state as Ready.
+CI already proves PostgreSQL-native dump/restore of production-store data into a fresh database without rerunning Steward initialization to “repair” the restored state.
 
-## Completion criteria
+Real operations still require provider-level backup/restore evidence in the selected EU deployment.
 
-This contract is ready for implementation when BE-1 tests cover the invariants,
-transaction boundaries, migrations, cleanup classification, and restore-failure
-behavior without requiring a named provider.
+Restore validation must confirm at least:
+
+- World/current-head references;
+- membership/Access Manager state;
+- immutable revision metadata relationships;
+- reservation safety;
+- idempotent authority state where retained;
+- object/package integrity/availability for retained current/recovery data.
+
+An incomplete/uncertain restore must fail closed for new shared writable sessions rather than present Ready.
+
+## Data minimization
+
+The backend deliberately does not need:
+
+- game save contents in relational tables;
+- Steam passwords/emails/payment data;
+- full friend graph;
+- gameplay roles/progression;
+- permanent game server records;
+- branch/merge graphs;
+- arbitrary client filesystem paths;
+- client plaintext session credentials at rest on the server.
+
+The logical schema exists only to preserve shared World continuity and authority safely.

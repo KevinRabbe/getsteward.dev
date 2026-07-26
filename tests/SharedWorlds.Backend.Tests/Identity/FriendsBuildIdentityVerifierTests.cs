@@ -27,6 +27,33 @@ public sealed class FriendsBuildIdentityVerifierTests
     }
 
     [Fact]
+    public void PublicRosterContainsOnlyStableIdAndDisplayName()
+    {
+        var first = FriendsBuildCredential.Generate();
+        var second = FriendsBuildCredential.Generate();
+        var verifier = new FriendsBuildIdentityVerifier(
+        [
+            new FriendsBuildIdentityDefinition(
+                "friend-0001",
+                "Alex",
+                FriendsBuildCredential.HashForConfiguration(first)),
+            new FriendsBuildIdentityDefinition(
+                "friend-0002",
+                "Max",
+                FriendsBuildCredential.HashForConfiguration(second))
+        ]);
+
+        var identities = verifier.ListPublicIdentities();
+
+        Assert.Equal(
+        [
+            new FriendsBuildPublicIdentity("friend-0001", "Alex"),
+            new FriendsBuildPublicIdentity("friend-0002", "Max")
+        ],
+        identities);
+    }
+
+    [Fact]
     public void WrongOrMalformedCredentialDoesNotAuthenticate()
     {
         var credential = FriendsBuildCredential.Generate();
@@ -58,6 +85,7 @@ public sealed class FriendsBuildIdentityVerifierTests
 
         Assert.Equal(FriendsBuildIdentityVerifier.Provider, exception.Provider);
         Assert.False(exception.Retryable);
+        Assert.Throws<ExternalIdentityProviderException>(() => verifier.ListPublicIdentities());
     }
 
     [Fact]

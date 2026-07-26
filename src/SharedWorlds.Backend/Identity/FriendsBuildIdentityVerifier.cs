@@ -13,6 +13,10 @@ public sealed record FriendsBuildIdentityVerificationResult(
     FriendsBuildIdentityVerificationStatus Status,
     VerifiedExternalIdentity? Identity);
 
+public sealed record FriendsBuildPublicIdentity(
+    string ExternalId,
+    string DisplayName);
+
 /// <summary>
 /// One explicitly provisioned private Friends Build identity. Only the SHA-256 digest of the
 /// high-entropy bootstrap credential is configured; the backend does not need the plaintext secret.
@@ -119,6 +123,21 @@ public sealed class FriendsBuildIdentityVerifier
     public static FriendsBuildIdentityVerifier CreateUnavailable(
         string unavailableReason = "Friends Build authentication is not configured on this deployment.")
         => new(unavailableReason);
+
+    public IReadOnlyList<FriendsBuildPublicIdentity> ListPublicIdentities()
+    {
+        if (_identities is null)
+        {
+            throw new ExternalIdentityProviderException(
+                Provider,
+                _unavailableReason ?? "Friends Build authentication is unavailable.",
+                retryable: false);
+        }
+
+        return _identities
+            .Select(static identity => new FriendsBuildPublicIdentity(identity.ExternalId, identity.DisplayName))
+            .ToArray();
+    }
 
     public FriendsBuildIdentityVerificationResult Verify(string credential)
     {

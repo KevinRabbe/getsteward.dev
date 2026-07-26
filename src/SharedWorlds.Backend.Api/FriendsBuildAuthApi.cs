@@ -8,6 +8,7 @@ public static class FriendsBuildAuthApi
     {
         ArgumentNullException.ThrowIfNull(endpoints);
         endpoints.MapPost("/api/v1/auth/friends/session", AuthenticateAsync);
+        endpoints.MapGet("/api/v1/auth/friends/identities", ListIdentitiesAsync);
         return endpoints;
     }
 
@@ -68,6 +69,73 @@ public static class FriendsBuildAuthApi
         return Results.Ok(new FriendsBuildAuthResponse("Authenticated", data, false));
     }
 
+    private static async Task<IResult> ListIdentitiesAsync(
+        HttpContext context,
+        FriendsBuildIdentityVerifier verifier,
+        StewardSessionService sessionService,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(verifier);
+        ArgumentNullException.ThrowIfNull(sessionService);
+
+        var caller = await AuthenticateCallerAsync(context, sessionService, cancellationToken);
+        if (caller is null)
+        {
+            return StewardApiResults.AuthenticationRequired();
+        }
+
+        if (!string.Equals(
+                caller.Identity.Subject.Provider,
+                FriendsBuildIdentityVerifier.Provider,
+                StringComparison.Ordinal))
+        {
+            return Results.Json(
+                new StewardApiResponse("FriendsBuildRosterUnavailable"),
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        IReadOnlyList<FriendsBuildPublicIdentity> identities;
+        try
+        {
+            identities = verifier.ListPublicIdentities();
+        }
+        catch (ExternalIdentityProviderException exception)
+        {
+            return Results.Json(
+                new StewardApiResponse("IdentityProviderUnavailable", Retryable: exception.Retryable),
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+
+        return Results.Ok(new StewardApiResponse(
+            "FriendsBuildIdentitiesFound",
+            identities.Select(static identity => new FriendsBuildPublicIdentityData(
+                FriendsBuildIdentityVerifier.Provider,
+                identity.ExternalId,
+                identity.DisplayName)).ToArray()));
+    }
+
+    private static async Task<StewardAuthenticatedCaller?> AuthenticateCallerAsync(
+        HttpContext context,
+        StewardSessionService sessionService,
+        CancellationToken cancellationToken)
+    {
+        var authorization = context.Request.Headers.Authorization.ToString();
+        const string prefix = "Bearer ";
+        if (!authorization.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var token = authorization[prefix.Length..].Trim();
+        if (token.Length == 0 || token.Contains(' '))
+        {
+            return null;
+        }
+
+        return await sessionService.ValidateAccessTokenAsync(token, cancellationToken);
+    }
+
     private sealed record FriendsBuildSessionRequest(
         string Credential,
         string InstallationId);
@@ -82,6 +150,11 @@ public static class FriendsBuildAuthApi
         FriendsBuildIdentityData Identity);
 
     private sealed record FriendsBuildIdentityData(
+        string Provider,
+        string ExternalId,
+        string DisplayName);
+
+    private sealed record FriendsBuildPublicIdentityData(
         string Provider,
         string ExternalId,
         string DisplayName);

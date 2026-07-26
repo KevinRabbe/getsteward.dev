@@ -46,7 +46,7 @@ public partial class MainWindow
             return;
         }
 
-        var dialog = new PendingInvitationsDialog(remote.Access)
+        var dialog = new PendingInvitationsDialog(remote.Access, remote.User)
         {
             Owner = this
         };

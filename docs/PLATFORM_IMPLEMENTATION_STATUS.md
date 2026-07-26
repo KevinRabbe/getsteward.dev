@@ -28,11 +28,16 @@ It also passed all five workflows. PR #72 changes only Desktop adapter compositi
 
 ## Latest qualified product line
 
-Normal adapter expansion has continued without reopening the platform. The latest qualified product line is Smalland PR #100:
+Normal adapter expansion has continued without reopening the platform. The latest qualified combined product line is integration PR #104:
 
-> `07cbc22d1f1a36fc2300615da7402b16ccb2e8df`
+> `e99065b6a3cf354e91db0ae4534da93846ba8f87`
 
-On that exact head all five repository workflows are green again, including Quality, Ubuntu/Windows build-and-test, backend container, PostgreSQL, S3-compatible integration, and Windows acceptance.
+PR #104 combines two independently qualified sibling slices without rewriting either evidence branch:
+
+- Abiotic Factor PR #102: `8d9eec2a12d2e8a0796a9131b7332427ffdbf65b`;
+- V Rising PR #103: `7baed187052956312f677669e9f70bc8813b2836`.
+
+On the exact combined head all five repository workflows are green, including Quality, Ubuntu/Windows build-and-test, backend container, PostgreSQL, S3-compatible integration, Windows acceptance, and the dedicated Palworld/7 Days to Die/Project Zomboid lanes.
 
 The aggregate adapter counts on that line are:
 
@@ -51,11 +56,17 @@ The aggregate adapter counts on that line are:
 - Conan Exiles Enhanced: 15/15;
 - Raft: 13/13;
 - ICARUS: 13/13;
-- Smalland: 14/14 on both Ubuntu and Windows.
+- Smalland: 14/14;
+- Abiotic Factor: 15/15 on both Ubuntu and Windows;
+- V Rising: 16/16 on both Ubuntu and Windows.
 
-PR #100 extends the same post-platform pattern already proven by Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, Enshrouded, Conan Exiles Enhanced, Raft, and ICARUS: one independent adapter project, game-owned discovery/environment/state behavior, truthful capability exposure, adapter-specific tests, solution/Desktop registration, and exact combined qualification. It does not modify Core, backend, Infrastructure, or generic Desktop lifecycle contracts.
+The #102/#103/#104 sequence reinforces the post-platform development model: independently prove adapter-specific behavior, preserve those evidence branches, mechanically combine qualified siblings, then qualify the exact combined tree. No Core, backend, Infrastructure, or generic Desktop lifecycle contract was required for either game.
 
-Smalland makes a useful ownership boundary especially explicit. One game-owned `SaveGames` root contains several different persistence namespaces: `Worlds/*.wld` is World state, `Players/*.plr` is player state, and root-level `*.sav` files carry map-annotation persistence. Steward captures only the direct World file. The directory contract is sufficient to move the correct state without parsing Smalland's native save format or silently migrating player-owned data.
+Abiotic Factor makes an important ownership boundary explicit. Its Steam profile contains account-level persistence above `Worlds`, while one multiplayer World is a whole `Worlds/<WorldName>/` directory that itself owns nested `PlayerData` and `SandboxSettings.ini`. Steward therefore moves those nested player records with the World but leaves profile-level state outside the revision. Ownership follows the game's native persistence boundary, not a blanket rule that every object called "player data" is personal state.
+
+Abiotic Factor also demonstrates the correct portable-state shape for a native directory World. Steward does not parse the save bodies; it packages only the proven World directory into a bounded file-only ZIP and treats that archive as a trust boundary: canonical relative paths, bounded entry count and uncompressed size, traversal/collision refusal, regular-file checks, and transactional restore.
+
+V Rising demonstrates a different native persistence shape. One canonical v4 session directory contains current World state, older recovery generations, World gameplay settings, identity/start metadata, and host/server infrastructure. Steward selects the highest native `AutoSave_<N>.save[.gz]` generation as current state, carries `ServerGameSettings.json`, `SessionId.json`, and `StartDate.json`, excludes older autosave generations, and excludes `ServerHostSettings.json` because host configuration is infrastructure rather than portable World state. The save bodies remain opaque; no V Rising save parser is needed.
 
 ## What "platform complete" means
 
@@ -106,32 +117,28 @@ Current adapters:
 | Raft | local vanilla canonical `User_<SteamID64>` World discovery/import using the same-name current `<World>.rgd`, exact Steam build identity, opaque capture/restore, backup/player-state exclusion, and owned workspace handling; player inventory/persona migration, backup selection, RaftModLoader environments, launch, Host, Stop, and Join remain unsupported |
 | ICARUS | local vanilla canonical numeric SteamID64 Prospect discovery/import using one current `<Prospect>.json`, exact Steam build identity, opaque capture/restore, rolling-backup/player-state exclusion, and owned workspace handling; character/profile/meta-inventory migration, backup selection, Paks mods, launch, Host, Stop, and Join remain unsupported |
 | Smalland | local vanilla direct `Worlds/<World>.wld` discovery/import, exact Steam build identity, opaque capture/restore, player/map-state exclusion, conservative extra-Pak refusal, and owned workspace handling; player-character/map-annotation migration, mod reproduction, dedicated-server lifecycle, launch, Host, Stop, and Join remain unsupported |
+| Abiotic Factor | local vanilla canonical SteamID64 `Worlds/<WorldName>/` directory discovery/import, exact Steam build identity, bounded directory-ZIP capture/restore including World-owned `PlayerData` and `SandboxSettings.ini`, profile-state exclusion, conservative UE4SS refusal, and owned workspace handling; mod reproduction, live-session consistency, dedicated-server lifecycle, launch, Host, Stop, and Join remain unsupported |
+| V Rising | local vanilla non-cloud v4 GUID-session discovery/import, exact Steam build identity, highest-generation autosave selection, exact four-file current-state capture/restore, older-recovery and `ServerHostSettings.json` exclusion, conservative BepInEx refusal, and owned workspace handling; CloudSaves, mod reproduction, dedicated-server lifecycle, launch, Host, Stop, and Join remain unsupported |
 
 Registration does not grant capabilities. The Desktop reads each adapter's `GameAdapterCapabilities`; adding an adapter to the catalog cannot silently make Start, Host, Join, or Stop available.
 
-Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, Enshrouded, Conan Exiles Enhanced, Raft, ICARUS, and Smalland currently advertise only `ExactGameVersion`. Their state-only entries are deliberate evidence that adapters can join the product before launch/hosting semantics are proven.
+Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, Enshrouded, Conan Exiles Enhanced, Raft, ICARUS, Smalland, Abiotic Factor, and V Rising currently advertise only `ExactGameVersion`. Their state-only entries are deliberate evidence that adapters can join the product before launch/hosting semantics are proven.
 
-Stardew Valley refuses a detected SMAPI or non-empty Mods environment rather than recording an incomplete vanilla `EnvironmentManifest` for a modded installation. Necesse applies the same principle to its local mods directory. Core Keeper applies it across manual install Mods, Steam Workshop content, and per-profile Mods. The Planet Crafter refuses known BepInEx bootstrap markers rather than enumerating or pretending to reproduce individual mods. Satisfactory refuses linked/non-empty `FactoryGame/Mods` and Steam Workshop content; this also catches an installed SML environment without requiring Steward to understand individual mods. ASTRONEER refuses linked/non-empty `Saved/Mods` or `Saved/Paks` rather than claiming a vanilla environment while mod-integration content is present. Enshrouded refuses known EML/Shroudtopia loader markers and a linked/non-empty root `mods` directory rather than interpreting individual mod packages. Conan Exiles Enhanced refuses a linked or non-empty `ConanSandbox/Mods/modlist.txt` activation surface rather than enumerating individual mod packages. Raft refuses linked/non-empty game-root `mods` and roaming `RaftModLoader` surfaces rather than enumerating individual mods. ICARUS refuses a linked or non-empty active `Icarus/Content/Paks/mods` directory rather than enumerating individual Paks. Smalland accepts only regular stock-style top-level `pakchunkN-WindowsNoEditor.pak` members in its gameplay Paks directory and refuses linked or extra non-stock-named Paks rather than parsing mod content.
+Vanilla-only adapters fail closed at a game-appropriate environment boundary rather than claiming incomplete reproducibility. Examples include SMAPI for Stardew Valley, local Mods for Necesse, Core Keeper's manual/Workshop/profile mod surfaces, BepInEx for The Planet Crafter and V Rising, Satisfactory Mods/Workshop, ASTRONEER Mods/Paks, Enshrouded loader markers, Conan's mod activation list, RaftModLoader, ICARUS active Paks mods, Smalland extra gameplay Paks, and Abiotic Factor's UE4SS loader surface.
 
-Necesse demonstrates a simple state rule: when the game's native current World artifact is already a portable ZIP, Steward preserves those bytes directly instead of unpacking and rebuilding a second archive format.
+## State-boundary lessons
 
-Core Keeper demonstrates the complementary ownership rule: storage adjacency is not identity. Character saves and player exploration maps are excluded even though they live in the same game-managed profile tree as the World files.
+The growing adapter set has deliberately produced several different native state shapes without growing Core:
 
-The Planet Crafter demonstrates the same restraint for an opaque native file: Steward does not need to understand the internal save grammar to preserve, transfer, restore, and verify the exact bytes it owns.
+- Necesse: preserve the native portable ZIP directly.
+- Core Keeper: capture the smallest complete three-file World bundle; exclude character/map state.
+- The Planet Crafter, Satisfactory, ASTRONEER, Raft, ICARUS, and Smalland: preserve one proven current opaque file and exclude nearby recovery/player/account/auxiliary state.
+- Enshrouded: parse only bounded selector metadata required to identify current members of a recovery ring; keep the selected save bodies opaque.
+- Conan Exiles Enhanced: use native SQLite sidecars as sufficient evidence that the standalone database is not safely capturable while active.
+- Abiotic Factor: when the native World is a directory, package the proven directory into a bounded Steward archive while keeping its save bodies opaque; nested player records remain World-owned because the game puts them inside the World namespace.
+- V Rising: when a native session directory mixes current autosave, older recovery generations, World gameplay settings, identity metadata, and host infrastructure, select the highest native autosave generation and carry only the metadata required to reproduce the World; host settings remain outside the portable revision.
 
-Satisfactory demonstrates that the source platform is also part of discovery scope. When Steam and non-Steam account namespaces coexist below one game save root, the Steam adapter remains inside canonical Steam profile identities instead of importing every directory that happens to contain a `.sav` file.
-
-ASTRONEER demonstrates that persistence type matters even inside one directory. A file being persistent and adjacent to a World does not make it World-owned state; account/custom-game `.savecfg` remains outside the `.savegame` World revision.
-
-Enshrouded demonstrates the narrow exception to opaque-only handling: when a small bounded native index is required to identify authoritative current bytes inside a rolling recovery ring, Steward should parse only that selector metadata. The large selected World bodies remain opaque, and inactive recovery generations remain outside the current revision.
-
-Conan Exiles Enhanced demonstrates that location identity and state capture safety can often be proven without learning more game internals. Steam's own manifest gives the install-directory identity, and the presence of SQLite transient sidecars is enough to know a database is not an idle standalone artifact. Steward refuses that state instead of understanding Conan's database schema or implementing a live snapshot protocol.
-
-Raft demonstrates that one account/profile namespace can contain multiple independent persistence identities. Its current World artifact and its player/inventory state live under the same `User_<SteamID64>` profile but do not belong to the same World revision. Steward moves the World without silently moving the host's personal state.
-
-ICARUS reinforces that boundary with a different native layout. A canonical numeric SteamID64 profile owns current Prospect Worlds under `Prospects`, but profile-level `Characters.json`, `Profile.json`, and `MetaInventory.json` belong to player/account progression instead. Rolling `.json.backup_*` copies are recovery history. Steward moves only the current Prospect bytes.
-
-Smalland demonstrates that the same separation can be encoded directly by a game's native directory layout without any account-profile parser. `SaveGames/Worlds` is the World namespace, `SaveGames/Players` is player persistence, and root-level `.sav` objects are auxiliary map annotations. Steward follows that ownership structure and moves only the direct `.wld` World bytes.
+These are adapter rules, not reasons to add game-specific state models to Core.
 
 ## Normal path for adding a game
 
@@ -141,12 +148,14 @@ A new game should:
 
 1. implement `IGameAdapter` using game-owned discovery and state/environment rules;
 2. prove safe import while preserving the native source;
-3. implement portable capture/restore and exact environment semantics appropriate to that game;
-4. expose only capabilities backed by deterministic or empirical evidence;
-5. add adapter-specific tests and CI coverage;
-6. add the Desktop project reference and one entry to `DesktopGameAdapterCatalog`;
-7. integrate only after the adapter head is independently qualified;
-8. rerun the full five-workflow matrix on the exact combined SHA.
+3. identify World-owned state separately from player/account/config/infrastructure/recovery state;
+4. implement the smallest complete portable capture/restore shape appropriate to that game;
+5. expose only capabilities backed by deterministic or empirical evidence;
+6. add adapter-specific tests and CI coverage;
+7. add the Desktop project reference and one entry to `DesktopGameAdapterCatalog`;
+8. qualify the adapter head independently;
+9. when parallel qualified siblings exist, combine them mechanically without rewriting either evidence branch;
+10. rerun the full five-workflow matrix on the exact combined SHA.
 
 A new game must **not** add game-name branches to Core, backend, Infrastructure, or normal Desktop behavior. If a game is unusual, keep the unusual behavior inside its adapter unless evidence proves a universal contract is missing.
 
@@ -190,7 +199,7 @@ These remain recorded in `DEFERRED_EMPIRICAL_TESTS.md` and related acceptance do
 
 Older E6/E8 status files preserve useful historical evidence, but checkpoint statements such as `62517139` being the last globally green head or "reconcile the E6/E8 stack onto the newer Factorio tree" are superseded by this document.
 
-The current line contains the E6 commercial UI stack, the E8 deterministic hardening stack, the later adapter/test hardening work, the PR #72 Desktop composition correction, and post-platform adapter expansion through qualified Terraria #77, Stardew Valley #79, Necesse #81, Core Keeper #83, The Planet Crafter #85, Satisfactory #87, ASTRONEER #89, Enshrouded #92, Conan Exiles Enhanced #94, Raft #96, ICARUS #98, and Smalland #100 on one all-workflows-green ancestry.
+The current line contains the E6 commercial UI stack, the E8 deterministic hardening stack, the later adapter/test hardening work, the PR #72 Desktop composition correction, and post-platform adapter expansion through qualified Terraria #77, Stardew Valley #79, Necesse #81, Core Keeper #83, The Planet Crafter #85, Satisfactory #87, ASTRONEER #89, Enshrouded #92, Conan Exiles Enhanced #94, Raft #96, ICARUS #98, Smalland #100, independently qualified Abiotic Factor #102 and V Rising #103, and their fully qualified combined integration #104.
 
 Use this file for the current implementation mode. Use E6/E8 documents for the detailed evidence and deferred acceptance categories they describe.
 

@@ -14,6 +14,7 @@ using SharedWorlds.GameAdapters.Raft;
 using SharedWorlds.GameAdapters.Satisfactory;
 using SharedWorlds.GameAdapters.SevenDaysToDie;
 using SharedWorlds.GameAdapters.Smalland;
+using SharedWorlds.GameAdapters.SpaceEngineers;
 using SharedWorlds.GameAdapters.StardewValley;
 using SharedWorlds.GameAdapters.Terraria;
 using SharedWorlds.GameAdapters.VRising;
@@ -43,7 +44,8 @@ internal static class DesktopGameAdapterCatalog
             new IcarusAdapter(),
             new SmallandAdapter(),
             new AbioticFactorAdapter(),
-            new VRisingAdapter()
+            new VRisingAdapter(),
+            new SpaceEngineersAdapter()
         ];
 
         return adapters.ToDictionary(adapter => adapter.Id, StringComparer.Ordinal);

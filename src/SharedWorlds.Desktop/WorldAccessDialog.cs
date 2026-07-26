@@ -11,18 +11,23 @@ namespace SharedWorlds.Desktop;
 
 internal sealed class WorldAccessDialog : Window
 {
+    private const string FriendsBuildProvider = "friends-build";
+
     private readonly StewardWorldAccessClient _access;
     private readonly World _world;
     private readonly UserIdentity _currentUser;
+    private readonly bool _friendsBuild;
     private StewardRemoteIdentity _accessManager;
     private readonly ListBox _members = new();
     private readonly TextBox _inviteSteamId = new();
+    private readonly ComboBox _inviteFriend = new();
     private readonly Button _inviteButton = new() { Content = DesktopText.Invite, Padding = new Thickness(12, 6, 12, 6) };
     private readonly Button _revokeButton = new() { Content = DesktopText.RemoveAccess, Padding = new Thickness(12, 6, 12, 6) };
     private readonly Button _transferButton = new() { Content = DesktopText.MakeAccessManager, Padding = new Thickness(12, 6, 12, 6) };
     private readonly Button _leaveButton = new() { Content = DesktopText.LeaveWorld, Padding = new Thickness(12, 6, 12, 6) };
     private readonly TextBlock _summary = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.78 };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Opacity = 0.82 };
+    private IReadOnlyList<StewardRemoteNamedIdentity> _friendsRoster = [];
     private bool _busy;
 
     public WorldAccessDialog(
@@ -40,8 +45,9 @@ internal sealed class WorldAccessDialog : Window
         _world = world;
         _currentUser = currentUser;
         _accessManager = accessManager;
+        _friendsBuild = string.Equals(currentUser.Provider, FriendsBuildProvider, StringComparison.Ordinal);
 
-        Title = $"{DesktopText.ManageAccess} — {world.Name}";
+        Title = $"Lobby — {world.Name}";
         Width = 560;
         Height = 500;
         MinWidth = 480;
@@ -54,6 +60,7 @@ internal sealed class WorldAccessDialog : Window
         Content = BuildContent();
 
         _members.SelectionChanged += (_, _) => UpdateActions();
+        _inviteFriend.SelectionChanged += (_, _) => UpdateActions();
         _inviteButton.Click += InviteButton_Click;
         _revokeButton.Click += RevokeButton_Click;
         _transferButton.Click += TransferButton_Click;
@@ -87,12 +94,26 @@ internal sealed class WorldAccessDialog : Window
         var inviteRow = new Grid { Margin = new Thickness(0, 18, 0, 12) };
         inviteRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         inviteRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        _inviteSteamId.MinHeight = 32;
-        _inviteSteamId.VerticalContentAlignment = VerticalAlignment.Center;
-        _inviteSteamId.ToolTip = "Steam ID64 of the player to invite";
-        AutomationProperties.SetName(_inviteSteamId, "Steam ID64 to invite");
-        AutomationProperties.SetHelpText(_inviteSteamId, "Enter the numeric Steam ID64 of the player to invite to this World.");
-        inviteRow.Children.Add(_inviteSteamId);
+        if (_friendsBuild)
+        {
+            _inviteFriend.MinHeight = 32;
+            _inviteFriend.VerticalContentAlignment = VerticalAlignment.Center;
+            _inviteFriend.DisplayMemberPath = nameof(InviteIdentityRow.DisplayName);
+            _inviteFriend.ToolTip = "Player to invite";
+            AutomationProperties.SetName(_inviteFriend, "Player to invite");
+            AutomationProperties.SetHelpText(_inviteFriend, "Choose a player from this private Steward build to invite to the World.");
+            inviteRow.Children.Add(_inviteFriend);
+        }
+        else
+        {
+            _inviteSteamId.MinHeight = 32;
+            _inviteSteamId.VerticalContentAlignment = VerticalAlignment.Center;
+            _inviteSteamId.ToolTip = "Steam ID64 of the player to invite";
+            AutomationProperties.SetName(_inviteSteamId, "Steam ID64 to invite");
+            AutomationProperties.SetHelpText(_inviteSteamId, "Enter the numeric Steam ID64 of the player to invite to this World.");
+            inviteRow.Children.Add(_inviteSteamId);
+        }
+
         _inviteButton.Margin = new Thickness(10, 0, 0, 0);
         Grid.SetColumn(_inviteButton, 1);
         inviteRow.Children.Add(_inviteButton);
@@ -103,7 +124,7 @@ internal sealed class WorldAccessDialog : Window
         _members.Background = (Brush)FindResource("PanelBrush");
         _members.Foreground = (Brush)FindResource("TextBrush");
         _members.BorderBrush = (Brush)FindResource("BorderBrush");
-        AutomationProperties.SetName(_members, "People with access");
+        AutomationProperties.SetName(_members, "Lobby members");
         var memberItemStyle = new Style(typeof(ListBoxItem));
         memberItemStyle.Setters.Add(new Setter(
             AutomationProperties.NameProperty,
@@ -150,6 +171,26 @@ internal sealed class WorldAccessDialog : Window
 
     private async void InviteButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_friendsBuild)
+        {
+            if (_inviteFriend.SelectedItem is not InviteIdentityRow target)
+            {
+                SetStatus("Choose a player to invite.");
+                return;
+            }
+
+            await RunAsync(async () =>
+            {
+                await _access.InviteAsync(
+                    _world.Id,
+                    target.Identity.Provider,
+                    target.Identity.ExternalId);
+                SetStatus($"Invitation sent to {target.DisplayName}.");
+                await ReloadAsync(preserveStatus: true);
+            });
+            return;
+        }
+
         var value = _inviteSteamId.Text.Trim();
         if (!ulong.TryParse(value, out var steamId) || steamId == 0)
         {
@@ -175,7 +216,7 @@ internal sealed class WorldAccessDialog : Window
 
         var confirmation = MessageBox.Show(
             this,
-            $"Remove access for {row.Member.Identity.ExternalId}?",
+            $"Remove access for {row.DisplayName}?",
             "Remove World access?",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning,
@@ -207,7 +248,7 @@ internal sealed class WorldAccessDialog : Window
 
         var confirmation = MessageBox.Show(
             this,
-            $"Make {row.Member.Identity.ExternalId} the Access Manager for '{_world.Name}'?",
+            $"Make {row.DisplayName} the Access Manager for '{_world.Name}'?",
             "Transfer Access Manager?",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning,
@@ -253,25 +294,65 @@ internal sealed class WorldAccessDialog : Window
 
     private async Task ReloadAsync(bool preserveStatus = false)
     {
-        var rows = (await _access.ListMembersAsync(_world.Id))
+        var members = await _access.ListMembersAsync(_world.Id);
+        if (_friendsBuild)
+        {
+            _friendsRoster = await _access.ListFriendsBuildIdentitiesAsync();
+        }
+
+        var rows = members
             .Select(member => new MemberRow(
                 member,
+                ResolveDisplayName(member.Identity),
                 IdentityEquals(member.Identity, _accessManager)))
             .OrderByDescending(row => row.IsAccessManager)
+            .ThenBy(row => row.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(row => row.Member.Identity.ExternalId, StringComparer.Ordinal)
             .ToArray();
         _members.ItemsSource = rows;
 
+        if (_friendsBuild)
+        {
+            var memberKeys = members
+                .Select(member => (member.Identity.Provider, member.Identity.ExternalId))
+                .ToHashSet();
+            var inviteRows = _friendsRoster
+                .Where(identity => !IdentityEquals(identity.Identity, _currentUser))
+                .Where(identity => !memberKeys.Contains((identity.Provider, identity.ExternalId)))
+                .OrderBy(identity => identity.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(identity => identity.ExternalId, StringComparer.Ordinal)
+                .Select(identity => new InviteIdentityRow(identity))
+                .ToArray();
+            _inviteFriend.ItemsSource = inviteRows;
+            _inviteFriend.SelectedIndex = inviteRows.Length == 0 ? -1 : 0;
+        }
+
         var isManager = CurrentUserIsAccessManager();
         _summary.Text = isManager
-            ? "You are the Access Manager. Sharing stays flat: members can continue the World; there are no gameplay roles or priority tiers."
-            : $"Access Manager: Steam ID {_accessManager.ExternalId}.";
+            ? "You are the Access Manager. The list below is everyone who is part of this World."
+            : $"Access Manager: {ResolveDisplayName(_accessManager)}.";
         if (!preserveStatus)
         {
             _status.Text = string.Empty;
         }
 
         UpdateActions();
+    }
+
+    private string ResolveDisplayName(StewardRemoteIdentity identity)
+    {
+        if (_friendsBuild)
+        {
+            var match = _friendsRoster.FirstOrDefault(candidate => IdentityEquals(candidate.Identity, identity));
+            if (match is not null)
+            {
+                return match.DisplayName;
+            }
+        }
+
+        return string.Equals(identity.Provider, "steam", StringComparison.Ordinal)
+            ? $"Steam ID {identity.ExternalId}"
+            : identity.ExternalId;
     }
 
     private async Task RunAsync(Func<Task> operation)
@@ -311,7 +392,9 @@ internal sealed class WorldAccessDialog : Window
         var isManager = CurrentUserIsAccessManager();
         var selected = _members.SelectedItem as MemberRow;
         _inviteSteamId.IsEnabled = !_busy && isManager;
-        _inviteButton.IsEnabled = !_busy && isManager;
+        _inviteFriend.IsEnabled = !_busy && isManager;
+        _inviteButton.IsEnabled = !_busy && isManager &&
+                                  (!_friendsBuild || _inviteFriend.SelectedItem is InviteIdentityRow);
         _revokeButton.IsEnabled = !_busy && isManager && selected is { IsAccessManager: false };
         _transferButton.IsEnabled = !_busy && isManager &&
                                     selected is { IsAccessManager: false } &&
@@ -320,19 +403,30 @@ internal sealed class WorldAccessDialog : Window
     }
 
     private bool CurrentUserIsAccessManager()
-        => string.Equals(_accessManager.Provider, _currentUser.Provider, StringComparison.Ordinal) &&
-           string.Equals(_accessManager.ExternalId, _currentUser.ExternalId, StringComparison.Ordinal);
+        => IdentityEquals(_accessManager, _currentUser);
 
     private static bool IdentityEquals(StewardRemoteIdentity left, StewardRemoteIdentity right)
         => string.Equals(left.Provider, right.Provider, StringComparison.Ordinal) &&
            string.Equals(left.ExternalId, right.ExternalId, StringComparison.Ordinal);
 
+    private static bool IdentityEquals(StewardRemoteIdentity left, UserIdentity right)
+        => string.Equals(left.Provider, right.Provider, StringComparison.Ordinal) &&
+           string.Equals(left.ExternalId, right.ExternalId, StringComparison.Ordinal);
+
+    private sealed record InviteIdentityRow(StewardRemoteNamedIdentity Identity)
+    {
+        public string DisplayName => Identity.DisplayName;
+    }
+
     private sealed record MemberRow(
         StewardRemoteWorldMember Member,
+        string DisplayName,
         bool IsAccessManager)
     {
-        public string DisplayText =>
-            $"Steam ID {Member.Identity.ExternalId}  •  " +
-            (IsAccessManager ? "Access Manager" : Member.Status.ToString());
+        public string DisplayText => IsAccessManager
+            ? $"{DisplayName} — Access Manager"
+            : Member.Status == RemoteWorldMemberStatus.RevocationPending
+                ? $"{DisplayName} — access removal pending"
+                : DisplayName;
     }
 }

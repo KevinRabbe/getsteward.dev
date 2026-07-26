@@ -4,6 +4,7 @@ using SharedWorlds.GameAdapters.ConanExilesEnhanced;
 using SharedWorlds.GameAdapters.CoreKeeper;
 using SharedWorlds.GameAdapters.Enshrouded;
 using SharedWorlds.GameAdapters.Factorio;
+using SharedWorlds.GameAdapters.Icarus;
 using SharedWorlds.GameAdapters.Necesse;
 using SharedWorlds.GameAdapters.Palworld;
 using SharedWorlds.GameAdapters.PlanetCrafter;
@@ -35,7 +36,8 @@ internal static class DesktopGameAdapterCatalog
             new AstroneerAdapter(),
             new EnshroudedAdapter(),
             new ConanExilesEnhancedAdapter(),
-            new RaftAdapter()
+            new RaftAdapter(),
+            new IcarusAdapter()
         ];
 
         return adapters.ToDictionary(adapter => adapter.Id, StringComparer.Ordinal);

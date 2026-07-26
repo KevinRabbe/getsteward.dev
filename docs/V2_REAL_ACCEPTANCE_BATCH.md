@@ -33,7 +33,7 @@ One batch can collect real evidence for:
 - real Windows keyboard/UI Automation/DPI observations while ordinary use is already happening;
 - representative real package sizes and transfer/capture timings without creating a separate benchmark session.
 
-7 Days to Die sandbox-authority work can use the same machines/backend installation window, but it remains a separate evidence subsection because automatic Host is intentionally not promoted yet.
+7 Days to Die V3 lifecycle observation can use the same machine/backend installation window when the client and dedicated server are already available. Its old sandbox-authority experiment is retired: the exact opaque `SandboxCode` is already a required World-specific reproduction input. Automatic 7DTD Host/Stop remains intentionally unpromoted until the real lifecycle is observed and then reproduced through Steward.
 
 Valheim is intentionally excluded until the released 1.0 save representation is rechecked.
 
@@ -61,6 +61,16 @@ Use one real HTTPS Steward deployment with:
 - at least the identities required for the participating PCs;
 - the intended proxy/network topology rather than a localhost substitute.
 
+If Backend.Api receives client HTTPS connections directly, leave the forwarded-address feature disabled and use the raw authenticated connection peer.
+
+If one reverse proxy terminates HTTPS before Backend.Api, configure only the exact proxy peer Steward actually sees:
+
+```text
+ReverseProxy__KnownProxyIp=<exact proxy peer IP>
+```
+
+That qualified path processes only one `X-Forwarded-For` client-address hop from that exact trusted proxy. Do not enable broad forwarded-header trust or add a public-IP service for the batch.
+
 Record only non-secret deployment identity:
 
 ```text
@@ -68,9 +78,10 @@ API host / deployment label
 region
 proxy/load-balancer shape
 backend build/commit
+trusted proxy peer IP configured? yes/no
 ```
 
-Never copy private bootstrap credentials, access/refresh tokens, database credentials, object-store credentials, or game management passwords into the evidence log.
+Never copy private bootstrap credentials, access/refresh tokens, database credentials, object-store credentials, or game session secrets into the evidence log.
 
 ### Friends Build artifact
 
@@ -239,6 +250,8 @@ On the joining PC:
 
 Do not edit host-presence rows or supply an external public-IP helper.
 
+If the HTTPS deployment uses the qualified one-proxy path, confirm `ReverseProxy__KnownProxyIp` names the exact peer Backend.Api sees before interpreting any published host address.
+
 ## First run: router unchanged
 
 1. A selects the shared Factorio World and Hosts.
@@ -274,17 +287,17 @@ Record separately:
 ```text
 published address
 address actually reachable from B
+direct peer or trusted-proxy-derived address source
 router unchanged result
 UDP 34197 forward result, if attempted
 Windows Firewall state
-whether the deployed proxy changed the peer address observed by Backend.Api
 ```
 
 Interpretation:
 
 - direct works: no networking feature is missing;
 - direct fails, one fixed 34197 forward works: Steward has a simple documented-network prerequisite, not proof that it needs NAT traversal;
-- fixed forwarding still fails because published address is wrong: investigate only the address-observation boundary;
+- fixed forwarding still fails because the published address differs from the public address B can reach: investigate only the qualified direct/exact-one-proxy address boundary;
 - correct address + reachable/forwarded port still fails: investigate the smallest measured Factorio-specific cause before adding generic networking machinery.
 
 ## Safe end and handoff
@@ -408,22 +421,50 @@ Do not instrument a new telemetry system merely for this first batch. Existing l
 
 Only add deeper instrumentation if the measured result creates a real performance question.
 
-# Optional same-window 7 Days to Die authority test
+# Optional same-window 7 Days to Die V3 lifecycle trace
 
-If the current 7DTD test World and dedicated server are already available, use the same machine/setup window to run the existing sandbox-authority experiment from `DEFERRED_EMPIRICAL_TESTS.md`.
+Run this only when a current V3 test World and the dedicated server are already installed during the same machine/setup window. It is not required to complete the Factorio/Palworld Friends Build proof, and it is **not** a 7DTD Host capability acceptance run yet.
 
-This is not a Host capability test.
+Do not rerun the retired sandbox-authority experiment. Start with one exact deliberately non-default `SandboxCode` supplied explicitly for the disposable World.
 
-The question remains only:
+Prepare an isolated managed `serverconfig.xml` with:
 
 ```text
-Does canonical restored V3 World state reproduce the known non-default sandbox settings without the original serverconfig.xml?
+GameWorld / GameName = exact disposable restored World
+UserDataFolder / SaveGameFolder = Steward-owned isolated paths
+SandboxCode = exact explicit World code
+TelnetEnabled = true
+TelnetPort = known bounded test port
+TelnetPassword = ""
 ```
 
-Both answers are useful:
+The empty password is intentional: current V3 server documentation defines that mode as local-loopback-only, so no Steward management credential or password-authentication protocol is needed.
 
-- yes -> identify and implement the stable World-owned authority source;
-- no -> capture the required sandbox configuration as an explicit environment/state input rather than guessing from machine-local config.
+Observe only the remaining real boundaries:
+
+1. Start the current dedicated server against the isolated config/workspace.
+2. Record the actual long-lived server PID/process tree.
+3. Confirm the management listener is loopback-only; if current V3 contradicts its documented empty-password behavior, stop treating the documentation as sufficient evidence and record the contradiction.
+4. Identify the smallest observable readiness signal that proves the intended restored World is actually ready for players—not merely that the process or local management socket exists.
+5. With an ordinary local raw/Telnet client, determine only the minimum line framing accepted for the documented `shutdown` command. Do not build product parsing around welcome/banner text.
+6. Observe whether `shutdown` cleanly terminates the actual long-lived server process.
+7. Record the final isolated World file/log boundary that proves the authoritative save is complete before capture.
+8. Capture the resulting existing canonical `Saves/...` + `GeneratedWorlds/...` bundle.
+9. Restore that captured result into a second disposable isolated run and confirm it loads as the same updated World.
+
+A useful observation is:
+
+```text
+known explicit SandboxCode
++ isolated launch
++ observed readiness
++ local raw shutdown
++ clean process exit
++ observable final save
++ second launch from captured bytes
+```
+
+Do not promote automatic 7DTD Host/Stop from this manual trace alone. The trace exists to make the next implementation deterministic. After it exists, implement only the smallest bounded local control/lifecycle code, add CI regression coverage, and repeat this exact scenario through Steward before promoting capabilities.
 
 # Failure handling during the batch
 

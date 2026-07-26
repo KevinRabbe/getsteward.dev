@@ -10,6 +10,12 @@ public enum RemoteSteamAuthenticationStatus
     InvalidTicket
 }
 
+public enum RemoteFriendsBuildAuthenticationStatus
+{
+    Authenticated,
+    InvalidCredential
+}
+
 public enum RemoteSessionRefreshStatus
 {
     Refreshed,
@@ -26,14 +32,18 @@ public sealed record RemoteSteamAuthenticationResult(
     RemoteSteamAuthenticationStatus Status,
     StewardRemoteSessionTokens? Tokens = null);
 
+public sealed record RemoteFriendsBuildAuthenticationResult(
+    RemoteFriendsBuildAuthenticationStatus Status,
+    StewardRemoteSessionTokens? Tokens = null);
+
 public sealed record RemoteSessionRefreshResult(
     RemoteSessionRefreshStatus Status,
     StewardRemoteSessionTokens? Tokens = null);
 
 /// <summary>
-/// Transport client for Steward authentication/session refresh. Steam ticket acquisition remains a
-/// platform concern outside this client; the client only exchanges an already-issued ticket for
-/// Steward credentials and rotates them through the backend contract.
+/// Transport client for Steward authentication/session refresh. External proof acquisition remains a
+/// platform/product-mode concern outside this client; successful Steam or private Friends Build proof
+/// is exchanged for the same normal Steward access/refresh credentials.
 /// </summary>
 public sealed class StewardSessionClient
 {
@@ -70,6 +80,29 @@ public sealed class StewardSessionClient
                 RemoteSteamAuthenticationStatus.Authenticated,
                 DeserializeRequiredData<SessionTokensDto>(response).ToDomain()),
             "InvalidSteamTicket" => new(RemoteSteamAuthenticationStatus.InvalidTicket),
+            _ => throw CreateUnexpectedResponse(response)
+        };
+    }
+
+    public async Task<RemoteFriendsBuildAuthenticationResult> AuthenticateFriendsBuildAsync(
+        string credential,
+        string installationId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateCredential(credential, nameof(credential));
+        ArgumentException.ThrowIfNullOrWhiteSpace(installationId);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "api/v1/auth/friends/session")
+        {
+            Content = JsonContent.Create(new FriendsBuildSessionRequest(credential, installationId))
+        };
+        var response = await SendAsync(request, cancellationToken);
+        return response.Code switch
+        {
+            "Authenticated" => new(
+                RemoteFriendsBuildAuthenticationStatus.Authenticated,
+                DeserializeRequiredData<SessionTokensDto>(response).ToDomain()),
+            "InvalidFriendsCredential" => new(RemoteFriendsBuildAuthenticationStatus.InvalidCredential),
             _ => throw CreateUnexpectedResponse(response)
         };
     }
@@ -177,6 +210,10 @@ public sealed class StewardSessionClient
 
     private sealed record SteamSessionRequest(
         string TicketHex,
+        string InstallationId);
+
+    private sealed record FriendsBuildSessionRequest(
+        string Credential,
         string InstallationId);
 
     private sealed record RefreshRequest(

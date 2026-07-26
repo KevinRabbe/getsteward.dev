@@ -144,6 +144,7 @@ jobs:
           $evidence = "$env:RUNNER_TEMP/steward-v3-steam-evidence"
           New-Item -ItemType Directory -Force -Path $evidence | Out-Null
           $manifestPath = Join-Path $evidence 'acceptance-build.json'
+          $backendAuthPath = Join-Path $evidence 'backend-steam-auth.public.json'
 
           ./tools/e4-build-desktop.ps1 `
             -OutputDirectory $output `
@@ -154,12 +155,23 @@ jobs:
             -SteamReleaseWebApiIdentity $identity `
             -BuildVersion $version
 
+          $backendAuthConfiguration = [ordered]@{
+            Steam__AppId = $appId.ToString([Globalization.CultureInfo]::InvariantCulture)
+            Steam__Identity = $identity
+            FriendsBuild__Enabled = 'false'
+          }
+          [IO.File]::WriteAllText(
+            $backendAuthPath,
+            ($backendAuthConfiguration | ConvertTo-Json -Compress),
+            [Text.UTF8Encoding]::new($false))
+
           $configurationPath = Join-Path $output 'steward-steam-release.json'
           $managedDesktopPath = Join-Path $output 'SharedWorlds.Desktop.dll'
           if (-not [IO.File]::Exists($configurationPath) -or
               -not [IO.File]::Exists($manifestPath) -or
+              -not [IO.File]::Exists($backendAuthPath) -or
               -not [IO.File]::Exists($managedDesktopPath)) {
-            throw 'V3 Steam depot content is missing configuration, release evidence, or the Desktop binary.'
+            throw 'V3 Steam release staging is missing depot configuration, release evidence, backend auth configuration, or the Desktop binary.'
           }
           if ([IO.File]::Exists((Join-Path $output 'acceptance-build.json'))) {
             throw 'acceptance-build.json is release evidence and must stay outside Steam depot content.'
@@ -192,6 +204,17 @@ jobs:
               [uint32]$configuration.steamAppId -ne $appId -or
               [string]$configuration.steamWebApiIdentity -ne $identity) {
             throw 'Generated V3 Steam release configuration is invalid or contains an unexpected field.'
+          }
+
+          $backendAuth = Get-Content -LiteralPath $backendAuthPath -Raw | ConvertFrom-Json
+          $backendAuthProperties = @($backendAuth.PSObject.Properties.Name | Sort-Object)
+          $expectedBackendAuthProperties = @('FriendsBuild__Enabled', 'Steam__AppId', 'Steam__Identity') | Sort-Object
+          if ($backendAuthProperties.Count -ne $expectedBackendAuthProperties.Count -or
+              @(Compare-Object $backendAuthProperties $expectedBackendAuthProperties).Count -ne 0 -or
+              [uint32]$backendAuth.Steam__AppId -ne [uint32]$configuration.steamAppId -or
+              -not [string]::Equals([string]$backendAuth.Steam__Identity, [string]$configuration.steamWebApiIdentity, [StringComparison]::Ordinal) -or
+              -not [string]::Equals([string]$backendAuth.FriendsBuild__Enabled, 'false', [StringComparison]::Ordinal)) {
+            throw 'Generated V3 backend Steam auth configuration does not exactly match the client release identity.'
           }
 
           $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
@@ -308,7 +331,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: steward-v3-steam-depot-evidence-${{ github.event.inputs.steam_version }}
-          path: ${{ runner.temp }}/steward-v3-steam-evidence/acceptance-build.json
+          path: ${{ runner.temp }}/steward-v3-steam-evidence
           if-no-files-found: error
           retention-days: 14
 

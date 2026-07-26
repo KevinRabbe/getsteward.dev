@@ -32,5 +32,5 @@ internal sealed record SevenDaysToDieManagedControl
     public string Password { get; }
 
     public override string ToString()
-        => $"7DTD managed control 127.0.0.1:{Port} password=<redacted>";
+        => $"7DTD managed control port={Port} password=<redacted>";
 }

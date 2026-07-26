@@ -8,6 +8,7 @@ using SharedWorlds.GameAdapters.Necesse;
 using SharedWorlds.GameAdapters.Palworld;
 using SharedWorlds.GameAdapters.PlanetCrafter;
 using SharedWorlds.GameAdapters.ProjectZomboid;
+using SharedWorlds.GameAdapters.Raft;
 using SharedWorlds.GameAdapters.Satisfactory;
 using SharedWorlds.GameAdapters.SevenDaysToDie;
 using SharedWorlds.GameAdapters.StardewValley;
@@ -33,7 +34,8 @@ internal static class DesktopGameAdapterCatalog
             new SatisfactoryAdapter(),
             new AstroneerAdapter(),
             new EnshroudedAdapter(),
-            new ConanExilesEnhancedAdapter()
+            new ConanExilesEnhancedAdapter(),
+            new RaftAdapter()
         ];
 
         return adapters.ToDictionary(adapter => adapter.Id, StringComparer.Ordinal);

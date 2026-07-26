@@ -35,5 +35,6 @@
     <ProjectReference Include="../SharedWorlds.GameAdapters/Astroneer/SharedWorlds.GameAdapters.Astroneer.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/Enshrouded/SharedWorlds.GameAdapters.Enshrouded.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/ConanExilesEnhanced/SharedWorlds.GameAdapters.ConanExilesEnhanced.csproj" />
+    <ProjectReference Include="../SharedWorlds.GameAdapters/Raft/SharedWorlds.GameAdapters.Raft.csproj" />
   </ItemGroup>
 </Project>

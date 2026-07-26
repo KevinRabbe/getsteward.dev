@@ -11,9 +11,8 @@ public sealed class SevenDaysToDieManagedControlTests
         "user-data"));
 
     [Fact]
-    public void ManagedHostTransformOwnsTelnetCoordinatesAndPreservesSandboxCode()
+    public void ManagedHostTransformOwnsLoopbackTelnetCoordinatesAndPreservesSandboxCode()
     {
-        const string password = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
         var source = Utf8(
             """
             <ServerSettings>
@@ -26,7 +25,7 @@ public sealed class SevenDaysToDieManagedControlTests
             </ServerSettings>
             """);
         var original = source.ToArray();
-        var control = new SevenDaysToDieManagedControl(39123, password);
+        var control = new SevenDaysToDieManagedControl(39123);
 
         var transformed = SevenDaysToDieManagedServerConfiguration.TransformForManagedHost(
             source,
@@ -40,13 +39,12 @@ public sealed class SevenDaysToDieManagedControlTests
         Assert.Equal("CUSTOM-SANDBOX-CODE", PropertyValue(document, "SandboxCode"));
         Assert.Equal("true", PropertyValue(document, "TelnetEnabled"));
         Assert.Equal("39123", PropertyValue(document, "TelnetPort"));
-        Assert.Equal(password, PropertyValue(document, "TelnetPassword"));
+        Assert.Equal(string.Empty, PropertyValue(document, "TelnetPassword"));
     }
 
     [Fact]
-    public void ManagedHostTransformAddsMissingTelnetProperties()
+    public void ManagedHostTransformAddsMissingLoopbackTelnetProperties()
     {
-        const string password = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
         var source = Utf8(
             """
             <ServerSettings>
@@ -60,12 +58,12 @@ public sealed class SevenDaysToDieManagedControlTests
             _userDataDirectory,
             "Navezgane",
             "Managed Save",
-            new SevenDaysToDieManagedControl(42001, password));
+            new SevenDaysToDieManagedControl(42001));
 
         var document = Parse(transformed);
         Assert.Equal("true", PropertyValue(document, "TelnetEnabled"));
         Assert.Equal("42001", PropertyValue(document, "TelnetPort"));
-        Assert.Equal(password, PropertyValue(document, "TelnetPassword"));
+        Assert.Equal(string.Empty, PropertyValue(document, "TelnetPassword"));
         Assert.Single(ActiveProperties(document, "TelnetEnabled"));
         Assert.Single(ActiveProperties(document, "TelnetPort"));
         Assert.Single(ActiveProperties(document, "TelnetPassword"));
@@ -98,9 +96,8 @@ public sealed class SevenDaysToDieManagedControlTests
     }
 
     [Fact]
-    public void DuplicateTelnetPropertyIsRejectedBeforeManagedSecretCanBeApplied()
+    public void DuplicateTelnetPropertyIsRejectedBeforeManagedControlCanBeApplied()
     {
-        const string password = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
         var source = Utf8(
             """
             <ServerSettings>
@@ -117,24 +114,21 @@ public sealed class SevenDaysToDieManagedControlTests
                 _userDataDirectory,
                 "Navezgane",
                 "Managed Save",
-                new SevenDaysToDieManagedControl(42002, password)));
+                new SevenDaysToDieManagedControl(42002)));
 
         Assert.Contains("more than one active TelnetPort", exception.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain(password, Encoding.UTF8.GetString(source), StringComparison.Ordinal);
     }
 
     [Fact]
-    public void ManagedControlValidatesAndRedactsItsSecret()
+    public void ManagedControlOwnsOnlyABoundedLocalPort()
     {
-        const string password = "CDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789AB";
-        var control = new SevenDaysToDieManagedControl(42003, password);
+        var control = new SevenDaysToDieManagedControl(42003);
 
         Assert.Equal(42003, control.Port);
-        Assert.Equal(password, control.Password);
-        Assert.DoesNotContain(password, control.ToString(), StringComparison.Ordinal);
-        Assert.Contains("<redacted>", control.ToString(), StringComparison.Ordinal);
-        Assert.Throws<ArgumentOutOfRangeException>(() => new SevenDaysToDieManagedControl(0, password));
-        Assert.Throws<ArgumentException>(() => new SevenDaysToDieManagedControl(42003, "not-a-managed-secret"));
+        Assert.Contains("loopback", control.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("password", control.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SevenDaysToDieManagedControl(0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SevenDaysToDieManagedControl(65536));
     }
 
     private static byte[] Utf8(string value)

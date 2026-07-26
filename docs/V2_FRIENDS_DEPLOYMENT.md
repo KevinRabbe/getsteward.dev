@@ -66,6 +66,24 @@ For Friends Build deployment this invocation is **backend-only**. Do not pass `-
 
 The Friends Build desktop must therefore be launched normally from the extracted immutable ZIP, with no repository-local `STEWARD_*` routing environment variables.
 
+### Reverse proxy client address — only when HTTPS terminates before Backend.Api
+
+A normal HTTP reverse proxy/load balancer becomes Backend.Api's direct TCP peer. If the selected deployment terminates HTTPS at one proxy and Host presence needs the originating friend's IPv4, configure that exact proxy explicitly:
+
+```text
+ReverseProxy__KnownProxyIp=<exact IP address Backend.Api sees as its direct proxy peer>
+```
+
+The proxy must append/send the standard `X-Forwarded-For` client-address header.
+
+With that setting Steward processes **only** `X-Forwarded-For`, from **only** that exact configured proxy, and consumes **one** forwarded hop. Requests arriving from any other peer cannot replace `HttpContext.Connection.RemoteIpAddress` through `X-Forwarded-For`.
+
+If Backend.Api receives client connections directly, omit `ReverseProxy__KnownProxyIp`; the existing raw peer-address behavior remains unchanged.
+
+Do not use `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` for Steward. That broad platform switch is intentionally unnecessary here because V2 needs one narrow client-address trust boundary, not general forwarded-header trust.
+
+If the deployment uses a changing proxy fleet or multiple proxy hops, do not widen the trust model speculatively. Record that topology as the next deployment requirement and add only the smallest explicit trusted boundary it actually needs.
+
 ## 2. Provision the private identities
 
 Create one identity per person with the repository helper:

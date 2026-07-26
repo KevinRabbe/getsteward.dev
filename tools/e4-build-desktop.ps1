@@ -8,6 +8,7 @@ param(
     [uint32]$SteamReleaseAppId = 0,
     [string]$SteamReleaseWebApiIdentity,
     [string]$BuildVersion,
+    [string]$AcceptanceManifestOutputPath,
     [switch]$FrameworkDependent
 )
 
@@ -60,6 +61,18 @@ if ([IO.Directory]::Exists($output)) {
 }
 [IO.Directory]::CreateDirectory($output) | Out-Null
 
+$manifestOutputPath = if ([string]::IsNullOrWhiteSpace($AcceptanceManifestOutputPath)) {
+    Join-Path $output 'acceptance-build.json'
+}
+else {
+    [IO.Path]::GetFullPath($AcceptanceManifestOutputPath)
+}
+$manifestDirectory = [IO.Path]::GetDirectoryName($manifestOutputPath)
+if ([string]::IsNullOrWhiteSpace($manifestDirectory)) {
+    Fail 'AcceptanceManifestOutputPath must resolve to a file path with a containing directory.'
+}
+[IO.Directory]::CreateDirectory($manifestDirectory) | Out-Null
+
 $normalizedFriendsBuildApiBaseUrl = Get-NormalizedPackageApiBaseUrl $FriendsBuildApiBaseUrl 'FriendsBuildApiBaseUrl'
 $steamReleaseRequested =
     -not [string]::IsNullOrWhiteSpace($SteamReleaseApiBaseUrl) -or
@@ -102,6 +115,7 @@ Write-Host "  Runtime: $Runtime"
 Write-Host "  Configuration: $Configuration"
 Write-Host "  Self-contained: $selfContainedText"
 Write-Host "  Output: $output"
+Write-Host "  Acceptance manifest: $manifestOutputPath"
 if ($null -ne $normalizedFriendsBuildApiBaseUrl) {
     Write-Host '  Deployment: Friends Build package'
 }
@@ -236,8 +250,7 @@ $metadata = [ordered]@{
     steamNativeRuntime = [IO.Path]::GetFileName($steamNative)
     files = $packageFiles
 }
-$metadataPath = Join-Path $output 'acceptance-build.json'
-$metadata | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $metadataPath -Encoding utf8
+$metadata | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $manifestOutputPath -Encoding utf8
 
 Write-Host
 Write-Host '[OK] Steward desktop acceptance build is structurally complete and byte-verifiable.'
@@ -245,7 +258,7 @@ Write-Host "  Executable: $desktopExecutable"
 Write-Host "  Steam runtime: $steamNative"
 Write-Host "  Production adapters: Factorio, Palworld, 7 Days to Die, Project Zomboid"
 Write-Host "  Hashed package files: $($packageFiles.Count)"
-Write-Host "  Metadata: $metadataPath"
+Write-Host "  Metadata: $manifestOutputPath"
 Write-Host
 if ($null -ne $normalizedFriendsBuildApiBaseUrl) {
     Write-Host 'The Friends Build HTTPS API coordinate is embedded in steward-friends-build.json and covered by the package manifest.'

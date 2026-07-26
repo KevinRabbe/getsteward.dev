@@ -66,7 +66,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.P
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.Terraria.Tests", "tests\SharedWorlds.GameAdapters.Terraria.Tests\SharedWorlds.GameAdapters.Terraria.Tests.csproj", "{EAEAEAEA-EAEA-EAEA-EAEA-EAEAEAEAEAEA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.StardewValley.Tests", "tests\SharedWorlds.GameAdapters\StardewValley.Tests\SharedWorlds.GameAdapters.StardewValley.Tests.csproj", "{DCDCDCDC-DCDC-DCDC-DCDC-DCDCDCDCDCDC}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.StardewValley.Tests", "tests\SharedWorlds.GameAdapters.StardewValley.Tests\SharedWorlds.GameAdapters.StardewValley.Tests.csproj", "{DCDCDCDC-DCDC-DCDC-DCDC-DCDCDCDCDCDC}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.Necesse.Tests", "tests\SharedWorlds.GameAdapters.Necesse.Tests\SharedWorlds.GameAdapters.Necesse.Tests.csproj", "{CECECECE-CECE-CECE-CECE-CECECECECECE}"
 EndProject

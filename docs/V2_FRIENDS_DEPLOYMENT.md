@@ -53,6 +53,19 @@ GET /health/live  -> 200
 GET /health/ready -> 200
 ```
 
+Reuse the existing E4 live preflight for that proof rather than creating a V2-specific health checker:
+
+```powershell
+./tools/e4-live-acceptance.ps1 `
+  -ApiBaseUrl "https://<your-steward-api>/" `
+  -SteamAppId "" `
+  -SteamWebApiIdentity ""
+```
+
+For Friends Build deployment this invocation is **backend-only**. Do not pass `-DesktopExecutable` for the Friends package. The E4 helper's executable-launch path intentionally injects `STEWARD_API_BASE_URL`; a Friends ZIP already carries its backend coordinate in adjacent `steward-friends-build.json`, and Steward correctly rejects package routing plus `STEWARD_*` routing together as ambiguous configuration.
+
+The Friends Build desktop must therefore be launched normally from the extracted immutable ZIP, with no repository-local `STEWARD_*` routing environment variables.
+
 ## 2. Provision the private identities
 
 Create one identity per person with the repository helper:

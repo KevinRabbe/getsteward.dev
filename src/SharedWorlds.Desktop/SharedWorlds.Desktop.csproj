@@ -39,5 +39,6 @@
     <ProjectReference Include="../SharedWorlds.GameAdapters/Icarus/SharedWorlds.GameAdapters.Icarus.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/Smalland/SharedWorlds.GameAdapters.Smalland.csproj" />
     <ProjectReference Include="../SharedWorlds.GameAdapters/AbioticFactor/SharedWorlds.GameAdapters.AbioticFactor.csproj" />
+    <ProjectReference Include="../SharedWorlds.GameAdapters/VRising/SharedWorlds.GameAdapters.VRising.csproj" />
   </ItemGroup>
 </Project>

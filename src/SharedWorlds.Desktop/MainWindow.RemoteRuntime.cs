@@ -16,10 +16,9 @@ public partial class MainWindow
     private Exception? _lastRemoteWorldLoadError;
 
     /// <summary>
-    /// Connects the already-authenticated Steam session to the real shared-World runtime. The caller
-    /// that acquires the Steam authentication ticket supplies the verified identity and initial
-    /// Steward credentials; this method owns the resulting remote runtime until it is replaced or
-    /// the desktop window closes.
+    /// Connects an already-authenticated Steward session to the real shared-World runtime. The caller
+    /// supplies the backend-verified identity and initial Steward credentials; this method owns the
+    /// resulting remote runtime until it is replaced or the desktop window closes.
     /// </summary>
     internal async Task SetAuthenticatedRemoteRuntimeAsync(
         Uri apiBaseAddress,
@@ -238,16 +237,15 @@ public partial class MainWindow
     {
         _remoteWorldIds.Clear();
         _remoteIncompleteWorldIds.Clear();
+        _lastRemoteWorldLoadError = null;
         _remoteRuntime?.Dispose();
         _remoteRuntime = null;
     }
 
     private static bool IsRemoteAvailabilityFailure(Exception exception)
-        => exception is StewardSessionExpiredException or
-            StewardRemoteApiException or
-            StewardWorldStorageException or
+        => exception is StewardRemoteApiException or
             HttpRequestException or
-            InvalidDataException or
             IOException or
-            TimeoutException;
+            TimeoutException or
+            TaskCanceledException;
 }

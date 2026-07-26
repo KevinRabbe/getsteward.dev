@@ -7,7 +7,7 @@ using SharedWorlds.Core.Abstractions;
 
 namespace SharedWorlds.GameAdapters.Factorio;
 
-public sealed partial class FactorioAdapter
+public sealed partial class FactorioAdapter : IManagedHostEndpointProvider
 {
     private static readonly TimeSpan DedicatedServerReadyTimeout = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan ServerSaveTimeout = TimeSpan.FromSeconds(15);
@@ -24,6 +24,14 @@ public sealed partial class FactorioAdapter
         GameSessionHandle session,
         CancellationToken cancellationToken)
         => WaitForAdapterSessionEndAsync(session, cancellationToken);
+
+    ManagedHostEndpoint? IManagedHostEndpointProvider.GetManagedHostEndpoint(GameSessionHandle session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return _hostedSessions.TryGetValue(session.ProcessId, out var hostedSession)
+            ? new ManagedHostEndpoint(hostedSession.GamePort, hostedSession.GamePassword)
+            : null;
+    }
 
     private async Task<GameSessionHandle> LaunchAuthoritativeHostAsync(
         PreparedWorld world,
@@ -90,6 +98,8 @@ public sealed partial class FactorioAdapter
 
             _hostedSessions[clientSession.ProcessId] = new FactorioHostedSession(
                 ServerProcessId: resolvedServerProcessId.Value,
+                GamePort: gamePort,
+                GamePassword: gamePassword,
                 RconPort: rconPort,
                 RconPassword: rconPassword,
                 SavePath: serverLaunch.SavePath,
@@ -502,6 +512,8 @@ public sealed partial class FactorioAdapter
 
     private sealed record FactorioHostedSession(
         int ServerProcessId,
+        int GamePort,
+        string GamePassword,
         int RconPort,
         string RconPassword,
         string SavePath,

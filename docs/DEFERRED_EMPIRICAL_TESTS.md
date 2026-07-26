@@ -81,6 +81,57 @@ A deferred test is not evidence that the behavior works. It is an explicit bound
 
 **Promotion rule:** Do not wire imported-World hosting to an assumed `SandboxCode` source. First establish and implement the authoritative configuration rule above; automatic host/stop capabilities remain frozen until the corresponding real lifecycle evidence also exists.
 
+## Factorio Friends Build — direct Internet Host/Join reachability
+
+**Frozen product state:** CI may prove the managed Host -> short-lived host-presence -> existing direct Join composition, but Steward does **not** claim that a friend on another real network can reach the host's Factorio UDP endpoint until this test passes.
+
+**Already deterministic/CI-proven:**
+
+- A shared writable reservation is acquired before managed Host launch.
+- Factorio creates a private dedicated-server session with an ephemeral game UDP port and per-session random password.
+- The adapter can expose only that game-owned port/password as managed-host connection material.
+- The shared-session coordinator can publish `Starting`, then `Ready`, and refresh the same exact reservation generation through the existing reservation heartbeat rather than a second timer.
+- Backend.Api can fill a missing Ready address from the authenticated HTTP connection's observed IPv4 peer while preserving an explicit supplied address.
+- Existing Join consumes the resulting `HostConnection` and launches Factorio with direct `--mp-connect <address>:<port> --password <token>` arguments.
+- Ending the managed host removes host presence before state capture/commit continues.
+
+**Empirical questions:**
+
+1. In the selected real HTTPS deployment topology, does Backend.Api observe an IPv4 address that is actually reachable as the host's Internet address rather than a reverse-proxy/load-balancer/internal peer address?
+2. Is Factorio's selected ephemeral UDP game port reachable from a friend's separate network without Steward adding UPnP, explicit port forwarding, STUN, relay, Steam listing, or another traversal mechanism?
+3. Does the existing direct Factorio client launch successfully join the exact managed private server using the published address, port, and per-session password?
+
+**Test setup:**
+
+- The exact qualified Friends Build ZIP on two normal Windows PCs on separate real Internet connections.
+- A real HTTPS Steward backend using the intended deployment/proxy topology.
+- Factorio installed on both PCs with matching verified environment.
+- One shared Factorio World with both Friends Build identities authorized.
+- No manual edit of host-presence rows and no external public-IP helper added for the test.
+
+**Acceptance evidence:**
+
+```text
+PC A Host
+-> backend presence becomes Starting then Ready
+-> Ready contains the address observed by the deployed API plus A's real game port/password
+-> PC B Join reads that Ready endpoint
+-> Factorio on B reaches A's managed private server and enters the same World
+-> A ends the hosted session
+-> host presence disappears
+-> Steward captures/uploads/commits the resulting World normally
+```
+
+Also record:
+
+- the address returned by host presence;
+- the address actually visible/reachable from PC B;
+- whether any router/NAT configuration was already present on PC A;
+- whether UDP reachability failed before the Factorio client could authenticate;
+- whether the deployed reverse proxy changed the peer address seen by Backend.Api.
+
+**Promotion rule:** Do not add generic public-IP lookup, forwarded-header trust, UPnP, STUN, relay, Steam-server listing, or other NAT traversal merely because such mechanisms exist. First run this exact two-network proof. If it fails, implement only the smallest mechanism that removes the measured failure, then repeat the same acceptance sequence.
+
 ## Desktop — real Windows UI acceptance
 
 **Frozen product state:** CI proves compilation, packaging, neutral `DesktopText` resource resolution on Windows, deterministic accessibility metadata, live-region event wiring, and the per-monitor DPI manifest. CI does not claim that a real assistive technology or monitor transition has been observed.

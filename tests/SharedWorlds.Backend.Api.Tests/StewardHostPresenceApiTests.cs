@@ -53,24 +53,44 @@ public sealed class StewardHostPresenceApiTests
     }
 
     [Fact]
+    public async Task ReadyWithoutAddressUsesObservedIpv4Peer()
+    {
+        await using var harness = await HostPresenceHarness.CreateAsync();
+        using var publish = await harness.Client.PutAsJsonAsync(
+            $"/api/v1/worlds/{harness.Reservation.WorldId.Value:D}/host-presence",
+            new
+            {
+                reservationSessionId = harness.Reservation.SessionId,
+                reservationGeneration = harness.Reservation.Generation,
+                state = "Ready",
+                address = (string?)null,
+                port = 34197,
+                joinToken = "join-token"
+            });
+
+        Assert.Equal(HttpStatusCode.OK, publish.StatusCode);
+        Assert.Equal("198.51.100.24", harness.PresenceStore.Presence?.Address);
+    }
+
+    [Fact]
     public async Task InvalidOrMismatchedPublishFailsWithoutMutation()
     {
         await using var harness = await HostPresenceHarness.CreateAsync();
 
-        using (var missingAddress = await harness.Client.PutAsJsonAsync(
+        using (var invalidPort = await harness.Client.PutAsJsonAsync(
                    $"/api/v1/worlds/{harness.Reservation.WorldId.Value:D}/host-presence",
                    new
                    {
                        reservationSessionId = harness.Reservation.SessionId,
                        reservationGeneration = harness.Reservation.Generation,
                        state = "Ready",
-                       address = (string?)null,
-                       port = 34197,
+                       address = "203.0.113.20",
+                       port = 0,
                        joinToken = (string?)null
                    }))
         {
-            Assert.Equal(HttpStatusCode.BadRequest, missingAddress.StatusCode);
-            Assert.Equal("InvalidHostPresence", await ReadCodeAsync(missingAddress));
+            Assert.Equal(HttpStatusCode.BadRequest, invalidPort.StatusCode);
+            Assert.Equal("InvalidHostPresence", await ReadCodeAsync(invalidPort));
         }
 
         using var wrongGeneration = await harness.Client.PutAsJsonAsync(
@@ -231,6 +251,11 @@ public sealed class StewardHostPresenceApiTests
                 () => clock.Now));
 
             var app = builder.Build();
+            app.Use(async (context, next) =>
+            {
+                context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.24");
+                await next();
+            });
             app.UseStewardApiProblemHandling();
             app.MapStewardHostPresenceApiV1();
             await app.StartAsync();

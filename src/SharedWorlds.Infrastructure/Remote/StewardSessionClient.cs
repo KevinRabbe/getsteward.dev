@@ -28,13 +28,19 @@ public sealed record StewardRemoteSessionTokens(
     string RefreshToken,
     DateTimeOffset RefreshExpiresAt);
 
+public sealed record StewardRemoteAuthenticatedIdentity(
+    string Provider,
+    string ExternalId,
+    string DisplayName);
+
 public sealed record RemoteSteamAuthenticationResult(
     RemoteSteamAuthenticationStatus Status,
     StewardRemoteSessionTokens? Tokens = null);
 
 public sealed record RemoteFriendsBuildAuthenticationResult(
     RemoteFriendsBuildAuthenticationStatus Status,
-    StewardRemoteSessionTokens? Tokens = null);
+    StewardRemoteSessionTokens? Tokens = null,
+    StewardRemoteAuthenticatedIdentity? Identity = null);
 
 public sealed record RemoteSessionRefreshResult(
     RemoteSessionRefreshStatus Status,
@@ -99,9 +105,7 @@ public sealed class StewardSessionClient
         var response = await SendAsync(request, cancellationToken);
         return response.Code switch
         {
-            "Authenticated" => new(
-                RemoteFriendsBuildAuthenticationStatus.Authenticated,
-                DeserializeRequiredData<SessionTokensDto>(response).ToDomain()),
+            "Authenticated" => MapFriendsBuildAuthentication(response),
             "InvalidFriendsCredential" => new(RemoteFriendsBuildAuthenticationStatus.InvalidCredential),
             _ => throw CreateUnexpectedResponse(response)
         };
@@ -149,6 +153,15 @@ public sealed class StewardSessionClient
             "NotRevoked" => false,
             _ => throw CreateUnexpectedResponse(response)
         };
+    }
+
+    private RemoteFriendsBuildAuthenticationResult MapFriendsBuildAuthentication(ApiResponse response)
+    {
+        var data = DeserializeRequiredData<FriendsBuildSessionDataDto>(response);
+        return new RemoteFriendsBuildAuthenticationResult(
+            RemoteFriendsBuildAuthenticationStatus.Authenticated,
+            data.Tokens.ToDomain(),
+            data.Identity.ToDomain());
     }
 
     private async Task<ApiResponse> SendAsync(
@@ -230,6 +243,31 @@ public sealed class StewardSessionClient
         bool Retryable)
     {
         public HttpStatusCode StatusCode { get; init; }
+    }
+
+    private sealed record FriendsBuildSessionDataDto(
+        SessionTokensDto Tokens,
+        AuthenticatedIdentityDto Identity);
+
+    private sealed record AuthenticatedIdentityDto(
+        string Provider,
+        string ExternalId,
+        string DisplayName)
+    {
+        public StewardRemoteAuthenticatedIdentity ToDomain()
+        {
+            if (string.IsNullOrWhiteSpace(Provider) ||
+                Provider.Any(char.IsWhiteSpace) ||
+                string.IsNullOrWhiteSpace(ExternalId) ||
+                ExternalId.Any(char.IsWhiteSpace) ||
+                string.IsNullOrWhiteSpace(DisplayName) ||
+                DisplayName.Any(char.IsControl))
+            {
+                throw new InvalidDataException("Steward returned an invalid authenticated identity.");
+            }
+
+            return new StewardRemoteAuthenticatedIdentity(Provider, ExternalId, DisplayName);
+        }
     }
 
     private sealed record SessionTokensDto(

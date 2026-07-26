@@ -11,7 +11,7 @@ public partial class MainWindow
     internal async Task InitializeStewardRemoteSessionAsync(
         CancellationToken cancellationToken = default)
     {
-        if (!StewardDesktopRemoteConfiguration.TryLoadFromEnvironment(
+        if (!StewardDesktopRemoteConfiguration.TryLoad(
                 out var configuration,
                 out var configurationProblem))
         {

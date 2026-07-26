@@ -18,6 +18,14 @@ public sealed record StewardRemoteWorldMember(
     RemoteWorldMemberStatus Status,
     DateTimeOffset AddedAt);
 
+public sealed record StewardRemoteNamedIdentity(
+    string Provider,
+    string ExternalId,
+    string DisplayName)
+{
+    public StewardRemoteIdentity Identity => new(Provider, ExternalId);
+}
+
 public enum RemoteInvitationStatus
 {
     Pending,
@@ -41,9 +49,9 @@ public enum RemoteMemberRevocationStatus
 }
 
 /// <summary>
-/// Provider-neutral transport client for Steward's deliberately flat World access model. It exposes
-/// membership, invitations, manager transfer, and leave/revoke actions without creating roles,
-/// groups, gameplay priority, or a second social system.
+/// Transport client for Steward's deliberately flat World access model. Membership and invitation
+/// authority remain provider-neutral; Friends Build may additionally read its bounded configured
+/// identity roster so the private desktop can render names instead of opaque external IDs.
 /// </summary>
 public sealed class StewardWorldAccessClient
 {
@@ -83,6 +91,24 @@ public sealed class StewardWorldAccessClient
 
         return DeserializeRequiredData<MemberDto[]>(response)
             .Select(static member => member.ToDomain())
+            .ToArray();
+    }
+
+    public async Task<IReadOnlyList<StewardRemoteNamedIdentity>> ListFriendsBuildIdentitiesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var request = await CreateAuthorizedRequestAsync(
+            HttpMethod.Get,
+            "api/v1/auth/friends/identities",
+            cancellationToken);
+        var response = await SendAsync(request, cancellationToken);
+        if (!string.Equals(response.Code, "FriendsBuildIdentitiesFound", StringComparison.Ordinal))
+        {
+            throw CreateUnexpectedResponse(response);
+        }
+
+        return DeserializeRequiredData<NamedIdentityDto[]>(response)
+            .Select(static identity => identity.ToDomain())
             .ToArray();
     }
 
@@ -311,6 +337,14 @@ public sealed class StewardWorldAccessClient
     private sealed record IdentityDto(string Provider, string ExternalId)
     {
         public StewardRemoteIdentity ToDomain() => new(Provider, ExternalId);
+    }
+
+    private sealed record NamedIdentityDto(
+        string Provider,
+        string ExternalId,
+        string DisplayName)
+    {
+        public StewardRemoteNamedIdentity ToDomain() => new(Provider, ExternalId, DisplayName);
     }
 
     private sealed record MemberDto(

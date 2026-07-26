@@ -1,6 +1,6 @@
 # V3 Steam Release Candidate
 
-Status: **ACTIVE PRODUCT GOAL**
+Status: **ACTIVE PRODUCT GOAL — V3-A/B/C DETERMINISTIC RELEASE SHAPE QUALIFIED; V3-D CAPABILITY/CLAIM CONTRACT RESOLVED; REAL WINDOWS/STEAM/GAME EVIDENCE REMAINS OPEN**
 
 V3 begins after the deterministic V2 Friends Build line is complete. V2 proved and prepared the private-product path; its remaining real-provider, real-machine, and real-friend acceptance items stay recorded as empirical evidence and do not justify keeping V2 as the active coding goal.
 
@@ -17,6 +17,18 @@ The decisive V3 question is:
 > **Is the product technically release-shaped before the final irreversible/external Steam publication gate is opened?**
 
 V3 therefore optimizes the distance from the qualified product to a real Steam release candidate, not adapter count, speculative features, or a second distribution/account system.
+
+## Current qualified deterministic line
+
+The V3 deterministic release-shape work is qualified through V3-C:
+
+- **V3-A / PR #133** — package-owned Steam release configuration, exact head `180597b0c701a3e00ba29aae456b71717ce80f74`;
+- **V3-B / PR #134** — exact self-contained Steam depot content + external byte evidence, exact head `3cb8eef77382c7a958ec62bbaa0472cc55708b53`;
+- **V3-C / PR #135** — client/backend public Steam identity derived from one release input while publisher credentials stay server-secret, exact head `b68a527281f1026d06d76e4cfc5cde03c2227557`.
+
+Each exact head passed all five top-level workflow groups.
+
+V3-D does not require a new runtime abstraction. The existing capability contract already separates what an adapter can actually do from the fact that it exists in the catalog. The remaining release claims are therefore evidence gates, not another generic implementation layer.
 
 ## Relationship to V2
 
@@ -74,6 +86,9 @@ The release-shaped path is:
 ```text
 qualified Steward build
 -> immutable release configuration is packaged with the build
+-> exact self-contained Steam depot content is produced
+-> matching public backend Steam auth fragment is produced
+-> publisher credential is injected only as a backend secret
 -> build is uploaded as Steam depot content
 -> Steam installs/updates Steward
 -> user launches Steward through Steam
@@ -82,7 +97,7 @@ qualified Steward build
 -> Steward requests GetAuthTicketForWebApi for the configured service identity
 -> production Backend.Api verifies the ticket with the matching AppID/identity and publisher credential
 -> shared World catalog loads
--> user Starts / Hosts / Joins according to real adapter capabilities
+-> user Starts / Hosts / Joins only where the adapter advertises those exact capabilities
 -> updated World is captured, verified, uploaded, and committed
 ```
 
@@ -92,7 +107,7 @@ The final real AppID/publisher/depot proof remains the `STEAM_RELEASE_GATE.md` a
 
 A production Steam user must not need repository-local environment variables to make Steward usable.
 
-Current engineering configuration uses:
+Engineering configuration may still use:
 
 ```text
 STEWARD_API_BASE_URL
@@ -101,94 +116,148 @@ STEWARD_STEAM_APP_ID
 STEWARD_STEAM_WEB_API_IDENTITY
 ```
 
-That remains useful for development and isolated acceptance, but it is not the commercial runtime contract.
+That remains an engineering/isolated-acceptance path, not the commercial runtime contract.
 
-The release candidate should instead carry immutable, non-secret release configuration beside the executable and inside the exact bytes uploaded to Steam.
-
-Required release facts are:
+The release candidate carries immutable, non-secret release configuration beside the executable and inside the exact bytes intended for Steam:
 
 ```text
-HTTPS Steward backend coordinate
-+ expected Steward Steam AppID
-+ GetAuthTicketForWebApi service identity
+steward-steam-release.json
+    HTTPS Steward backend coordinate
+    expected Steward Steam AppID
+    GetAuthTicketForWebApi service identity
 ```
 
-The publisher API key remains server-only and must never enter the client package.
+The publisher API key remains server-only and never enters the client package or release evidence artifact.
 
-Steam owns actual AppID discovery at runtime. Steward already calls `SteamAPI.Init()` and `SteamUtils.GetAppID()`; V3 preserves the explicit equality check between Steam's actual AppID and the expected release AppID rather than trusting package text alone.
+Steam owns actual AppID discovery at runtime. Steward calls `SteamAPI.Init()` and `SteamUtils.GetAppID()` and requires Steam's actual AppID to equal the configured expected AppID before requesting a Web API ticket.
 
 ## V3 workstreams
 
-### V3-A — Steam release configuration
+### V3-A — Steam release configuration — QUALIFIED
 
-Remove developer environment setup from the commercial Desktop path.
+Exact qualified head: `180597b0c701a3e00ba29aae456b71717ce80f74` (#133).
 
-Acceptance:
+Implemented/qualified:
 
-- a strict bounded adjacent release configuration supplies only non-secret production routing/identity facts;
-- remote API URL is HTTPS and rejects credentials/query/fragment;
-- expected Steam AppID is positive and explicit;
-- Web API identity is bounded and whitespace-free;
-- Steam's runtime AppID must equal the configured expected AppID;
+- strict bounded adjacent `steward-steam-release.json`;
+- HTTPS API URL with credentials/query/fragment rejected;
+- positive expected Steam AppID;
+- bounded whitespace-free Web API identity;
+- actual runtime AppID still comes from Steam and must match the expected AppID;
 - publisher credentials never enter Desktop/package configuration;
 - environment-variable configuration remains engineering-only;
-- simultaneous package + environment routing fails closed rather than selecting one implicitly.
+- environment/Friends/Steam package sources are mutually exclusive and ambiguity fails closed;
+- Friends and Steam package files reuse one bounded regular-file JSON trust boundary.
 
-### V3-B — Depot-ready Windows content
+### V3-B — Depot-ready Windows content — QUALIFIED DETERMINISTIC STAGING
 
-Produce exactly the directory Steam will install rather than inventing another updater.
+Exact qualified head: `3cb8eef77382c7a958ec62bbaa0472cc55708b53` (#134).
 
-Acceptance:
+Implemented/qualified:
 
-- release configuration is part of the byte-verifiable package/depot input;
+- exact self-contained Release `win-x64` content root;
+- package-owned release configuration is inside the depot bytes;
 - Desktop binary carries the requested product version;
-- no Friends Build credential or backend secret is present;
-- no `steam_appid.txt` is shipped as a production crutch;
-- clean unpack/install content launches locally only under the expected Steam boundary when Steam mode is selected;
-- existing acceptance-manifest integrity rules remain reusable.
+- `acceptance-build.json` is external release evidence, not installed product content;
+- every intended depot file is represented exactly once by byte length + SHA-256 in that external evidence;
+- PDB debug symbols and the Steamworks import library are removed before hashing;
+- no Friends Build routing is present;
+- no `steam_appid.txt` production crutch is shipped;
+- no Steam publisher credential or backend secret is present;
+- manual workflow dispatch can produce downloadable real-value depot content + evidence once the real public release values exist.
 
-Steam later owns transport, signing/distribution behavior, patching, and updates.
+The real SteamPipe upload, Steam-generated depot manifest/BuildID, installation, and update behavior remain V3-F empirical/external acceptance. Steam owns that transport/update boundary; Steward does not add an updater or Steam uploader to normal CI.
 
-### V3-C — Production backend configuration
+### V3-C — Production backend configuration — QUALIFIED DETERMINISTIC MATCHING
 
-Make the release backend configuration explicit without changing backend authority.
+Exact qualified head: `b68a527281f1026d06d76e4cfc5cde03c2227557` (#135).
 
-Acceptance:
+Existing Backend.Api behavior was already sufficient:
 
-- real production mode has Friends Build authentication disabled unless deliberately running a private test deployment;
-- exact Steam AppID/identity pair matches the client release configuration;
-- publisher credential is server-secret only;
-- PostgreSQL/S3/HTTPS configuration remains provider-neutral;
-- reverse-proxy trust remains exact and topology-driven rather than globally enabled;
-- health/readiness/backup/restore/retention boundaries remain the existing production contracts.
+- Steam AppID + publisher key + Web API identity are all-or-nothing;
+- partial Steam configuration fails startup;
+- complete absence makes Steam verification unavailable/fail-closed;
+- Friends Build authentication is disabled by default/fail-closed;
+- Steam verification uses the configured AppID/identity while the publisher credential remains server-only.
 
-### V3-D — Release adapter set
-
-Do not promise a game because an adapter exists in the catalog.
-
-For each game exposed as release-capable:
+V3-C therefore removes transcription drift rather than adding auth code. The same release inputs that create the client package now create:
 
 ```text
-discovery/import
-+ exact environment
-+ restore
-+ truthful Start/Host/Join capabilities
-+ safe end/capture
-+ handoff/recovery evidence
-= release-capable adapter
+backend-steam-auth.public.json
+    Steam__AppId=<same client expected AppID>
+    Steam__Identity=<same client Web API identity>
+    FriendsBuild__Enabled=false
 ```
 
-Factorio remains the reference lifecycle. Other adapters enter the release-capable set only when their actual required lifecycle is proven. Unsupported capabilities remain unavailable instead of simulated.
+`Steam__PublisherApiKey` is deliberately absent and must be injected separately as a deployment secret.
+
+The manually generated V3 evidence artifact therefore carries:
+
+- exact depot byte/SHA evidence;
+- exact public backend AppID/identity values matching those client bytes;
+- no publisher secret.
+
+PostgreSQL/S3/HTTPS/reverse-proxy/backup/restore/retention behavior remains the already-qualified provider-neutral backend contract.
+
+### V3-D — Release adapter claims — DETERMINISTIC CONTRACT RESOLVED
+
+Do not create a second `ReleaseSupported`, tier, maturity, or marketing capability flag.
+
+The existing `GameAdapterCapabilities` contract already owns executable truth. Catalog registration means only:
+
+> **Steward contains the adapter's proven discovery/environment/state slice.**
+
+It does **not** mean:
+
+> Start, Host, Join, Stop, mod reproduction, or every multiplayer behavior is supported.
+
+Release/user-facing action claims map directly to existing capability/evidence:
+
+```text
+Start World claim
+    = AutomaticLocalLaunch
+
+Host World claim
+    = AutomaticHostLaunch
+
+Join claim
+    = AutomaticClientJoin
+      + adapter GetJoinCapabilityAsync result for the current environment/identity/host
+
+Stop and Save claim
+    = AutomaticHostStop
+
+Create World claim
+    = NativeWorldCreation
+```
+
+Desktop already consumes those flags directly: unsupported Start/Host actions remain unavailable and explain the limitation rather than simulating the action. The generic UI therefore does not need another release-support state machine.
+
+#### Current capability truth relevant to release claims
+
+- **Factorio** currently advertises `AutomaticLocalLaunch`, `AutomaticHostLaunch`, `AutomaticClientJoin`, `NativeWorldCreation`, exact game version, and mod support. It is the only current adapter structurally exposing the complete Start/Host/Join action set, but real Internet Host/Join + safe handoff evidence still gates any final release claim.
+- **Palworld** currently advertises automatic Host + automatic Host Stop + exact game version. It does not advertise automatic client Join. Real Internet endpoint/native Join + safe handoff evidence remains required before that claim can expand.
+- **7 Days to Die** advertises its proven mods/exact-version/state slice only. Automatic Host/Stop/Join remains unavailable until the recorded current-V3 lifecycle evidence exists.
+- **Project Zomboid** advertises its proven mods/exact-game/exact-mod-version state slice only. Managed runtime capability remains empirical/frozen.
+- **Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, Enshrouded, Conan Exiles Enhanced, Raft, ICARUS, Smalland, Abiotic Factor, V Rising, and Space Engineers** remain deliberately state/import/environment adapters with no invented Start/Host/Join capability.
+
+#### Release-claim rule
+
+The Steam store, documentation, screenshots, onboarding, or support material must not use an undifferentiated statement such as "full multiplayer support for all catalog games".
+
+A game may be named for the exact slice Steward has proven, for example import/state-management support. Start/Host/Join claims require the corresponding capability and the empirical evidence required by that adapter's release gate.
+
+This means V3-D needs no product-code change now. New code is justified only if a real release surface is found to make a broader claim than the capability model actually supports.
 
 V3 does not impose an arbitrary game-count target.
 
-### V3-E — Real Windows release acceptance
+### V3-E — Real Windows release acceptance — EMPIRICAL
 
 Use real Windows machines to close the categories CI cannot prove:
 
 - clean Steam installation/launch;
 - keyboard navigation;
-- assistive-technology labels;
+- assistive-technology labels/live regions;
 - mixed-DPI behavior;
 - tray/background behavior;
 - suspend/restart/logoff interactions where relevant;
@@ -197,19 +266,21 @@ Use real Windows machines to close the categories CI cannot prove:
 
 Observed defects become narrow implementation work. Passing CI is not substituted for this evidence.
 
-### V3-F — Steam release gate
+### V3-F — Steam release gate — EXTERNAL / EMPIRICAL
 
 Only when the product owner decides Steward is otherwise good enough to publish:
 
 ```text
-obtain/configure real Steward AppID + publisher credential
--> upload release-candidate depot
--> launch through Steam
--> verify actual AppID
--> obtain real Web API ticket
--> backend verifies ticket
+obtain/configure real Steward AppID + publisher credential + depot identity
+-> dispatch exact release-candidate depot/evidence with real public values
+-> inject matching backend public fragment + secret publisher key
+-> upload exact content root through SteamPipe
+-> install through Steam on real PC A/B
+-> verify actual runtime AppID
+-> obtain real Web API tickets
+-> backend verifies tickets
 -> two independent installations authenticate
--> perform real shared-World handoff
+-> perform real shared-World handoff for the advertised action/game set
 -> verify Steam update/depot behavior
 ```
 
@@ -225,6 +296,7 @@ No fake production auth bypass is permitted.
 - payment/licensing service outside Steam;
 - generic NAT traversal before a measured game/network need;
 - permanent game servers;
+- a second release-support/capability taxonomy;
 - new Core/UI abstractions without a concrete release defect;
 - more adapters merely to advertise a larger number.
 
@@ -232,14 +304,14 @@ No fake production auth bypass is permitted.
 
 V3 is complete when:
 
-1. the Steam release candidate needs no developer environment variables for normal production routing/authentication;
-2. the exact depot-ready content is reproducible and byte-verifiable before upload;
-3. production client/backend Steam configuration is explicit, matched, and secrets remain server-only;
-4. the intended release adapter set advertises only empirically supported capabilities;
-5. real Windows/release acceptance has no unresolved release-blocking defect;
-6. the genuine Steam AppID/publisher/ticket/two-installation handoff passes without bypasses;
-7. Steam depot installation/update behavior is proven;
-8. the private Friends Build remains a test tool, not a hidden production dependency.
+1. the Steam release candidate needs no developer environment variables for normal production routing/authentication — **deterministically satisfied by V3-A**;
+2. the exact depot-ready content is reproducible and byte-verifiable before upload — **deterministically satisfied by V3-B**;
+3. production client/backend Steam public configuration is explicit, matched, and secrets remain server-only — **deterministically satisfied by V3-C**;
+4. release claims map directly to existing truthful adapter capabilities rather than catalog presence or a second support taxonomy — **deterministic contract resolved by V3-D; final advertised action claims still require their empirical gates**;
+5. real Windows/release acceptance has no unresolved release-blocking defect — **open V3-E evidence**;
+6. the genuine Steam AppID/publisher/ticket/two-installation handoff passes without bypasses — **open V3-F evidence**;
+7. Steam depot installation/update behavior is proven — **open V3-F evidence**;
+8. the private Friends Build remains a test tool, not a hidden production dependency — **deterministically true; real release execution still verifies it**.
 
 At that point Steam Early Access is a publication/business decision rather than an architectural development milestone.
 

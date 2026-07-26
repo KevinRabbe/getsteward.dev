@@ -16,6 +16,7 @@ using SharedWorlds.GameAdapters.SevenDaysToDie;
 using SharedWorlds.GameAdapters.Smalland;
 using SharedWorlds.GameAdapters.StardewValley;
 using SharedWorlds.GameAdapters.Terraria;
+using SharedWorlds.GameAdapters.VRising;
 
 namespace SharedWorlds.Desktop;
 
@@ -41,7 +42,8 @@ internal static class DesktopGameAdapterCatalog
             new RaftAdapter(),
             new IcarusAdapter(),
             new SmallandAdapter(),
-            new AbioticFactorAdapter()
+            new AbioticFactorAdapter(),
+            new VRisingAdapter()
         ];
 
         return adapters.ToDictionary(adapter => adapter.Id, StringComparer.Ordinal);

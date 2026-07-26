@@ -46,6 +46,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.I
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.Smalland", "src\SharedWorlds.GameAdapters\Smalland\SharedWorlds.GameAdapters.Smalland.csproj", "{0A0A0A0A-0A0A-0A0A-0A0A-0A0A0A0A0A0A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.VRising", "src\SharedWorlds.GameAdapters\VRising\SharedWorlds.GameAdapters.VRising.csproj", "{1A1A1A1A-1A1A-1A1A-1A1A-1A1A1A1A1A1A}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Cli", "src\SharedWorlds.Cli\SharedWorlds.Cli.csproj", "{66666666-6666-6666-6666-666666666666}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Desktop", "src\SharedWorlds.Desktop\SharedWorlds.Desktop.csproj", "{BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB}"
@@ -89,6 +91,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.Icarus.Tests", "tests\SharedWorlds.GameAdapters.Icarus.Tests\SharedWorlds.GameAdapters.Icarus.Tests.csproj", "{F9F9F9F9-F9F9-F9F9-F9F9-F9F9F9F9F9F9}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.Smalland.Tests", "tests\SharedWorlds.GameAdapters.Smalland.Tests\SharedWorlds.GameAdapters.Smalland.Tests.csproj", "{0B0B0B0B-0B0B-0B0B-0B0B-0B0B0B0B0B0B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.GameAdapters.VRising.Tests", "tests\SharedWorlds.GameAdapters.VRising.Tests\SharedWorlds.GameAdapters.VRising.Tests.csproj", "{1B1B1B1B-1B1B-1B1B-1B1B-1B1B1B1B1B1B}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharedWorlds.Architecture.Tests", "tests\SharedWorlds.Architecture.Tests\SharedWorlds.Architecture.Tests.csproj", "{AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}"
 EndProject
@@ -185,7 +189,11 @@ Global
         {0A0A0A0A-0A0A-0A0A-0A0A-0A0A0A0A0A0A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
         {0A0A0A0A-0A0A-0A0A-0A0A-0A0A0A0A0A0A}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {0A0A0A0A-0A0A-0A0A-0A0A-0A0A0A0A0A0A}.Release|Any CPU.ActiveCfg = Release|Any CPU
-        {0A0A0A0A-0A0A-0A0A-0A0A-0A0A0A0A0A0A}.Release|Any CPU.Build.0 = Release|Any CPU
+        {0A0A0A0A-0A0A-0A0A-0A0A0A0A0A0A0A0A}.Release|Any CPU.Build.0 = Release|Any CPU
+        {1A1A1A1A-1A1A-1A1A-1A1A-1A1A1A1A1A1A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {1A1A1A1A-1A1A-1A1A-1A1A-1A1A1A1A1A1A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {1A1A1A1A-1A1A-1A1A-1A1A-1A1A1A1A1A1A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {1A1A1A1A-1A1A-1A1A-1A1A-1A1A1A1A1A1A}.Release|Any CPU.Build.0 = Release|Any CPU
         {66666666-6666-6666-6666-666666666666}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
         {66666666-6666-6666-6666-666666666666}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {66666666-6666-6666-6666-666666666666}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -274,6 +282,10 @@ Global
         {0B0B0B0B-0B0B-0B0B-0B0B-0B0B0B0B0B0B}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {0B0B0B0B-0B0B-0B0B-0B0B-0B0B0B0B0B0B}.Release|Any CPU.ActiveCfg = Release|Any CPU
         {0B0B0B0B-0B0B-0B0B-0B0B-0B0B0B0B0B0B}.Release|Any CPU.Build.0 = Release|Any CPU
+        {1B1B1B1B-1B1B-1B1B-1B1B-1B1B1B1B1B1B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {1B1B1B1B-1B1B-1B1B-1B1B-1B1B1B1B1B1B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {1B1B1B1B-1B1B-1B1B-1B1B-1B1B1B1B1B1B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {1B1B1B1B-1B1B-1B1B-1B1B-1B1B1B1B1B1B}.Release|Any CPU.Build.0 = Release|Any CPU
         {AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
         {AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}.Release|Any CPU.ActiveCfg = Release|Any CPU

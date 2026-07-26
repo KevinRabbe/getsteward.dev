@@ -1,16 +1,20 @@
 # V2 Friends Build
 
-Status: **ACTIVE PRODUCT GOAL**
+Status: **DETERMINISTIC ENGINEERING COMPLETE — REAL FRIEND/PROVIDER/MACHINE ACCEPTANCE REMAINS RECORDED EMPIRICAL EVIDENCE**
 
-V2 is the first Steward version intended to be used repeatedly by a real group of friends rather than only proving architecture, adapters, or deterministic subsystem behavior.
+V2 was the first Steward version intended to be used repeatedly by a real group of friends rather than only proving architecture, adapters, or deterministic subsystem behavior.
 
-Its purpose is not to be the Steam Early Access release. Its purpose is to move Steward onto the same path by proving the product privately with real users first.
+Its purpose was not to be the Steam Early Access release. Its purpose was to move Steward onto the same path by proving and preparing the product privately with real users first.
+
+The deterministic V2 implementation/deployment-preparation task is complete through qualified PR #131. The external acceptance batch has not been executed and must not be relabeled as proven. Those real-provider, real-machine, real-network, and real-friend gates remain in `V2_REAL_ACCEPTANCE_BATCH.md` and `DEFERRED_EMPIRICAL_TESTS.md` and should be run when the required environment exists.
+
+Active implementation has moved to [V3 Steam Release Candidate](V3_STEAM_RELEASE_CANDIDATE.md).
 
 ## Goal
 
 > **A friend receives one download link, runs Steward on a normal Windows PC, joins the shared World group, and can Host or Join without manually moving save files.**
 
-The decisive product question is now:
+The decisive product question was:
 
 > **Do real friends prefer using Steward for persistent co-op Worlds over manually synchronizing save files?**
 
@@ -278,7 +282,7 @@ Prefer eliminating impossible/problematic states over adding recovery machinery 
 
 ## V2 definition of done
 
-V2 is complete when all of the following are true:
+The deterministic V2 engineering/deployment-preparation task is complete. Full V2 product acceptance still requires the external evidence below and is intentionally not claimed yet:
 
 1. A real friend can obtain Steward from the private Discord/Google Drive path and run it without developer setup.
 2. The friend can authenticate without a published Steward Steam AppID.
@@ -289,30 +293,32 @@ V2 is complete when all of the following are true:
 7. Recovery from the failures actually encountered by the friend group is safe and understandable.
 8. No V2 shortcut weakens the production Steam authentication/release boundary.
 
-The strongest product success signal is behavioral:
+The strongest product success signal remains behavioral:
 
 > The group stops asking who has the newest save and starts opening Steward instead.
 
-## Relationship to Early Access
+## Relationship to V3 and Early Access
 
-V2 is not required to be the Early Access build.
+V2 is not the Early Access build.
 
-The intended progression is:
+The progression is now:
 
 ```text
 V1: prove architecture
--> V2: prove product with friends
--> later versions: fix real-use defects and complete release requirements
--> Steam Early Access: expose an already-used product publicly
+-> V2: build/prepare the private product path
+-> V3: remove private/development assumptions and reach Steam release-candidate shape
+-> Steam Early Access: expose an already-used, release-accepted product publicly
 ```
 
-Work done for V2 should therefore be selected for reuse toward Early Access whenever possible: packaging, onboarding, identity/session boundaries, lobby clarity, Host/Join behavior, safe handoff, recovery, diagnostics, and the four primary games.
+V2's remaining real-use batch remains useful V3 evidence. Moving the active coding goal forward does not erase or fake that evidence.
 
-Steam publication, production Steward AppID/publisher credentials, public distribution/update infrastructure, store-page assets, payment/commercial operations, and final release acceptance remain later gates.
+Work done for V2 remains selected for reuse toward Early Access: packaging, onboarding, identity/session boundaries, lobby clarity, Host/Join behavior, safe handoff, recovery, diagnostics, and the four primary games.
 
-## Working rule
+Steam publication, production Steward AppID/publisher credentials, public distribution/update behavior, store-page assets, payment/commercial operations, and final release acceptance remain V3/final-gate work.
 
-For each proposed V2 task ask:
+## Historical V2 working rule
+
+For each proposed V2 task the question was:
 
 > **Does this make Steward easier for the initial friend group to obtain, understand, Host/Join with, safely hand off, or recover?**
 
@@ -320,4 +326,4 @@ or:
 
 > **Does it remove a direct blocker on the path from the Friends Build to Steam Early Access?**
 
-If neither is true, defer it.
+V3 now supersedes this as the active implementation rule.

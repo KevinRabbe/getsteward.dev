@@ -58,9 +58,9 @@ if ([IO.Directory]::Exists($output)) {
 [IO.Directory]::CreateDirectory($output) | Out-Null
 
 $friendsBuildApiBaseUrl = Get-NormalizedFriendsBuildApiBaseUrl $FriendsBuildApiBaseUrl
-$buildVersion = if ([string]::IsNullOrWhiteSpace($BuildVersion)) { $null } else { $BuildVersion.Trim() }
-if ($null -ne $buildVersion -and
-    ($buildVersion.Length -gt 64 -or $buildVersion -notmatch '^[0-9A-Za-z][0-9A-Za-z.-]*$')) {
+$normalizedBuildVersion = if ([string]::IsNullOrWhiteSpace($BuildVersion)) { $null } else { $BuildVersion.Trim() }
+if ($null -ne $normalizedBuildVersion -and
+    ($normalizedBuildVersion.Length -gt 64 -or $normalizedBuildVersion -notmatch '^[0-9A-Za-z][0-9A-Za-z.-]*$')) {
     Fail 'BuildVersion must be 1-64 filename-safe characters using letters, digits, dots, or hyphens.'
 }
 
@@ -76,8 +76,8 @@ Write-Host "  Output: $output"
 if ($null -ne $friendsBuildApiBaseUrl) {
     Write-Host '  Deployment: Friends Build package'
 }
-if ($null -ne $buildVersion) {
-    Write-Host "  Build version: $buildVersion"
+if ($null -ne $normalizedBuildVersion) {
+    Write-Host "  Build version: $normalizedBuildVersion"
 }
 Write-Host
 
@@ -91,8 +91,8 @@ $publishArguments = @(
     '--nologo',
     '--verbosity', 'minimal'
 )
-if ($null -ne $buildVersion) {
-    $publishArguments += "-p:InformationalVersion=$buildVersion"
+if ($null -ne $normalizedBuildVersion) {
+    $publishArguments += "-p:InformationalVersion=$normalizedBuildVersion"
     $publishArguments += '-p:IncludeSourceRevisionInInformationalVersion=false'
 }
 

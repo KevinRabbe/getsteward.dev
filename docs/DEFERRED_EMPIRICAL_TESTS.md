@@ -47,9 +47,11 @@ A deferred test is not evidence that the behavior works. It is an explicit bound
 
 **Promotion rule:** Only after this evidence exists may the adapter add the corresponding automatic launch/stop capability flags.
 
-## 7 Days to Die — V3 sandbox configuration authority
+## 7 Days to Die — V3 managed dedicated-server lifecycle
 
-**Frozen product state:** 7 Days to Die does not advertise automatic host launch, automatic host stop, or automatic client join. Steward can deterministically transform a bounded `serverconfig.xml` template for an isolated restored World, but it does not yet claim where an imported V3 World's authoritative sandbox gameplay configuration comes from.
+**Frozen product state:** 7 Days to Die does not advertise automatic host launch, automatic host stop, or automatic client join.
+
+The earlier V3 sandbox-authority experiment is retired. Current V3 game documentation establishes `SandboxCode` as an explicit dedicated-server configuration input; `docs/V2_7DTD_SANDBOX_AUTHORITY.md` records that deterministic rule. Do not spend a real-machine test asking whether the canonical save bundle can make that required input irrelevant.
 
 **Already deterministic/CI-proven:**
 
@@ -58,28 +60,39 @@ A deferred test is not evidence that the behavior works. It is an explicit bound
 - Canonical `Saves/<GameWorld>/<GameName>` plus matching `GeneratedWorlds/<GameWorld>` bundle capture/restore.
 - Isolated adapter-owned user-data workspace preparation and recovery-preserving finalization.
 - Bounded managed `serverconfig.xml` transformation for `GameWorld`, `GameName`, `UserDataFolder`, and `SaveGameFolder`.
-- An existing `SandboxCode` is treated as opaque game-owned data: Steward does not decode, regenerate, or silently replace it.
+- Exact V3 `SandboxCode` is an explicit World-specific reproduction input; Steward does not decode, regenerate, guess, or replace it from unrelated machine-local configuration.
+- The managed-host transform can inject a bounded transient Telnet/service-interface port and strong 64-hex-character management password while preserving the opaque `SandboxCode`.
+- Current server documentation exposes the built-in service interface and documents `shutdown` as the supported server-stop command.
 
-**Empirical question:** For an existing V3 World with deliberately non-default sandbox settings, does the canonical World bundle itself carry enough authoritative information to reproduce the exact effective sandbox configuration when the original `serverconfig.xml` is withheld, or must Steward capture a separate authoritative sandbox configuration input during import?
+**Empirical questions:**
+
+1. What exact current-V3 bytes/text does the built-in management interface emit before and after password authentication, and what is the smallest response evidence that proves authentication without depending on cosmetic prompt text?
+2. With Steward's strong non-empty transient password, what local address(es) does the current V3 server actually bind the management port to, and what Windows Firewall behavior is observed?
+3. What observable log/process/network boundary proves the restored named World is fully ready for players rather than merely that the process or management socket exists?
+4. After authenticated `shutdown`, does the actual long-lived server process exit reliably, and what observable boundary proves its final authoritative save is complete before Steward capture begins?
+5. Does the resulting isolated `Saves/...` + `GeneratedWorlds/...` bundle capture every authoritative change needed for a second launch of the same updated World?
 
 **Test setup:**
 
 - Windows machine with the current 7 Days to Die client and dedicated server installed.
-- One known V3 World configured with several deliberately non-default sandbox options.
-- Record the original generated `SandboxCode` and the game's reported effective sandbox settings as an oracle only.
-- Capture the World through Steward's existing canonical bundle path.
-- Prepare an isolated restored copy from that bundle without supplying the original `serverconfig.xml` or another external sandbox configuration source.
-- Use only a disposable copy for any game launch needed to observe the effective settings; the source World remains read-only.
+- One disposable known V3 World and one exact deliberately non-default `SandboxCode` supplied explicitly for that World.
+- An adapter-owned isolated user-data workspace; never use the live player World as the writable test target.
+- A managed `serverconfig.xml` using a fresh transient management password and a known test port.
+- Record the dedicated-server PID/process tree, management-port listeners, server log, and isolated World file timestamps/sizes before and after stop.
+- For the first protocol observation, use an ordinary raw/Telnet client and record a bounded transcript with the password redacted. Do not build Steward product parsing around historical prompt strings before this trace exists.
 
 **Acceptance evidence:**
 
-- The test identifies whether the isolated World alone reproduces the same effective sandbox settings/code as the oracle.
-- If the World is authoritative, the exact stable recovery source and reproduction rule are identified so they can be implemented and regression-tested without depending on unrelated machine-local configuration.
-- If the World is not authoritative, the failure is recorded as the result: Steward must define and capture an explicit separate sandbox configuration input during import rather than infer it from a local dedicated-server `serverconfig.xml`.
-- In either outcome, a second isolated reproduction using the chosen authority rule reports the same effective sandbox settings as the oracle.
-- No capability flag is promoted merely because configuration authority is resolved; launch/readiness/safe-stop behavior still requires its own evidence.
+- The server loads the intended restored `GameWorld`/`GameName` with the supplied non-default `SandboxCode` rather than silently substituting defaults.
+- The actual management listener address/port is recorded, including whether it is loopback-only or externally bound when a non-empty password is used.
+- A bounded redacted transcript records the current V3 authentication exchange and the observable response around the supported `shutdown` command.
+- The actual long-lived dedicated-server process is identified and is not confused with a bootstrap/launcher process.
+- A specific readiness signal is observed before the test client is considered able to join.
+- `shutdown` reaches a clean terminal state without Steward killing the process.
+- The final save/capture boundary is observable rather than inferred from a fixed sleep.
+- The captured result restores and launches as the same updated World in a second disposable run.
 
-**Promotion rule:** Do not wire imported-World hosting to an assumed `SandboxCode` source. First establish and implement the authoritative configuration rule above; automatic host/stop capabilities remain frozen until the corresponding real lifecycle evidence also exists.
+**Promotion rule:** First turn the observed management/readiness/shutdown trace into the smallest bounded client/lifecycle implementation with regression tests. Then repeat this real scenario through Steward. Only after that second proof may 7DTD promote automatic Host/Stop. Join remains a separate capability proof.
 
 ## Factorio Friends Build — direct Internet Host/Join reachability
 
@@ -91,7 +104,8 @@ A deferred test is not evidence that the behavior works. It is an explicit bound
 - Factorio creates a private dedicated-server session on its standard UDP game port `34197` with a per-session random password.
 - The adapter exposes only that game-owned standard port/password as managed-host connection material; loopback RCON remains on a separate ephemeral TCP port.
 - The shared-session coordinator can publish `Starting`, then `Ready`, and refresh the same exact reservation generation through the existing reservation heartbeat rather than a second timer.
-- Backend.Api can fill a missing Ready address from the authenticated HTTP connection's observed IPv4 peer while preserving an explicit supplied address.
+- Backend.Api can fill a missing Ready address from `HttpContext.Connection.RemoteIpAddress` while preserving an explicit supplied address.
+- Direct Backend.Api deployments keep the raw authenticated connection peer. A one-proxy deployment may instead configure one exact `ReverseProxy__KnownProxyIp`; Steward then processes only one `X-Forwarded-For` hop from that trusted peer and ignores spoofed forwarding headers from unknown peers.
 - Existing Join consumes the resulting `HostConnection` and launches Factorio with direct `--mp-connect <address>:34197 --password <token>` arguments.
 - Ending the managed host removes host presence before state capture/commit continues.
 
@@ -99,7 +113,7 @@ The standard-port choice is deliberate. Factorio documents UDP `34197` as its no
 
 **Empirical questions:**
 
-1. In the selected real HTTPS deployment topology, does Backend.Api observe an IPv4 address that is actually reachable as the host's Internet address rather than a reverse-proxy/load-balancer/internal peer address?
+1. In the selected real HTTPS topology, does the direct connection peer—or the one explicitly trusted proxy's rightmost client-address hop—produce the same public IPv4 that PC B can actually use to reach PC A?
 2. Can PC B reach PC A's Factorio UDP `34197` through the real router/NAT/firewall topology without Steward adding UPnP, STUN, relay, Steam listing, or another traversal mechanism?
 3. If direct/NAT-punched reachability fails, does one ordinary router forward of Factorio's documented UDP `34197` make the same managed host reachable without any Steward networking code change?
 4. Does the existing direct Factorio client launch successfully join the exact managed private server using the published address, standard port, and per-session password?
@@ -108,6 +122,7 @@ The standard-port choice is deliberate. Factorio documents UDP `34197` as its no
 
 - The exact qualified Friends Build ZIP on two normal Windows PCs on separate real Internet connections.
 - A real HTTPS Steward backend using the intended deployment/proxy topology.
+- If HTTPS terminates at one reverse proxy, configure only that exact proxy through `ReverseProxy__KnownProxyIp` and record the peer IP Backend.Api actually sees for the proxy.
 - Factorio installed on both PCs with matching verified environment.
 - One shared Factorio World with both Friends Build identities authorized.
 - No manual edit of host-presence rows and no external public-IP helper added for the test.
@@ -118,7 +133,7 @@ The standard-port choice is deliberate. Factorio documents UDP `34197` as its no
 ```text
 PC A Host
 -> backend presence becomes Starting then Ready
--> Ready contains the address observed by the deployed API + UDP 34197 + A's random session password
+-> Ready contains the direct/trusted-proxy-derived address + UDP 34197 + A's random session password
 -> PC B Join reads that Ready endpoint
 -> Factorio on B reaches A's managed private server and enters the same World
 -> A ends the hosted session
@@ -130,12 +145,12 @@ Also record:
 
 - the address returned by host presence;
 - the address actually visible/reachable from PC B;
+- whether the trusted proxy, if present, supplied that same address as its rightmost client-address hop;
 - whether Factorio's direct/NAT-punched path worked with the router unchanged;
 - whether a one-time UDP `34197` router forward was required and sufficient;
-- whether Windows Firewall or another host firewall blocked UDP before Factorio could authenticate;
-- whether the deployed reverse proxy changed the peer address seen by Backend.Api.
+- whether Windows Firewall or another host firewall blocked UDP before Factorio could authenticate.
 
-**Promotion rule:** Do not add generic public-IP lookup, forwarded-header trust, UPnP, STUN, relay, Steam-server listing, or other NAT traversal merely because such mechanisms exist. First run this exact two-network proof using the stable game-owned port. If it fails even with the smallest ordinary network prerequisite identified above, implement only the smallest mechanism that removes the measured remaining failure, then repeat the same acceptance sequence.
+**Promotion rule:** Do not broaden proxy trust or add generic public-IP lookup, UPnP, STUN, relay, Steam-server listing, or other NAT traversal merely because such mechanisms exist. First run this exact two-network proof using the stable game-owned port and the already-qualified direct/exact-one-proxy address boundary. If it fails even with the smallest ordinary network prerequisite identified above, implement only the smallest mechanism that removes the measured remaining failure, then repeat the same acceptance sequence.
 
 ## Desktop — real Windows UI acceptance
 

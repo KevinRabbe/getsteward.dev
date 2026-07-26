@@ -1,4 +1,5 @@
 using System.Reflection;
+using Xunit;
 
 namespace SharedWorlds.Desktop.AcceptanceTests;
 

@@ -107,7 +107,7 @@ public sealed class FriendsBuildIdentityVerifierTests
         var digest = FriendsBuildCredential.HashForConfiguration(credential);
 
         Assert.StartsWith("st_friend_", credential, StringComparison.Ordinal);
-        Assert.Equal(52, credential.Length);
+        Assert.Equal(53, credential.Length);
         Assert.Equal(64, digest.Length);
         Assert.All(digest, character => Assert.True(Uri.IsHexDigit(character)));
     }

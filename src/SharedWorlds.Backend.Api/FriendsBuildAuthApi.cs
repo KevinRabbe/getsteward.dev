@@ -86,7 +86,7 @@ public static class FriendsBuildAuthApi
         }
 
         if (!string.Equals(
-                caller.Identity.Provider,
+                caller.Identity.Subject.Provider,
                 FriendsBuildIdentityVerifier.Provider,
                 StringComparison.Ordinal))
         {

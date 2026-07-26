@@ -1,24 +1,25 @@
 # Steward Documentation
 
-Steward is a commercial Windows desktop product with its generic platform code/CI boundary complete and release acceptance still in progress.
+Steward is a commercial Windows desktop product with its generic platform code/CI boundary complete and its V2 Friends Build now the active product goal.
 
 This directory is the canonical home for active product, architecture, engineering, lifecycle, adapter, storage, recovery, and planning documentation.
 
 ## Current project mode
 
-> **The generic Steward platform is code/CI complete. Core/backend/runtime contracts, deterministic hardening, and the commercial Desktop shell are composed on one qualified line. Normal implementation work is now game-adapter work. Do not reopen generic Core/UI/platform construction unless a concrete universal defect or requirement proves it necessary. Real EU deployment, real-game, real-Windows, and final Steam/two-installation acceptance remain explicit empirical release gates rather than current coding blockers.**
+> **V2 Friends Build is the active execution goal. The generic Steward platform and broad adapter architecture are already proven. Normal implementation work now optimizes the real friend journey: private download/run, non-Steam Friends Build identity, visible World membership/lobby, Host/Join, safe cross-device handoff, and recovery for Factorio, Palworld, 7 Days to Die, and Valheim. Do not add unrelated adapters merely to increase game count. Production Steam publication/authentication and final release acceptance remain later gates and must not be weakened by the private V2 path.**
 
-Start with the [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) for the current checkpoint and development rule. Use the [Master Roadmap](ROADMAP.md) and workstream roadmaps for detailed product contracts and historical implementation sequencing:
+Start with the [V2 Friends Build](V2_FRIENDS_BUILD.md) for the active product goal and execution rule. Use the [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) for the qualified technical checkpoint and stable extension boundary. Use the [Master Roadmap](ROADMAP.md) and workstream roadmaps for detailed product contracts and historical implementation sequencing:
 
 1. [UI and UX Roadmap](UI_ROADMAP.md)
 2. [Backend Roadmap](BACKEND_ROADMAP.md)
 3. [Adapter and Background Runtime Roadmap](ADAPTER_RUNTIME_ROADMAP.md)
 
-The roadmaps are separate for clarity but define one product. Their states, actions, failure semantics, and acceptance criteria must continue to agree. Older milestone/checkpoint wording is historical where the Platform Implementation Status explicitly supersedes it.
+The roadmaps are separate for clarity but define one product. Their states, actions, failure semantics, and acceptance criteria must continue to agree. Older milestone/checkpoint wording is historical where the V2 Friends Build or Platform Implementation Status explicitly supersedes it.
 
-Current completion evidence:
+Current completion evidence and execution direction:
 
-- [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) — current all-workflows-green platform checkpoint, the stable extension boundary, adapter-addition workflow, and remaining empirical release gates;
+- [V2 Friends Build](V2_FRIENDS_BUILD.md) — active product goal, private distribution/authentication boundary, minimal World lobby, four primary games, real friend handoff acceptance, and the rule that adapter count no longer defines progress;
+- [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) — current all-workflows-green platform checkpoint, stable extension boundary, historical adapter-addition workflow, and remaining empirical release gates;
 - [BE-2 Status](BE2_STATUS.md) — authenticated World/access/revision metadata with durable PostgreSQL persistence;
 - [BE-3 S3 Checkpoint](BE3_S3_CHECKPOINT.md) — immutable transfer, S3-compatible protocol proof, cleanup/retention, and desktop verified caching/materialization;
 - [BE-4 Status](BE4_STATUS.md) — durable one-writer reservation/generation authority, canonical commit, reclaim, late-writer rejection, and transactional idempotency;
@@ -35,9 +36,10 @@ When documents disagree, use this order:
 2. [Product Boundary](PRODUCT_BOUNDARY.md)
 3. [Design Decisions](DECISIONS.md)
 4. [Architecture](ARCHITECTURE.md)
-5. [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) for current implementation/checkpoint mode
-6. Detailed subsystem and adapter documents
-7. [Master Roadmap](ROADMAP.md) and its workstream roadmaps
+5. [V2 Friends Build](V2_FRIENDS_BUILD.md) for the active execution goal and V2 scope
+6. [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) for the current qualified implementation/checkpoint boundary
+7. Detailed subsystem and adapter documents
+8. [Master Roadmap](ROADMAP.md) and its workstream roadmaps
 
 The first two documents define what Steward is and what it must not become. Lower-level documents may add detail but may not silently expand or contradict the product boundary.
 
@@ -47,7 +49,7 @@ Active documentation must remain internally consistent. Obsolete product concept
 
 > **One shared World. Different Steam players. Different times. No always-on game server.**
 
-Steam is the platform. Games are adapters. Worlds are the product.
+Steam is the intended commercial platform. Games are adapters. Worlds are the product. V2 temporarily uses private distribution/authentication only to prove the product with trusted friends before public Steam release acceptance.
 
 Steward moves the latest valid World state into a playable session and returns the updated valid state for the next player.
 
@@ -62,7 +64,8 @@ Steward moves the latest valid World state into a playable session and returns t
 
 ## Planning and execution
 
-- [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) — current code/CI completion boundary and normal adapter-expansion rule.
+- [V2 Friends Build](V2_FRIENDS_BUILD.md) — active execution target: private clean-PC distribution, Friends Build identity, minimal World lobby, Factorio/Palworld/7DTD/Valheim depth, real friend handoff, and observed recovery.
+- [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) — qualified code/CI boundary and stable adapter/platform extension rules; its former adapter-expansion default is superseded by V2.
 - [Master Roadmap](ROADMAP.md) — workstream dependencies, drift-control rules, implementation order, and release boundary.
 - [UI and UX Roadmap](UI_ROADMAP.md) — navigation, user journeys, state/action contract, tray/background experience, recovery UX, milestones, and unresolved UI decisions.
 - [UI-0 Sign-off Checklist](UI0_SIGNOFF_CHECKLIST.md) — approved flat sharing flow, tray behavior, terminology, and UI planning checks.
@@ -105,9 +108,10 @@ Before accepting a meaningful product or architecture change, check:
 - Does it keep game-specific behavior inside the adapter?
 - Does it complete the handoff through capture, durable storage, verification, and commit?
 - Does it preserve the previous valid state on failure?
-- Is Steam or the game already responsible for the proposed feature?
-- Does it directly help different players continue the same World across devices or times?
+- Is Steam, Discord, or the game already responsible for the proposed feature?
+- Does it directly help the initial friend group obtain Steward, understand a shared World, Host/Join, hand off safely, or recover?
+- Does it remove a direct blocker on the path from the Friends Build to Steam Early Access?
 - Does it add commercial reliability rather than uncontrolled scope?
-- Does the implementation map to the current platform/adapter boundary or a documented release acceptance item?
+- If it adds an adapter, is it one of the four V2 primary games or required by a concrete V2 blocker?
 
 When a boundary changes deliberately, update the authoritative documentation before implementation.

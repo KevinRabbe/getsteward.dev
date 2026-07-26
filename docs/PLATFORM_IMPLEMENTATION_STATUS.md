@@ -1,8 +1,13 @@
 # Platform Implementation Status
 
-Status: **PLATFORM CODE/CI COMPLETE — V3 STEAM RELEASE CANDIDATE IS THE ACTIVE PRODUCT GOAL; RELEASE EMPIRICAL ACCEPTANCE REMAINS OPEN.**
+Status: **PLATFORM CODE/CI COMPLETE — DETERMINISTIC V3 PREPARATION COMPLETE; V3-E REAL WINDOWS ACCEPTANCE HAS STARTED; RELEASE ACCEPTANCE REMAINS OPEN.**
 
-This checkpoint records the stable generic Steward platform boundary and the current qualified release-candidate line. It does **not** claim that real-machine, real-provider, real-Steam, or final game-release acceptance has happened. Those evidence gates remain separate and must not be replaced with CI claims.
+This document records two different facts that should not be confused:
+
+1. the **generic Steward platform boundary** is already implemented and stable;
+2. the **current executable/product line** has advanced into evidence-driven V3-E work.
+
+Neither statement claims that real provider, real Steam, final Windows, or final game/network release acceptance has completed.
 
 ## Canonical platform-completion checkpoint
 
@@ -20,29 +25,41 @@ On that exact head all five repository workflows were green:
 
 PR #72 created the explicit `DesktopGameAdapterCatalog` composition point and proved that adding an adapter to the commercial Games/Import shell does not grant unsupported lifecycle capabilities.
 
-That generic platform boundary remains frozen unless concrete evidence demonstrates a missing universal contract or defect.
+That generic platform boundary remains frozen unless concrete evidence demonstrates a missing universal contract or generic defect.
 
-## Current qualified product line
+## Current qualified executable/product line
 
-The latest qualified product line is V3-C / PR #135:
+The current non-documentation executable/product baseline is V3-E PR #138:
 
-> `b68a527281f1026d06d76e4cfc5cde03c2227557`
+> `e63c6f7d20d103cd2ea3d9a922b73de3c3ba1f5f`
 
-On that exact head all five top-level workflow groups are green:
+It sits on the fully qualified deterministic V3 closure from PR #137:
 
-- CI — Ubuntu build/test, Windows build/test, Quality, PostgreSQL integration, S3-compatible integration, backend container;
-- Windows acceptance package, including exact V3 Steam depot-content staging, client/backend public Steam identity matching, and the existing V2 Friends Build path;
-- Palworld read-only CI;
-- 7 Days to Die adapter CI;
-- Project Zomboid adapter CI.
+> `8765394c63d5d6257479269b11ab5c1f86bd7865`
 
-The current V3 deterministic release shape qualified through that line includes:
+Both exact heads passed all five top-level workflow groups.
 
-- V3-A package-owned non-secret Steam release configuration;
-- V3-B exact self-contained Release `win-x64` depot content with external size/SHA-256 evidence;
-- V3-C one-source client/backend public Steam AppID + Web API identity with publisher credentials remaining backend-secret and Friends Build explicitly disabled for production release evidence.
+The deterministic V3 release shape now includes:
 
-The real Steam AppID/publisher/depot/install/ticket/two-machine proof remains external V3-F acceptance.
+- **V3-A / #133** — package-owned non-secret Steam release configuration;
+- **V3-B / #134** — exact self-contained Release `win-x64` depot content with external size/SHA-256 evidence;
+- **V3-C / #135** — one-source client/backend public Steam AppID + Web API identity while publisher credentials remain backend-secret and Friends Build is disabled for production release evidence;
+- **V3-D / #136** — action-specific release claims resolved onto existing `GameAdapterCapabilities` rather than a second support taxonomy;
+- **#137** — final one-pass V3-E/V3-F real acceptance contract aligned to those exact artifacts and Steam-owned installation/update.
+
+V3-E then produced its first real Windows defect instead of another speculative subsystem:
+
+```text
+real Windows startup with legacy v1 device settings
+-> migration attempts v1 -> v2
+-> source file is still open for reading
+-> Windows rejects atomic replacement
+-> shared/hosting functionality correctly fails closed
+```
+
+PR #138 closes that concrete defect by disposing the source read handle before the migration write/replacement and adds a Windows-relevant regression test. It does not change settings-schema meaning or weaken the fail-closed boundary.
+
+The remaining V3-E/V3-F work is still empirical. One observed/fixed defect is evidence that the process has started, not evidence that release acceptance is complete.
 
 ## Latest adapter-composition checkpoint
 
@@ -65,9 +82,11 @@ For current release-candidate development, the generic Steward platform is consi
 5. Game-specific discovery, package shape, environment rules, launch, readiness, session ownership, safe stop, capture timing, and identity limitations remain behind `IGameAdapter`.
 6. Unsupported adapter behavior remains unavailable through capability flags instead of being simulated in Core or UI.
 7. Deterministic trust boundaries remain bounded and fail closed where Steward owns the bytes/state.
-8. The exact integrated head passes the full five-workflow matrix.
+8. The exact integrated product head passes the full five-workflow matrix before qualification.
 
-The platform is **not** reopened merely because another abstraction, security wrapper, UI polish pass, release-tier enum, or generic feature could be imagined.
+The platform is **not** reopened merely because another abstraction, security wrapper, release-tier enum, or generic feature can be imagined.
+
+A UI implementation may still be corrected to an already-approved UI contract without reopening Core/platform architecture. The current Games Library navigation drift is one such product/UI reconciliation, not evidence that the generic World/backend/adapter platform is missing.
 
 Reopen generic platform implementation only when at least one of these is true:
 
@@ -87,7 +106,7 @@ Catalog registration means only that Steward includes the adapter's proven disco
 
 | Adapter | Current proven product role |
 |---|---|
-| Factorio | Mature import/environment/state path plus automatic local launch, Host, Join, native creation, exact game version, and mod support; final Internet Host/Join/safe-handoff release evidence remains empirical. |
+| Factorio | Mature import/environment/state path plus automatic local launch, managed Host, automatic Join, native creation, exact game version, and mod support. The active `IGameAdapter` Host path uses the dedicated-server/RCON implementation on UDP 34197. `AutomaticHostStop` is not advertised. Final Internet Host/Join/safe-handoff evidence remains empirical. |
 | Palworld | Dedicated-server/World lifecycle with automatic Host + Host Stop + exact game version; automatic client Join is not advertised and real Internet/native Join + handoff remains empirical. |
 | 7 Days to Die | Discovery/import/environment/state + mods/exact game version; automatic Host/Stop/Join remains unavailable pending the recorded V3 server lifecycle evidence. |
 | Project Zomboid | Discovery/import/environment/state + mods/exact game/exact mod versions; managed runtime capability remains empirical/frozen. |
@@ -163,17 +182,26 @@ Still external:
 
 Qualified #131 already defines the first small deployment topology; absence of cloud-account access is an external resource boundary, not a reason to add another Steward deployment subsystem.
 
-### V3-E — real Windows release acceptance
+### V3-E — real Windows release acceptance — STARTED
 
-Still external/empirical:
+First concrete evidence already exists:
 
-- clean Steam installation/launch;
+- a real Windows run exercised legacy device-settings migration;
+- the Windows open-handle replacement failure was observed rather than guessed;
+- #138 fixed it and added a regression without changing schema semantics.
+
+Still open/empirical:
+
+- clean Steam installation/launch through the real release path;
 - keyboard/focus traversal;
 - Narrator/UI Automation observation;
 - mixed-DPI monitor transitions;
 - tray/background behavior on real Windows;
+- suspend/restart/logoff observations where relevant;
 - representative real package/capture/restore/transfer timings;
 - long real game sessions.
+
+A new defect found here should produce a narrow defect slice, not a broad preemptive subsystem.
 
 ### V3-F — real Steam production acceptance
 
@@ -192,11 +220,11 @@ There is no production authentication bypass and no reason to invent placeholder
 
 ## Relationship to older status documents
 
-Older E6/E8 status files preserve useful historical evidence. Their old checkpoint statements are historical where this file or the active V3 specification supersedes them.
+Older E1/E4/E6/E8 and BE milestone status files preserve useful historical evidence. Their active-sounding checkpoint statements are historical where current code, the V3 specification, or `DOCUMENTATION_AUDIT.md` supersedes them.
 
 The current ancestry includes:
 
-- E6 commercial UI completion;
+- E6 commercial UI composition;
 - E8 deterministic hardening;
 - platform composition #72;
 - post-platform state-adapter expansion through Space Engineers #106;
@@ -204,14 +232,21 @@ The current ancestry includes:
 - V3 release-candidate goal #132;
 - V3-A release configuration #133;
 - V3-B exact Steam depot content #134;
-- V3-C matched production public Steam auth configuration #135.
+- V3-C matched production public Steam auth configuration #135;
+- V3-D capability-driven release claims #136;
+- final deterministic V3 gate #137;
+- first evidence-driven V3-E Windows defect/fix #138.
 
-Use `V3_STEAM_RELEASE_CANDIDATE.md` for the active release goal, this file for the stable platform/product checkpoint, and the adapter-specific documents/PR evidence for game-level details.
+Documentation-only reconciliation after #138 does not redefine this executable/product ancestry.
+
+Use `V3_STEAM_RELEASE_CANDIDATE.md` for the active release goal, this file for the stable platform/current executable checkpoint, `DOCUMENTATION_AUDIT.md` for document freshness, and adapter-specific code/docs/PR evidence for game-level details.
 
 ## Development rule from here
 
-> **Platform stable. Release claims are capability/evidence-driven. Remove release blockers; do not grow Core/UI to accommodate speculation.**
+> **Platform stable. Release claims are capability/evidence-driven. Remove measured release blockers; do not grow Core/UI to accommodate speculation.**
 
 When work reaches an empirical uncertainty that cannot be settled in CI, record/freeze the exact test and move to another independent deterministic path.
+
+When evidence exposes a defect, fix the smallest owning boundary and regression-test it.
 
 When a problem can be eliminated rather than solved, eliminate it.

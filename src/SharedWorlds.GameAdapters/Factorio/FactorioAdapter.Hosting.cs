@@ -9,6 +9,7 @@ namespace SharedWorlds.GameAdapters.Factorio;
 
 public sealed partial class FactorioAdapter : IManagedHostEndpointProvider
 {
+    internal const int ManagedGamePort = 34197;
     private static readonly TimeSpan DedicatedServerReadyTimeout = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan ServerSaveTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan ServerStopTimeout = TimeSpan.FromSeconds(5);
@@ -43,7 +44,7 @@ public sealed partial class FactorioAdapter : IManagedHostEndpointProvider
         var executable = FactorioWorldOperations.GetExecutablePath(world.Installation);
         var processName = Path.GetFileNameWithoutExtension(executable);
         var baselineProcessIds = GetProcessIds(processName);
-        var gamePort = GetAvailableUdpPort();
+        var gamePort = ManagedGamePort;
         var rconPort = GetAvailableTcpPort();
         var gamePassword = CreateSessionSecret();
         var rconPassword = CreateSessionSecret();
@@ -167,7 +168,6 @@ public sealed partial class FactorioAdapter : IManagedHostEndpointProvider
                 hostedSession.RconPassword,
                 "/server-save",
                 linkedSaveCancellation.Token);
-
             await WaitForSaveRefreshAsync(
                 hostedSession.SavePath,
                 previousWriteTime,
@@ -484,13 +484,6 @@ public sealed partial class FactorioAdapter : IManagedHostEndpointProvider
         {
             // Process disappeared while being inspected.
         }
-    }
-
-    private static int GetAvailableUdpPort()
-    {
-        using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-        socket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
-        return ((IPEndPoint)socket.LocalEndPoint!).Port;
     }
 
     private static int GetAvailableTcpPort()

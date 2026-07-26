@@ -28,9 +28,9 @@ It also passed all five workflows. PR #72 changes only Desktop adapter compositi
 
 ## Latest qualified product line
 
-Normal adapter expansion has continued without reopening the platform. The latest qualified product line is ICARUS PR #98:
+Normal adapter expansion has continued without reopening the platform. The latest qualified product line is Smalland PR #100:
 
-> `38f5fba53f464222b348bc4c331110e31670c4cf`
+> `07cbc22d1f1a36fc2300615da7402b16ccb2e8df`
 
 On that exact head all five repository workflows are green again, including Quality, Ubuntu/Windows build-and-test, backend container, PostgreSQL, S3-compatible integration, and Windows acceptance.
 
@@ -50,11 +50,12 @@ The aggregate adapter counts on that line are:
 - Enshrouded: 14/14;
 - Conan Exiles Enhanced: 15/15;
 - Raft: 13/13;
-- ICARUS: 13/13 on both Ubuntu and Windows.
+- ICARUS: 13/13;
+- Smalland: 14/14 on both Ubuntu and Windows.
 
-PR #98 extends the same post-platform pattern already proven by Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, Enshrouded, Conan Exiles Enhanced, and Raft: one independent adapter project, game-owned discovery/environment/state behavior, truthful capability exposure, adapter-specific tests, solution/Desktop registration, and exact combined qualification. It does not modify Core, backend, Infrastructure, or generic Desktop lifecycle contracts.
+PR #100 extends the same post-platform pattern already proven by Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, Enshrouded, Conan Exiles Enhanced, Raft, and ICARUS: one independent adapter project, game-owned discovery/environment/state behavior, truthful capability exposure, adapter-specific tests, solution/Desktop registration, and exact combined qualification. It does not modify Core, backend, Infrastructure, or generic Desktop lifecycle contracts.
 
-ICARUS sharpens the same persistence-identity boundary already exposed by Raft. Under one canonical numeric SteamID64 profile, current Prospect Worlds live in the `Prospects` directory, while character/profile/meta-inventory persistence remains profile-owned state outside the World revision. Steward captures one current Prospect `.json` only; rolling `.json.backup_*` recovery generations and player progression remain outside that revision.
+Smalland makes a useful ownership boundary especially explicit. One game-owned `SaveGames` root contains several different persistence namespaces: `Worlds/*.wld` is World state, `Players/*.plr` is player state, and root-level `*.sav` files carry map-annotation persistence. Steward captures only the direct World file. The directory contract is sufficient to move the correct state without parsing Smalland's native save format or silently migrating player-owned data.
 
 ## What "platform complete" means
 
@@ -104,12 +105,13 @@ Current adapters:
 | Conan Exiles Enhanced | local vanilla ten-slot `game_0.db` through `game_9.db` discovery/import, manifest-derived install identity, exact Steam build identity, opaque SQLite capture/restore, SQLite-sidecar refusal, and owned workspace handling; live-database snapshotting, modded environments, dedicated-server lifecycle, launch, Host, Stop, and Join remain unsupported |
 | Raft | local vanilla canonical `User_<SteamID64>` World discovery/import using the same-name current `<World>.rgd`, exact Steam build identity, opaque capture/restore, backup/player-state exclusion, and owned workspace handling; player inventory/persona migration, backup selection, RaftModLoader environments, launch, Host, Stop, and Join remain unsupported |
 | ICARUS | local vanilla canonical numeric SteamID64 Prospect discovery/import using one current `<Prospect>.json`, exact Steam build identity, opaque capture/restore, rolling-backup/player-state exclusion, and owned workspace handling; character/profile/meta-inventory migration, backup selection, Paks mods, launch, Host, Stop, and Join remain unsupported |
+| Smalland | local vanilla direct `Worlds/<World>.wld` discovery/import, exact Steam build identity, opaque capture/restore, player/map-state exclusion, conservative extra-Pak refusal, and owned workspace handling; player-character/map-annotation migration, mod reproduction, dedicated-server lifecycle, launch, Host, Stop, and Join remain unsupported |
 
 Registration does not grant capabilities. The Desktop reads each adapter's `GameAdapterCapabilities`; adding an adapter to the catalog cannot silently make Start, Host, Join, or Stop available.
 
-Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, Enshrouded, Conan Exiles Enhanced, Raft, and ICARUS currently advertise only `ExactGameVersion`. Their state-only entries are deliberate evidence that adapters can join the product before launch/hosting semantics are proven.
+Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, Enshrouded, Conan Exiles Enhanced, Raft, ICARUS, and Smalland currently advertise only `ExactGameVersion`. Their state-only entries are deliberate evidence that adapters can join the product before launch/hosting semantics are proven.
 
-Stardew Valley refuses a detected SMAPI or non-empty Mods environment rather than recording an incomplete vanilla `EnvironmentManifest` for a modded installation. Necesse applies the same principle to its local mods directory. Core Keeper applies it across manual install Mods, Steam Workshop content, and per-profile Mods. The Planet Crafter refuses known BepInEx bootstrap markers rather than enumerating or pretending to reproduce individual mods. Satisfactory refuses linked/non-empty `FactoryGame/Mods` and Steam Workshop content; this also catches an installed SML environment without requiring Steward to understand individual mods. ASTRONEER refuses linked/non-empty `Saved/Mods` or `Saved/Paks` rather than claiming a vanilla environment while mod-integration content is present. Enshrouded refuses known EML/Shroudtopia loader markers and a linked/non-empty root `mods` directory rather than interpreting individual mod packages. Conan Exiles Enhanced refuses a linked or non-empty `ConanSandbox/Mods/modlist.txt` activation surface rather than enumerating individual mod packages. Raft refuses linked/non-empty game-root `mods` and roaming `RaftModLoader` surfaces rather than enumerating individual mods. ICARUS refuses a linked or non-empty active `Icarus/Content/Paks/mods` directory rather than enumerating individual Paks.
+Stardew Valley refuses a detected SMAPI or non-empty Mods environment rather than recording an incomplete vanilla `EnvironmentManifest` for a modded installation. Necesse applies the same principle to its local mods directory. Core Keeper applies it across manual install Mods, Steam Workshop content, and per-profile Mods. The Planet Crafter refuses known BepInEx bootstrap markers rather than enumerating or pretending to reproduce individual mods. Satisfactory refuses linked/non-empty `FactoryGame/Mods` and Steam Workshop content; this also catches an installed SML environment without requiring Steward to understand individual mods. ASTRONEER refuses linked/non-empty `Saved/Mods` or `Saved/Paks` rather than claiming a vanilla environment while mod-integration content is present. Enshrouded refuses known EML/Shroudtopia loader markers and a linked/non-empty root `mods` directory rather than interpreting individual mod packages. Conan Exiles Enhanced refuses a linked or non-empty `ConanSandbox/Mods/modlist.txt` activation surface rather than enumerating individual mod packages. Raft refuses linked/non-empty game-root `mods` and roaming `RaftModLoader` surfaces rather than enumerating individual mods. ICARUS refuses a linked or non-empty active `Icarus/Content/Paks/mods` directory rather than enumerating individual Paks. Smalland accepts only regular stock-style top-level `pakchunkN-WindowsNoEditor.pak` members in its gameplay Paks directory and refuses linked or extra non-stock-named Paks rather than parsing mod content.
 
 Necesse demonstrates a simple state rule: when the game's native current World artifact is already a portable ZIP, Steward preserves those bytes directly instead of unpacking and rebuilding a second archive format.
 
@@ -128,6 +130,8 @@ Conan Exiles Enhanced demonstrates that location identity and state capture safe
 Raft demonstrates that one account/profile namespace can contain multiple independent persistence identities. Its current World artifact and its player/inventory state live under the same `User_<SteamID64>` profile but do not belong to the same World revision. Steward moves the World without silently moving the host's personal state.
 
 ICARUS reinforces that boundary with a different native layout. A canonical numeric SteamID64 profile owns current Prospect Worlds under `Prospects`, but profile-level `Characters.json`, `Profile.json`, and `MetaInventory.json` belong to player/account progression instead. Rolling `.json.backup_*` copies are recovery history. Steward moves only the current Prospect bytes.
+
+Smalland demonstrates that the same separation can be encoded directly by a game's native directory layout without any account-profile parser. `SaveGames/Worlds` is the World namespace, `SaveGames/Players` is player persistence, and root-level `.sav` objects are auxiliary map annotations. Steward follows that ownership structure and moves only the direct `.wld` World bytes.
 
 ## Normal path for adding a game
 
@@ -186,7 +190,7 @@ These remain recorded in `DEFERRED_EMPIRICAL_TESTS.md` and related acceptance do
 
 Older E6/E8 status files preserve useful historical evidence, but checkpoint statements such as `62517139` being the last globally green head or "reconcile the E6/E8 stack onto the newer Factorio tree" are superseded by this document.
 
-The current line contains the E6 commercial UI stack, the E8 deterministic hardening stack, the later adapter/test hardening work, the PR #72 Desktop composition correction, and post-platform adapter expansion through qualified Terraria #77, Stardew Valley #79, Necesse #81, Core Keeper #83, The Planet Crafter #85, Satisfactory #87, ASTRONEER #89, Enshrouded #92, Conan Exiles Enhanced #94, Raft #96, and ICARUS #98 on one all-workflows-green ancestry.
+The current line contains the E6 commercial UI stack, the E8 deterministic hardening stack, the later adapter/test hardening work, the PR #72 Desktop composition correction, and post-platform adapter expansion through qualified Terraria #77, Stardew Valley #79, Necesse #81, Core Keeper #83, The Planet Crafter #85, Satisfactory #87, ASTRONEER #89, Enshrouded #92, Conan Exiles Enhanced #94, Raft #96, ICARUS #98, and Smalland #100 on one all-workflows-green ancestry.
 
 Use this file for the current implementation mode. Use E6/E8 documents for the detailed evidence and deferred acceptance categories they describe.
 

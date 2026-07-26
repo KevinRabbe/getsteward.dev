@@ -104,7 +104,7 @@ public sealed class StewardWorldSessionHostPresenceTests
             snapshot.Body.Contains("\"address\":null", StringComparison.Ordinal) &&
             snapshot.Body.Contains("\"port\":34197", StringComparison.Ordinal) &&
             snapshot.Body.Contains("\"joinToken\":\"session-secret\"", StringComparison.Ordinal));
-        var clear = Assert.Single(snapshots.Where(snapshot => snapshot.Method == "DELETE"));
+        var clear = Assert.Single(snapshots, snapshot => snapshot.Method == "DELETE");
         Assert.EndsWith(
             $"/host-presence/{sessionId:D}/3",
             clear.Path,

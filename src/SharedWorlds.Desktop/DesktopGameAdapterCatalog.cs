@@ -1,4 +1,5 @@
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.GameAdapters.AbioticFactor;
 using SharedWorlds.GameAdapters.Astroneer;
 using SharedWorlds.GameAdapters.ConanExilesEnhanced;
 using SharedWorlds.GameAdapters.CoreKeeper;
@@ -39,7 +40,8 @@ internal static class DesktopGameAdapterCatalog
             new ConanExilesEnhancedAdapter(),
             new RaftAdapter(),
             new IcarusAdapter(),
-            new SmallandAdapter()
+            new SmallandAdapter(),
+            new AbioticFactorAdapter()
         ];
 
         return adapters.ToDictionary(adapter => adapter.Id, StringComparer.Ordinal);

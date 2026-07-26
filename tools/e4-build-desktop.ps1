@@ -60,17 +60,17 @@ if ([IO.Directory]::Exists($output)) {
 }
 [IO.Directory]::CreateDirectory($output) | Out-Null
 
-$friendsBuildApiBaseUrl = Get-NormalizedPackageApiBaseUrl $FriendsBuildApiBaseUrl 'FriendsBuildApiBaseUrl'
+$normalizedFriendsBuildApiBaseUrl = Get-NormalizedPackageApiBaseUrl $FriendsBuildApiBaseUrl 'FriendsBuildApiBaseUrl'
 $steamReleaseRequested =
     -not [string]::IsNullOrWhiteSpace($SteamReleaseApiBaseUrl) -or
     $SteamReleaseAppId -ne 0 -or
     -not [string]::IsNullOrWhiteSpace($SteamReleaseWebApiIdentity)
 
-if ($null -ne $friendsBuildApiBaseUrl -and $steamReleaseRequested) {
+if ($null -ne $normalizedFriendsBuildApiBaseUrl -and $steamReleaseRequested) {
     Fail 'Friends Build and Steam release package configuration are mutually exclusive.'
 }
 
-$steamReleaseApiBaseUrl = $null
+$normalizedSteamReleaseApiBaseUrl = $null
 if ($steamReleaseRequested) {
     if ([string]::IsNullOrWhiteSpace($SteamReleaseApiBaseUrl)) {
         Fail 'SteamReleaseApiBaseUrl is required when Steam release package configuration is requested.'
@@ -84,7 +84,7 @@ if ($steamReleaseRequested) {
         Fail 'SteamReleaseWebApiIdentity must be 1-128 characters without whitespace.'
     }
 
-    $steamReleaseApiBaseUrl = Get-NormalizedPackageApiBaseUrl $SteamReleaseApiBaseUrl 'SteamReleaseApiBaseUrl'
+    $normalizedSteamReleaseApiBaseUrl = Get-NormalizedPackageApiBaseUrl $SteamReleaseApiBaseUrl 'SteamReleaseApiBaseUrl'
 }
 
 $normalizedBuildVersion = if ([string]::IsNullOrWhiteSpace($BuildVersion)) { $null } else { $BuildVersion.Trim() }
@@ -102,7 +102,7 @@ Write-Host "  Runtime: $Runtime"
 Write-Host "  Configuration: $Configuration"
 Write-Host "  Self-contained: $selfContainedText"
 Write-Host "  Output: $output"
-if ($null -ne $friendsBuildApiBaseUrl) {
+if ($null -ne $normalizedFriendsBuildApiBaseUrl) {
     Write-Host '  Deployment: Friends Build package'
 }
 if ($steamReleaseRequested) {
@@ -168,10 +168,10 @@ foreach ($requiredFile in $requiredFiles) {
     Fail "Published acceptance package is incomplete: $requiredFile"
 }
 
-if ($null -ne $friendsBuildApiBaseUrl) {
+if ($null -ne $normalizedFriendsBuildApiBaseUrl) {
     $friendsBuildConfiguration = [ordered]@{
         schemaVersion = 1
-        apiBaseUrl = $friendsBuildApiBaseUrl
+        apiBaseUrl = $normalizedFriendsBuildApiBaseUrl
     }
     $friendsBuildConfigurationJson = $friendsBuildConfiguration | ConvertTo-Json -Compress
     $friendsBuildConfigurationPath = Join-Path $output 'steward-friends-build.json'
@@ -184,7 +184,7 @@ if ($null -ne $friendsBuildApiBaseUrl) {
 if ($steamReleaseRequested) {
     $steamReleaseConfiguration = [ordered]@{
         schemaVersion = 1
-        apiBaseUrl = $steamReleaseApiBaseUrl
+        apiBaseUrl = $normalizedSteamReleaseApiBaseUrl
         steamAppId = $SteamReleaseAppId
         steamWebApiIdentity = $SteamReleaseWebApiIdentity
     }
@@ -247,7 +247,7 @@ Write-Host "  Production adapters: Factorio, Palworld, 7 Days to Die, Project Zo
 Write-Host "  Hashed package files: $($packageFiles.Count)"
 Write-Host "  Metadata: $metadataPath"
 Write-Host
-if ($null -ne $friendsBuildApiBaseUrl) {
+if ($null -ne $normalizedFriendsBuildApiBaseUrl) {
     Write-Host 'The Friends Build HTTPS API coordinate is embedded in steward-friends-build.json and covered by the package manifest.'
     Write-Host 'No private friend credential, Steam AppID, Web API identity, ticket, or backend secret is embedded.'
 }

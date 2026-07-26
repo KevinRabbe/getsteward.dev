@@ -30,6 +30,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         InitializeLiveRegionAnnouncements();
+        InitializeNativeWorldCreationUi();
 
         // Keep the existing local data root for persistence compatibility while the product shell
         // moves from the old SharedWorlds working name to Steward.
@@ -123,9 +124,9 @@ public partial class MainWindow : Window
             exception is IOException or UnauthorizedAccessException or JsonException)
         {
             ShowError(
-                "World imported, but hosting preference was not saved",
+                "World added, but hosting preference was not saved",
                 new InvalidOperationException(
-                    "The World was imported successfully. Enable 'Allow this device to host' manually if this device should host Worlds.",
+                    "The World was added successfully. Enable 'Allow this device to host' manually if this device should host Worlds.",
                     exception));
         }
     }
@@ -183,6 +184,7 @@ public partial class MainWindow : Window
         OpenImportButton.IsEnabled = !isBusy;
         AllowHostingCheckBox.IsEnabled = !isBusy;
         WorldList.IsEnabled = !isBusy;
+        UpdateNativeWorldCreationActionState();
         UpdateUnifiedActionState();
         UpdateUnifiedImportActionState();
         UpdateWorldVersionPolicyUi();

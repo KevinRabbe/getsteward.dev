@@ -1,5 +1,7 @@
 # Steward
 
+> **Current-state note:** The product boundary and invariants in this README remain valid, but several implementation-status, adapter-count, repository-structure, and next-milestone sections lag the qualified #138 state. Check [`docs/DOCUMENTATION_AUDIT.md`](docs/DOCUMENTATION_AUDIT.md) before using those sections as current implementation guidance.
+
 > **One shared World. Different Steam players. Different times. No always-on game server.**
 
 Steward is a commercial Windows desktop product moving beyond prototype validation.

@@ -402,6 +402,7 @@ internal static class SpaceEngineersWorldState
     private static void ValidateRelativePath(string relative)
     {
         if (relative.Contains('\\') ||
+            relative.Contains(':') ||
             relative.StartsWith("/", StringComparison.Ordinal) ||
             relative.Split('/').Any(segment => segment is "" or "." or ".."))
         {

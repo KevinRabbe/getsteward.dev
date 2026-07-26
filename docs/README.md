@@ -1,5 +1,7 @@
 # Steward Documentation
 
+> **Documentation status:** Before treating a roadmap, status file, or adapter document as current implementation guidance, check [Documentation State Audit](DOCUMENTATION_AUDIT.md). It classifies current contracts, implementation drift, partially outdated documents, outdated technical guidance, and historical checkpoints against exact qualified head `e63c6f7d20d103cd2ea3d9a922b73de3c3ba1f5f`.
+
 Steward is a commercial Windows desktop product with its generic platform code/CI boundary complete, its deterministic V2 Friends Build engineering stage complete, and its V3 Steam Release Candidate now the active product goal.
 
 This directory is the canonical home for active product, architecture, engineering, lifecycle, adapter, storage, recovery, and planning documentation.

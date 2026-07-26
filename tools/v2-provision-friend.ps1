@@ -18,10 +18,20 @@ function Fail([string]$Message) {
     exit 1
 }
 
+function Test-ContainsControlCharacter([string]$Value) {
+    foreach ($character in $Value.ToCharArray()) {
+        if ([char]::IsControl($character)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 $displayNameValue = $DisplayName.Trim()
 if ([string]::IsNullOrWhiteSpace($displayNameValue) -or
     $displayNameValue.Length -gt 128 -or
-    $displayNameValue.ToCharArray() | Where-Object { [char]::IsControl($_) }) {
+    (Test-ContainsControlCharacter $displayNameValue)) {
     Fail 'DisplayName must be non-empty, contain no control characters, and be at most 128 characters.'
 }
 
@@ -34,7 +44,7 @@ else {
 
 if ([string]::IsNullOrWhiteSpace($ExternalId) -or
     $ExternalId.Length -gt 512 -or
-    $ExternalId.ToCharArray() | Where-Object { [char]::IsControl($_) }) {
+    (Test-ContainsControlCharacter $ExternalId)) {
     Fail 'ExternalId must be non-empty, contain no control characters, and be at most 512 characters.'
 }
 

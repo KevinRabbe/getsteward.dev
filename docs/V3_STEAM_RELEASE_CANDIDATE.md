@@ -1,12 +1,14 @@
 # V3 Steam Release Candidate
 
-Status: **ACTIVE PRODUCT GOAL — V3-A/B/C DETERMINISTIC RELEASE SHAPE QUALIFIED; V3-D CAPABILITY/CLAIM CONTRACT RESOLVED; REAL WINDOWS/STEAM/GAME EVIDENCE REMAINS OPEN**
+Status: **DETERMINISTIC V3 RELEASE-CANDIDATE PREPARATION COMPLETE — REAL WINDOWS/STEAM/PROVIDER/GAME ACCEPTANCE REMAINS OPEN**
 
 V3 begins after the deterministic V2 Friends Build line is complete. V2 proved and prepared the private-product path; its remaining real-provider, real-machine, and real-friend acceptance items stay recorded as empirical evidence and do not justify keeping V2 as the active coding goal.
 
 V3 is the stage between a private Friends Build and public Steam Early Access.
 
 Its purpose is not to add more platform architecture. Its purpose is to remove the remaining development/private-build assumptions from the already-composed product until Steward can be uploaded to Steam and exercised through the real production identity/distribution boundary without a parallel Steward-owned platform.
+
+The deterministic V3 implementation/preparation goal is complete through qualified PR #137. V3 is **not** release-accepted yet: V3-E and V3-F deliberately require real Windows, provider, Steam, network, and game evidence.
 
 ## Goal
 
@@ -20,15 +22,17 @@ V3 therefore optimizes the distance from the qualified product to a real Steam r
 
 ## Current qualified deterministic line
 
-The V3 deterministic release-shape work is qualified through V3-C:
+The complete deterministic V3 release-candidate preparation line is:
 
 - **V3-A / PR #133** — package-owned Steam release configuration, exact head `180597b0c701a3e00ba29aae456b71717ce80f74`;
 - **V3-B / PR #134** — exact self-contained Steam depot content + external byte evidence, exact head `3cb8eef77382c7a958ec62bbaa0472cc55708b53`;
-- **V3-C / PR #135** — client/backend public Steam identity derived from one release input while publisher credentials stay server-secret, exact head `b68a527281f1026d06d76e4cfc5cde03c2227557`.
+- **V3-C / PR #135** — client/backend public Steam identity derived from one release input while publisher credentials stay server-secret, exact head `b68a527281f1026d06d76e4cfc5cde03c2227557`;
+- **V3-D / PR #136** — release claims resolved onto the existing capability model without a second support taxonomy, exact head `2240561378bc361b39d118caaf9905f1d8055593`;
+- **Final deterministic gate / PR #137** — one-pass V3-E/V3-F real acceptance contract aligned to the exact V3 artifacts and Steam-owned install/update boundary, exact head `821750349db246ded47c8faa50d368efbbc07861`.
 
 Each exact head passed all five top-level workflow groups.
 
-V3-D does not require a new runtime abstraction. The existing capability contract already separates what an adapter can actually do from the fact that it exists in the catalog. The remaining release claims are therefore evidence gates, not another generic implementation layer.
+There is no honest V3-G deterministic subsystem to add merely to create activity. The next V3 information-producing step is the real external acceptance batch defined by `STEAM_RELEASE_GATE.md`. Any later code change must come from concrete evidence, a demonstrated defect, or a deliberately chosen post-V3 product goal.
 
 ## Relationship to V2
 

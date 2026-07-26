@@ -122,36 +122,35 @@ The World itself is the lobby. Do not create a separate party/group/social domai
 
 The existing flat World access model is authoritative for membership. The existing Access Manager responsibility is the only management distinction needed.
 
-The visible V2 presentation is intentionally small:
+The visible V2 lobby is intentionally limited to membership:
 
 ```text
 Factorio World
 --------------------------------
 
 Members
-● Kevin
-○ Alex
-○ Max
-○ Sarah
+Kevin — Access Manager
+Alex
+Max
+Sarah
 
-Status
-Kevin is hosting
-
-[ Join ]
 [ Invite player ]
 ```
 
 Semantics:
 
 - member list = existing authorized World membership;
-- `●` / `○` = current Steward online/offline presence where known;
-- Status = current World/session state, for example `Available`, `Kevin is hosting`, `Starting`, or `Saving`;
-- Join = existing read-only Join lifecycle and never acquires a second writable reservation;
+- names = presentation labels resolved from the configured Friends Build identity roster;
 - Invite player = existing World invitation/access model;
 - Access Manager may invite/remove/transfer management responsibility using the existing access rules.
 
-Explicitly absent:
+Host/session state and Join remain ordinary World lifecycle surfaces outside the lobby. The lobby does not need another query or state model merely to answer who belongs to the World.
 
+Explicitly absent from the lobby:
+
+- online/offline presence;
+- gameplay presence;
+- host-status polling;
 - voice chat;
 - text chat;
 - friends graph;
@@ -174,7 +173,7 @@ V2 must compose existing proven boundaries rather than rebuilding them:
 - direct object-storage transfer;
 - flat World membership and invitations;
 - Access Manager responsibility;
-- host presence;
+- host presence for the existing Host/Join lifecycle where needed;
 - read-only Join lifecycle;
 - Windows Desktop Share/Manage access/Invites surfaces;
 - recovery journal and responsibility tracking;
@@ -210,16 +209,15 @@ Acceptance:
 
 ### V2-C — Lobby and invitations
 
-Turn existing World membership/session state into the minimal visible lobby.
+Render the existing flat World access authority as the minimal visible lobby.
 
 Acceptance:
 
-- members are visible on the selected shared World;
-- host/session status is visible;
-- Join is visible and capability/readiness driven;
+- members are visible by name on the selected shared World;
 - Access Manager can invite a friend without entering a SteamID64 in Friends Build mode;
 - invite acceptance adds that identity through the existing flat membership authority;
-- no new social-domain model is introduced.
+- existing remove/transfer/leave behavior remains intact;
+- no presence, host-status, party, friends-graph, or other social-domain model is introduced.
 
 ### V2-D — Factorio complete friend loop
 

@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using Microsoft.AspNetCore.TestHost;
 using SharedWorlds.Backend.Api;
 using SharedWorlds.Backend.Identity;
+using Xunit;
 
 namespace SharedWorlds.Backend.Api.Tests;
 

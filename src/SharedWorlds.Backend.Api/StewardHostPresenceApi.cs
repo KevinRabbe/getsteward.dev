@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using SharedWorlds.Backend.Identity;
 using SharedWorlds.Backend.Worlds;
 using SharedWorlds.Core.Domain;
@@ -26,12 +28,12 @@ public static class StewardHostPresenceApi
     private static async Task<IResult> PublishAsync(
         Guid worldId,
         PublishHostPresenceRequest request,
-        HttpRequest httpRequest,
+        HttpContext httpContext,
         StewardSessionService sessions,
         SharedWorldHostPresenceService hostPresence,
         CancellationToken cancellationToken)
     {
-        var caller = await AuthenticateAsync(httpRequest, sessions, cancellationToken);
+        var caller = await AuthenticateAsync(httpContext.Request, sessions, cancellationToken);
         if (caller is null)
         {
             return StewardApiResults.AuthenticationRequired();
@@ -46,6 +48,14 @@ public static class StewardHostPresenceApi
 
         try
         {
+            // A managed host already reaches Steward through the authenticated HTTPS connection. When
+            // the adapter does not know a public address, reuse that observed peer address instead of
+            // introducing a second external "what is my IP" service. Do not trust forwarded headers
+            // here; real reverse-proxy topology remains an explicit deployment acceptance check.
+            var address = ResolvePublishAddress(
+                request.State,
+                request.Address,
+                httpContext.Connection.RemoteIpAddress);
             var status = await hostPresence.PublishAsync(
                 caller.Identity,
                 caller.InstallationId,
@@ -53,7 +63,7 @@ public static class StewardHostPresenceApi
                 request.ReservationSessionId,
                 request.ReservationGeneration,
                 request.State,
-                request.Address,
+                address,
                 request.Port,
                 request.JoinToken,
                 cancellationToken);
@@ -146,6 +156,33 @@ public static class StewardHostPresenceApi
         return deleted
             ? Results.Ok(new HostPresenceResponse("HostPresenceCleared", Retryable: false))
             : Results.NotFound(new HostPresenceResponse("NotFound", Retryable: false));
+    }
+
+    private static string? ResolvePublishAddress(
+        SharedWorldHostPresenceState state,
+        string? suppliedAddress,
+        IPAddress? observedAddress)
+    {
+        if (!string.IsNullOrWhiteSpace(suppliedAddress) || state != SharedWorldHostPresenceState.Ready)
+        {
+            return suppliedAddress;
+        }
+
+        if (observedAddress is null)
+        {
+            return null;
+        }
+
+        if (observedAddress.IsIPv4MappedToIPv6)
+        {
+            observedAddress = observedAddress.MapToIPv4();
+        }
+
+        // The current Factorio direct-connect formatting is qualified only for IPv4/hostnames. Do not
+        // invent IPv6 endpoint formatting until a real adapter/deployment path proves that requirement.
+        return observedAddress.AddressFamily == AddressFamily.InterNetwork
+            ? observedAddress.ToString()
+            : null;
     }
 
     private static async Task<StewardAuthenticatedCaller?> AuthenticateAsync(

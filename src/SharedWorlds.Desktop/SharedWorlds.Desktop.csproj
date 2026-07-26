@@ -18,7 +18,6 @@
   <ItemGroup>
     <PackageReference Include="Steamworks.NET" />
     <PackageReference Include="Facepunch.Steamworks.Dll" />
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../SharedWorlds.Core/SharedWorlds.Core.csproj" />

@@ -17,6 +17,23 @@ on:
         required: false
         default: "2.0.0-alpha.1"
         type: string
+      steam_api_base_url:
+        description: "Optional real HTTPS Steward backend URL for a downloadable Steam depot-content artifact"
+        required: false
+        type: string
+      steam_app_id:
+        description: "Expected Steward Steam AppID for the depot-content artifact"
+        required: false
+        type: string
+      steam_web_api_identity:
+        description: "GetAuthTicketForWebApi service identity for the depot-content artifact"
+        required: false
+        type: string
+      steam_version:
+        description: "Steam release-candidate product version"
+        required: false
+        default: "3.0.0-alpha.1"
+        type: string
 
 permissions:
   contents: read
@@ -77,53 +94,116 @@ jobs:
             -OutputDirectory "$env:RUNNER_TEMP/steward-windows-acceptance"
           Get-Content "$env:RUNNER_TEMP/steward-windows-acceptance/acceptance-build.json"
 
-      - name: Build and verify V3 Steam release configuration
+      - name: Build and verify V3 Steam depot content
         shell: pwsh
+        env:
+          REQUESTED_STEAM_API_BASE_URL: ${{ github.event.inputs.steam_api_base_url }}
+          REQUESTED_STEAM_APP_ID: ${{ github.event.inputs.steam_app_id }}
+          REQUESTED_STEAM_WEB_API_IDENTITY: ${{ github.event.inputs.steam_web_api_identity }}
+          REQUESTED_STEAM_VERSION: ${{ github.event.inputs.steam_version }}
         run: |
-          $output = "$env:RUNNER_TEMP/steward-v3-steam-release"
+          $requestedApiBaseUrl = $env:REQUESTED_STEAM_API_BASE_URL
+          $requestedAppId = $env:REQUESTED_STEAM_APP_ID
+          $requestedIdentity = $env:REQUESTED_STEAM_WEB_API_IDENTITY
+          $requestedVersion = $env:REQUESTED_STEAM_VERSION
+
+          $hasApiBaseUrl = -not [string]::IsNullOrWhiteSpace($requestedApiBaseUrl)
+          $hasAppId = -not [string]::IsNullOrWhiteSpace($requestedAppId)
+          $hasIdentity = -not [string]::IsNullOrWhiteSpace($requestedIdentity)
+          $providedCount = [int]$hasApiBaseUrl + [int]$hasAppId + [int]$hasIdentity
+
+          if ($providedCount -eq 0) {
+            $apiBaseUrl = 'https://steam-release.example.invalid/'
+            [uint32]$appId = 123456789
+            $identity = 'steward-ci'
+            $version = '3.0.0-ci'
+          }
+          elseif ($providedCount -ne 3) {
+            throw 'steam_api_base_url, steam_app_id, and steam_web_api_identity must be provided together.'
+          }
+          else {
+            $apiBaseUrl = $requestedApiBaseUrl
+            [uint32]$appId = 0
+            if (-not [uint32]::TryParse($requestedAppId, [ref]$appId) -or $appId -eq 0) {
+              throw 'steam_app_id must be a positive UInt32.'
+            }
+            $identity = $requestedIdentity
+            $version = if ([string]::IsNullOrWhiteSpace($requestedVersion)) { '3.0.0-alpha.1' } else { $requestedVersion }
+          }
+
+          $output = "$env:RUNNER_TEMP/steward-v3-steam-depot"
+          $evidence = "$env:RUNNER_TEMP/steward-v3-steam-evidence"
+          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+          $manifestPath = Join-Path $evidence 'acceptance-build.json'
+
           ./tools/e4-build-desktop.ps1 `
-            -FrameworkDependent `
             -OutputDirectory $output `
-            -SteamReleaseApiBaseUrl 'https://steam-release.example.invalid/' `
-            -SteamReleaseAppId 123456789 `
-            -SteamReleaseWebApiIdentity 'steward-ci' `
-            -BuildVersion '3.0.0-ci'
+            -AcceptanceManifestOutputPath $manifestPath `
+            -SteamReleaseApiBaseUrl $apiBaseUrl `
+            -SteamReleaseAppId $appId `
+            -SteamReleaseWebApiIdentity $identity `
+            -BuildVersion $version
 
           $configurationPath = Join-Path $output 'steward-steam-release.json'
-          $manifestPath = Join-Path $output 'acceptance-build.json'
-          if (-not [IO.File]::Exists($configurationPath) -or -not [IO.File]::Exists($manifestPath)) {
-            throw 'V3 Steam release package is missing its configuration or acceptance manifest.'
+          $managedDesktopPath = Join-Path $output 'SharedWorlds.Desktop.dll'
+          if (-not [IO.File]::Exists($configurationPath) -or
+              -not [IO.File]::Exists($manifestPath) -or
+              -not [IO.File]::Exists($managedDesktopPath)) {
+            throw 'V3 Steam depot content is missing configuration, release evidence, or the Desktop binary.'
+          }
+          if ([IO.File]::Exists((Join-Path $output 'acceptance-build.json'))) {
+            throw 'acceptance-build.json is release evidence and must stay outside Steam depot content.'
           }
           if ([IO.File]::Exists((Join-Path $output 'steward-friends-build.json'))) {
-            throw 'V3 Steam release package unexpectedly contains Friends Build routing.'
+            throw 'V3 Steam depot content unexpectedly contains Friends Build routing.'
           }
           if ([IO.File]::Exists((Join-Path $output 'steam_appid.txt'))) {
-            throw 'V3 Steam release package must not ship steam_appid.txt.'
+            throw 'V3 Steam depot content must not ship steam_appid.txt.'
+          }
+
+          $productVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($managedDesktopPath).ProductVersion
+          if (-not [string]::Equals($productVersion, $version, [StringComparison]::Ordinal)) {
+            throw "Published Steward binary version '$productVersion' does not match requested Steam version '$version'."
           }
 
           $configuration = Get-Content -LiteralPath $configurationPath -Raw | ConvertFrom-Json
-          if ($configuration.schemaVersion -ne 1 -or
-              [string]$configuration.apiBaseUrl -ne 'https://steam-release.example.invalid/' -or
-              [uint32]$configuration.steamAppId -ne 123456789 -or
-              [string]$configuration.steamWebApiIdentity -ne 'steward-ci') {
-            throw 'Generated V3 Steam release configuration is invalid.'
-          }
-
-          $configurationText = [IO.File]::ReadAllText($configurationPath)
-          foreach ($forbidden in @('PublisherApiKey', 'publisherApiKey', 'ticket', 'credential', 'secret')) {
-            if ($configurationText.Contains($forbidden, [StringComparison]::OrdinalIgnoreCase)) {
-              throw "V3 Steam release configuration contains forbidden secret-bearing field/text '$forbidden'."
-            }
+          $configurationProperties = @($configuration.PSObject.Properties.Name | Sort-Object)
+          $expectedConfigurationProperties = @('apiBaseUrl', 'schemaVersion', 'steamAppId', 'steamWebApiIdentity' | Sort-Object)
+          if ($configurationProperties.Count -ne $expectedConfigurationProperties.Count -or
+              (Compare-Object $configurationProperties $expectedConfigurationProperties).Count -ne 0 -or
+              $configuration.schemaVersion -ne 1 -or
+              [string]$configuration.apiBaseUrl -ne $apiBaseUrl -or
+              [uint32]$configuration.steamAppId -ne $appId -or
+              [string]$configuration.steamWebApiIdentity -ne $identity) {
+            throw 'Generated V3 Steam release configuration is invalid or contains an unexpected field.'
           }
 
           $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-          $entries = @($manifest.files | Where-Object { $_.path -eq 'steward-steam-release.json' })
-          if ($entries.Count -ne 1) {
-            throw 'V3 Steam release configuration is not covered exactly once by the package manifest.'
+          if ([string]$manifest.runtime -ne 'win-x64' -or
+              [string]$manifest.configuration -ne 'Release' -or
+              $manifest.selfContained -ne $true) {
+            throw 'V3 Steam depot evidence does not describe a self-contained Release win-x64 build.'
           }
-          $actualHash = (Get-FileHash -LiteralPath $configurationPath -Algorithm SHA256).Hash
-          if (-not [string]::Equals([string]$entries[0].sha256, $actualHash, [StringComparison]::OrdinalIgnoreCase)) {
-            throw 'V3 Steam release configuration hash does not match the package manifest.'
+
+          $actualFiles = @(Get-ChildItem -LiteralPath $output -Recurse -File | Sort-Object FullName)
+          $manifestEntries = @($manifest.files)
+          if ($actualFiles.Count -ne $manifestEntries.Count) {
+            throw "Steam depot content contains $($actualFiles.Count) files but release evidence lists $($manifestEntries.Count)."
+          }
+
+          foreach ($file in $actualFiles) {
+            $relativePath = [IO.Path]::GetRelativePath($output, $file.FullName).Replace('\', '/')
+            $entries = @($manifestEntries | Where-Object { [string]$_.path -eq $relativePath })
+            if ($entries.Count -ne 1) {
+              throw "Steam depot file '$relativePath' is not represented exactly once in release evidence."
+            }
+            if ([int64]$entries[0].byteSize -ne $file.Length) {
+              throw "Steam depot file '$relativePath' size does not match release evidence."
+            }
+            $actualHash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+            if (-not [string]::Equals([string]$entries[0].sha256, $actualHash, [StringComparison]::OrdinalIgnoreCase)) {
+              throw "Steam depot file '$relativePath' SHA-256 does not match release evidence."
+            }
           }
 
       - name: Build and verify V2 Friends Build ZIP
@@ -195,6 +275,24 @@ jobs:
         with:
           name: steward-windows-acceptance-${{ github.sha }}
           path: ${{ runner.temp }}/steward-windows-acceptance
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload downloadable Steam depot content
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.steam_api_base_url != '' && github.event.inputs.steam_app_id != '' && github.event.inputs.steam_web_api_identity != '' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: steward-v3-steam-depot-${{ github.event.inputs.steam_version }}
+          path: ${{ runner.temp }}/steward-v3-steam-depot
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Steam depot release evidence
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.steam_api_base_url != '' && github.event.inputs.steam_app_id != '' && github.event.inputs.steam_web_api_identity != '' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: steward-v3-steam-depot-evidence-${{ github.event.inputs.steam_version }}
+          path: ${{ runner.temp }}/steward-v3-steam-evidence/acceptance-build.json
           if-no-files-found: error
           retention-days: 14
 

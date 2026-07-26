@@ -1,30 +1,175 @@
 # Master Roadmap
 
+Status: **CURRENT — V3 RELEASE-CANDIDATE PREPARATION IS COMPLETE; DOCUMENTATION/UI RECONCILIATION AND EVIDENCE-DRIVEN V3-E ARE ACTIVE; V3-F REMAINS THE FINAL EXTERNAL RELEASE GATE.**
+
 ## Product target
 
 > **One shared World. Different Steam players. Different times. No always-on game server.**
 
-Steward coordinates three implementation workstreams:
+Steward coordinates three implementation domains:
 
 1. [UI and UX Roadmap](UI_ROADMAP.md)
 2. [Backend Roadmap](BACKEND_ROADMAP.md)
 3. [Adapter and Background Runtime Roadmap](ADAPTER_RUNTIME_ROADMAP.md)
 
-They deliver one product model. No workstream may invent a competing definition of World, session, sharing, hosting, recovery, or authority.
+They implement one product model. No workstream may invent a competing definition of World, session, sharing, hosting, recovery, or authority.
 
-## Current mode: implementation unlocked
+## Current execution state
 
-Status: **P0 COMPLETE. E1 COMPLETE AND GREEN. BACKEND BE-2 THROUGH BE-5 DEVELOPMENT ACCEPTANCE COMPLETE AND GREEN. E4 WINDOWS DESKTOP PRODUCT COMPOSITION COMPLETE AT THE CODE/CI BOUNDARY; E4-A LIVE INFRASTRUCTURE ACCEPTANCE IS INDEPENDENT OF STEAM PRODUCTION CREDENTIALS; E4-B STEAM/HOST HANDOFF REMAINS EMPIRICAL ACCEPTANCE.**
+The generic product platform is implemented. Deterministic V3 Steam release-candidate preparation is complete through qualified PR #137.
 
-The planning contracts remain the first-release implementation baseline. Changes remain possible, but any deliberate product-boundary or contract change must be documented with the implementation that establishes the new boundary.
+The current executable/product baseline is V3-E PR #138:
 
-Implementation is allowed only when it maps to:
+> `e63c6f7d20d103cd2ea3d9a922b73de3c3ba1f5f`
 
-- one workstream;
-- one numbered milestone;
-- one acceptance criterion.
+The first real Windows V3-E run already produced useful evidence: legacy device-settings migration failed because Windows would not atomically replace the settings file while Steward still held its source read handle open. #138 closes that read boundary before the migration write and regression-tests the fix.
 
-E4 no longer acts as one serial gate. E4-A proves the real HTTPS/PostgreSQL/S3 deployment boundary without private Steam publisher credentials. E4-B later proves production Steam identity and the real two-installation host/Join handoff. Deferred empirical evidence in E4-B does not block independent Core, backend, UI, storage, recovery, or adapter work.
+That changes the development mode:
+
+```text
+platform architecture complete
++ deterministic V3 release shape complete
++ real V3-E evidence has started
+
+therefore
+
+stop inventing generic subsystems
+-> reconcile stale documentation with executable truth
+-> reconcile known UI implementation drift with the approved UI contract
+-> continue real V3-E observations
+-> fix only concrete release defects that evidence exposes
+-> open V3-F with the real Steam/provider resources
+```
+
+The final production Steam/AppID/publisher/depot/two-installation/game proof remains external and unclaimed.
+
+## Current priority order
+
+### 1. Documentation truth — ACTIVE
+
+Before changing product behavior, remove active-sounding contradictions that can send implementation in the wrong direction.
+
+Current sequence:
+
+1. documentation state audit;
+2. root/current-status documents;
+3. this master roadmap;
+4. architecture/storage current-state language;
+5. backend contract/status wording;
+6. adapter/runtime/native-creation/persistence wording;
+7. leave historical milestone evidence historical unless it still misdirects current work.
+
+`DOCUMENTATION_AUDIT.md` is the temporary status overlay while this reconciliation is in progress.
+
+A historical document does not need to be rewritten merely because its old “next step” has passed. Preserve useful evidence; remove or mark only statements that could still be mistaken for current guidance.
+
+### 2. Games Library information architecture — NEXT PRODUCT RECONCILIATION
+
+The approved first-release UI hierarchy remains:
+
+```text
+Games Library
+-> select game
+-> game workspace
+-> Worlds for that game
+-> selected World details/actions
+```
+
+The current WPF shell still presents a fixed World-list sidebar with a compact game selector beside a permanent selected-World detail pane.
+
+With 19 adapters, this is implementation drift from the approved product contract, not a reason to redefine the contract around the current sidebar.
+
+After documentation reconciliation, implement the smallest UI change that restores the approved game-first hierarchy while preserving:
+
+- the existing shared/local World truth model;
+- capability-driven Start/Host/Join/Stop/Create availability;
+- recovery responsibility;
+- Share/Manage access;
+- tray/background lifecycle;
+- accessibility and narrow-window behavior.
+
+Do not add a second UI-only state machine or game-name branching.
+
+### 3. V3-E — real Windows release acceptance — STARTED
+
+Continue real-machine observations that CI cannot prove:
+
+- normal release-package/Steam-installed startup path;
+- keyboard/focus traversal;
+- Narrator/UI Automation names and live regions;
+- mixed-DPI monitor transitions;
+- tray/background/Quit guards;
+- restart/suspend/logoff interactions where relevant;
+- actual startup/package/capture/restore/transfer timings;
+- long real managed game sessions.
+
+Workflow:
+
+```text
+observe real failure
+-> identify the smallest owning boundary
+-> fix only that boundary
+-> add deterministic regression where possible
+-> requalify exact integrated head
+-> resume empirical run
+```
+
+#138 is the first completed example of this process.
+
+Do not convert “might fail on Windows” into speculative product code.
+
+### 4. V3-F — real Steam/provider/game release gate — EXTERNAL
+
+Open this gate only when the product owner decides the release candidate is otherwise good enough to spend the external setup cost.
+
+Required real inputs/evidence include:
+
+- real Steward Steam AppID;
+- real Windows depot identity;
+- authorized Steamworks builder access;
+- real publisher Web API credential kept server-side;
+- one real `GetAuthTicketForWebApi` identity;
+- real public HTTPS Backend.Api;
+- real PostgreSQL;
+- real private S3-compatible object storage;
+- exact proxy trust matching the actual topology;
+- at least two independent Windows/Steam installations/accounts;
+- representative real Worlds for every advertised action/game claim.
+
+One-pass acceptance:
+
+```text
+exact qualified depot content
+-> SteamPipe upload
+-> Steam installs candidate on PC A/B
+-> actual runtime AppID matches packaged expected AppID
+-> genuine Steam Web API tickets
+-> deployed backend verifies identity
+-> shared World/access works across installations
+-> advertised Host/Join/game lifecycle succeeds
+-> canonical capture/upload/commit/handoff succeeds
+-> Windows V3-E observations are recorded in the same expensive setup
+-> second qualified Steam build proves Steam-owned update behavior
+```
+
+No Friends Build fallback, static production token, fake publisher key, `steam_appid.txt`, sideload-only proof, or manual World copying may make this gate green.
+
+Canonical runbook: `STEAM_RELEASE_GATE.md`.
+
+### 5. Performance — ONLY FROM MEASUREMENTS
+
+Do not optimize transfer/storage/runtime architecture merely because an optimization is imaginable.
+
+After correctness and real measurements, candidates may include:
+
+- immutable package deduplication;
+- background prefetch;
+- CDN/replication;
+- compression tuning;
+- chunk/delta reuse;
+- peer-assisted transfer.
+
+A measured bottleneck must justify the mechanism.
 
 ## Product boundaries
 
@@ -32,9 +177,9 @@ E4 no longer acts as one serial gate. E4-A proves the real HTTPS/PostgreSQL/S3 d
 
 - Games Library;
 - per-game World workspace;
-- import;
-- Start World / Host World / Join;
-- Share World / Manage access;
+- import and native creation where supported;
+- Start World / Host World / Join / Stop and Save presentation;
+- Share World / Manage access / invitations;
 - lifecycle/progress presentation;
 - tray/background visibility;
 - Connection required / Waiting to sync / Action required / Recovery needed / Interrupted session presentation.
@@ -43,7 +188,8 @@ UI never invents backend authority or game-specific lifecycle behavior.
 
 ### Backend owns
 
-- verified Steam identity for shared operations when production Steam authentication is configured;
+- verified external identity/session issuance for configured auth modes;
+- production Steam-ticket verification when Steam credentials are configured;
 - flat World membership + one Access Manager;
 - immutable package publication/transfer authorization;
 - canonical state/environment heads;
@@ -55,378 +201,209 @@ UI never invents backend authority or game-specific lifecycle behavior.
 
 Backend never interprets game saves or runs permanent game servers.
 
-### Runtime/adapters own
+### Runtime owns
 
-Runtime owns generic session orchestration, device-wide writable concurrency, local cache/materialization/recovery lifecycle, and tray/background responsibility.
+- generic Start/Host lifecycle orchestration;
+- one active managed writable lifecycle per device;
+- local/remote storage and reservation composition;
+- verified package materialization/cache;
+- durable recovery responsibility;
+- read-only Join orchestration;
+- tray/background responsibility.
 
-Adapters own game-specific discovery, environment facts, restore/capture shape, launch/host/join details, session/readiness evidence, graceful stop, safe capture, and game-specific limitations.
+### Adapters own
 
-## Workstream dependency model
+- installation and World discovery;
+- environment facts/preparation;
+- native World creation where proven;
+- restore/capture package shape;
+- local/host/client launch details;
+- session/readiness evidence;
+- safe host stop when advertised;
+- safe capture timing;
+- game-specific identity/environment limitations.
+
+## Capability and action contract
+
+Catalog registration does not grant gameplay behavior.
 
 ```text
-UI states/actions
-    <-> generic runtime lifecycle
-    <-> backend authority/transaction state
-    <-> adapter capabilities/evidence
+Start World
+    -> AutomaticLocalLaunch
+
+Host World
+    -> AutomaticHostLaunch
+
+Join
+    -> AutomaticClientJoin
+       + current GetJoinCapabilityAsync result
+
+Stop and Save
+    -> AutomaticHostStop
+
+Create World
+    -> NativeWorldCreation
 ```
 
-Rules:
+First-release Join is automatic-or-unavailable. The earlier guided-manual Join fallback was removed because Core had no truthful lifecycle for owning preparation, user-controlled manual play, completion, and cleanup. Do not resurrect it until a real adapter proves that complete lifecycle is needed.
 
-- UI requests only actions supported by runtime/backend/adapter contracts.
-- Runtime exposes states the UI can communicate consistently.
-- Backend uncertainty/recovery semantics match runtime connectivity/crash behavior.
-- Adapter capabilities determine Start/Host/Join/Stop and Save availability without game-name branches in Core/UI.
-- No workstream may add a concept rejected by `NON_NEGOTIABLE_RULES.md` or `PRODUCT_BOUNDARY.md`.
+## Current adapter depth relevant to release
 
-# Planning phase P0 — COMPLETE
+### Factorio
 
-## P0.1: Roadmap structure
+Current advertised capability includes local Start, managed Host, automatic Join, native World creation, exact game version, and mod support.
 
-Status: **complete**.
+The active interface Host path is:
 
-## P0.2: UI-0 contract
+```text
+private dedicated Factorio server
+-> UDP 34197 game endpoint
+-> ephemeral loopback RCON
+-> authenticated readiness
+-> normal graphical host client
+-> client ends
+-> /server-save
+-> observed save refresh
+-> managed server process ends
+-> capture/commit
+```
 
-Status: **complete and approved**.
+`AutomaticHostStop` is not advertised. Real Internet reachability, real Join, final safe completion/capture, and cross-device handoff remain release evidence.
 
-Canonical sources:
+### Palworld
 
-- `UI_ROADMAP.md`;
-- `UI0_SIGNOFF_CHECKLIST.md`.
+Current advertised capability includes automatic Host, automatic Host Stop, and exact game version.
 
-Approved scope includes:
+The canonical `WorldOption.sav` remains read-only. Disposable runtime settings + localhost REST own management. Automatic client Join is not advertised.
 
-- Games -> Worlds navigation;
-- explicit Start World / Host World / Join;
-- local-first import;
-- Host independent of persistent sharing;
-- shared verification before new writable play;
-- capability-driven Join including guided manual fallback;
-- evidence-driven recovery;
-- persistent tray whenever Steward process runs;
-- fixed terminology;
-- flat Share World / Manage access surface.
+Remaining release evidence includes real network/native Join behavior where required and complete handoff.
 
-## P0.3: BE-0 contract
+### 7 Days to Die
 
-Status: **complete and approved**.
+Discovery/environment/state is implemented. Exact opaque `SandboxCode` remains a World-specific reproduction input.
 
-Canonical sources:
+Automatic Host/Stop/Join stays frozen until the current real V3 server lifecycle proves:
 
-- `BACKEND_ROADMAP.md`;
-- `BE0_SIGNOFF_CHECKLIST.md`.
+- readiness;
+- minimum loopback `shutdown` framing;
+- long-lived process ownership/clean exit;
+- final authoritative save completion;
+- capture/relaunch of the same updated World.
 
-BE-D001 through BE-D015 define the first-release backend contract.
+### Project Zomboid
 
-## P0.4: AR-0 contract
+Discovery/environment/state is implemented, including dedicated-server and Workshop identity boundaries.
 
-Status: **complete and approved**.
+Managed runtime stays frozen until a real isolated dedicated-server lifecycle proves launch ownership, safe shutdown, capture, and relaunch without treating the player's live profile as Steward-owned session state.
 
-Canonical sources:
+### Remaining catalog adapters
 
-- `ADAPTER_RUNTIME_ROADMAP.md`;
-- `AR0_SIGNOFF_CHECKLIST.md`.
+The other fifteen first-party adapters intentionally provide narrower discovery/environment/state slices. They remain useful product support without invented Start/Host/Join/Stop behavior.
 
-## P0.5: Cross-workstream reconciliation
+## Backend/platform foundation — IMPLEMENTED
 
-Status: **complete and approved**.
+The repository already contains:
 
-Canonical source:
+- authenticated shared World metadata/access;
+- PostgreSQL persistence;
+- private S3-compatible immutable object transfer;
+- resumable multipart upload/direct download;
+- exact package size/hash verification;
+- distributed reservation generations;
+- heartbeat -> Uncertain -> deliberate reclaim;
+- expected-head canonical commit;
+- durable idempotency for ambiguous authority mutations;
+- verified package cache/materialization;
+- short-lived Host presence;
+- deterministic local/remote recovery;
+- bounded retention/cleanup;
+- redacted diagnostics;
+- real PostgreSQL backup/restore CI proof;
+- synthetic large-transfer/endurance CI proof.
 
-- `CROSS_WORKSTREAM_CONTRACT.md`.
+Do not describe those as future architecture.
 
-Important reconciled rules:
+Real provider deployment/operations remain empirical because no provider account/resource creation is available in the current tool environment. `E4_LIVE_ACCEPTANCE_DEPLOYMENT.md` defines the first disposable Instance + Caddy + PostgreSQL + S3 shape without broadening Steward's proxy trust model.
 
-- `Only on this PC` may Host when temporary-host capability exists;
-- persistent sharing is not a prerequisite for temporary hosting;
-- final UI terms include Running, Hosting, Host is starting, Someone is playing, Saving World, Action required, Recovery needed, and Interrupted session;
-- Waiting to sync preserves an unresolved candidate;
-- Join never creates a second writer;
-- access administration never grants gameplay/reservation priority.
+## Historical implementation milestones
 
-## P0.6: First-release acceptance plan
+The old E-stage sequence is preserved here only as provenance. It is not the active task queue.
 
-Status: **complete as a specification; execution occurs during implementation/release validation**.
+| Historical stage | Proven outcome |
+|---|---|
+| P0 | UI/backend/runtime contracts and cross-workstream state/action model approved. |
+| E1 | Provider-free authority simulation, generic runtime conformance, first commercial shell. |
+| E2 | Real authenticated metadata/access + immutable transfer foundation. |
+| E3 | PostgreSQL-backed one-writer authority and canonical commit. |
+| E4 | Desktop remote composition, exact environment, recovery, access, Host presence, read-only Join. |
+| E5 / BE-5 | Deterministic PC A -> PC B -> PC A handoff through production contracts/TestServer + real PostgreSQL. |
+| E6 | Commercial UI/code accessibility composition; real Windows accessibility/DPI evidence remained deferred. |
+| E8 | Deterministic hardening: integrity/bounds/provider backup/transfer/endurance/diagnostics/transport security. |
+| V2 | Private Friends Build product/deployment preparation. |
+| V3-A..D | Production release config, exact depot bytes, matched public backend identity, action-specific release claims. |
+| #137 | Final deterministic V3-E/V3-F gate aligned with Steam-owned install/update. |
+| #138 | First real V3-E Windows defect/fix. |
 
-Canonical source: `CROSS_WORKSTREAM_CONTRACT.md`.
+Historical status files remain evidence. Their old “next phase” statements do not override this roadmap.
 
-## P0.7: Explicit planning sign-off
+## Drift-control rules
 
-Status: **complete — product owner explicitly approved continuing into implementation.**
+### Evidence beats prose
 
-# Drift-control rules after unlock
+Documentation must describe executable truth. When status prose conflicts with production code, inspect the actual contract used by callers before changing implementation.
 
-## Every code change maps to the roadmap
+Explicit interface implementations are part of that rule: a convenient public helper method is not automatically the product path if Core/Desktop call through a different interface implementation.
 
-Every production change must map to one workstream, one numbered milestone, and one acceptance criterion.
-
-## Empirical uncertainty is accumulated, not serialized
-
-A real-machine/manual experiment does not block unrelated development merely because it is unresolved.
+### Empirical uncertainty is accumulated, not serialized
 
 ```text
 reach empirical uncertainty
--> record the exact deferred test
--> freeze the assumption / do not fake evidence
--> move to another independent code path
--> continue deterministic CI/build/test work
--> later execute several empirical tests as one batch
+-> record exact deferred test
+-> freeze dependent capability/claim
+-> continue independent deterministic work
+-> batch expensive real tests later
 ```
 
-A deferred uncertainty still blocks any claim or capability that depends on its result. It does **not** block work that does not depend on that claim.
+A deferred uncertainty blocks only the claim that depends on it.
 
-## Eliminate ownership before solving it
-
-This rule has higher priority than solving a difficult implementation problem:
+### Eliminate ownership before solving it
 
 ```text
 need to solve X
--> discover Steward does not need to own X
--> DELETE X
--> delete obsolete tests/probes/interfaces that existed only for X
+-> discover Steam / Windows / the game already owns X
+-> reuse the existing primitive
+-> delete Steward-owned substitute work
 -> stop caring about X
 ```
 
-Do not preserve abstractions, codecs, experiments, launch stubs, or compatibility paths merely because work was previously invested in them. The smallest truthful product boundary wins.
+Examples already applied:
 
-## Parking lot new ideas
+- Steam owns Steward installation/update; no self-updater.
+- Palworld owns WorldOption serialization; no Steward WorldOption writer.
+- 7DTD owns SandboxCode semantics; Steward stores/reuses it opaquely instead of decoding it.
+- a missing required dedicated-server installation is useful negative evidence; Steward does not need a generic host-eligibility theory for that case.
 
-Ideas that do not unblock or strengthen an active product path are recorded/deferred. They do not enter implementation merely because they sound useful.
+### Do not preserve abandoned abstractions because work was invested
 
-## Boundary changes update documentation
+Delete obsolete probes, codecs, compatibility paths, or generic abstractions when the product no longer needs the problem they existed to solve.
 
-A deliberate product-boundary change updates, where applicable:
+### Capability claims require evidence
 
-1. `NON_NEGOTIABLE_RULES.md`;
-2. `PRODUCT_BOUNDARY.md`;
-3. `DECISIONS.md`;
-4. affected roadmap/cross-workstream contracts;
-5. implementation and acceptance evidence.
+No game gets a release claim because it is registered in the catalog.
 
-Documentation must describe executable truth. Existing prose is not authority when code/evidence proves it stale.
+No empirical gate becomes “passed” because deterministic CI resembles it.
 
-## Evidence over assumption
+No unknown networking problem gets a traversal subsystem before the real failure is measured.
 
-Claims about Factorio, Palworld, 7DTD, Project Zomboid, Steam, package behavior, process ownership, host reachability, safe capture, or recovery remain conditional until controlled evidence proves them. Unknown evidence is recorded and deferred rather than replaced with guessed behavior.
+## Canonical current documents
 
-# Validated implementation foundation
+For active execution use:
 
-The local lifecycle proves:
+- `DOCUMENTATION_AUDIT.md` — document freshness during reconciliation;
+- `V3_STEAM_RELEASE_CANDIDATE.md` — current release-stage contract;
+- `PLATFORM_IMPLEMENTATION_STATUS.md` — stable platform/current executable state;
+- `UI_ROADMAP.md` — approved UI hierarchy/state/action contract;
+- `STEAM_RELEASE_GATE.md` — final real V3-E/V3-F acceptance batch;
+- `DEFERRED_EMPIRICAL_TESTS.md` — exact unproven real-system questions.
 
-```text
-discover
--> import
--> inspect exact environment
--> prepare isolated workspace
--> restore state
--> launch local or hosted session
--> adapter observes real session
--> capture updated state
--> store immutable revision
--> advance canonical head last
--> preserve durable recovery evidence on failure
-```
-
-E1 additionally proved the shared authority contract in a provider-free deterministic simulation: one-writer generations, uncertainty/reclaim, resumable verified candidate transfer, idempotent mutation replay/result lookup, expected-head commit, retention, recovery preservation, and PC A -> PC B -> PC A handoff behavior.
-
-BE-2 replaced simulated identity/access/metadata with server-verified Steam identity, Steward sessions, shared World metadata, flat membership/Access Manager administration, invitations/revocation/leave flows, and durable PostgreSQL persistence.
-
-BE-3 replaced simulated transfer with private immutable object storage, resumable multipart upload, direct authorized transfer, exact size/SHA-256 verification, publication, cleanup/retention, verified desktop cache/materialization, and a real S3-compatible protocol proof.
-
-BE-4 replaced simulated distributed authority with PostgreSQL-backed reservation/generation coordination and canonical commit: acquire, heartbeat, Uncertain/reconnect, deliberate reclaim, generation invalidation, expected-head commit, late-writer rejection, and durable mutation idempotency.
-
-BE-5 composes those boundaries through Core and proves authenticated remote metadata, immutable environment manifests, verified transfer, exact-generation commit, two-device continuation, adverse reclaim behavior, and deterministic lost-success recovery.
-
-Canonical backend evidence is recorded in `BE2_STATUS.md`, `BE3_S3_CHECKPOINT.md`, `BE4_STATUS.md`, and `BE5_STATUS.md`.
-
-# Execution plan
-
-## E1: Contract and conformance foundation — COMPLETE AND GREEN
-
-Completed slices:
-
-- **BE-1** provider-free deterministic backend simulation;
-- **AR-1** generic runtime/conformance extraction and tests;
-- **UI-1** shell/navigation replacement using the frozen state/action contract.
-
-Canonical evidence: `E1_STATUS.md`.
-
-## E2: Shared state foundation — BACKEND COMPLETE AND GREEN
-
-### BE-2 — Authentication and World metadata service
-
-Complete and green.
-
-### BE-3 — Immutable object transfer
-
-Complete and green. Object storage never decides what revision is current.
-
-## E3: Distributed one-writer coordination — BACKEND COMPLETE AND GREEN
-
-BE-4 provides and proves:
-
-- acquire;
-- heartbeat;
-- Active -> Uncertain;
-- same-generation reconnect;
-- deliberate reclaim;
-- generation invalidation;
-- expected-head canonical commit;
-- durable idempotent acquire/reclaim/commit;
-- parallel race protection;
-- stale/late writer rejection.
-
-## E4: Background runtime integration — CODE/CI COMPOSED, LIVE ACCEPTANCE SPLIT
-
-Implemented and CI-proven:
-
-- real Steam Web API ticket acquisition path in Desktop;
-- stable installation-bound identity;
-- authenticated Steward session/refresh client;
-- merged local/shared World catalog with authoritative routing by World ID;
-- verified remote package download/cache/materialization;
-- distributed coordinator using BE-4 authority;
-- resumable multipart candidate upload;
-- exact-generation expected-head commit;
-- pre-launch reservation abandonment;
-- exact immutable environment manifests;
-- Verify/Repair hard gate before shared writable play;
-- local-only path preserved independently of backend availability;
-- durable workspace journal including base state, exact environment, and candidate identity;
-- deterministic remote pending recovery;
-- deterministic local pending recovery;
-- exact-environment cleanup-only recovery;
-- distinct crash-found `InterruptedSession` responsibility;
-- explicit **Recover changes** and confirmed **Discard interrupted session** paths;
-- tray/Quit/update/writable-action guards tied to durable responsibility;
-- fail-closed state-head, environment-head, candidate-parent, and adapter checks;
-- short-lived host-presence service/API/PostgreSQL/client boundary tied to exact active reservation;
-- read-only Join lifecycle that does not download/restore canonical state or acquire writable authority;
-- capability-driven Desktop Join consumption;
-- backend infrastructure-only startup mode with Steam authentication explicitly unavailable/fail-closed.
-
-Current code-level recovery rule:
-
-```text
-candidate already canonical
-    -> no recapture/recommit
-    -> cleanup + clear journal
-
-base state + exact journaled environment still canonical
-    -> acquire exact authority
-    -> re-check state + environment
-    -> reuse stable candidate ID
-    -> store/reuse candidate
-    -> commit
-
-state or environment diverged
-    -> do not overwrite or combine histories
-    -> preserve evidence
-```
-
-Current Factorio adapter truth is simpler than older roadmap text claimed: `LaunchHostAsync` uses the direct `factorio --host <save>` path. Richer dedicated-server/RCON primitives exist in the repository but are not the active adapter host path and therefore are not counted as implemented product behavior.
-
-Canonical status: `E4_DESKTOP_STATUS.md`.
-
-### E4-A — live infrastructure readiness
-
-E4-A must prove the real deployment boundary that does **not** require private Steam publisher credentials:
-
-```text
-real HTTPS Steward API
--> real PostgreSQL
--> real S3-compatible storage
--> schema initialization
--> health/live
--> health/ready
--> transfer/network behaviour
--> deployment/restart/logging checks
-```
-
-The backend now supports exactly this mode: omit all server Steam credentials and Steam authentication is unavailable/fail-closed while infrastructure can boot and be exercised. Partial Steam configuration is rejected.
-
-`tools/e4-live-acceptance.ps1` selects E4-A when client Steam values are absent.
-
-### E4-B — Steam production + two-installation host/Join acceptance
-
-E4-B begins when the real Steward Steam AppID and publisher credentials exist. It remains intentionally empirical:
-
-```text
-real Windows Steward build under Steward Steam AppID
--> real Steam Web API ticket
--> deployed Steward API verifies same AppID/identity
--> PC A shares Factorio World and invites PC B
--> PC B accepts and sees same canonical World
--> exact environment reaches Ready
--> PC A acquires exact writable reservation and hosts
--> game host becomes genuinely reachable
--> PC A publishes truthful Ready host presence
--> PC B consumes host presence and joins read-only
--> gameplay ends + proven safe host stop/save boundary
--> capture + multipart upload
--> expected-head commit
--> second Steward installation observes the new canonical revision
-```
-
-The unresolved external host-address/reachability mechanism and exact Windows graceful Factorio managed-stop signal stay in the deferred empirical batch. They block claiming E4-B complete, not independent implementation elsewhere.
-
-## E5: Development two-device proof / BE-5 — COMPLETE AND GREEN
-
-```text
-PC A commits N+1
--> PC B downloads, verifies, restores, and continues N+1
--> PC B commits N+2
--> PC A downloads, verifies, restores N+2
-```
-
-Also proven:
-
-- competing writer rejection;
-- interrupted multipart transfer resume;
-- active-generation outage -> `Uncertain`;
-- lost-success Waiting-to-sync completion;
-- deliberate reclaim after grace;
-- generation increase and late old-generation rejection;
-- fail-closed recovery on canonical divergence.
-
-Canonical evidence: `BE5_STATUS.md`.
-
-## E6: Commercial UI completion
-
-- Games Library/workspace;
-- import;
-- Start/Host/Join;
-- Share/Manage access;
-- lifecycle progress;
-- tray/background;
-- recovery/action-required/interrupted-session flows;
-- accessibility/commercial polish.
-
-E6 may proceed alongside E4 live acceptance when UI work consumes real runtime/backend states instead of inventing substitute behavior.
-
-## E7: Second-adapter handoff proof
-
-Repeat the production-composed two-device flow with another adapter only when that adapter truthfully advertises the required host/join capabilities. Keep game-specific issues inside its adapter.
-
-Palworld shared play remains fail-closed until its remaining exact-environment/runtime acceptance evidence is proven. 7 Days to Die and Project Zomboid continue to advertise only the capabilities they actually implement.
-
-## E8: Release hardening
-
-- security review;
-- backup/restore proof;
-- long-session/large-World tests;
-- installer/update behavior;
-- bounded retries/cache/retention;
-- diagnostics/support workflow;
-- EU residency/deployment verification;
-- complete acceptance plan execution.
-
-## E9: Evidence-driven performance optimization
-
-Only after correctness:
-
-- deduplication;
-- peer-assisted transfer;
-- CDN/immutable replication;
-- background prefetch;
-- compression tuning;
-- retention compaction/delta/chunk reuse where measurements justify it.
+Lower-level subsystem/adapter documents add detail but may not silently expand the product boundary.

@@ -192,6 +192,12 @@ internal static class AbioticFactorWorldState
                 foreach (var file in files)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+                    if (!AbioticFactorWorldDiscovery.IsRegularFile(file.FullPath))
+                    {
+                        throw new InvalidOperationException(
+                            $"Abiotic Factor World file became linked or unreadable before capture: {file.FullPath}");
+                    }
+
                     var entry = archive.CreateEntry(
                         file.RelativePath,
                         CompressionLevel.Fastest);
@@ -292,7 +298,7 @@ internal static class AbioticFactorWorldState
                 var relative = Path.GetRelativePath(root, file)
                     .Replace(Path.DirectorySeparatorChar, '/');
                 if (relative.Contains('\\') ||
-                    relative.StartsWith('/', StringComparison.Ordinal) ||
+                    relative.StartsWith("/", StringComparison.Ordinal) ||
                     relative.Split('/').Any(segment => segment is "" or "." or ".."))
                 {
                     throw new InvalidDataException(
@@ -330,7 +336,7 @@ internal static class AbioticFactorWorldState
             if (string.IsNullOrEmpty(entry.Name) ||
                 string.IsNullOrWhiteSpace(entry.FullName) ||
                 entry.FullName.Contains('\\') ||
-                entry.FullName.StartsWith('/', StringComparison.Ordinal))
+                entry.FullName.StartsWith("/", StringComparison.Ordinal))
             {
                 throw new InvalidDataException(
                     $"Abiotic Factor state package contains an unsupported archive entry '{entry.FullName}'.");

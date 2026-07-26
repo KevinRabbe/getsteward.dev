@@ -61,38 +61,38 @@ The earlier V3 sandbox-authority experiment is retired. Current V3 game document
 - Isolated adapter-owned user-data workspace preparation and recovery-preserving finalization.
 - Bounded managed `serverconfig.xml` transformation for `GameWorld`, `GameName`, `UserDataFolder`, and `SaveGameFolder`.
 - Exact V3 `SandboxCode` is an explicit World-specific reproduction input; Steward does not decode, regenerate, guess, or replace it from unrelated machine-local configuration.
-- The managed-host transform can inject a bounded transient Telnet/service-interface port and strong 64-hex-character management password while preserving the opaque `SandboxCode`.
-- Current server documentation exposes the built-in service interface and documents `shutdown` as the supported server-stop command.
+- Current V3 server documentation states that an empty `TelnetPassword` makes the service interface listen only on local loopback.
+- The managed-host transform therefore enables the built-in service interface on a bounded Steward-selected port and deliberately sets `TelnetPassword` to empty. There is no Steward management credential or authentication exchange to own.
+- Current server documentation exposes the built-in local service interface and documents `shutdown` as the supported server-stop command; the shipped Windows launcher demonstrates the interface through local raw PuTTY/Telnet rather than a custom RCON protocol.
 
 **Empirical questions:**
 
-1. What exact current-V3 bytes/text does the built-in management interface emit before and after password authentication, and what is the smallest response evidence that proves authentication without depending on cosmetic prompt text?
-2. With Steward's strong non-empty transient password, what local address(es) does the current V3 server actually bind the management port to, and what Windows Firewall behavior is observed?
-3. What observable log/process/network boundary proves the restored named World is fully ready for players rather than merely that the process or management socket exists?
-4. After authenticated `shutdown`, does the actual long-lived server process exit reliably, and what observable boundary proves its final authoritative save is complete before Steward capture begins?
-5. Does the resulting isolated `Saves/...` + `GeneratedWorlds/...` bundle capture every authoritative change needed for a second launch of the same updated World?
+1. What observable log/process/network boundary proves the restored named World is fully ready for players rather than merely that the process or local management socket exists?
+2. What exact minimal raw line framing does the current V3 local service interface accept for `shutdown`, and after that command does the actual long-lived server process exit reliably?
+3. What observable boundary proves the final authoritative save is complete before Steward capture begins?
+4. Does the resulting isolated `Saves/...` + `GeneratedWorlds/...` bundle capture every authoritative change needed for a second launch of the same updated World?
 
 **Test setup:**
 
 - Windows machine with the current 7 Days to Die client and dedicated server installed.
 - One disposable known V3 World and one exact deliberately non-default `SandboxCode` supplied explicitly for that World.
 - An adapter-owned isolated user-data workspace; never use the live player World as the writable test target.
-- A managed `serverconfig.xml` using a fresh transient management password and a known test port.
+- A managed `serverconfig.xml` with `TelnetEnabled=true`, one known test port, and an empty `TelnetPassword` so the game uses its documented loopback-only mode.
 - Record the dedicated-server PID/process tree, management-port listeners, server log, and isolated World file timestamps/sizes before and after stop.
-- For the first protocol observation, use an ordinary raw/Telnet client and record a bounded transcript with the password redacted. Do not build Steward product parsing around historical prompt strings before this trace exists.
+- For the first control observation, use an ordinary local raw/Telnet client and record only the bytes/text needed to determine accepted command-line framing. There is no password to record or redact.
 
 **Acceptance evidence:**
 
 - The server loads the intended restored `GameWorld`/`GameName` with the supplied non-default `SandboxCode` rather than silently substituting defaults.
-- The actual management listener address/port is recorded, including whether it is loopback-only or externally bound when a non-empty password is used.
-- A bounded redacted transcript records the current V3 authentication exchange and the observable response around the supported `shutdown` command.
-- The actual long-lived dedicated-server process is identified and is not confused with a bootstrap/launcher process.
+- The management listener is observed on loopback only, matching the current documented empty-password mode; any contradictory real behavior is recorded as a game-version finding before Steward relies on it.
 - A specific readiness signal is observed before the test client is considered able to join.
+- The minimum accepted raw `shutdown` line framing is recorded without depending on cosmetic welcome/banner text.
+- The actual long-lived dedicated-server process is identified and is not confused with a bootstrap/launcher process.
 - `shutdown` reaches a clean terminal state without Steward killing the process.
 - The final save/capture boundary is observable rather than inferred from a fixed sleep.
 - The captured result restores and launches as the same updated World in a second disposable run.
 
-**Promotion rule:** First turn the observed management/readiness/shutdown trace into the smallest bounded client/lifecycle implementation with regression tests. Then repeat this real scenario through Steward. Only after that second proof may 7DTD promote automatic Host/Stop. Join remains a separate capability proof.
+**Promotion rule:** First turn the observed readiness/raw-shutdown/final-save trace into the smallest bounded local control/lifecycle implementation with regression tests. Then repeat this real scenario through Steward. Only after that second proof may 7DTD promote automatic Host/Stop. Join remains a separate capability proof.
 
 ## Factorio Friends Build — direct Internet Host/Join reachability
 

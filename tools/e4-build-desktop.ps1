@@ -4,6 +4,7 @@ param(
     [string]$Runtime = 'win-x64',
     [string]$OutputDirectory,
     [string]$FriendsBuildApiBaseUrl,
+    [string]$BuildVersion,
     [switch]$FrameworkDependent
 )
 
@@ -57,6 +58,12 @@ if ([IO.Directory]::Exists($output)) {
 [IO.Directory]::CreateDirectory($output) | Out-Null
 
 $friendsBuildApiBaseUrl = Get-NormalizedFriendsBuildApiBaseUrl $FriendsBuildApiBaseUrl
+$buildVersion = if ([string]::IsNullOrWhiteSpace($BuildVersion)) { $null } else { $BuildVersion.Trim() }
+if ($null -ne $buildVersion -and
+    ($buildVersion.Length -gt 64 -or $buildVersion -notmatch '^[0-9A-Za-z][0-9A-Za-z.-]*$')) {
+    Fail 'BuildVersion must be 1-64 filename-safe characters using letters, digits, dots, or hyphens.'
+}
+
 $selfContained = -not $FrameworkDependent.IsPresent
 $selfContainedText = if ($selfContained) { 'true' } else { 'false' }
 
@@ -68,6 +75,9 @@ Write-Host "  Self-contained: $selfContainedText"
 Write-Host "  Output: $output"
 if ($null -ne $friendsBuildApiBaseUrl) {
     Write-Host '  Deployment: Friends Build package'
+}
+if ($null -ne $buildVersion) {
+    Write-Host "  Build version: $buildVersion"
 }
 Write-Host
 
@@ -81,6 +91,10 @@ $publishArguments = @(
     '--nologo',
     '--verbosity', 'minimal'
 )
+if ($null -ne $buildVersion) {
+    $publishArguments += "-p:InformationalVersion=$buildVersion"
+    $publishArguments += '-p:IncludeSourceRevisionInInformationalVersion=false'
+}
 
 $publishOutput = @(& dotnet @publishArguments 2>&1)
 $publishExitCode = $LASTEXITCODE

@@ -131,6 +131,15 @@ jobs:
             $version = if ([string]::IsNullOrWhiteSpace($requestedVersion)) { '3.0.0-alpha.1' } else { $requestedVersion }
           }
 
+          $apiUri = $null
+          if (-not [Uri]::TryCreate($apiBaseUrl, [UriKind]::Absolute, [ref]$apiUri)) {
+            throw 'steam_api_base_url must be an absolute URL.'
+          }
+          $expectedApiBaseUrl = $apiUri.AbsoluteUri
+          if (-not $expectedApiBaseUrl.EndsWith('/', [StringComparison]::Ordinal)) {
+            $expectedApiBaseUrl += '/'
+          }
+
           $output = "$env:RUNNER_TEMP/steward-v3-steam-depot"
           $evidence = "$env:RUNNER_TEMP/steward-v3-steam-evidence"
           New-Item -ItemType Directory -Force -Path $evidence | Out-Null
@@ -139,6 +148,7 @@ jobs:
           ./tools/e4-build-desktop.ps1 `
             -OutputDirectory $output `
             -AcceptanceManifestOutputPath $manifestPath `
+            -ReleaseContentOnly `
             -SteamReleaseApiBaseUrl $apiBaseUrl `
             -SteamReleaseAppId $appId `
             -SteamReleaseWebApiIdentity $identity `
@@ -160,6 +170,12 @@ jobs:
           if ([IO.File]::Exists((Join-Path $output 'steam_appid.txt'))) {
             throw 'V3 Steam depot content must not ship steam_appid.txt.'
           }
+          if (@(Get-ChildItem -LiteralPath $output -Recurse -File -Filter '*.pdb').Count -ne 0) {
+            throw 'V3 Steam depot content must not ship PDB debug symbols.'
+          }
+          if ([IO.File]::Exists((Join-Path $output 'steam_api64.lib'))) {
+            throw 'V3 Steam depot content must not ship the Steamworks import library.'
+          }
 
           $productVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($managedDesktopPath).ProductVersion
           if (-not [string]::Equals($productVersion, $version, [StringComparison]::Ordinal)) {
@@ -168,11 +184,11 @@ jobs:
 
           $configuration = Get-Content -LiteralPath $configurationPath -Raw | ConvertFrom-Json
           $configurationProperties = @($configuration.PSObject.Properties.Name | Sort-Object)
-          $expectedConfigurationProperties = @('apiBaseUrl', 'schemaVersion', 'steamAppId', 'steamWebApiIdentity' | Sort-Object)
+          $expectedConfigurationProperties = @('apiBaseUrl', 'schemaVersion', 'steamAppId', 'steamWebApiIdentity') | Sort-Object
           if ($configurationProperties.Count -ne $expectedConfigurationProperties.Count -or
-              (Compare-Object $configurationProperties $expectedConfigurationProperties).Count -ne 0 -or
+              @(Compare-Object $configurationProperties $expectedConfigurationProperties).Count -ne 0 -or
               $configuration.schemaVersion -ne 1 -or
-              [string]$configuration.apiBaseUrl -ne $apiBaseUrl -or
+              [string]$configuration.apiBaseUrl -ne $expectedApiBaseUrl -or
               [uint32]$configuration.steamAppId -ne $appId -or
               [string]$configuration.steamWebApiIdentity -ne $identity) {
             throw 'Generated V3 Steam release configuration is invalid or contains an unexpected field.'

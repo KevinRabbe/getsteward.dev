@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Sessions;
@@ -67,9 +68,11 @@ public sealed class StewardReservationOutcomeUnknownException : IOException
 }
 
 /// <summary>
-/// Distributed IWorldSessionCoordinator backed by the BE-4 reservation/generation API.
-/// It owns only authority/liveness. Candidate byte transfer and canonical commit remain storage work,
-/// bridged through <see cref="StewardWritableReservationRegistry"/>.
+/// Distributed IWorldSessionCoordinator backed by the BE-4 reservation/generation API. Writable
+/// authority remains canonical. Optional host presence is only short-lived Join evidence for that same
+/// exact lease and is refreshed by the existing authority heartbeat rather than a second timer.
+/// Candidate byte transfer and canonical commit remain storage work, bridged through
+/// <see cref="StewardWritableReservationRegistry"/>.
 /// </summary>
 public sealed class StewardWorldSessionCoordinator : IWorldSessionCoordinator
 {
@@ -81,6 +84,8 @@ public sealed class StewardWorldSessionCoordinator : IWorldSessionCoordinator
     private readonly StewardWritableReservationRegistry _reservations;
     private readonly string _installationId;
     private readonly StewardWorldSessionCoordinatorOptions _options;
+    private readonly StewardHostPresenceClient? _hostPresence;
+    private readonly ConcurrentDictionary<WorldId, HostPresencePublication> _hostPublications = new();
 
     public StewardWorldSessionCoordinator(
         StewardWorldMetadataClient worlds,
@@ -90,7 +95,8 @@ public sealed class StewardWorldSessionCoordinator : IWorldSessionCoordinator
         IWorkspaceRecoveryStore recovery,
         StewardWritableReservationRegistry reservations,
         string installationId,
-        StewardWorldSessionCoordinatorOptions? options = null)
+        StewardWorldSessionCoordinatorOptions? options = null,
+        StewardHostPresenceClient? hostPresence = null)
     {
         ArgumentNullException.ThrowIfNull(worlds);
         ArgumentNullException.ThrowIfNull(authority);
@@ -108,6 +114,7 @@ public sealed class StewardWorldSessionCoordinator : IWorldSessionCoordinator
         _reservations = reservations;
         _installationId = installationId;
         _options = options ?? StewardWorldSessionCoordinatorOptions.FirstReleaseDefaults;
+        _hostPresence = hostPresence;
     }
 
     public async Task<WorldSession> GetSessionAsync(
@@ -228,7 +235,7 @@ public sealed class StewardWorldSessionCoordinator : IWorldSessionCoordinator
                 case RemoteReservationAcquireStatus.NotFoundOrUnauthorized:
                     throw new StewardWorldUnavailableException(
                         "WorldNotFoundOrUnauthorized",
-                        "The shared World was not found or this Steam identity no longer has access.");
+                        "The shared World was not found or this Steward identity no longer has access.");
 
                 case RemoteReservationAcquireStatus.IdempotencyKeyConflict:
                     throw new InvalidDataException(
@@ -242,6 +249,94 @@ public sealed class StewardWorldSessionCoordinator : IWorldSessionCoordinator
         throw new StewardWorldUnavailableException(
             "HeadChanged",
             "The canonical World head changed repeatedly while writable authority was being acquired. Retry from the latest head.");
+    }
+
+    public async Task MarkHostStartingAsync(
+        WorldId worldId,
+        CancellationToken cancellationToken = default)
+    {
+        if (_hostPresence is null)
+        {
+            return;
+        }
+
+        var lease = _reservations.Get(worldId);
+        if (lease is null)
+        {
+            return;
+        }
+
+        var publication = new HostPresencePublication(
+            lease.SessionId,
+            lease.Generation,
+            StewardRemoteHostPresenceState.Starting,
+            Port: null,
+            JoinToken: null);
+        _hostPublications[worldId] = publication;
+        await TryPublishHostPresenceAsync(lease, publication, cancellationToken);
+    }
+
+    public async Task MarkHostReadyAsync(
+        WorldId worldId,
+        ManagedHostEndpoint endpoint,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(endpoint);
+        if (_hostPresence is null)
+        {
+            return;
+        }
+
+        var lease = _reservations.Get(worldId);
+        if (lease is null)
+        {
+            return;
+        }
+
+        var publication = new HostPresencePublication(
+            lease.SessionId,
+            lease.Generation,
+            StewardRemoteHostPresenceState.Ready,
+            endpoint.Port,
+            endpoint.JoinToken);
+        _hostPublications[worldId] = publication;
+        await TryPublishHostPresenceAsync(lease, publication, cancellationToken);
+    }
+
+    public async Task EndHostPresenceAsync(
+        WorldId worldId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_hostPublications.TryRemove(worldId, out var publication) || _hostPresence is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var accessToken = await _accessTokens.GetAccessTokenAsync(cancellationToken);
+            await _hostPresence.ClearAsync(
+                worldId,
+                publication.SessionId,
+                publication.Generation,
+                accessToken,
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (StewardSessionExpiredException)
+        {
+        }
+        catch (StewardRemoteApiException)
+        {
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (IOException)
+        {
+        }
     }
 
     public Task RequestHandoffAsync(
@@ -267,6 +362,7 @@ public sealed class StewardWorldSessionCoordinator : IWorldSessionCoordinator
         var lease = _reservations.Get(worldId);
         if (lease is null)
         {
+            _hostPublications.TryRemove(worldId, out _);
             return;
         }
 
@@ -277,6 +373,8 @@ public sealed class StewardWorldSessionCoordinator : IWorldSessionCoordinator
         {
             // Writable gameplay happened and canonical commit did not complete. Keep heartbeats and
             // the exact generation alive while the desktop process still owns recovery evidence.
+            // Host presence has already ended with the game session and is intentionally not revived.
+            _hostPublications.TryRemove(worldId, out _);
             return;
         }
 
@@ -291,6 +389,7 @@ public sealed class StewardWorldSessionCoordinator : IWorldSessionCoordinator
         if (result is RemoteReservationAbandonStatus.Abandoned or
             RemoteReservationAbandonStatus.NoLongerCurrent)
         {
+            _hostPublications.TryRemove(worldId, out _);
             _reservations.TryResolve(worldId, lease.SessionId, lease.Generation);
         }
     }
@@ -303,7 +402,7 @@ public sealed class StewardWorldSessionCoordinator : IWorldSessionCoordinator
         return await _worlds.GetWorldAsync(worldId, accessToken, cancellationToken)
             ?? throw new StewardWorldUnavailableException(
                 "WorldNotFoundOrUnauthorized",
-                "The shared World was not found or this Steam identity no longer has access.");
+                "The shared World was not found or this Steward identity no longer has access.");
     }
 
     private WorldSession RegisterAcquiredReservation(
@@ -322,7 +421,7 @@ public sealed class StewardWorldSessionCoordinator : IWorldSessionCoordinator
         {
             throw new StewardWorldUnavailableException(
                 "HeldByAnotherInstallation",
-                "This Steam identity already holds the World from another Steward installation.");
+                "This Steward identity already holds the World from another Steward installation.");
         }
 
         var lease = new StewardWritableReservationLease(
@@ -370,11 +469,23 @@ public sealed class StewardWorldSessionCoordinator : IWorldSessionCoordinator
                         cancellationToken);
                     if (result == RemoteReservationHeartbeatStatus.ReservationMismatch)
                     {
+                        _hostPublications.TryRemove(lease.WorldId, out _);
                         _reservations.TryResolve(
                             lease.WorldId,
                             lease.SessionId,
                             lease.Generation);
                         return;
+                    }
+
+                    if (_hostPublications.TryGetValue(lease.WorldId, out var publication) &&
+                        publication.SessionId == lease.SessionId &&
+                        publication.Generation == lease.Generation)
+                    {
+                        await TryPublishHostPresenceAsync(
+                            lease,
+                            publication,
+                            accessToken,
+                            cancellationToken);
                     }
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -403,4 +514,75 @@ public sealed class StewardWorldSessionCoordinator : IWorldSessionCoordinator
         {
         }
     }
+
+    private async Task TryPublishHostPresenceAsync(
+        StewardWritableReservationLease lease,
+        HostPresencePublication publication,
+        CancellationToken cancellationToken)
+    {
+        if (_hostPresence is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var accessToken = await _accessTokens.GetAccessTokenAsync(cancellationToken);
+            await TryPublishHostPresenceAsync(
+                lease,
+                publication,
+                accessToken,
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (StewardSessionExpiredException)
+        {
+        }
+        catch (StewardRemoteApiException)
+        {
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (IOException)
+        {
+        }
+    }
+
+    private async Task TryPublishHostPresenceAsync(
+        StewardWritableReservationLease lease,
+        HostPresencePublication publication,
+        string accessToken,
+        CancellationToken cancellationToken)
+    {
+        if (_hostPresence is null)
+        {
+            return;
+        }
+
+        var status = await _hostPresence.PublishAsync(
+            lease.WorldId,
+            lease.SessionId,
+            lease.Generation,
+            publication.State,
+            address: null,
+            publication.Port,
+            publication.JoinToken,
+            accessToken,
+            cancellationToken);
+        if (status is PublishStewardRemoteHostPresenceStatus.ReservationMismatch or
+            PublishStewardRemoteHostPresenceStatus.NotFoundOrUnauthorized)
+        {
+            _hostPublications.TryRemove(lease.WorldId, out _);
+        }
+    }
+
+    private sealed record HostPresencePublication(
+        Guid SessionId,
+        long Generation,
+        StewardRemoteHostPresenceState State,
+        int? Port,
+        string? JoinToken);
 }

@@ -77,6 +77,55 @@ jobs:
             -OutputDirectory "$env:RUNNER_TEMP/steward-windows-acceptance"
           Get-Content "$env:RUNNER_TEMP/steward-windows-acceptance/acceptance-build.json"
 
+      - name: Build and verify V3 Steam release configuration
+        shell: pwsh
+        run: |
+          $output = "$env:RUNNER_TEMP/steward-v3-steam-release"
+          ./tools/e4-build-desktop.ps1 `
+            -FrameworkDependent `
+            -OutputDirectory $output `
+            -SteamReleaseApiBaseUrl 'https://steam-release.example.invalid/' `
+            -SteamReleaseAppId 123456789 `
+            -SteamReleaseWebApiIdentity 'steward-ci' `
+            -BuildVersion '3.0.0-ci'
+
+          $configurationPath = Join-Path $output 'steward-steam-release.json'
+          $manifestPath = Join-Path $output 'acceptance-build.json'
+          if (-not [IO.File]::Exists($configurationPath) -or -not [IO.File]::Exists($manifestPath)) {
+            throw 'V3 Steam release package is missing its configuration or acceptance manifest.'
+          }
+          if ([IO.File]::Exists((Join-Path $output 'steward-friends-build.json'))) {
+            throw 'V3 Steam release package unexpectedly contains Friends Build routing.'
+          }
+          if ([IO.File]::Exists((Join-Path $output 'steam_appid.txt'))) {
+            throw 'V3 Steam release package must not ship steam_appid.txt.'
+          }
+
+          $configuration = Get-Content -LiteralPath $configurationPath -Raw | ConvertFrom-Json
+          if ($configuration.schemaVersion -ne 1 -or
+              [string]$configuration.apiBaseUrl -ne 'https://steam-release.example.invalid/' -or
+              [uint32]$configuration.steamAppId -ne 123456789 -or
+              [string]$configuration.steamWebApiIdentity -ne 'steward-ci') {
+            throw 'Generated V3 Steam release configuration is invalid.'
+          }
+
+          $configurationText = [IO.File]::ReadAllText($configurationPath)
+          foreach ($forbidden in @('PublisherApiKey', 'publisherApiKey', 'ticket', 'credential', 'secret')) {
+            if ($configurationText.Contains($forbidden, [StringComparison]::OrdinalIgnoreCase)) {
+              throw "V3 Steam release configuration contains forbidden secret-bearing field/text '$forbidden'."
+            }
+          }
+
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          $entries = @($manifest.files | Where-Object { $_.path -eq 'steward-steam-release.json' })
+          if ($entries.Count -ne 1) {
+            throw 'V3 Steam release configuration is not covered exactly once by the package manifest.'
+          }
+          $actualHash = (Get-FileHash -LiteralPath $configurationPath -Algorithm SHA256).Hash
+          if (-not [string]::Equals([string]$entries[0].sha256, $actualHash, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'V3 Steam release configuration hash does not match the package manifest.'
+          }
+
       - name: Build and verify V2 Friends Build ZIP
         shell: pwsh
         env:

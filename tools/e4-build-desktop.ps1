@@ -4,6 +4,9 @@ param(
     [string]$Runtime = 'win-x64',
     [string]$OutputDirectory,
     [string]$FriendsBuildApiBaseUrl,
+    [string]$SteamReleaseApiBaseUrl,
+    [uint32]$SteamReleaseAppId = 0,
+    [string]$SteamReleaseWebApiIdentity,
     [string]$BuildVersion,
     [switch]$FrameworkDependent
 )
@@ -19,7 +22,7 @@ function Fail([string]$Message) {
     exit 1
 }
 
-function Get-NormalizedFriendsBuildApiBaseUrl([string]$Value) {
+function Get-NormalizedPackageApiBaseUrl([string]$Value, [string]$ParameterName) {
     if ([string]::IsNullOrWhiteSpace($Value)) {
         return $null
     }
@@ -30,7 +33,7 @@ function Get-NormalizedFriendsBuildApiBaseUrl([string]$Value) {
         -not [string]::IsNullOrEmpty($uri.UserInfo) -or
         -not [string]::IsNullOrEmpty($uri.Query) -or
         -not [string]::IsNullOrEmpty($uri.Fragment)) {
-        Fail 'FriendsBuildApiBaseUrl must be an absolute HTTPS URL without credentials, query, or fragment.'
+        Fail "$ParameterName must be an absolute HTTPS URL without credentials, query, or fragment."
     }
 
     $absolute = $uri.AbsoluteUri
@@ -57,7 +60,33 @@ if ([IO.Directory]::Exists($output)) {
 }
 [IO.Directory]::CreateDirectory($output) | Out-Null
 
-$friendsBuildApiBaseUrl = Get-NormalizedFriendsBuildApiBaseUrl $FriendsBuildApiBaseUrl
+$normalizedFriendsBuildApiBaseUrl = Get-NormalizedPackageApiBaseUrl $FriendsBuildApiBaseUrl 'FriendsBuildApiBaseUrl'
+$steamReleaseRequested =
+    -not [string]::IsNullOrWhiteSpace($SteamReleaseApiBaseUrl) -or
+    $SteamReleaseAppId -ne 0 -or
+    -not [string]::IsNullOrWhiteSpace($SteamReleaseWebApiIdentity)
+
+if ($null -ne $normalizedFriendsBuildApiBaseUrl -and $steamReleaseRequested) {
+    Fail 'Friends Build and Steam release package configuration are mutually exclusive.'
+}
+
+$normalizedSteamReleaseApiBaseUrl = $null
+if ($steamReleaseRequested) {
+    if ([string]::IsNullOrWhiteSpace($SteamReleaseApiBaseUrl)) {
+        Fail 'SteamReleaseApiBaseUrl is required when Steam release package configuration is requested.'
+    }
+    if ($SteamReleaseAppId -eq 0) {
+        Fail 'SteamReleaseAppId must be a positive UInt32 when Steam release package configuration is requested.'
+    }
+    if ([string]::IsNullOrWhiteSpace($SteamReleaseWebApiIdentity) -or
+        $SteamReleaseWebApiIdentity.Length -gt 128 -or
+        $SteamReleaseWebApiIdentity -match '\s') {
+        Fail 'SteamReleaseWebApiIdentity must be 1-128 characters without whitespace.'
+    }
+
+    $normalizedSteamReleaseApiBaseUrl = Get-NormalizedPackageApiBaseUrl $SteamReleaseApiBaseUrl 'SteamReleaseApiBaseUrl'
+}
+
 $normalizedBuildVersion = if ([string]::IsNullOrWhiteSpace($BuildVersion)) { $null } else { $BuildVersion.Trim() }
 if ($null -ne $normalizedBuildVersion -and
     ($normalizedBuildVersion.Length -gt 64 -or $normalizedBuildVersion -notmatch '^[0-9A-Za-z][0-9A-Za-z.-]*$')) {
@@ -73,8 +102,13 @@ Write-Host "  Runtime: $Runtime"
 Write-Host "  Configuration: $Configuration"
 Write-Host "  Self-contained: $selfContainedText"
 Write-Host "  Output: $output"
-if ($null -ne $friendsBuildApiBaseUrl) {
+if ($null -ne $normalizedFriendsBuildApiBaseUrl) {
     Write-Host '  Deployment: Friends Build package'
+}
+if ($steamReleaseRequested) {
+    Write-Host '  Deployment: Steam release candidate package'
+    Write-Host "  Expected Steam AppID: $SteamReleaseAppId"
+    Write-Host "  Steam Web API identity: $SteamReleaseWebApiIdentity"
 }
 if ($null -ne $normalizedBuildVersion) {
     Write-Host "  Build version: $normalizedBuildVersion"
@@ -134,16 +168,31 @@ foreach ($requiredFile in $requiredFiles) {
     Fail "Published acceptance package is incomplete: $requiredFile"
 }
 
-if ($null -ne $friendsBuildApiBaseUrl) {
+if ($null -ne $normalizedFriendsBuildApiBaseUrl) {
     $friendsBuildConfiguration = [ordered]@{
         schemaVersion = 1
-        apiBaseUrl = $friendsBuildApiBaseUrl
+        apiBaseUrl = $normalizedFriendsBuildApiBaseUrl
     }
     $friendsBuildConfigurationJson = $friendsBuildConfiguration | ConvertTo-Json -Compress
     $friendsBuildConfigurationPath = Join-Path $output 'steward-friends-build.json'
     [IO.File]::WriteAllText(
         $friendsBuildConfigurationPath,
         $friendsBuildConfigurationJson,
+        [Text.UTF8Encoding]::new($false))
+}
+
+if ($steamReleaseRequested) {
+    $steamReleaseConfiguration = [ordered]@{
+        schemaVersion = 1
+        apiBaseUrl = $normalizedSteamReleaseApiBaseUrl
+        steamAppId = $SteamReleaseAppId
+        steamWebApiIdentity = $SteamReleaseWebApiIdentity
+    }
+    $steamReleaseConfigurationJson = $steamReleaseConfiguration | ConvertTo-Json -Compress
+    $steamReleaseConfigurationPath = Join-Path $output 'steward-steam-release.json'
+    [IO.File]::WriteAllText(
+        $steamReleaseConfigurationPath,
+        $steamReleaseConfigurationJson,
         [Text.UTF8Encoding]::new($false))
 }
 
@@ -198,11 +247,15 @@ Write-Host "  Production adapters: Factorio, Palworld, 7 Days to Die, Project Zo
 Write-Host "  Hashed package files: $($packageFiles.Count)"
 Write-Host "  Metadata: $metadataPath"
 Write-Host
-if ($null -ne $friendsBuildApiBaseUrl) {
+if ($null -ne $normalizedFriendsBuildApiBaseUrl) {
     Write-Host 'The Friends Build HTTPS API coordinate is embedded in steward-friends-build.json and covered by the package manifest.'
     Write-Host 'No private friend credential, Steam AppID, Web API identity, ticket, or backend secret is embedded.'
 }
+elseif ($steamReleaseRequested) {
+    Write-Host 'The Steam release HTTPS API coordinate, expected AppID, and Web API identity are embedded in steward-steam-release.json and covered by the package manifest.'
+    Write-Host 'No publisher API key, Steam ticket, Steward session credential, or other backend secret is embedded.'
+}
 else {
     Write-Host 'No Steam AppID, API URL, Web API identity, tickets, or backend secrets are embedded by this script.'
-    Write-Host 'Use tools/e4-live-acceptance.ps1 to verify this exact package and supply the non-secret runtime coordinates.'
+    Write-Host 'Use tools/e4-live-acceptance.ps1 to verify this exact engineering package and supply the non-secret runtime coordinates.'
 }

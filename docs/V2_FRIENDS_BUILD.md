@@ -189,7 +189,7 @@ Prove a friend with no source checkout, Visual Studio, or repository-specific se
 Acceptance:
 
 - self-contained `win-x64` package;
-- stable version displayed in diagnostics/about surface;
+- stable package version is carried by the Desktop assembly and visible in the normal Steward window title;
 - package SHA-256 available;
 - configuration errors are understandable and do not require editing source code;
 - clean-machine launch test.
@@ -242,7 +242,11 @@ Acceptance requires real Host -> Join -> safe stop/capture -> handoff behavior b
 
 ### V2-F — 7 Days to Die depth
 
-Resolve the already-recorded sandbox/configuration authority evidence, then prove the real dedicated-server readiness/save-stop lifecycle before enabling automatic Host/Stop/Join.
+The V3 sandbox/configuration authority question is resolved: dedicated-server reproduction requires the exact opaque World-specific `SandboxCode`; Steward must not guess it from machine-local configuration or infer that native save bytes make it unnecessary.
+
+The deterministic managed-host configuration can also use the game's documented empty-`TelnetPassword` loopback-only service-interface mode, so Steward does not need a management credential or authentication protocol.
+
+The remaining gate is the real current-V3 dedicated-server lifecycle: prove isolated restored-World readiness, minimum local raw `shutdown` framing, clean long-lived-process exit, observable final-save completion, and successful relaunch from the captured result before enabling automatic Host/Stop. Join remains a separate capability proof.
 
 Do not infer hosting capability from deterministic configuration transforms alone.
 

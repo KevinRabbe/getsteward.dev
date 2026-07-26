@@ -32,8 +32,7 @@ public sealed class StewardForwardedClientAddressTests
 
         Assert.Contains(
             StewardForwardedClientAddress.KnownProxyIpConfigurationKey,
-            exception.Message,
-            StringComparison.Ordinal);
+            exception.Message);
     }
 
     [Fact]

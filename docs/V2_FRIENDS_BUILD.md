@@ -108,8 +108,9 @@ Requirements:
 - production Steam verification remains fail-closed and is not weakened;
 - private Friends Build identities use the existing generic `ExternalIdentityRef` / `VerifiedExternalIdentity` boundary;
 - the backend still issues normal opaque Steward access/refresh session credentials;
-- private credentials are high-entropy, revocable, bounded, and never stored by the backend in plaintext after redemption where avoidable;
-- the desktop stores durable refresh credentials only through the existing protected credential boundary;
+- private bootstrap credentials are high-entropy, revocable, bounded, and the backend configuration stores only their one-way digests rather than plaintext;
+- the desktop protects the long-lived Friends Build bootstrap credential with the Windows user credential boundary and exchanges it for fresh normal Steward session credentials on each application launch;
+- rotating Steward access/refresh credentials remain process-memory state for V2 rather than creating a second durable session-token store;
 - Friends Build authentication must be explicitly configured and disabled by default in production/release deployments;
 - there is no password-reset, email-verification, public registration, social-account, or account-profile system in V2.
 
@@ -203,8 +204,8 @@ Acceptance:
 - friend can authenticate from a clean client;
 - backend derives a stable opaque private external identity;
 - normal Steward access/refresh sessions are issued;
-- reconnect/restart works without re-entering credentials until revocation/expiry;
-- invalid/replayed/revoked bootstrap credentials fail closed;
+- reconnect/restart works without re-entering the bootstrap credential until revocation;
+- invalid/revoked bootstrap credentials fail closed;
 - production Steam path remains unchanged.
 
 ### V2-C — Lobby and invitations

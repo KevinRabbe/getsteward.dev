@@ -251,7 +251,7 @@ if ($null -ne $friendsBuildApiBaseUrl) {
     Write-Host 'The Friends Build HTTPS API coordinate is embedded in steward-friends-build.json and covered by the package manifest.'
     Write-Host 'No private friend credential, Steam AppID, Web API identity, ticket, or backend secret is embedded.'
 }
-elelseif ($steamReleaseRequested) {
+elseif ($steamReleaseRequested) {
     Write-Host 'The Steam release HTTPS API coordinate, expected AppID, and Web API identity are embedded in steward-steam-release.json and covered by the package manifest.'
     Write-Host 'No publisher API key, Steam ticket, Steward session credential, or other backend secret is embedded.'
 }

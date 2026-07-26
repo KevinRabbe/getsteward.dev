@@ -51,11 +51,18 @@ public static class FriendsBuildAuthApi
                 statusCode: StatusCodes.Status401Unauthorized);
         }
 
+        var identity = verification.Identity;
         var tokens = await sessionService.CreateSessionAsync(
-            verification.Identity,
+            identity,
             request.InstallationId,
             cancellationToken);
-        return Results.Ok(new FriendsBuildAuthResponse("Authenticated", tokens, false));
+        var data = new FriendsBuildSessionData(
+            tokens,
+            new FriendsBuildIdentityData(
+                identity.Subject.Provider,
+                identity.Subject.ExternalId,
+                identity.DisplayName));
+        return Results.Ok(new FriendsBuildAuthResponse("Authenticated", data, false));
     }
 
     private sealed record FriendsBuildSessionRequest(
@@ -64,8 +71,17 @@ public static class FriendsBuildAuthApi
 
     private sealed record FriendsBuildAuthResponse(
         string Code,
-        StewardSessionTokens? Data,
+        FriendsBuildSessionData? Data,
         bool Retryable);
+
+    private sealed record FriendsBuildSessionData(
+        StewardSessionTokens Tokens,
+        FriendsBuildIdentityData Identity);
+
+    private sealed record FriendsBuildIdentityData(
+        string Provider,
+        string ExternalId,
+        string DisplayName);
 }
 
 public static class FriendsBuildAuthConfiguration

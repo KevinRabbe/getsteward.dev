@@ -9,6 +9,7 @@ param(
     [string]$SteamReleaseWebApiIdentity,
     [string]$BuildVersion,
     [string]$AcceptanceManifestOutputPath,
+    [switch]$ReleaseContentOnly,
     [switch]$FrameworkDependent
 )
 
@@ -114,6 +115,7 @@ Write-Host "  Project: $project"
 Write-Host "  Runtime: $Runtime"
 Write-Host "  Configuration: $Configuration"
 Write-Host "  Self-contained: $selfContainedText"
+Write-Host "  Release content only: $($ReleaseContentOnly.IsPresent)"
 Write-Host "  Output: $output"
 Write-Host "  Acceptance manifest: $manifestOutputPath"
 if ($null -ne $normalizedFriendsBuildApiBaseUrl) {
@@ -153,6 +155,16 @@ if ($publishExitCode -ne 0) {
         $publishOutput | Add-Content -LiteralPath (Join-Path $repoRoot 'build.log')
     }
     Fail "dotnet publish failed with exit code $publishExitCode."
+}
+
+if ($ReleaseContentOnly.IsPresent) {
+    Get-ChildItem -LiteralPath $output -Recurse -File -Filter '*.pdb' |
+        Remove-Item -Force
+
+    $steamImportLibrary = Join-Path $output 'steam_api64.lib'
+    if ([IO.File]::Exists($steamImportLibrary)) {
+        Remove-Item -LiteralPath $steamImportLibrary -Force
+    }
 }
 
 $requiredFiles = @(

@@ -1,328 +1,223 @@
 # Adapter and Background Runtime Roadmap
 
+Status: **CURRENT RUNTIME CONTRACT — GENERIC LIFECYCLE IMPLEMENTED; NEW CAPABILITIES REMAIN EVIDENCE-DRIVEN.**
+
 ## Purpose
 
-This roadmap defines the generic local runtime that carries one World through a complete Steward session and the adapter contracts that make each game safe to support.
+The generic runtime carries one World through the complete Steward responsibility lifecycle while game-specific adapters prove how their game makes each supported step safe.
 
 ```text
 UI chooses World/action
--> runtime resolves state/authority
+-> runtime resolves local/shared authority
 -> adapter prepares/restores/launches/observes
--> adapter proves safe capture
+-> adapter proves game-specific completion/capture boundary
 -> runtime stores/verifies/commits
--> UI receives final state
+-> runtime finalizes or preserves recovery responsibility
+-> UI/tray reflects resulting state
 ```
 
-Steward is background-first because this runtime remains responsible while the user is inside the game.
+Steward is background-first because responsibility continues while the user is inside the game and may continue after the main window is hidden.
 
-## Planning status
-
-Status: **AR-0 approved; implementation is active. First-release boundary changes must update this roadmap with executable evidence.**
-
-Production runtime/adapter work must remain inside the approved product boundary and evidence rules.
-
-## Runtime boundary
+## Current runtime boundary
 
 The generic runtime owns:
-- orchestration of the complete session transaction;
-- one active managed writable session per World;
-- first-release one-active-managed-writer-per-device limit;
-- interaction with local/shared storage and session coordination;
-- local cache/materialization/recovery lifecycle;
-- background application responsibility;
-- mapping backend/adapter outcomes into generic product state;
-- durable candidate preservation until authority is resolved.
+
+- one writable Steward session per World;
+- one active managed writable lifecycle per device in the first release;
+- local/shared authority composition;
+- exact state/environment materialization through `IWorldStorage`;
+- writable reservation acquisition/heartbeat/release/recovery through `IWorldSessionCoordinator`;
+- durable workspace recovery registration;
+- generic lifecycle ordering and typed failure mapping;
+- local candidate preservation until authority is resolved;
+- read-only automatic Join orchestration;
+- background/tray responsibility.
 
 The adapter owns:
-- installation/game/World discovery;
-- environment inspection/preparation;
+
+- installation and World discovery;
+- environment inspection/verification/preparation;
+- native creation where advertised;
 - restore/capture package shape;
-- launch and host arguments/configuration;
-- which process/server represents the writable session;
-- readiness evidence;
-- graceful/safe stop behavior;
+- local/Host/client launch details;
+- the process/server that actually owns the writable session;
+- Host readiness evidence;
+- game-owned connection endpoint material;
+- safe Host stop when advertised;
 - safe capture timing;
-- game-specific package validation;
-- validated automatic Join capability or an explicit unsupported/blocked result;
+- package/game-specific validation;
+- automatic Join capability or explicit unsupported/blocked result;
 - game-specific identity/environment limitations.
 
-The UI owns presentation/user commands. The backend owns shared durable authority.
+Backend owns shared durable authority. UI owns presentation and user commands.
 
-## First-release process model
+## Process model
 
-> **One user-session desktop process with tray/background lifetime; no Windows Service.**
+> **One user-session Desktop process with tray/background lifetime; no Windows Service.**
 
-Reasons:
-- game launch and Steam interaction happen in the signed-in user's session;
-- tray/status interaction is required;
-- a privileged service adds installation/update/IPC/security/debug complexity without current evidence of need;
-- durable recovery records handle hard application/OS failure conservatively.
+The current model is deliberate:
 
-Whenever the Steward process runs, its tray icon is visible.
+- game/Steam interaction happens in the signed-in user's session;
+- user-visible tray/background state is required;
+- durable recovery records protect against process/OS failure;
+- a privileged service would add IPC/security/update/debug ownership without current evidence of need.
 
-Closing the main window hides it. Explicit Quit is available only when no active/unresolved World responsibility would be abandoned.
+Closing the main window hides it. Ordinary Quit must not abandon active/unresolved responsibility.
 
-A Windows Service is reconsidered only if measured reliability proves the user-session process insufficient.
+A Windows Service is reconsidered only if real reliability evidence proves the user-session process insufficient.
 
-## First-release concurrency model
+Steam owns actual Steward installation/update. Runtime still prevents any controlled application replacement/restart path from pretending active World responsibility can be abandoned safely.
 
-- at most one active writable Steward-managed session per World globally;
-- at most one active writable Steward-managed session per desktop/device.
+## Concurrency model
 
-Multiple cached Worlds/downloads may exist, but one device does not supervise multiple writable World lifecycles simultaneously in the first release.
+First release enforces:
 
-## Generic lifecycle state machine
+```text
+at most one writable Steward session per World globally
+AND
+at most one active managed writable Steward lifecycle per device
+```
 
-Internal runtime phases:
+Multiple cached/downloaded Worlds may exist. One Desktop does not supervise several writable World lifecycles concurrently.
+
+## Generic writable lifecycle
+
+The implemented lifecycle is conceptually:
 
 ```text
 Idle
--> ResolvingWorld
--> AcquiringReservation
--> DownloadingState
--> PreparingEnvironment
--> RestoringState
--> RegisteringRecovery
--> StartingSession
--> Running
--> Stopping
--> WaitingForSafeCapture
--> Capturing
--> Uploading
--> Verifying
--> Committing
--> Finalizing
--> Completed
+-> resolve World/current heads
+-> acquire local/distributed writable authority
+-> materialize/download required immutable state/environment
+-> adapter prepares environment
+-> adapter restores state
+-> persist durable recovery responsibility
+-> launch local or Host session
+-> prove session start/readiness where required
+-> Running / Hosting
+-> observe or request safe end
+-> establish game-specific capture boundary
+-> capture candidate
+-> store/upload immutable candidate
+-> verify durable result
+-> expected-head + valid-generation commit
+-> finalize workspace
+-> resolve reservation/recovery responsibility
+-> Completed / Ready
 ```
 
-Exceptional/internal states include:
+Internal implementation names may be more granular. User-facing terms remain the product state contract rather than internal enum names.
 
-```text
-Blocked
-RecoveryNeeded
-CleanupPending
-ReservationUncertain
-WaitingToSync
-```
+## State projection
 
-Current Core may preserve older internal names such as `RecoveryPending` where migration is unnecessary, but user-facing mapping is fixed:
+Typical user-facing mapping:
 
-| Runtime meaning | UI term |
+| Runtime meaning | Product term |
 |---|---|
 | safe/available | Ready |
 | preparing/materializing/restoring/starting | Preparing |
 | local writable session active | Running |
-| hosted writable session active | Hosting |
-| remote host owns reservation but not ready | Host is starting |
-| another ready active writer | Someone is playing |
+| hosted writable session active here | Hosting |
+| another current Host owns authority but is not Ready | Host is starting |
+| another ready writer/Host owns the active session | Someone is playing |
 | capture/store/verify/commit/finalize incomplete | Saving World |
 | local candidate preserved; remote handoff unresolved | Waiting to sync |
-| capability/environment/identity problem | Action required |
-| unresolved prior handoff authority/evidence | Recovery needed |
+| capability/environment/identity condition blocks safe work | Action required |
+| prior authority/evidence remains unresolved | Recovery needed |
+| restart found an `Active` workspace whose gameplay state is unknown | Interrupted session |
 
-## Session start contract
+Presentation is a projection. UI/tray failure cannot change authority, commit, capture, or recovery behavior.
 
-### Local-only World
+## Local-only writable start
 
 ```text
-load local current head
--> acquire local exclusive reservation
--> materialize state
+load local canonical head
+-> acquire local exclusivity
 -> adapter prepares environment
--> adapter restores state
+-> restore canonical state
 -> persist recovery record
--> adapter launches local or hosted session
--> adapter proves real session start/readiness as required
--> runtime enters Running/Hosting
+-> launch local play or temporary Host where capability exists
+-> observe/prove session
 ```
 
-A local-only World may Host when adapter/runtime temporary-host capability exists. Persistent Steward sharing is not a prerequisite.
+Persistent Steward sharing is not required merely to Host a local-only World when the adapter/runtime supports that Host path.
 
-### Shared World
+## Shared writable start
 
 ```text
-authenticate/refresh World/current head
--> acquire distributed expected-head reservation
--> download/verify state/environment when cache missing/stale
--> adapter prepares environment
--> adapter restores state
--> persist local recovery record
--> adapter launches local or hosted session
--> prove session start/readiness
--> heartbeat reservation
--> Running/Hosting
+authenticate/refresh metadata
+-> read exact state/environment head
+-> verify exact local environment as required
+-> acquire expected-head distributed reservation
+-> download/materialize immutable packages as required
+-> adapter prepares/restores
+-> persist recovery record with exact starting heads
+-> launch local play or temporary Host
+-> prove session/readiness
+-> maintain reservation heartbeat
 ```
 
-If launch never reaches proven gameplay, controlled temporary work may be cleaned according to explicit ownership. Once gameplay begins, workspace/state becomes recovery evidence.
+If preparation/launch fails before gameplay is proven, Core may use the narrow pre-launch abandon/cleanup path when exact authority ownership makes that safe.
+
+Once gameplay may have started, workspace/candidate state is recovery evidence rather than disposable temporary data.
 
 ## Session evidence contract
 
-Adapters expose facts sufficient to distinguish:
+Adapters expose enough evidence for the runtime to distinguish at least:
+
 - launch requested but no real session started;
-- local session started;
-- hosted server/session became ready;
-- session still running;
-- graceful stop requested;
+- local/Host session actually started;
+- Host became ready for clients;
+- session still runs;
+- client process ended while authoritative server may still run;
+- graceful stop requested/completed where supported;
 - session ended normally;
 - session disappeared unexpectedly;
 - safe capture boundary established;
-- capture blocked/incomplete;
-- recovery evidence preserved.
+- capture incomplete/blocked;
+- recovery evidence must be preserved.
 
-Evidence may include PID/process start time, launcher handoff, server readiness, shutdown response, stable file/package checks, and adapter-specific diagnostics.
+Evidence may use process identity/start time, launcher handoff, local control APIs, native logs/readiness, shutdown responses, file/package checks, or other adapter-owned signals.
 
-A PID is evidence input, not the universal definition of a session.
+A PID alone is never the universal definition of a game session.
 
-## Running-session contract
+## Running/Hosting responsibilities
 
-While Running/Hosting, runtime must:
-- keep shared reservation heartbeat alive while connectivity permits;
-- observe adapter-defined authoritative session owner;
-- distinguish client exit from dedicated-server end;
-- preserve recovery metadata;
-- reject another managed writable session on the same device;
-- expose status through UI/tray;
-- allow main window hide without abandoning work;
-- never treat one missed heartbeat as proof local gameplay stopped;
-- defer self-update/restart while writable responsibility exists.
+While a writable session is active, runtime must:
 
-## Stop and completion contract
+- maintain shared heartbeat while connectivity permits;
+- keep the same reservation generation/starting heads associated with responsibility;
+- reject another managed writable lifecycle on the device;
+- observe adapter-defined authoritative session ownership;
+- keep recovery metadata durable;
+- keep UI/tray status available without making presentation authoritative;
+- not infer gameplay end from one missed heartbeat/network failure;
+- not allow app exit/update/restart to silently abandon the lifecycle.
 
-### Local session
+## Host endpoint and Host presence
 
-Adapter normally observes the game/session ending, then proves safe capture.
+An adapter with a managed network endpoint may expose game-owned connection material through the optional Host-endpoint contract.
 
-### Hosted session
-
-**Stop and Save** is exposed only when the adapter can perform/validate a safe hosted stop.
+Typical flow:
 
 ```text
-request adapter-controlled graceful stop
--> wait for authoritative hosted session end
--> prove save/capture boundary
--> capture and validate candidate
--> upload/store candidate
--> verify stored bytes/metadata
--> expected-head + generation commit
--> resolve reservation
--> finalize workspace
--> clear/resolve recovery record
+exact writable reservation
+-> managed Host starts
+-> adapter proves readiness
+-> adapter exposes game-owned port/token/address material it actually knows
+-> shared coordinator publishes short-lived Host presence tied to exact session/generation
+-> existing heartbeat refreshes presence
+-> Join/presentation reads it
+-> presence clears before capture/commit completes
 ```
 
-Runtime never kills a process and captures after an arbitrary universal delay unless that exact behavior is validated by the adapter for the game.
+Host presence is not writable authority.
 
-## Safe capture contract
+Adapters do not need to invent public-IP/NAT traversal just to implement this contract. Deployment/backend may derive the observed HTTPS client address under the narrow trusted-proxy rule; game-network reachability remains empirical.
 
-Before capture, adapter establishes the minimum game-specific conditions required for a restorable package.
+## Automatic Join lifecycle
 
-Possible evidence:
-- authoritative process/server ended normally;
-- graceful save/shutdown completed;
-- required files exist;
-- lock/temp markers disappeared;
-- files stabilized under a validated rule;
-- server API confirmed save;
-- package-specific integrity checks passed.
-
-Runtime asks for a safe capture result. It does not implement one universal timer/file assumption.
-
-## Capture and commit contract
-
-```text
-adapter captures opaque package
--> adapter validates game-specific required contents
--> runtime records hash/size
--> local/remote store publishes immutable candidate
--> runtime verifies durable result
--> runtime commits against expected head + valid reservation generation
-```
-
-Generic outcomes:
-- `Committed` -> new canonical state;
-- `Unchanged` -> existing canonical state remains;
-- `HeadChanged` -> preserve stale candidate; Recovery needed as applicable;
-- `ReservationMismatch` / invalid generation -> candidate cannot commit; preserve recovery evidence;
-- capture/store/verification failure -> preserve candidate/workspace; Recovery needed or Waiting to sync according to authority/connectivity.
-
-Cleanup occurs only after durability and authority are known.
-
-## Connectivity-loss contract
-
-Runtime follows BE-D005 and BE-D008.
-
-### Before a new shared session
-
-Backend identity/head/reservation cannot be verified:
-
-```text
-Connection required
--> no Start World
--> no Host World
--> no Join
-```
-
-### During an already valid shared session
-
-- local game/server may continue;
-- heartbeat retry is bounded/backed off;
-- backend may move Active -> Uncertain after ~2 minutes without valid heartbeat;
-- no competing writer becomes automatically available;
-- local session generation/starting head/recovery evidence remain durable.
-
-### Session ends while disconnected
-
-```text
-adapter proves safe capture
--> capture/validate candidate locally
--> persist candidate durably
--> Waiting to sync
-```
-
-On reconnect runtime revalidates authentication, session generation, and expected canonical head.
-
-Still-valid generation + unchanged head:
-- upload/verify/commit/finalize -> Ready.
-
-Invalidated generation or changed head:
-- no automatic overwrite;
-- preserve candidate;
-- Recovery needed.
-
-Retry exhaustion never means responsibility/candidate is silently abandoned.
-
-## Application close/shutdown/update contract
-
-- closing main window hides to tray;
-- ordinary Quit is blocked while Running, Hosting, Saving World, Waiting to sync, or unresolved recovery would be abandoned;
-- controlled hosted Stop and Save is used where supported;
-- forced termination may leave durable recovery evidence;
-- OS shutdown gets best-effort graceful handling but no false completion promise;
-- self-update waits until no active/unresolved writable lifecycle exists;
-- startup scans recovery records before presenting affected Worlds as Ready.
-
-## Adapter capability model
-
-Capabilities describe proven product behavior, not speculative commands/APIs.
-
-Minimum planned capability areas:
-- installation discovery;
-- World discovery/import;
-- local launch;
-- temporary host launch;
-- validated automatic Join capability;
-- session observation;
-- host readiness evidence;
-- graceful hosted stop;
-- automatic safe capture;
-- environment inspection;
-- environment preparation/isolation;
-- exact game-version support;
-- exact mod-version support where applicable;
-- environment verification;
-- repair where validated;
-- explicit identity/environment limitation result.
-
-First-release Join capability outcomes are:
+First-release `IGameAdapter` Join capability remains automatic or unavailable:
 
 ```text
 SupportedAutomatic
@@ -331,176 +226,323 @@ BlockedByEnvironment
 BlockedByIdentityLimitation
 ```
 
-Guided manual Join is not an executable first-release capability. No current adapter uses it, and Core has no truthful generic lifecycle for keeping a prepared environment alive through a user-controlled manual launch/Join and then proving completion/cleanup. Reintroduce it only with a real adapter need and a complete adapter/runtime lifecycle contract.
+Automatic Join is deliberately read-only:
 
-UI/Core never branch on game name to interpret these outcomes.
+```text
+shared World metadata
+-> exact environment
+-> verify/prepare local client environment
+-> read current Ready Host presence
+-> adapter confirms automatic Join capability
+-> adapter launches client against current Host
+-> discard read-only preparation
+```
 
-## Factorio capability/limitation matrix
+It does **not**:
 
-Substantially validated:
-- Steam/non-default-library discovery;
-- safe save import;
-- exact game-version checks;
-- isolated write-data/mod preparation;
-- local launch;
-- temporary hosted launch paths;
-- client connection primitive;
-- Steam bootstrap/process handoff observation;
-- safe state capture/replay;
-- canonical commit.
+- acquire another writable reservation;
+- restore canonical writable state merely for joining;
+- register writable recovery responsibility;
+- capture/commit candidate state.
 
-Implementation/release evidence still required:
-- finalized authoritative temporary host/client ownership;
-- readiness proof;
-- graceful stop/safe capture proof;
-- exact shared-environment repair behavior;
-- final automatic Join acceptance evidence;
-- two-device handoff.
+The active Host remains the writer.
 
-These are implementation/acceptance evidence requirements, not unresolved AR-0 product-model questions.
+### Removed guided-manual lifecycle
 
-## Palworld capability/limitation matrix
+The earlier concept of a generic guided manual Join lifecycle remains removed.
 
-Substantially validated:
-- client/dedicated-server discovery;
-- local/dedicated World discovery;
-- unchanged World migration into server layout;
-- temporary dedicated-server selection/launch;
-- server process observation;
-- portable capture excluding backup noise;
-- staging/rollback restore;
-- restored-byte verification;
-- canonical commit.
+Steward has no generic contract for:
 
-Implementation/release evidence still required:
-- validated graceful save/shutdown control;
-- server readiness proof;
-- validated automatic Join capability or explicit unsupported result;
-- duplicate discovery behavior;
-- explicit player-identity limitation handling;
-- two-device handoff.
+```text
+prepare manual client workspace
+-> user independently launches/plays
+-> Steward somehow proves manual client completion
+-> Steward owns cleanup timing
+```
 
-These remain adapter-specific evidence/limitations and do not expand Core.
+Do not reintroduce that lifecycle without a real adapter need and complete ownership/evidence contract.
 
-## Adapter acceptance contract
+### Manual direct-connect presentation is different
 
-Every release-supported adapter must prove with controlled data:
+Steward also has the narrower optional `IManualDirectConnectProvider` contract.
 
-1. discover intended installation/World without mutation;
-2. import a copied World and preserve source;
-3. describe required environment;
-4. prepare controlled workspace/safe equivalent;
-5. restore stored state;
-6. launch and prove a real local/hosted session;
-7. observe correct session ownership/lifecycle;
-8. make visible gameplay change;
-9. establish validated safe capture boundary;
-10. capture/validate portable package;
-11. commit through canonical transaction;
-12. restore and visibly confirm change next session;
-13. preserve recovery evidence under injected failure;
-14. represent automatic Join capability or explicit unsupported/blocked result without game-name branching;
-15. complete shared two-device handoff before commercial release.
+It is **presentation only** for a game whose native UI can consume an already-ready published endpoint while Steward lacks a validated automatic client-launch path.
 
-Hosted support additionally proves client exit does not incorrectly terminate/complete a still-running authoritative server.
+```text
+Ready HostConnection
+-> adapter formats native endpoint + instruction
+-> UI shows/copies guidance
+```
 
-## Runtime test strategy
+It does not prepare a manual session, launch a client, observe client completion, or own cleanup.
 
-Automated layers:
-- deterministic lifecycle state-machine tests;
-- fake adapter tests for every phase/failure transition;
-- fake storage/coordinator/backend tests;
-- process handoff simulations;
-- stale reservation/head-change tests;
-- crash/restart recovery tests;
-- bounded retry tests;
-- device-wide concurrency tests;
-- tray/lifetime tests where practical;
-- adapter filesystem tests with temporary fixtures.
+Palworld currently uses this distinction: it does not advertise `AutomaticClientJoin`, but it can present its ready game-owned direct-connect endpoint without pretending Steward owns the client's manual multiplayer lifecycle.
 
-Real-system validation:
-- Factorio local/host sessions;
-- Palworld dedicated sessions;
-- graceful/forced termination;
-- network interruption during Running/Hosting/Saving World;
-- PC A -> PC B -> PC A handoff;
-- application restart with unresolved recovery;
-- automatic Join capability validation;
-- environment/identity safe blocking.
+## Stop and Save
 
-# Adapter/runtime milestones after planning unlock
+User-triggered **Stop and Save** is available only when `AutomaticHostStop` is advertised and the adapter can perform/validate the safe Host stop contract.
 
-## AR-1: Generic runtime extraction/hardening
+```text
+request adapter-controlled safe stop
+-> prove authoritative Host ended
+-> prove final save/capture boundary
+-> capture candidate
+-> store/upload + verify
+-> expected-head/generation commit
+-> resolve authority/recovery
+```
 
-- reusable session runner;
-- explicit lifecycle events/state;
-- background/tray integration;
-- device-wide writable-session gate;
-- local cache/materialization boundary;
-- recovery orchestration;
-- structured session evidence/capability results;
-- deterministic fake-adapter tests;
-- no game-name branches.
+The runtime never assumes “kill process + fixed delay” is a universal save protocol.
 
-## AR-2: Factorio completion
+An adapter may have an internal completion mechanism used after its own Host session naturally ends without advertising `AutomaticHostStop`; that does not create a user-triggered Stop capability automatically.
 
-- finalized local/host process ownership;
-- readiness/graceful stop;
-- safe capture evidence;
-- environment mismatch/repair behavior;
-- automatic Join capability;
-- failure-injection acceptance runs.
+Factorio is the current example: its active hosted completion path uses RCON `/server-save`, proves the save changed, and ends the managed server after the host client ends, but it does not currently advertise `AutomaticHostStop`.
 
-## AR-3: Palworld completion
+Palworld currently advertises `AutomaticHostStop` because its proven localhost REST/process-tree lifecycle owns an explicit safe managed stop.
 
-- dedicated-server readiness;
-- graceful save/shutdown;
-- safe capture evidence;
-- duplicate discovery;
-- automatic Join capability or explicit unsupported result;
-- player identity limitation UX/result;
-- failure-injection acceptance runs.
+## Safe capture contract
 
-## AR-4: Shared backend integration
+Before capture, the adapter establishes the minimum game-specific conditions required for a restorable package.
 
-- distributed reservation/heartbeat;
-- state download/cache/verification;
-- candidate upload/commit;
-- Waiting to sync;
-- stale generation rejection;
-- local candidate preservation/recovery.
+Possible evidence includes:
 
-## AR-5: Two-device handoff
+- authoritative process/server ended normally;
+- native save/shutdown command completed;
+- required files exist;
+- native transaction/lock/temp state is absent;
+- files/selectors remain stable under a validated rule;
+- server API confirmed a save;
+- package-specific invariants pass.
 
-- one game PC A -> PC B -> PC A;
-- competing writer rejection;
-- interrupted upload/session recovery;
-- repeat with second initial adapter.
+Core asks for a safe result. It does not implement a universal sleep/file-timestamp assumption.
 
-## AR-6: Commercial hardening
+## Capture/commit contract
 
-- startup recovery scan;
-- safe close/minimize/update;
-- bounded resources/retries;
-- redacted logs/diagnostics;
-- installer/update interaction;
-- long-session/large-World validation;
-- explicit unsupported capability behavior.
+```text
+adapter captures smallest complete game-owned package
+-> adapter validates required contents
+-> runtime stores/publishes immutable candidate
+-> runtime verifies durable result
+-> current expected state/environment head is rechecked
+-> exact writable generation remains valid
+-> canonical head advances atomically
+```
 
-# AR-0 completion gate
+Generic outcomes preserve safety:
 
-Status: **complete and approved with the documented first-release automatic-Join boundary.**
+- committed -> new canonical state;
+- unchanged -> previous canonical state remains;
+- stale head -> candidate cannot overwrite current state;
+- invalid reservation/generation -> candidate cannot commit;
+- capture/store/verification failure -> preserve previous canonical state and required recovery evidence;
+- connectivity loss after gameplay -> durable local candidate may enter Waiting to sync.
 
-AR-0 is complete because:
-- process/tray model is accepted;
-- device concurrency is accepted;
-- lifecycle/state ownership is defined;
-- session evidence/capability result contracts are defined;
-- safe stop/capture/cancellation semantics are defined;
-- connectivity/recovery matches BE-D005/BE-D006/BE-D008/BE-D009;
-- UI mapping matches final UI-D008 terminology;
-- Factorio/Palworld capability and limitation matrices are explicit;
-- release acceptance evidence is specified;
-- no runtime behavior depends on merging, branches, social governance, or permanent Steward game-server infrastructure.
+Cleanup follows durability/authority, never the reverse.
 
-Implementation is active and remains constrained by these product/evidence contracts.
+## Connectivity loss
+
+### Before a new shared session/Join decision
+
+If identity/current heads/authority cannot be verified:
+
+```text
+Connection required
+-> no new Start
+-> no new Host
+-> no automatic Join
+```
+
+### During an already-valid writable session
+
+Gameplay may continue locally while backend connectivity is temporarily unavailable.
+
+Remote authority may become Uncertain; no competing writer becomes automatically available.
+
+### Session ends while disconnected
+
+```text
+adapter proves safe capture
+-> capture/validate local candidate
+-> persist candidate durably
+-> Waiting to sync
+```
+
+Reconnect revalidates identity, exact reservation generation, and starting/current state/environment heads.
+
+Only a still-valid generation + unchanged expected head may resume automatic handoff. Divergence becomes Recovery needed with candidate preserved.
+
+## Application restart/recovery
+
+Startup scans durable recovery records before presenting affected Worlds as ordinary Ready.
+
+A restart-found `Active` workspace becomes **Interrupted session**, because the record proves Steward owned a workspace but not whether gameplay actually began or reached a safe capture point.
+
+User decisions remain explicit:
+
+```text
+Recover changes
+-> exact journaled environment/workspace required
+-> Active -> RecoveryPending
+-> stable candidate identity
+-> deterministic recovery
+
+Discard interrupted session
+-> destructive confirmation
+-> Active -> CleanupPending
+-> canonical World remains unchanged
+-> adapter-owned cleanup only
+```
+
+Unknown state is preserved rather than guessed.
+
+## Adapter capability model
+
+Current executable flags are:
+
+```text
+Mods
+AutomaticHostLaunch
+AutomaticClientJoin
+ExactGameVersion
+ExactModVersions
+EnvironmentIsolation
+AutomaticLocalLaunch
+AutomaticHostStop
+NativeWorldCreation
+```
+
+Capabilities describe proven product behavior, not code that happens to exist somewhere in the adapter.
+
+Release/action mapping:
+
+```text
+Start World -> AutomaticLocalLaunch
+Host World  -> AutomaticHostLaunch
+Join        -> AutomaticClientJoin + current JoinCapabilityResult
+Stop/Save   -> AutomaticHostStop
+Create      -> NativeWorldCreation
+```
+
+UI/Core do not branch on game name to interpret those capabilities.
+
+## Current reference adapters
+
+### Factorio
+
+Current capability includes:
+
+- Mods;
+- AutomaticLocalLaunch;
+- AutomaticHostLaunch;
+- AutomaticClientJoin;
+- ExactGameVersion;
+- NativeWorldCreation.
+
+Active `IGameAdapter` Host path:
+
+```text
+private dedicated Factorio server
+-> game UDP 34197
+-> ephemeral loopback RCON
+-> authenticated RCON readiness
+-> host player's normal graphical client joins locally
+-> publish Host endpoint
+-> host-client session ends
+-> /server-save
+-> observe save refresh
+-> end managed server
+-> capture/commit
+```
+
+`AutomaticHostStop` is not advertised.
+
+Remaining release evidence is real Internet reachability/Join, complete real Windows managed completion/capture, and cross-device handoff.
+
+### Palworld
+
+Current capability includes:
+
+- AutomaticHostLaunch;
+- AutomaticHostStop;
+- ExactGameVersion.
+
+Its proven managed Host lifecycle uses the dedicated server, disposable runtime configuration, localhost REST save/shutdown control, and complete Palworld process-tree exit before canonical runtime inputs are restored and capture begins.
+
+`WorldOption.sav` remains canonical read-only input.
+
+`AutomaticClientJoin` is not advertised. `IManualDirectConnectProvider` may present an already-ready native IP:port endpoint; that presentation does not create automatic Join or manual-session lifecycle ownership.
+
+### 7 Days to Die
+
+Current adapter provides its proven discovery/import/environment/state/mod/exact-version slice.
+
+Automatic Host/Stop/Join remains frozen until the recorded current-V3 empirical trace establishes readiness, loopback `shutdown` framing, long-lived process exit, final authoritative save completion, and captured-state relaunch.
+
+### Project Zomboid
+
+Current adapter provides discovery/import/environment/state plus exact game/mod-version boundaries.
+
+Managed runtime remains frozen until an isolated real dedicated-server lifecycle proves process ownership, safe shutdown, capture and relaunch without mutating the player's live Zomboid state tree.
+
+### Other first-party adapters
+
+The remaining catalog adapters deliberately expose narrower discovery/environment/state capabilities. They are not required to implement fake launch/Host/Join paths merely to appear in the Games Library.
+
+## Adapter acceptance rule
+
+An adapter must prove only the capabilities it advertises, but every advertised capability must be proven at its actual ownership boundary.
+
+A state/import-only adapter proves:
+
+1. installation/source identity without mutation;
+2. intended World discovery;
+3. smallest complete World-owned state vs player/account/recovery state;
+4. exact supported environment boundary;
+5. safe import capture;
+6. controlled restore;
+7. package/integrity invariants.
+
+A writable launch capability additionally proves:
+
+1. controlled preparation;
+2. real session start/ownership;
+3. safe session end/capture boundary;
+4. capture/commit/replay;
+5. failure/recovery preservation.
+
+Hosted capability additionally proves authoritative server/client separation where relevant.
+
+Automatic Join proves the actual client-launch path into a Ready Host.
+
+Automatic Host Stop proves the user-triggered safe stop path.
+
+Shared release claims additionally require the real cross-device/network handoff evidence recorded for that adapter.
+
+## Test strategy
+
+Deterministic coverage includes:
+
+- lifecycle state/failure transitions;
+- fake adapters/storage/coordinators;
+- stale-head/generation rejection;
+- crash/restart recovery;
+- bounded retry/idempotency behavior;
+- device-wide concurrency;
+- adapter filesystem/package boundaries;
+- process handoff/control simulations;
+- Desktop capability/action guards.
+
+Real-system validation covers what deterministic tests cannot truthfully prove:
+
+- actual game/server process behavior;
+- native readiness/save/shutdown boundaries;
+- Internet Host/Join reachability;
+- long sessions;
+- real Windows lifecycle behavior;
+- real cross-device handoff.
+
+When a real test is required, record it in `DEFERRED_EMPIRICAL_TESTS.md`, freeze the dependent capability, and continue independent deterministic work.
+
+## Working rule
+
+> **Do not make Core smarter because one game is weird. Make the adapter own the weirdness, or remove the problem if the game/platform already owns it.**

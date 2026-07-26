@@ -6,7 +6,7 @@ A game adapter isolates everything specific to one game while letting Core run t
 
 > Core knows what must happen. The adapter knows how this game makes it happen.
 
-Current first-party adapters are Factorio, Palworld, 7 Days to Die, Project Zomboid, Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, and Enshrouded. Their proven capability sets intentionally differ. Future adapters must preserve the same boundary without forcing their edge cases into Core.
+Current first-party adapters are Factorio, Palworld, 7 Days to Die, Project Zomboid, Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, Enshrouded, and Conan Exiles Enhanced. Their proven capability sets intentionally differ. Future adapters must preserve the same boundary without forcing their edge cases into Core.
 
 ## Product contract
 
@@ -63,6 +63,8 @@ Core does not know how discovery works.
 
 The installation source also constrains the identity namespace the adapter may claim. If Steam, Epic, launcher-specific, or other account profiles share one broader game save root, a Steam-discovered adapter should not automatically treat every neighboring profile as Steam-owned state. Satisfactory is a concrete example: its Steam adapter enters only canonical numeric Steam profile directories.
 
+When authoritative launcher metadata already owns the installation directory name, prefer that identity over another hardcoded path assumption. Conan Exiles Enhanced demonstrates this after a product migration: Steward reads Steam's bounded appmanifest `installdir` and derives the install root from it instead of needing to know whether a legacy or renamed folder string is current.
+
 ## World discovery
 
 The adapter identifies existing saves or server Worlds that can be imported.
@@ -74,6 +76,7 @@ It decides:
 - which storefront/account namespace belongs to the discovered installation source;
 - which autosaves, backups, auxiliary assets, or temporary states should be hidden;
 - whether native selector/index metadata is required to identify the current authoritative state;
+- whether native journal/transaction sidecars mean a nominal state artifact is not currently safe to capture alone;
 - how duplicate native sources are collapsed;
 - which display name is shown;
 - which source should be preferred when the same World appears in multiple locations.
@@ -87,6 +90,8 @@ Persistence itself is not enough to establish World ownership. ASTRONEER stores 
 A native recovery file is not another current World. The Planet Crafter, for example, exposes `Backup.json` beside current save files; the adapter deliberately hides it from normal World discovery.
 
 A native recovery ring is also not automatically one current World bundle. Enshrouded keeps rolling World-data and `_info` generations while separate bounded index files identify the active member of each ring. Discovery follows those selectors and leaves inactive generations outside the current World revision.
+
+A native database filename is not sufficient evidence that the file is an idle standalone state artifact. Conan Exiles Enhanced exposes one current SQLite database per supported slot, but Steward hides a slot while `-wal`, `-shm`, or `-journal` sidecars exist. That removes the need to reason about an in-flight transaction or invent an online snapshot protocol.
 
 Auxiliary user assets are not automatically World state either. Satisfactory's backup and blueprint trees are deliberately outside its current `.sav` World boundary, and adjacent non-Steam account profiles are outside the Steam adapter's identity scope.
 
@@ -104,9 +109,9 @@ Examples include:
 
 Core stores the manifest but does not interpret the game's semantics.
 
-An adapter must not claim an exact environment by silently omitting a game-specific input it knows may matter. A narrower adapter may refuse unsupported environments instead. Stardew Valley uses this rule for detected SMAPI/non-empty Mods installations; Necesse applies it to a linked or non-empty local mods directory; Core Keeper applies it across manual install Mods, Steam Workshop content, and per-profile Mods; The Planet Crafter refuses known BepInEx bootstrap markers; Satisfactory refuses linked/non-empty `FactoryGame/Mods` and Steam Workshop content; ASTRONEER refuses linked/non-empty `Saved/Mods` and `Saved/Paks`; Enshrouded refuses known EML/Shroudtopia loader markers and a linked/non-empty root `mods` directory.
+An adapter must not claim an exact environment by silently omitting a game-specific input it knows may matter. A narrower adapter may refuse unsupported environments instead. Stardew Valley uses this rule for detected SMAPI/non-empty Mods installations; Necesse applies it to a linked or non-empty local mods directory; Core Keeper applies it across manual install Mods, Steam Workshop content, and per-profile Mods; The Planet Crafter refuses known BepInEx bootstrap markers; Satisfactory refuses linked/non-empty `FactoryGame/Mods` and Steam Workshop content; ASTRONEER refuses linked/non-empty `Saved/Mods` and `Saved/Paks`; Enshrouded refuses known EML/Shroudtopia loader markers and a linked/non-empty root `mods` directory; Conan Exiles Enhanced refuses a linked or non-empty `ConanSandbox/Mods/modlist.txt` activation surface.
 
-The adapter does not need to enumerate every individual mod merely to know that it cannot truthfully reproduce the environment. A proven loader/bootstrap or mod-root boundary can be enough to refuse the narrower vanilla-only capability. Satisfactory demonstrates this by refusing a non-empty `FactoryGame/Mods`; an installed SML environment is caught there without a separate SML abstraction. ASTRONEER similarly uses its known mod-integration roots without interpreting individual packages. Enshrouded applies the same restraint to known loader bootstrap files and its root mod surface.
+The adapter does not need to enumerate every individual mod merely to know that it cannot truthfully reproduce the environment. A proven loader/bootstrap, activation file, or mod-root boundary can be enough to refuse the narrower vanilla-only capability. Satisfactory demonstrates this by refusing a non-empty `FactoryGame/Mods`; an installed SML environment is caught there without a separate SML abstraction. ASTRONEER similarly uses its known mod-integration roots without interpreting individual packages. Enshrouded applies the same restraint to known loader bootstrap files and its root mod surface. Conan Exiles Enhanced uses the game's own `modlist.txt` activation surface and does not need to enumerate Workshop packages.
 
 ## Import capture
 
@@ -130,7 +135,9 @@ When the game already stores the current World in a portable archive, do not aut
 
 When a World is spread across several files, capture only the smallest complete World-owned bundle proven necessary. Core Keeper demonstrates this rule with exactly three slot-matched files: World data, World metadata, and World-generation parameters. Character saves, player maps, and recovery copies are not included.
 
-When the game already stores the complete current World in one native file, do not invent an internal schema merely to move it. The Planet Crafter demonstrates this rule with one opaque `.json`; Satisfactory does the same with one opaque `.sav`; ASTRONEER does the same with one opaque `.savegame`. Steward copies those native bytes exactly and avoids a parser/re-encoder trust boundary that its proven state capability does not need.
+When the game already stores the complete current World in one native file, do not invent an internal schema merely to move it. The Planet Crafter demonstrates this rule with one opaque `.json`; Satisfactory does the same with one opaque `.sav`; ASTRONEER does the same with one opaque `.savegame`; Conan Exiles Enhanced does the same with one idle SQLite `.db`. Steward copies those native bytes exactly and avoids a parser/re-encoder trust boundary that its proven state capability does not need.
+
+A one-file native database is only a one-file portable state while the game's own transactional sidecars are absent. Conan Exiles Enhanced checks for SQLite `-wal`, `-shm`, and `-journal` before capture and checks again after the copy. If the slot becomes active during import, Steward discards the temporary package and refuses the capture. Doing less here is stronger than implementing a partial live-database snapshotter.
 
 When the current authoritative bytes live inside a bounded native rolling-recovery scheme, parsing minimal selector metadata can be the simpler path. Enshrouded reads only its small data and `_info` index files, uses each `latest` selector to identify the active native body independently, and packages exactly those four files. It does not parse the large save bodies and does not copy the inactive recovery generations.
 
@@ -251,31 +258,32 @@ Implement in this order, stopping capability growth whenever the next game-speci
 
 1. create the independent adapter project and implement its stable id/display name;
 2. installation discovery;
-3. bind discovery to the storefront/account namespace proven by that installation source;
+3. bind discovery to the storefront/account identity and authoritative installation locator proven by that installation source;
 4. existing-World discovery;
 5. classify World-owned state separately from player-owned, account/config, auxiliary, and recovery state;
 6. identify the smallest complete native World representation;
-7. identify any bounded native selector metadata required to locate the current authoritative members;
-8. safe import capture without parsing/re-encoding beyond what is actually required;
-9. environment inspection;
-10. environment preparation where required by the supported slice;
-11. state restore;
-12. local launch only when its ownership/session semantics are proven;
-13. real session observation;
-14. safe state capture and validation;
-15. temporary host launch only when its server/runtime semantics are proven;
-16. graceful hosted-session shutdown;
-17. optional automatic Join;
-18. exact environment reproduction where justified;
-19. expose only the `GameAdapterCapabilities` proven by the implemented slice;
-20. add adapter-specific deterministic tests and a dedicated CI lane where appropriate;
-21. add the Desktop project reference and one entry to `DesktopGameAdapterCatalog`;
-22. qualify the adapter head independently before mechanical integration;
-23. rerun the full five-workflow matrix on the exact combined SHA.
+7. identify any native transaction/journal companions that make an otherwise standalone artifact unsafe to copy alone;
+8. identify any bounded native selector metadata required to locate the current authoritative members;
+9. safe import capture without parsing/re-encoding beyond what is actually required;
+10. environment inspection;
+11. environment preparation where required by the supported slice;
+12. state restore;
+13. local launch only when its ownership/session semantics are proven;
+14. real session observation;
+15. safe state capture and validation;
+16. temporary host launch only when its server/runtime semantics are proven;
+17. graceful hosted-session shutdown;
+18. optional automatic Join;
+19. exact environment reproduction where justified;
+20. expose only the `GameAdapterCapabilities` proven by the implemented slice;
+21. add adapter-specific deterministic tests and a dedicated CI lane where appropriate;
+22. add the Desktop project reference and one entry to `DesktopGameAdapterCatalog`;
+23. qualify the adapter head independently before mechanical integration;
+24. rerun the full five-workflow matrix on the exact combined SHA.
 
 The first target is one truthful vertical slice, not many partially claimed workflows. An adapter that safely supports discovery/import/environment/state handling may be visible in Steward while launch/hosting remains unavailable; missing runtime evidence is represented by absent capability flags, not invented generic behavior.
 
-Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, and Enshrouded are current concrete examples of that narrower entry point. Terraria preserves one opaque vanilla `.wld`; Stardew Valley preserves exactly its two current vanilla save files while excluding `_old` recovery files; Necesse preserves the game's native compressed World ZIP byte-for-byte instead of adding a second archive layer; Core Keeper preserves exactly the three slot-matched World-owned files while excluding character and map state; The Planet Crafter preserves one opaque non-empty native `.json` World while excluding `Backup.json`; Satisfactory preserves one opaque Steam-profile `.sav` while excluding non-Steam profiles, backup trees, and blueprints; ASTRONEER preserves one opaque `.savegame` while excluding adjacent `.savecfg` account/custom-game configuration; Enshrouded uses two bounded selector indexes to preserve only the current World-data and `_info` members while excluding inactive native recovery generations and user configuration. All eight verify the exact Steam build and advertise only `ExactGameVersion`; launch/hosting capabilities remain absent.
+Terraria, Stardew Valley, Necesse, Core Keeper, The Planet Crafter, Satisfactory, ASTRONEER, Enshrouded, and Conan Exiles Enhanced are current concrete examples of that narrower entry point. Terraria preserves one opaque vanilla `.wld`; Stardew Valley preserves exactly its two current vanilla save files while excluding `_old` recovery files; Necesse preserves the game's native compressed World ZIP byte-for-byte instead of adding a second archive layer; Core Keeper preserves exactly the three slot-matched World-owned files while excluding character and map state; The Planet Crafter preserves one opaque non-empty native `.json` World while excluding `Backup.json`; Satisfactory preserves one opaque Steam-profile `.sav` while excluding non-Steam profiles, backup trees, and blueprints; ASTRONEER preserves one opaque `.savegame` while excluding adjacent `.savecfg` account/custom-game configuration; Enshrouded uses two bounded selector indexes to preserve only the current World-data and `_info` members while excluding inactive native recovery generations and user configuration; Conan Exiles Enhanced preserves one opaque idle slot `.db`, derives install identity from Steam metadata, and refuses SQLite sidecar activity instead of implementing live database snapshotting. All nine verify the exact Steam build and advertise only `ExactGameVersion`; launch/hosting capabilities remain absent.
 
 Adding a game normally does **not** require changes to Core, backend, Infrastructure, or ordinary Desktop action logic. If implementation appears to require such a change, first prove that the need is genuinely universal rather than an adapter-specific edge case.
 
@@ -288,9 +296,11 @@ For a discovery/import/state-only slice, prove at minimum:
 ```text
 discover intended installation without mutation
 -> stay inside the source platform/account identity namespace
+-> use authoritative launcher/store metadata for install identity where it already exists
 -> discover intended World without mutation
 -> distinguish World persistence from nearby account/config/auxiliary/recovery persistence
 -> identify the smallest complete World-owned state representation
+-> reject native transaction/journal activity when the chosen representation is only safe while idle
 -> resolve bounded native selectors where required to identify the authoritative current bytes
 -> preserve native bytes directly where interpretation is unnecessary
 -> import copied/controlled World while preserving source

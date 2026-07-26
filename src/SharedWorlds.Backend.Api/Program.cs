@@ -18,6 +18,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 var connectionString = RequireConfiguration(builder.Configuration, "ConnectionStrings:Steward");
 var steamVerifierOptions = ReadOptionalSteamVerifierOptions(builder.Configuration);
+var friendsBuildVerifier = FriendsBuildAuthConfiguration.CreateVerifier(builder.Configuration);
 var objectStorageServiceUrl = new Uri(
     RequireConfiguration(builder.Configuration, "ObjectStorage:ServiceUrl"),
     UriKind.Absolute);
@@ -113,6 +114,7 @@ builder.Services.AddSingleton(services =>
         ? SteamWebApiTicketVerifier.CreateUnavailable(httpClient)
         : new SteamWebApiTicketVerifier(httpClient, steamVerifierOptions);
 });
+builder.Services.AddSingleton(friendsBuildVerifier);
 builder.Services.AddSingleton(services => new StewardSessionService(
     services.GetRequiredService<IStewardSessionStore>(),
     () => DateTimeOffset.UtcNow));
@@ -174,6 +176,7 @@ app.UseStewardApiProblemHandling();
 app.MapGet("/health/live", () => Results.Ok(new { status = "live" }));
 app.MapGet("/health/ready", CheckReadinessAsync);
 app.MapStewardApiV1();
+app.MapFriendsBuildAuthApiV1();
 app.MapStewardAccessApiV1();
 app.MapStewardRevisionMetadataApiV1();
 app.MapStewardAuthorityApiV1();

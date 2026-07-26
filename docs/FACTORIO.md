@@ -1,5 +1,7 @@
 # Factorio Adapter
 
+> **OUTDATED — do not use this document as current hosted-runtime implementation guidance.** The hosted-server/RCON lifecycle below describes an older direction that does not match the current active product path. See [Documentation State Audit](DOCUMENTATION_AUDIT.md), `E4_DESKTOP_STATUS.md`, and the current adapter implementation/evidence before changing Factorio hosting. Discovery, environment, capture, and general safety material may still be useful historical context.
+
 ## Purpose
 
 Factorio is one of Steward's initial commercial validation adapters.

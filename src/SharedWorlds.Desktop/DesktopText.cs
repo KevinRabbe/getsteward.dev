@@ -34,6 +34,10 @@ public static class DesktopText
     public static string EnvironmentReadiness => Get(nameof(EnvironmentReadiness));
     public static string NotCheckedYet => Get(nameof(NotCheckedYet));
     public static string TechnicalDetails => Get(nameof(TechnicalDetails));
+    public static string TechnicalReadiness => Get(nameof(TechnicalReadiness));
+    public static string WorldStateImportSupported => Get(nameof(WorldStateImportSupported));
+    public static string AdapterSupportsFormat => Get(nameof(AdapterSupportsFormat));
+    public static string NoManagedPlayActions => Get(nameof(NoManagedPlayActions));
     public static string WorldIdLabel => Get(nameof(WorldIdLabel));
     public static string EnvironmentLabel => Get(nameof(EnvironmentLabel));
     public static string StateLabel => Get(nameof(StateLabel));
@@ -48,6 +52,7 @@ public static class DesktopText
     public static string StartWorld => Get(nameof(StartWorld));
     public static string HostWorld => Get(nameof(HostWorld));
     public static string Join => Get(nameof(Join));
+    public static string CreateWorld => Get(nameof(CreateWorld));
     public static string ShareWorld => Get(nameof(ShareWorld));
     public static string ManageAccess => Get(nameof(ManageAccess));
     public static string StopAndSave => Get(nameof(StopAndSave));

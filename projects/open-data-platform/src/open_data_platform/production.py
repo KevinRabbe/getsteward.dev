@@ -12,7 +12,8 @@ from typing import Any
 from .util import atomic_write_json
 
 
-_METRICS_VERSION = 1
+_METRICS_VERSION = 2
+_DEFAULT_ACCEPTANCE_DATASET = "ds_gleif_lei_level1_concat"
 
 
 def process_peak_rss_bytes() -> int | None:
@@ -120,6 +121,7 @@ def persist_pipeline_metrics(
         "started_at": started_at,
         "finished_at": finished_at,
         "snapshot_id": result.get("snapshot_id"),
+        "source_dataset_id": snapshot.get("source_dataset_id") or product.get("source_dataset_id") or artifact.get("source_dataset_id"),
         "source_version": snapshot.get("source_version"),
         "stage_seconds": {key: round(float(value), 6) for key, value in stage_seconds.items()},
         "total_seconds": round(float(total_seconds), 6),
@@ -164,15 +166,27 @@ def _mean(values: list[float | int | None]) -> float | None:
     return round(statistics.fmean(usable), 3) if usable else None
 
 
-def production_acceptance_report(data_root: Path, *, required_versions: int = 7) -> dict[str, Any]:
+def production_acceptance_report(
+    data_root: Path,
+    *,
+    required_versions: int = 7,
+    source_dataset_id: str = _DEFAULT_ACCEPTANCE_DATASET,
+) -> dict[str, Any]:
     if required_versions < 1:
         raise ValueError("required_versions must be at least 1")
 
     runs, load_errors = _load_metrics(data_root)
-    completed = [run for run in runs if run.get("status") == "COMPLETED" and run.get("source_version")]
+    dataset_runs = [run for run in runs if run.get("source_dataset_id") in (None, source_dataset_id)]
+    completed = [
+        run for run in dataset_runs
+        if run.get("status") == "COMPLETED" and run.get("source_version")
+    ]
 
-    # A rerun of the same source version is useful operational evidence, but it does not
-    # count as another day/version in the production-acceptance window.
+    # Metrics v1 predates source_dataset_id and therefore remains eligible only for
+    # the original Level-1 acceptance dataset. Metrics v2+ are dataset-scoped.
+    if source_dataset_id != _DEFAULT_ACCEPTANCE_DATASET:
+        completed = [run for run in completed if run.get("source_dataset_id") == source_dataset_id]
+
     by_version: dict[str, dict[str, Any]] = {}
     for run in completed:
         source_version = str(run["source_version"])
@@ -200,6 +214,7 @@ def production_acceptance_report(data_root: Path, *, required_versions: int = 7)
 
     return {
         "status": status,
+        "source_dataset_id": source_dataset_id,
         "required_distinct_source_versions": required_versions,
         "observed_distinct_source_versions": len(versions),
         "remaining_source_versions": max(0, required_versions - len(versions)),
@@ -208,7 +223,7 @@ def production_acceptance_report(data_root: Path, *, required_versions: int = 7)
         "latest_source_version": versions[-1] if versions else None,
         "calendar_span_days": span_days,
         "completed_run_count": len(completed),
-        "failed_run_count": sum(1 for run in runs if run.get("status") == "FAILED"),
+        "failed_run_count": sum(1 for run in dataset_runs if run.get("status") == "FAILED"),
         "metrics_load_errors": load_errors,
         "performance": {
             "average_total_seconds": _mean([run.get("total_seconds") for run in selected]),
@@ -234,7 +249,7 @@ def production_acceptance_report(data_root: Path, *, required_versions: int = 7)
         },
         "latest_run": selected[-1] if selected else None,
         "acceptance_rule": (
-            "PASS requires the requested number of distinct successful source versions; "
+            "PASS requires the requested number of distinct successful source versions for this dataset; "
             "reruns of one source version do not advance the production window."
         ),
     }

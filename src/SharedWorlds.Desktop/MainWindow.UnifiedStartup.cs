@@ -29,6 +29,7 @@ public partial class MainWindow
         InitializeUnifiedImportBrowser();
         InitializeImportAccessibility();
         InitializeResponsibilityPresentation();
+        InitializeGameAttentionProjection();
         await InitializeWorldInvitationsUiAsync();
         InitializeResponsiveWorkspace();
     }

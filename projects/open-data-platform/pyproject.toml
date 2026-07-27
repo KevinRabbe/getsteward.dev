@@ -4,10 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "open-data-platform-v01"
-version = "0.16.0"
-description = "Verified, zero-install GLEIF open-data ingest and query pipeline"
+version = "0.17.0"
+description = "Verified GLEIF open-data archive, history, relationship, and distribution pipeline"
 requires-python = ">=3.11"
 dependencies = []
+
+[project.optional-dependencies]
+parquet = ["pyarrow==25.0.0"]
 
 [project.scripts]
 odp = "open_data_platform.cli:main"

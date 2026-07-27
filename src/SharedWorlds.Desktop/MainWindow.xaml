@@ -41,8 +41,140 @@
                 <ColumnDefinition x:Name="WorldDetailsColumn" Width="*" />
             </Grid.ColumnDefinitions>
 
+            <Border x:Name="GamesLibraryPanel"
+                    Grid.Column="0"
+                    Grid.ColumnSpan="2"
+                    Background="{StaticResource AppBackgroundBrush}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="32,28,32,32">
+                        <Grid Margin="0,0,0,22">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0"
+                                        Margin="0,0,24,0">
+                                <TextBlock Text="Games"
+                                           FontSize="30"
+                                           FontWeight="SemiBold" />
+                                <TextBlock Text="Choose a game to see its managed Worlds."
+                                           Margin="0,6,0,0"
+                                           Foreground="{StaticResource MutedTextBrush}"
+                                           FontSize="13" />
+                            </StackPanel>
+                            <Button x:Name="OpenImportButton"
+                                    Grid.Column="1"
+                                    Content="{x:Static local:DesktopText.Import}"
+                                    AutomationProperties.HelpText="Import a detected game World into Steward on this PC."
+                                    Padding="12,6"
+                                    MinHeight="32"
+                                    Margin="0,0,8,0" />
+                            <Button x:Name="RefreshButton"
+                                    Grid.Column="2"
+                                    Content="{x:Static local:DesktopText.Refresh}"
+                                    AutomationProperties.HelpText="Refresh installed games, Worlds, and current Steward state."
+                                    Padding="12,6"
+                                    MinHeight="32" />
+                        </Grid>
+
+                        <ListBox x:Name="GameLibraryList"
+                                 AutomationProperties.Name="Games Library"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 Foreground="{StaticResource TextBrush}"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel IsItemsHost="True" />
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="Width" Value="250" />
+                                    <Setter Property="MinHeight" Value="126" />
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                                    <Setter Property="Padding" Value="0" />
+                                    <Setter Property="Margin" Value="0,0,14,14" />
+                                    <Setter Property="Background" Value="Transparent" />
+                                    <Setter Property="BorderThickness" Value="0" />
+                                    <Setter Property="AutomationProperties.Name" Value="{Binding GameName}" />
+                                    <Setter Property="AutomationProperties.HelpText" Value="{Binding Summary}" />
+                                    <Setter Property="FocusVisualStyle" Value="{StaticResource StewardFocusVisualStyle}" />
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="ListBoxItem">
+                                                <Border x:Name="GameTileBorder"
+                                                        Background="{StaticResource PanelBrush}"
+                                                        BorderBrush="{StaticResource BorderBrush}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="12"
+                                                        Padding="18">
+                                                    <ContentPresenter />
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="GameTileBorder"
+                                                                Property="Background"
+                                                                Value="{StaticResource PanelAltBrush}" />
+                                                    </Trigger>
+                                                    <Trigger Property="IsSelected" Value="True">
+                                                        <Setter TargetName="GameTileBorder"
+                                                                Property="Background"
+                                                                Value="#252C3B" />
+                                                        <Setter TargetName="GameTileBorder"
+                                                                Property="BorderBrush"
+                                                                Value="{StaticResource AccentBrush}" />
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="68" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0"
+                                                Width="56"
+                                                Height="56"
+                                                Background="{StaticResource PanelAltBrush}"
+                                                CornerRadius="10"
+                                                VerticalAlignment="Top">
+                                            <Image Source="{Binding IconPath}"
+                                                   Width="48"
+                                                   Height="48"
+                                                   Stretch="Uniform" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1"
+                                                    VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding GameName}"
+                                                       FontSize="18"
+                                                       FontWeight="SemiBold"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Summary}"
+                                                       Margin="0,7,0,0"
+                                                       Foreground="{StaticResource MutedTextBrush}"
+                                                       FontSize="12"
+                                                       TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
             <Border x:Name="WorldSidebar"
                     Grid.Column="0"
+                    Visibility="Collapsed"
                     Background="{StaticResource PanelBrush}"
                     BorderBrush="{StaticResource BorderBrush}"
                     BorderThickness="0,0,1,0"
@@ -54,31 +186,31 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <Grid Grid.Row="0" Margin="2,0,2,14">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Games"
-                                   Grid.Column="0"
-                                   FontSize="18"
+                    <StackPanel Grid.Row="0"
+                                Margin="2,0,2,14">
+                        <DockPanel LastChildFill="True">
+                            <Button x:Name="BackToGamesButton"
+                                    DockPanel.Dock="Left"
+                                    Content="← Games"
+                                    AutomationProperties.HelpText="Return to the Games Library."
+                                    Padding="10,5"
+                                    Margin="0,0,8,0" />
+                            <Button x:Name="RefreshGameButton"
+                                    DockPanel.Dock="Right"
+                                    Content="{x:Static local:DesktopText.Refresh}"
+                                    AutomationProperties.HelpText="Refresh managed Worlds and current Steward state."
+                                    Padding="10,5" />
+                        </DockPanel>
+                        <TextBlock x:Name="SelectedGameNameText"
+                                   Margin="0,14,0,0"
+                                   FontSize="20"
                                    FontWeight="SemiBold"
-                                   VerticalAlignment="Center" />
-                        <Button x:Name="OpenImportButton"
-                                Grid.Column="1"
-                                Content="{x:Static local:DesktopText.Import}"
-                                AutomationProperties.HelpText="Import a detected game World into Steward on this PC."
-                                Padding="12,6"
-                                MinHeight="32"
-                                Margin="0,0,8,0" />
-                        <Button x:Name="RefreshButton"
-                                Grid.Column="2"
-                                Content="{x:Static local:DesktopText.Refresh}"
-                                AutomationProperties.HelpText="Refresh installed games, Worlds, and current Steward state."
-                                Padding="12,6"
-                                MinHeight="32" />
-                    </Grid>
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="Worlds"
+                                   Margin="0,4,0,0"
+                                   Foreground="{StaticResource MutedTextBrush}"
+                                   FontSize="12" />
+                    </StackPanel>
 
                     <ListBox x:Name="WorldList"
                              Grid.Row="1"
@@ -158,6 +290,7 @@
 
             <ScrollViewer x:Name="WorldDetailsScroll"
                           Grid.Column="1"
+                          Visibility="Collapsed"
                           VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="36,32,36,32"
                             MaxWidth="760"

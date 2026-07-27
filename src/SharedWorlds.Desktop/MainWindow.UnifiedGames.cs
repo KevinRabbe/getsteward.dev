@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -17,6 +16,8 @@ public partial class MainWindow
     private readonly GameIconResolver _gameIconResolver = new();
     private readonly Dictionary<string, GamePresentation> _gamePresentationCache =
         new(StringComparer.Ordinal);
+    private IReadOnlyList<UnifiedWorldListItem> _allWorldItems = Array.Empty<UnifiedWorldListItem>();
+    private string? _selectedGameAdapterId;
     private bool _unifiedGameUiInitialized;
 
     internal async Task InitializeUnifiedGameUiAsync()
@@ -27,18 +28,20 @@ public partial class MainWindow
         }
 
         _unifiedGameUiInitialized = true;
-
         RefreshButton.Click += UnifiedRefreshButton_Click;
+        RefreshGameButton.Click += UnifiedRefreshButton_Click;
         ContinueButton.Click += UnifiedContinueButton_Click;
         HostButton.Click += UnifiedHostButton_Click;
-
+        GameLibraryList.SelectionChanged += UnifiedGameLibraryList_SelectionChanged;
         WorldList.SelectionChanged += UnifiedWorldList_SelectionChanged;
         WorldList.IsEnabledChanged += (_, _) => UpdateUnifiedActionState();
         AllowHostingCheckBox.Click += (_, _) => UpdateUnifiedActionState();
+        BackToGamesButton.Click += UnifiedBackToGamesButton_Click;
+        BackToWorldsButton.Click += UnifiedBackToWorldsButton_Click;
+        SizeChanged += UnifiedMainWindow_SizeChanged;
 
         WorldList.ItemTemplate = CreateWorldItemTemplate();
         WorldList.GroupStyle.Clear();
-        WorldList.GroupStyle.Add(CreateGameGroupStyle());
 
         ContinueButton.Visibility = Visibility.Visible;
         HostButton.Visibility = Visibility.Visible;
@@ -47,25 +50,37 @@ public partial class MainWindow
         // maintaining a second placeholder state machine here.
         ShareButton.IsEnabled = false;
 
+        ShowGamesLibrary(focusLibrary: false);
         await RefreshUnifiedWorldsAsync();
     }
 
     private async void UnifiedRefreshButton_Click(object sender, RoutedEventArgs e)
         => await RefreshUnifiedWorldsAsync(_selectedWorld?.Id);
 
+    private void UnifiedGameLibraryList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (GameLibraryList.SelectedItem is not GameLibraryItem selected)
+        {
+            return;
+        }
+
+        OpenGameWorkspace(selected.AdapterId, selected.GameName, preferredWorldId: null);
+    }
+
     private void UnifiedWorldList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (WorldList.SelectedItem is not UnifiedWorldListItem selected)
         {
             _selectedWorld = null;
-            EmptyStateText.Visibility = Visibility.Visible;
-            WorldDetailsPanel.Visibility = Visibility.Collapsed;
+            SetGameWorkspaceEmptyState();
             UpdateUnifiedActionState();
             UpdateResponsibilityPresentation();
+            ApplyGameNavigationLayout();
             return;
         }
 
         _selectedWorld = selected.World;
+        _selectedGameAdapterId = selected.AdapterId;
         EmptyStateText.Visibility = Visibility.Collapsed;
         WorldDetailsPanel.Visibility = Visibility.Visible;
         WorldNameText.Text = selected.World.Name;
@@ -77,7 +92,31 @@ public partial class MainWindow
         StateRevisionText.Text = selected.World.CurrentStateRevisionId?.ToString() ?? "none";
         UpdateUnifiedActionState();
         UpdateResponsibilityPresentation();
+        ApplyGameNavigationLayout();
     }
+
+    private void UnifiedBackToGamesButton_Click(object sender, RoutedEventArgs e)
+        => ShowGamesLibrary(focusLibrary: true);
+
+    private void UnifiedBackToWorldsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedGameAdapterId is null)
+        {
+            ShowGamesLibrary(focusLibrary: true);
+            return;
+        }
+
+        _selectedWorld = null;
+        WorldList.SelectedItem = null;
+        SetGameWorkspaceEmptyState();
+        UpdateUnifiedActionState();
+        UpdateResponsibilityPresentation();
+        ApplyGameNavigationLayout();
+        WorldList.Focus();
+    }
+
+    private void UnifiedMainWindow_SizeChanged(object sender, SizeChangedEventArgs e)
+        => ApplyGameNavigationLayout();
 
     private async void UnifiedContinueButton_Click(object sender, RoutedEventArgs e)
     {
@@ -151,7 +190,6 @@ public partial class MainWindow
                 var installation = await GetGameInstallationAsync(adapter);
                 StatusText.Text =
                     $"{adapter.DisplayName} is running. When the hosted session ends, Steward will save the updated World.";
-
                 var lifecycle = GetLifecycleForWorld(world);
                 var hostAdapter = _remoteWorldIds.Contains(world.Id) && _remoteRuntime is { } remoteRuntime
                     ? remoteRuntime.CoordinateManagedHost(world.Id, adapter)
@@ -161,7 +199,6 @@ public partial class MainWindow
                     hostAdapter,
                     installation,
                     GetUserForWorld(world));
-
                 StatusText.Text = $"Hosted session finished. Saved '{updated.Name}'.";
                 await RefreshUnifiedWorldsAsync(updated.Id, preserveStatus: true);
             });
@@ -202,6 +239,7 @@ public partial class MainWindow
                     world.Name,
                     $"{FormatSharingMode(world.SharingMode)}  •  {gameVersion}",
                     gameVersion,
+                    world.GameAdapterId,
                     presentation.GameName,
                     presentation.IconPath));
             }
@@ -210,31 +248,26 @@ public partial class MainWindow
                 .OrderBy(item => item.GameName, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
-            var view = new ListCollectionView(ordered);
-            view.GroupDescriptions.Add(
-                new PropertyGroupDescription(nameof(UnifiedWorldListItem.GameName)));
-            view.SortDescriptions.Add(
-                new SortDescription(nameof(UnifiedWorldListItem.GameName), ListSortDirection.Ascending));
-            view.SortDescriptions.Add(
-                new SortDescription(nameof(UnifiedWorldListItem.Name), ListSortDirection.Ascending));
+            _allWorldItems = ordered;
 
-            WorldList.ItemsSource = view;
+            await RefreshGameLibraryAsync();
 
-            if (ordered.Count == 0)
+            var selection = preferredWorldId is { } wanted
+                ? ordered.FirstOrDefault(item => item.World.Id == wanted)
+                : ordered.FirstOrDefault(item => item.World.Id == _selectedWorld?.Id);
+
+            if (selection is not null)
             {
-                _selectedWorld = null;
-                EmptyStateText.Text = _lastRemoteWorldLoadError is null
-                    ? "No managed Worlds yet. Use Import to turn a detected save into a private World."
-                    : "No local Worlds are managed on this PC. Shared Worlds are temporarily unavailable.";
-                EmptyStateText.Visibility = Visibility.Visible;
-                WorldDetailsPanel.Visibility = Visibility.Collapsed;
+                OpenGameWorkspace(selection.AdapterId, selection.GameName, selection.World.Id);
+            }
+            else if (_selectedGameAdapterId is { } selectedAdapterId &&
+                     TryGetGameLibraryItem(selectedAdapterId, out var selectedGame))
+            {
+                OpenGameWorkspace(selectedAdapterId, selectedGame.GameName, preferredWorldId: null);
             }
             else
             {
-                var selection = preferredWorldId is { } wanted
-                    ? ordered.FirstOrDefault(item => item.World.Id == wanted)
-                    : ordered.FirstOrDefault(item => item.World.Id == _selectedWorld?.Id);
-                WorldList.SelectedItem = selection ?? ordered[0];
+                ShowGamesLibrary(focusLibrary: false);
             }
 
             if (!preserveStatus)
@@ -245,13 +278,16 @@ public partial class MainWindow
                 }
                 else
                 {
-                    var gameCount = ordered
-                        .Select(item => item.GameName)
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                    var managedGameCount = ordered
+                        .Select(item => item.AdapterId)
+                        .Distinct(StringComparer.Ordinal)
                         .Count();
-                    StatusText.Text = ordered.Count == 1
-                        ? "1 managed World"
-                        : $"{ordered.Count} managed Worlds across {gameCount} games";
+                    StatusText.Text = ordered.Count switch
+                    {
+                        0 => $"{_registeredGameAdapters.Count} supported games • no managed Worlds yet",
+                        1 => "1 managed World",
+                        _ => $"{ordered.Count} managed Worlds across {managedGameCount} games"
+                    };
                 }
             }
         }
@@ -266,6 +302,146 @@ public partial class MainWindow
             UpdateUnifiedActionState();
             UpdateResponsibilityPresentation();
         }
+    }
+
+    private async Task RefreshGameLibraryAsync()
+    {
+        var games = new List<GameLibraryItem>(_registeredGameAdapters.Count);
+        foreach (var adapter in _registeredGameAdapters.Values
+                     .OrderBy(adapter => adapter.DisplayName, StringComparer.OrdinalIgnoreCase))
+        {
+            var presentation = await GetGamePresentationAsync(adapter.Id);
+            var worldCount = _allWorldItems.Count(item =>
+                string.Equals(item.AdapterId, adapter.Id, StringComparison.Ordinal));
+            var summary = worldCount switch
+            {
+                0 => "No managed Worlds yet",
+                1 => "1 managed World",
+                _ => $"{worldCount} managed Worlds"
+            };
+            games.Add(new GameLibraryItem(
+                adapter.Id,
+                presentation.GameName,
+                summary,
+                presentation.IconPath));
+        }
+
+        GameLibraryList.ItemsSource = games;
+    }
+
+    private bool TryGetGameLibraryItem(string adapterId, out GameLibraryItem item)
+    {
+        if (GameLibraryList.ItemsSource is IEnumerable<GameLibraryItem> games)
+        {
+            var match = games.FirstOrDefault(game =>
+                string.Equals(game.AdapterId, adapterId, StringComparison.Ordinal));
+            if (match is not null)
+            {
+                item = match;
+                return true;
+            }
+        }
+
+        item = null!;
+        return false;
+    }
+
+    private void OpenGameWorkspace(
+        string adapterId,
+        string gameName,
+        WorldId? preferredWorldId)
+    {
+        _selectedGameAdapterId = adapterId;
+        SelectedGameNameText.Text = gameName;
+        GamesLibraryPanel.Visibility = Visibility.Collapsed;
+
+        var gameWorlds = _allWorldItems
+            .Where(item => string.Equals(item.AdapterId, adapterId, StringComparison.Ordinal))
+            .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        WorldList.ItemsSource = gameWorlds;
+
+        var selection = preferredWorldId is { } wanted
+            ? gameWorlds.FirstOrDefault(item => item.World.Id == wanted)
+            : null;
+        WorldList.SelectedItem = selection;
+
+        if (selection is null)
+        {
+            _selectedWorld = null;
+            SetGameWorkspaceEmptyState();
+            UpdateUnifiedActionState();
+            UpdateResponsibilityPresentation();
+        }
+
+        ApplyGameNavigationLayout();
+    }
+
+    private void ShowGamesLibrary(bool focusLibrary)
+    {
+        _selectedGameAdapterId = null;
+        _selectedWorld = null;
+        WorldList.SelectedItem = null;
+        WorldList.ItemsSource = Array.Empty<UnifiedWorldListItem>();
+        GameLibraryList.SelectedItem = null;
+        EmptyStateText.Text = "Select a World.";
+        EmptyStateText.Visibility = Visibility.Visible;
+        WorldDetailsPanel.Visibility = Visibility.Collapsed;
+        UpdateUnifiedActionState();
+        UpdateResponsibilityPresentation();
+        ApplyGameNavigationLayout();
+
+        if (focusLibrary)
+        {
+            GameLibraryList.Focus();
+        }
+    }
+
+    private void SetGameWorkspaceEmptyState()
+    {
+        if (_selectedGameAdapterId is null)
+        {
+            EmptyStateText.Text = "Select a World.";
+        }
+        else if (WorldList.Items.Count == 0)
+        {
+            EmptyStateText.Text = _lastRemoteWorldLoadError is null
+                ? $"No managed {SelectedGameNameText.Text} Worlds yet. Return to Games to Import one."
+                : $"No local {SelectedGameNameText.Text} Worlds are managed on this PC. Shared Worlds are temporarily unavailable.";
+        }
+        else
+        {
+            EmptyStateText.Text = "Select a World.";
+        }
+
+        EmptyStateText.Visibility = Visibility.Visible;
+        WorldDetailsPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void ApplyGameNavigationLayout()
+    {
+        if (_selectedGameAdapterId is null)
+        {
+            GamesLibraryPanel.Visibility = Visibility.Visible;
+            WorldSidebar.Visibility = Visibility.Collapsed;
+            WorldDetailsScroll.Visibility = Visibility.Collapsed;
+            BackToWorldsButton.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        GamesLibraryPanel.Visibility = Visibility.Collapsed;
+        var narrow = ActualWidth < 860;
+        if (narrow && _selectedWorld is not null)
+        {
+            WorldSidebar.Visibility = Visibility.Collapsed;
+            WorldDetailsScroll.Visibility = Visibility.Visible;
+            BackToWorldsButton.Visibility = Visibility.Visible;
+            return;
+        }
+
+        WorldSidebar.Visibility = Visibility.Visible;
+        WorldDetailsScroll.Visibility = narrow ? Visibility.Collapsed : Visibility.Visible;
+        BackToWorldsButton.Visibility = Visibility.Collapsed;
     }
 
     private async Task RunUnifiedOperationAsync(string status, Func<Task> operation)
@@ -447,50 +623,20 @@ public partial class MainWindow
         return new DataTemplate { VisualTree = root };
     }
 
-    private static GroupStyle CreateGameGroupStyle()
-    {
-        var root = new FrameworkElementFactory(typeof(StackPanel));
-        root.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
-        root.SetValue(FrameworkElement.MarginProperty, new Thickness(2, 16, 2, 8));
-
-        var icon = new FrameworkElementFactory(typeof(Image));
-        icon.SetValue(FrameworkElement.WidthProperty, 24d);
-        icon.SetValue(FrameworkElement.HeightProperty, 24d);
-        icon.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 0, 8, 0));
-        icon.SetValue(Image.StretchProperty, Stretch.Uniform);
-        icon.SetBinding(Image.SourceProperty, new Binding("Items[0].GameIconPath"));
-        root.AppendChild(icon);
-
-        var name = new FrameworkElementFactory(typeof(TextBlock));
-        name.SetValue(TextBlock.FontSizeProperty, 15d);
-        name.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
-        name.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
-        name.SetBinding(TextBlock.TextProperty, new Binding("Name"));
-        root.AppendChild(name);
-
-        var count = new FrameworkElementFactory(typeof(TextBlock));
-        count.SetValue(FrameworkElement.MarginProperty, new Thickness(8, 0, 0, 0));
-        count.SetValue(TextBlock.FontSizeProperty, 11d);
-        count.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
-        count.SetValue(UIElement.OpacityProperty, 0.72d);
-        count.SetBinding(
-            TextBlock.TextProperty,
-            new Binding("ItemCount") { StringFormat = "{0} Worlds" });
-        root.AppendChild(count);
-
-        return new GroupStyle
-        {
-            HeaderTemplate = new DataTemplate { VisualTree = root }
-        };
-    }
-
     private sealed record GamePresentation(string GameName, string? IconPath);
+
+    private sealed record GameLibraryItem(
+        string AdapterId,
+        string GameName,
+        string Summary,
+        string? IconPath);
 
     private sealed record UnifiedWorldListItem(
         World World,
         string Name,
         string Subtitle,
         string GameVersion,
+        string AdapterId,
         string GameName,
         string? GameIconPath);
 }

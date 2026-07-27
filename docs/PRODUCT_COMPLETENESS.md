@@ -28,14 +28,14 @@ Use these states:
 | Adapter capability truthfulness | **DONE** | Catalog registration never grants Start/Host/Join/Stop/Create. |
 | Import | **DONE** | Adapter-driven discovery/import; imports remain local until explicit Share. |
 | Factorio native Create | **DONE** | Native `--create` path; game generates revision-1 state. |
-| Minimal World membership lobby | **DONE** | Existing lobby/access dialog lists members and manages World access. |
+| World membership/access management | **DONE** | Existing access dialog lists members and manages invitations/removal/Access Manager transfer/leave. |
 
 ## Games Library / Desktop presentation
 
 | Requirement | State | Remaining work |
 |---|---|---|
-| Games -> selected game -> Worlds -> World details | **IN PROGRESS** | PR #147 restores the approved hierarchy and is green on its current executable head. |
-| All registered games visible even with zero Worlds | **IN PROGRESS** | Implemented in #147. |
+| Games -> selected game -> Worlds -> World details | **DONE** | PR #147 restores the approved game-first hierarchy. |
+| All registered games visible even with zero Worlds | **DONE** | #147 renders every registered first-party adapter and managed-World count. |
 | Game workspace search/sort | **MISSING** | `UI_ROADMAP.md` requires search/sort; selected-game workspace does not expose it yet. |
 | Game banner/header | **PARTIAL** | Selected game title exists; richer header/banner presentation remains incomplete. |
 | Game attention indicator | **MISSING** | Library should surface active / Waiting to sync / Action required / Recovery needed Worlds without hiding them one level down. |
@@ -58,11 +58,14 @@ Steward does not add a friends graph, chat, voice, matchmaking, public lobby bro
 |---|---|---|
 | Who belongs to this World? | **DONE** | Existing World membership/access records. |
 | Who is the Access Manager? | **DONE** | Existing access authority. |
-| Who is the current Host? | **PARTIAL** | Existing reservation + Host presence already know the Host operationally, but the lobby does not present it as the lobby's Host badge yet. |
-| Who is currently playing? | **MISSING** | Add bounded ephemeral World-player presence for active Steward-observed Join sessions. Host derives from authoritative Host/reservation state rather than player-presence claims. |
+| Who is the current Host? | **DONE** | Lobby snapshot composes the existing reservation-backed Host-presence holder/state; player presence never decides Host. |
+| Who is currently playing? | **DONE — OBSERVED SESSIONS** | Host is always included from Host truth; automatic Join publishes 15-second ephemeral presence with a 45-second visibility TTL and clears after the observed client ends. |
+| Manual/native unobserved Join | **DELIBERATELY NOT CLAIMED** | Steward does not fake presence for client sessions it cannot observe. |
 | Presence history | **DEFERRED/REMOVED** | No history. Presence expires automatically and is presentation-only. |
 
-Presence is non-authoritative. It may never acquire/release a reservation, change membership, grant Join, commit state, or decide who is Host.
+Presence is non-authoritative. It may never acquire/release a reservation, change membership, grant Join, commit state, clear recovery, or decide who is Host.
+
+The lobby is a read-only card on selected shared-World details. The existing Manage access dialog remains the only membership mutation surface.
 
 ## Sharing / invitation completeness
 
@@ -78,7 +81,7 @@ Presence is non-authoritative. It may never acquire/release a reservation, chang
 | Area | State | Remaining evidence |
 |---|---|---|
 | Factorio Internet Host/Join/handoff | **EMPIRICAL** | Real two-network reachability, Join, safe capture/commit, cross-device continuation. |
-| Palworld native Join/handoff | **EMPIRICAL** | Real two-network native IP:port Join plus safe Stop/capture/handoff. Automatic client Join is not advertised. |
+| Palworld native Join/handoff | **EMPIRICAL** | Real two-network native IP:port Join plus safe Stop/capture/handoff. Automatic client Join is not advertised, so manual clients are intentionally absent from lobby player presence. |
 | 7 Days to Die managed runtime | **EMPIRICAL** | Readiness, minimal local shutdown framing, clean long-lived exit, final-save boundary, capture/relaunch; Join separate. |
 | Project Zomboid managed runtime | **EMPIRICAL** | Isolated dedicated-server lifecycle, safe shutdown, capture/relaunch without live-profile ownership. |
 | Valheim | **EMPIRICAL/DEFERRED** | Recheck released 1.0 save/server behavior before implementing/promoting lifecycle depth. |
@@ -103,6 +106,8 @@ Do not put these back on the roadmap merely because Steward could implement them
 - public server/lobby browser;
 - matchmaking;
 - generic party system;
+- global online/offline presence;
+- permanent player-presence history;
 - generic guided-manual Join lifecycle;
 - generic NAT traversal before measured need;
 - permanent Steward game servers;
@@ -115,9 +120,9 @@ Steam, Discord, Windows, the game, or the deployment platform already own those 
 ## Current deterministic execution order
 
 ```text
-finish and freeze Games Library #147
--> implement small World Lobby presence/Host presentation
--> close remaining first-release UI completeness gaps
+Games Library #147                     DONE
+-> small World Lobby #148             DONE after final docs qualification
+-> close remaining UI completeness gaps
    (search/sort, attention, Settings, localization cleanup)
 -> reconcile Share/invite/delete user journeys
 -> resume V3-E real Windows evidence

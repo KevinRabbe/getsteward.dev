@@ -1,0 +1,19 @@
+{
+  "source_id": "src_ror",
+  "source_dataset_id": "ds_ror_organizations",
+  "publisher": "Research Organization Registry (ROR)",
+  "dataset_name": "ROR Registry Data Dump",
+  "metadata_url": "https://zenodo.org/api/records/6347574",
+  "download_url_template": "https://zenodo.org/api/records/{record_id}/files/{filename}/content",
+  "allowed_hosts": [
+    "zenodo.org"
+  ],
+  "acquisition_method": "Zenodo REST API concept record 6347574",
+  "terms_url": "https://ror.org/about/terms/",
+  "data_documentation_url": "https://ror.readme.io/docs/data-dump",
+  "schema_documentation_url": "https://ror.readme.io/docs/ror-data-structure",
+  "expected_schema": "ROR Schema 2.1",
+  "field_exclusions": [
+    "locations"
+  ]
+}

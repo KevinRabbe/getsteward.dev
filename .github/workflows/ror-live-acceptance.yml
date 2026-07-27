@@ -1,0 +1,64 @@
+name: ROR Live Acceptance
+
+on:
+  push:
+    branches:
+      - agent/ror-live-acceptance-v1
+    paths:
+      - "projects/open-data-platform/**"
+      - ".github/workflows/ror-live-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ror-live-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live-v29-v210:
+    name: Real ROR v2.9 -> v2.10 acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: projects/open-data-platform
+
+    env:
+      PYTHONPATH: src
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile live acceptance path
+        run: python -m compileall -q src scripts/ror_live_acceptance.py
+
+      - name: Run real out-of-order ROR acceptance
+        run: >-
+          python scripts/ror_live_acceptance.py
+          --data-root "${{ runner.temp }}/ror-live"
+          --output "${{ runner.temp }}/ror-live-acceptance.json"
+
+      - name: Show acceptance evidence
+        if: always()
+        run: |
+          if [ -f "${{ runner.temp }}/ror-live-acceptance.json" ]; then
+            cat "${{ runner.temp }}/ror-live-acceptance.json"
+          fi
+
+      - name: Upload compact acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ror-live-v2.9-v2.10-acceptance
+          path: ${{ runner.temp }}/ror-live-acceptance.json
+          if-no-files-found: warn
+          retention-days: 30

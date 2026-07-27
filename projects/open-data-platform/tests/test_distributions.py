@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from open_data_platform.distributions import (
+    _verified_source_product,
     build_csv_distribution,
     build_parquet_distribution,
     verify_distribution,
@@ -54,6 +55,33 @@ def _source_product(root: Path) -> dict:
 
 
 class DistributionTests(unittest.TestCase):
+    def test_ror_product_uses_shared_distribution_boundary(self):
+        verified = {
+            "database_path": "/tmp/organizations.sqlite",
+            "record_count": 132_537,
+            "product": {
+                "source_version": "v2.10",
+                "product_type": "ror_organizations_sqlite",
+                "manifest_sha256": "ror-manifest-hash",
+                "product_sha256": "ror-database-hash",
+            },
+        }
+        with (
+            patch(
+                "open_data_platform.distributions._snapshot_dataset_id",
+                return_value="ds_ror_organizations",
+            ),
+            patch("open_data_platform.distributions.verify_ror_product", return_value=verified),
+        ):
+            source = _verified_source_product(Path("data"), "snp_ror")
+
+        self.assertEqual(source["dataset_id"], "ds_ror_organizations")
+        self.assertEqual(source["source_version"], "v2.10")
+        self.assertEqual(source["table"], "organization")
+        self.assertEqual(source["record_count"], 132_537)
+        self.assertEqual(source["product_manifest_sha256"], "ror-manifest-hash")
+        self.assertEqual(source["product_database_sha256"], "ror-database-hash")
+
     def test_builds_and_verifies_deterministic_csv_distribution(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

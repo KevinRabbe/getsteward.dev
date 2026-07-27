@@ -13,12 +13,16 @@ from .parser import verify_normalized_artifact
 from .product import verify_product
 from .relationship_parser import verify_relationship_artifact
 from .relationship_product import verify_relationship_product
+from .ror_parser import verify_ror_artifact
+from .ror_product import verify_ror_product
+from .source_order import analytics_order_key, source_order_key, source_publication_date
 from .util import atomic_write_json, load_json, make_read_only, sha256_file, utc_now_iso
 
 
-_ANALYTICS_VERSION = "0.1.0"
+_ANALYTICS_VERSION = "0.2.0"
 _LEVEL1_DATASET = "ds_gleif_lei_level1_concat"
 _RR_DATASET = "ds_gleif_rr_level2_concat"
+_ROR_DATASET = "ds_ror_organizations"
 
 
 def analytics_path(
@@ -168,16 +172,49 @@ def _rr_profile(
     }
 
 
+def _ror_profile(
+    data_root: Path,
+    snapshot_id: str,
+    *,
+    product_root: Path | None,
+    normalized_root: Path | None,
+) -> dict[str, Any]:
+    product = verify_ror_product(
+        data_root,
+        snapshot_id,
+        output_root=product_root,
+        normalized_root=normalized_root,
+    )
+    normalized = verify_ror_artifact(data_root, snapshot_id, output_root=normalized_root)
+    quality = normalized["quality"]
+    manifest = product["product"]
+    if manifest.get("excluded_source_fields") != ["locations"]:
+        raise ProductError("ROR analytics source product lost its location exclusion")
+    return {
+        "source_dataset_id": _ROR_DATASET,
+        "source_version": str(manifest["source_version"]),
+        "record_count": int(product["record_count"]),
+        "status_counts": quality.get("status_counts", {}),
+        "organization_type_counts": quality.get("organization_type_counts", {}),
+        "relationship_type_counts": quality.get("relationship_type_counts", {}),
+        "records_with_excluded_locations": quality.get("records_with_excluded_locations", 0),
+        "excluded_source_fields": list(manifest["excluded_source_fields"]),
+        "product_manifest_sha256": manifest["manifest_sha256"],
+        "product_database_sha256": manifest["product_sha256"],
+        "normalized_artifact_sha256": normalized["artifact"]["artifact_sha256"],
+    }
+
+
 def _find_previous_analytics(
     data_root: Path,
     dataset_id: str,
-    source_version: str,
+    current_order: tuple[str, str],
     *,
     output_root: Path | None,
 ) -> dict[str, Any] | None:
     root = output_root if output_root is not None else data_root / "analytics"
     dataset_root = root / dataset_id
-    candidates: list[tuple[str, dict[str, Any]]] = []
+    candidates: list[tuple[tuple[str, str], dict[str, Any]]] = []
     if not dataset_root.exists():
         return None
     for directory in dataset_root.iterdir():
@@ -188,9 +225,9 @@ def _find_previous_analytics(
             continue
         _verify_checksum(artifact_path)
         artifact = load_json(artifact_path)
-        version = artifact.get("source_version")
-        if isinstance(version, str) and version < source_version:
-            candidates.append((version, artifact))
+        candidate_order = analytics_order_key(artifact)
+        if candidate_order < current_order:
+            candidates.append((candidate_order, artifact))
     if not candidates:
         return None
     return max(candidates, key=lambda item: item[0])[1]
@@ -271,13 +308,22 @@ def build_quality_profile(
             product_root=product_root,
             normalized_root=normalized_root,
         )
+    elif dataset_id == _ROR_DATASET:
+        profile = _ror_profile(
+            data_root,
+            snapshot_id,
+            product_root=product_root,
+            normalized_root=normalized_root,
+        )
     else:
         raise ProductError(f"No quality profile registered for dataset {dataset_id}")
 
+    profile["source_publication_date"] = source_publication_date(snapshot)
+    current_order = source_order_key(snapshot)
     previous = _find_previous_analytics(
         data_root,
         dataset_id,
-        profile["source_version"],
+        current_order,
         output_root=output_root,
     )
     changes = _find_incoming_change_summary(data_root, dataset_id, snapshot_id)
@@ -286,6 +332,7 @@ def build_quality_profile(
         comparison = {
             "previous_snapshot_id": previous["source_snapshot_id"],
             "previous_source_version": previous["source_version"],
+            "previous_source_publication_date": analytics_order_key(previous)[0],
             "record_count_delta": _delta(profile.get("record_count"), previous.get("record_count")),
             "unique_lei_count_delta": _delta(profile.get("unique_lei_count"), previous.get("unique_lei_count")),
             "duplicate_lei_count_delta": _delta(profile.get("duplicate_lei_count"), previous.get("duplicate_lei_count")),
@@ -293,7 +340,7 @@ def build_quality_profile(
         }
 
     artifact = {
-        "analytics_version": 1,
+        "analytics_version": 2,
         "builder_version": _ANALYTICS_VERSION,
         "source_snapshot_id": snapshot_id,
         **profile,
@@ -341,6 +388,8 @@ def verify_quality_profile(
         raise ProductError("Quality profile dataset identity mismatch")
     if artifact.get("source_version") != snapshot.get("source_version"):
         raise ProductError("Quality profile source version mismatch")
+    if analytics_order_key(artifact) != source_order_key(snapshot):
+        raise ProductError("Quality profile source chronology mismatch")
     return {
         "status": "VERIFIED",
         "snapshot_id": snapshot_id,
@@ -369,14 +418,19 @@ def quality_timeline(
             artifact = load_json(artifact_path)
             if artifact.get("source_dataset_id") != source_dataset_id:
                 raise ProductError("Timeline encountered analytics from a different dataset")
+            publication_date = analytics_order_key(artifact)[0]
             entries.append(
                 {
                     "source_snapshot_id": artifact["source_snapshot_id"],
                     "source_version": artifact["source_version"],
+                    "source_publication_date": publication_date,
                     "record_count": artifact.get("record_count"),
                     "unique_lei_count": artifact.get("unique_lei_count"),
                     "duplicate_lei_count": artifact.get("duplicate_lei_count"),
                     "duplicate_rate": artifact.get("duplicate_rate"),
+                    "status_counts": artifact.get("status_counts"),
+                    "organization_type_counts": artifact.get("organization_type_counts"),
+                    "relationship_type_counts": artifact.get("relationship_type_counts"),
                     "change_event_count": (
                         (artifact.get("incoming_historical_changes") or {}).get("change_event_count")
                     ),
@@ -386,12 +440,20 @@ def quality_timeline(
                     "quality_sha256": artifact_hash,
                 }
             )
-    entries.sort(key=lambda value: (str(value["source_version"]), str(value["source_snapshot_id"])))
+    entries.sort(
+        key=lambda value: (
+            str(value["source_publication_date"]),
+            str(value["source_version"]),
+            str(value["source_snapshot_id"]),
+        )
+    )
     return {
         "status": "OK",
         "source_dataset_id": source_dataset_id,
         "snapshot_count": len(entries),
         "first_source_version": entries[0]["source_version"] if entries else None,
         "latest_source_version": entries[-1]["source_version"] if entries else None,
+        "first_source_publication_date": entries[0]["source_publication_date"] if entries else None,
+        "latest_source_publication_date": entries[-1]["source_publication_date"] if entries else None,
         "entries": entries,
     }

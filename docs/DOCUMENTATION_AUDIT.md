@@ -1,6 +1,6 @@
 # Documentation State Audit
 
-Status: **RECONCILED — ACTIVE DOCUMENTATION MATCHES THE CURRENT QUALIFIED DETERMINISTIC PRODUCT; NO KNOWN DETERMINISTIC UI/PRODUCT DRIFT REMAINS.**
+Status: **RECONCILED — ACTIVE DOCUMENTATION MATCHES THE CURRENT QUALIFIED DETERMINISTIC PRODUCT AND 19-GAME TECHNICAL AUDIT; NO KNOWN DETERMINISTIC UI/PRODUCT/ADAPTER-EXACTNESS DRIFT REMAINS.**
 
 ## Current baselines
 
@@ -11,9 +11,10 @@ The useful baselines are intentionally separated:
 - first evidence-driven V3-E Windows defect/fix: PR #138, `e63c6f7d20d103cd2ea3d9a922b73de3c3ba1f5f`;
 - deterministic first-release product-contract checkpoint: PR #153, `0f5f30886d982f77c36c7099203ba9fbed0aeb60`;
 - V4 technical evidence/goal checkpoint: PR #158, `dad21cd2f56668bb2060aa09063a8b9bf9520c3c`;
-- current non-documentation executable/UI head: PR #160, `c93e3606e7990bed1fb8cdec68575e706ac2f1ec`.
+- V4 capability-derived Desktop summary: PR #160, `c93e3606e7990bed1fb8cdec68575e706ac2f1ec`;
+- current non-documentation executable head after the game environment-exactness audit: PR #184, `553d49e47dc8dd6c4fe15e97c363a53ff86655dd`.
 
-The later UI/product/readiness work did not reopen Core/backend/adapter authority. It reconciled the commercial Desktop with the approved product contract, removed stale requirements that added no authority, then projected existing adapter capability truth in one small read-only V4 surface.
+The post-V4 adapter hardening did not reopen Core/backend/product authority. It corrected four concrete game-owned deterministic exactness boundaries found by current technical evidence.
 
 ## Reconciliation stack after #138
 
@@ -27,6 +28,11 @@ The later UI/product/readiness work did not reopen Core/backend/adapter authorit
 -> #153 publish-first Share/access contract simplification + deterministic first-release closure
 -> #158 canonical 19-game technical evidence map + small V4 goal
 -> #160 capability-derived selected-game technical readiness summary
+-> #168 Smalland player-owned vs World-owned state clarification
+-> #171 Core Keeper official mod.io exactness boundary
+-> #178 Necesse pre-materialization Workshop exactness boundary
+-> #181 ASTRONEER install-root UE4SS/direct-PAK boundary
+-> #184 Smalland exact current stock PAK boundary
 ```
 
 Important negative findings:
@@ -37,7 +43,10 @@ Important negative findings:
 - destructive shared-World deletion has no backend terminal contract and was removed from first release;
 - production Steam-friendly identity/invite selection belongs to the real V3-F Steam boundary, not a Steward friends graph;
 - the fifteen state-only adapters do not need ceremonial gameplay tests for their current state/import/environment claim;
-- a generic cross-game prerequisite/host-eligibility model was not required for V4 and was deliberately not created.
+- a generic cross-game prerequisite/host-eligibility model was not required for V4 and was deliberately not created;
+- a generic mod-detection framework was not required by the environment-exactness audit; every correction remained adapter-owned;
+- Necesse Workshop payload was not falsely equated with enabled mods: native `modlist.data` authority was identified first and only the pre-materialization uncertainty was closed;
+- ASTRONEER stock PAK integrity was not expanded into multi-gigabyte Steam-file hashing; only the demonstrated mod-surface blind spot was closed.
 
 ## Audit rule
 
@@ -58,15 +67,23 @@ old active-sounding statement conflicts with current code
 
 supposed missing feature already exists or adds no authority
 -> delete the duplicate requirement
+
+technical audit exposes a narrow deterministic truth gap
+-> fix only that game-owned boundary
+-> qualify it
+-> do not convert it into a manual gameplay ritual
 ```
 
 This rule previously prevented a false Factorio regression: the public helper looked simpler, but the explicit `IGameAdapter.LaunchHostAsync` path already used the dedicated server + RCON implementation consumed by Core/Desktop.
+
+It also prevented a false Necesse fix: Workshop content can be installed while disabled, so the audit located Necesse's real persisted activation state before deciding what uncertainty actually remained.
 
 ## Current executable/product facts
 
 - generic product platform is implemented;
 - deterministic V3 release preparation is complete;
 - deterministic first-release product/UI work is closed through #153;
+- V4 is complete at its intentionally small #158/#160 derived-readiness boundary;
 - V3-E real Windows acceptance has started;
 - #138 fixed the first real V3-E Windows defect in device-settings v1 -> v2 migration;
 - Desktop contains 19 first-party adapters;
@@ -79,6 +96,7 @@ This rule previously prevented a false Factorio regression: the public helper lo
 - 7DTD/PZ managed runtime remains frozen behind recorded empirical gates;
 - Factorio is the current `NativeWorldCreation` adapter;
 - the other fifteen registered adapters intentionally advertise only `ExactGameVersion` at the capability layer while implementing concrete state/import/environment behavior;
+- the current game exactness line additionally contains #171 Core Keeper mod.io, #178 Necesse Workshop pre-materialization, #181 ASTRONEER install-root mod detection, and #184 Smalland exact stock PAK names;
 - Games Library -> game workspace -> Worlds -> selected World details is implemented;
 - the World Lobby is membership + observed current players + authoritative current Host, not a social network;
 - global Settings reuses the existing device-settings owner;
@@ -142,7 +160,7 @@ There is no known current docs↔WPF hierarchy mismatch after #147-#153. #160 ad
 |---|---|---|
 | `ADAPTER_RUNTIME_ROADMAP.md` | **CURRENT** | Implemented runtime, automatic Join vs presentation-only direct connect, current Factorio/Palworld boundaries. |
 | `ADAPTER_GUIDE.md` | **CURRENT** | Stable adapter construction/evidence rules. |
-| `GAME_TECHNICAL_READINESS.md` | **CURRENT TECHNICAL EVIDENCE MAP** | 19-adapter native/environment/action/empirical boundary; capability shape rechecked against current code during V4. |
+| `GAME_TECHNICAL_READINESS.md` | **CURRENT TECHNICAL EVIDENCE MAP** | 19-adapter native/environment/action/empirical boundary; state ownership and current environment-exactness audit reconciled through #184. |
 | `NATIVE_WORLD_CREATION.md` | **CURRENT** | Factorio current implementation; other games remain evidence-gated. |
 | `FACTORIO.md` | **CURRENT** | Explicit interface Host path, UDP 34197, no AutomaticHostStop. |
 | `PALWORLD.md` | **CURRENT** | Read-only WorldOption/runtime REST/process-tree lifecycle. |
@@ -214,14 +232,15 @@ Use current active docs/code instead.
 - failure preserves previous valid state and recovery evidence;
 - provider/object storage does not become canonical authority;
 - empirical uncertainty freezes only the dependent claim;
+- deterministic exactness uncertainty also freezes only the dependent adapter claim;
 - remove/delegate problems before adding another Steward subsystem;
 - do not ask a human to rediscover a native/platform fact that is already deterministically knowable.
 
 ## Next implementation boundary
 
-There is no known deterministic product discrepancy to implement merely to remain busy. V4 is closed at its intentionally small derived-readiness boundary.
+There is no known deterministic product/UI/adapter-exactness discrepancy to implement merely to remain busy after #184. V4 remains closed at its intentionally small derived-readiness boundary.
 
-The next work is empirical:
+The next release work is empirical:
 
 ```text
 exact qualified Windows build
@@ -231,4 +250,10 @@ exact qualified Windows build
 -> then run V3-F real Steam/provider/game gate
 ```
 
-Do not create a new generic feature, prerequisite taxonomy, status model, social layer, deletion workflow, networking subsystem, or release tier until real evidence demonstrates that it is required.
+Time-gated game-format rechecks remain separate:
+
+- Valheim released 1.0 persistence — #164;
+- ASTRONEER released Save Slots/save-overhaul representation — #169;
+- Enshrouded released 1.0 persistence — #170.
+
+Do not create a new generic feature, prerequisite taxonomy, status model, social layer, deletion workflow, networking subsystem, mod-detection framework, or release tier until real evidence demonstrates that it is required.

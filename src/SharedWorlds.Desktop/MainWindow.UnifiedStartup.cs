@@ -18,6 +18,7 @@ public partial class MainWindow
         // it before remote authentication so the obsolete UnifiedGames placeholder cannot surface
         // while authentication is in progress.
         InitializeWorldSharingUi();
+        InitializePortableWorldExportUi();
 
         // Remote sharing is optional. With no production/development remote configuration Safe World
         // stays local-only; with valid configuration it authenticates through Steam and refreshes the

@@ -200,7 +200,12 @@ def _ingest_remote_ror(
     staging.mkdir(parents=True, exist_ok=True)
     staged_part = staging / f"{source['source_dataset_id']}_{remote.publication_date}.zip.part"
     append_event(event_log, event="DOWNLOAD_TO_STAGING", payload={"url": remote.download_url})
-    response_meta = stream_download(remote.download_url, staged_part, source["allowed_hosts"])
+    response_meta = stream_download(
+        remote.download_url,
+        staged_part,
+        source["allowed_hosts"],
+        accept="*/*",
+    )
     actual_md5 = _md5(staged_part)
     expected_md5 = remote.source_checksum.split(":", 1)[1]
     if actual_md5 != expected_md5:

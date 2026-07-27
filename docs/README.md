@@ -1,124 +1,174 @@
 # Steward Documentation
 
-> **Documentation status:** Before treating a roadmap, status file, or adapter document as current implementation guidance, check [Documentation State Audit](DOCUMENTATION_AUDIT.md). It classifies current contracts, implementation drift, partially outdated documents, outdated technical guidance, and historical checkpoints against exact qualified head `e63c6f7d20d103cd2ea3d9a922b73de3c3ba1f5f`.
+Status: **CURRENT DOCUMENTATION INDEX**
 
-Steward is a commercial Windows desktop product with its generic platform code/CI boundary complete, its deterministic V2 Friends Build engineering stage complete, and its V3 Steam Release Candidate now the active product goal.
+Steward's active product/platform contracts have been reconciled against executable baseline #138 and the documentation-only reconciliation stack #139-#145.
 
-This directory is the canonical home for active product, architecture, engineering, lifecycle, adapter, storage, recovery, and planning documentation.
+Use [Documentation State Audit](DOCUMENTATION_AUDIT.md) when deciding whether an older checkpoint file is current guidance or historical evidence.
 
 ## Current project mode
 
-> **V3 Steam Release Candidate is the active execution goal. The V2 Friends Build deterministic product work is complete; its remaining real-provider, real-machine, and real-friend acceptance stays recorded as empirical evidence rather than blocking independent release-candidate work. Normal implementation now removes development/private-build assumptions from the qualified product until a normal Steam-installed Steward build can authenticate, connect, and run the same safe shared-World lifecycle without developer environment setup. Steam remains responsible for distribution, updates, and production identity; Steward must not rebuild those platform functions.**
+> **Generic platform architecture and deterministic V3 release-candidate preparation are complete. Real V3-E Windows acceptance has started. Current deterministic work should remove only concrete release blockers or reconcile the known Games Library UI drift; V3-F remains the real provider/Steam/game release gate.**
 
-Start with the [V3 Steam Release Candidate](V3_STEAM_RELEASE_CANDIDATE.md) for the active product goal and execution rule. Use the [V2 Friends Build](V2_FRIENDS_BUILD.md) for the completed private-product engineering stage and its still-open empirical acceptance evidence. Use [Native World Creation](NATIVE_WORLD_CREATION.md) for the rule that Steward should invoke a game's supported native generator rather than require manual pre-creation or synthesize save bytes. Use the [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) for the qualified technical checkpoint and stable extension boundary. Use the [Master Roadmap](ROADMAP.md) and workstream roadmaps for detailed product contracts and historical implementation sequencing:
+Current executable/product baseline:
 
-1. [UI and UX Roadmap](UI_ROADMAP.md)
-2. [Backend Roadmap](BACKEND_ROADMAP.md)
-3. [Adapter and Background Runtime Roadmap](ADAPTER_RUNTIME_ROADMAP.md)
+> `e63c6f7d20d103cd2ea3d9a922b73de3c3ba1f5f` — PR #138
 
-The roadmaps are separate for clarity but define one product. Their states, actions, failure semantics, and acceptance criteria must continue to agree. Older milestone/checkpoint wording is historical where the V3 Steam Release Candidate, V2 Friends Build, or Platform Implementation Status explicitly supersedes it.
+Documentation-only reconciliation does not redefine that executable ancestry.
 
-Current completion evidence and execution direction:
+## Start here
 
-- [V3 Steam Release Candidate](V3_STEAM_RELEASE_CANDIDATE.md) — active product goal: eliminate private/development runtime assumptions, create depot-ready production configuration/content, preserve Steam as distribution/update/identity owner, and close the genuine release gate only with real Steam evidence;
-- [V2 Friends Build](V2_FRIENDS_BUILD.md) — completed deterministic private-product engineering stage; private distribution/authentication, minimal World lobby, four primary games, real friend handoff runbook, and deferred empirical evidence remain reusable toward release;
-- [Native World Creation](NATIVE_WORLD_CREATION.md) — active creation rule: Create new World invokes the game's native generator, Import existing World remains available, and a temporary game/server process never becomes a permanent Steward Server object;
-- [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) — current all-workflows-green platform checkpoint, stable extension boundary, historical adapter-addition workflow, and remaining empirical release gates;
-- [BE-2 Status](BE2_STATUS.md) — authenticated World/access/revision metadata with durable PostgreSQL persistence;
-- [BE-3 S3 Checkpoint](BE3_S3_CHECKPOINT.md) — immutable transfer, S3-compatible protocol proof, cleanup/retention, and desktop verified caching/materialization;
-- [BE-4 Status](BE4_STATUS.md) — durable one-writer reservation/generation authority, canonical commit, reclaim, late-writer rejection, and transactional idempotency;
-- [BE-5 Status](BE5_STATUS.md) — real PostgreSQL-backed PC A -> PC B -> PC A handoff, adverse authority/reclaim proof, and deterministic Waiting-to-sync recovery after a lost successful commit response;
-- [E4 Windows Desktop Status](E4_DESKTOP_STATUS.md) — production Desktop remote composition, stable installation identity, Steam Web API ticket bootstrap code, merged local/shared World routing, exact-environment gate, deterministic pending/cleanup/interrupted recovery, and Share/access surfaces;
-- [E4 Live Acceptance Deployment](E4_LIVE_ACCEPTANCE_DEPLOYMENT.md) — first disposable EU Friends/E4-A deployment contract and the exact-proxy trust shape prepared by qualified #131;
-- [Steam Release Gate](STEAM_RELEASE_GATE.md) — explicit decision to introduce the real Steward AppID/publisher credentials only after the rest of the product is good enough to publish, followed by genuine final Steam acceptance with no production auth bypass.
-
-## Documentation authority
-
-When documents disagree, use this order:
+For current work, read in this order:
 
 1. [Non-Negotiable Rules](NON_NEGOTIABLE_RULES.md)
 2. [Product Boundary](PRODUCT_BOUNDARY.md)
 3. [Design Decisions](DECISIONS.md)
 4. [Architecture](ARCHITECTURE.md)
-5. [V3 Steam Release Candidate](V3_STEAM_RELEASE_CANDIDATE.md) for the active execution goal and V3 scope
-6. [V2 Friends Build](V2_FRIENDS_BUILD.md) for the completed private-product engineering stage and its empirical acceptance boundary
-7. [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) for the current qualified implementation/checkpoint boundary
-8. Detailed subsystem and adapter documents
-9. [Master Roadmap](ROADMAP.md) and its workstream roadmaps
+5. [Master Roadmap](ROADMAP.md)
+6. [V3 Steam Release Candidate](V3_STEAM_RELEASE_CANDIDATE.md)
+7. [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md)
+8. [Documentation State Audit](DOCUMENTATION_AUDIT.md)
 
-The first two documents define what Steward is and what it must not become. Lower-level documents may add detail but may not silently expand or contradict the product boundary.
+For the final external release batch use [Steam Release Gate](STEAM_RELEASE_GATE.md).
 
-Active documentation must remain internally consistent. Obsolete product concepts should be removed rather than preserved as parallel plans. Git-style branching, generic save merging, ownership hierarchies, social-platform features, and permanent game-server infrastructure are not active Steward product directions.
+## Documentation authority
 
-## Product definition
+When active documents disagree, use this order:
 
-> **One shared World. Different Steam players. Different times. No always-on game server.**
+1. `NON_NEGOTIABLE_RULES.md`
+2. `PRODUCT_BOUNDARY.md`
+3. `DECISIONS.md`
+4. `ARCHITECTURE.md`
+5. `ROADMAP.md` + current V3/platform status
+6. subsystem contracts
+7. adapter-specific contracts
+8. empirical runbooks
 
-Steam is the intended commercial platform. Games are adapters. Worlds are the product. V2 used private distribution/authentication only to prove the product with trusted friends before public Steam release acceptance; V3 removes that private-build assumption from the commercial release path.
+Historical checkpoint documents are evidence, not current design authority.
 
-Steward moves the latest valid World state into a playable session and returns the updated valid state for the next player.
+Production code/executable contracts still win over stale prose when a direct conflict is discovered; fix the documentation rather than bending code to an obsolete status paragraph.
 
-## Product and architecture
+## Core product/architecture contracts
 
-- [Non-Negotiable Rules](NON_NEGOTIABLE_RULES.md) — constraints product and implementation work must not accidentally violate.
-- [Product Boundary](PRODUCT_BOUNDARY.md) — commercial product definition, essential lifecycle, Steam boundary, adapter boundary, background-first behavior, and explicit non-goals.
-- [Design Decisions](DECISIONS.md) — current durable architectural decisions and their reasons.
-- [Architecture](ARCHITECTURE.md) — dependency direction, adapters, storage, session coordination, revisions, and background runtime boundaries.
-- [Domain Model](DOMAIN_MODEL.md) — active persisted and runtime concepts.
-- [World Lifecycle](WORLD_LIFECYCLE.md) — import, preparation, launch, session observation, capture, commit, handoff, and recovery.
-- [Native World Creation](NATIVE_WORLD_CREATION.md) — game-native creation, initial revision persistence, settings ownership, and the explicit absence of a permanent Server domain object.
+- [Non-Negotiable Rules](NON_NEGOTIABLE_RULES.md) — safety/product boundaries that must not be weakened accidentally.
+- [Product Boundary](PRODUCT_BOUNDARY.md) — what Steward is/is not; Steam/game ownership boundaries.
+- [Design Decisions](DECISIONS.md) — active durable architecture/product decisions only.
+- [Architecture](ARCHITECTURE.md) — current local/shared storage, backend authority, adapter/runtime separation.
+- [Domain Model](DOMAIN_MODEL.md) — World/revision/session/recovery concepts; no permanent Server domain object.
+- [World Lifecycle](WORLD_LIFECYCLE.md) — writable lifecycle, capture/commit/recovery ordering.
+- [Cross-Workstream Contract](CROSS_WORKSTREAM_CONTRACT.md) — shared UI/backend/runtime states/actions/authority rules.
 
-## Planning and execution
+## Current planning/execution
 
-- [V3 Steam Release Candidate](V3_STEAM_RELEASE_CANDIDATE.md) — active execution target: production package configuration, depot-ready content, production Steam/backend matching, release-capable adapter evidence, real Windows acceptance, and final Steam gate.
-- [V2 Friends Build](V2_FRIENDS_BUILD.md) — completed deterministic private-product stage and still-open empirical friend/provider evidence.
-- [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) — qualified code/CI boundary and stable adapter/platform extension rules; its former adapter-expansion default is superseded by V2/V3.
-- [Master Roadmap](ROADMAP.md) — workstream dependencies, drift-control rules, implementation order, and release boundary.
-- [UI and UX Roadmap](UI_ROADMAP.md) — navigation, user journeys, state/action contract, tray/background experience, recovery UX, milestones, and unresolved UI decisions.
-- [UI-0 Sign-off Checklist](UI0_SIGNOFF_CHECKLIST.md) — approved flat sharing flow, tray behavior, terminology, and UI planning checks.
-- [Backend Roadmap](BACKEND_ROADMAP.md) — authentication, minimal access, immutable transfer, current-head commit, distributed reservation, offline behavior, security, operations, and backend milestones.
-- [BE-1 Local Contract Simulation](BE1_LOCAL_SIMULATION.md) — provider-free deterministic reservation, transfer, head-commit, retry, and recovery proof.
-- [Backend Provider Evaluation](BE_PROVIDER_EVALUATION.md) — EU residency, security, transfer, restore, workload, cost criteria, and evidence required before final provider selection.
-- [Backend API Contract](BE_API_CONTRACT.md) — versioned HTTPS/JSON control operations, resource shapes, error semantics, idempotency, and direct package transfer.
-- [Backend Schema and Data Lifecycle](BE_SCHEMA_AND_LIFECYCLE.md) — logical records, invariants, transaction boundaries, migrations, retention, cleanup, and restore behavior.
-- [Backend Operations and Recovery](BE_OPERATIONS_RUNBOOK.md) — health, metrics, diagnostics, deployment, incident handling, backup, restore, and disaster-recovery rules.
-- [Backend Security Threat Model](BE_SECURITY_THREAT_MODEL.md) — assets, trust boundaries, threats, controls, residual risks, and security acceptance tests.
-- [BE-0 Sign-off Checklist](BE0_SIGNOFF_CHECKLIST.md) — final backend planning verification items that unlocked implementation.
-- [Adapter and Background Runtime Roadmap](ADAPTER_RUNTIME_ROADMAP.md) — lifecycle state machine, process model, adapter capabilities, safe capture, background lifetime, Factorio/Palworld completion contracts, and runtime milestones.
-- [AR-0 Sign-off Checklist](AR0_SIGNOFF_CHECKLIST.md) — approved runtime process, lifecycle, cancellation, capability, recovery, and adapter acceptance decisions.
-- [Cross-Workstream Contract](CROSS_WORKSTREAM_CONTRACT.md) — shared UI/backend/runtime states, actions, authorities, recovery rules, and first-release acceptance plan.
-- [Steam Release Gate](STEAM_RELEASE_GATE.md) — final production Steam identity/distribution acceptance deliberately held until release-candidate quality.
+- [Master Roadmap](ROADMAP.md) — current sequence: documentation truth -> Games Library reconciliation -> V3-E evidence -> V3-F release gate -> measurement-driven performance.
+- [V3 Steam Release Candidate](V3_STEAM_RELEASE_CANDIDATE.md) — deterministic V3 #133-#137 complete; V3-E started with #138.
+- [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) — stable generic platform checkpoint + current 19-adapter/action-capability state.
+- [Steam Release Gate](STEAM_RELEASE_GATE.md) — one-pass real Steam/provider/Windows/game acceptance.
+- [Deferred Empirical Tests](DEFERRED_EMPIRICAL_TESTS.md) — exact real-system questions that deterministic CI does not claim to answer.
 
-Roadmap items do not override product rules. A planned feature still has to support shared World continuity directly.
+V2 remains useful private acceptance evidence, not the active deterministic development stage:
 
-## Engineering and reliability
+- [V2 Friends Build](V2_FRIENDS_BUILD.md)
+- [V2 Friends Deployment](V2_FRIENDS_DEPLOYMENT.md)
+- [V2 Real Acceptance Batch](V2_REAL_ACCEPTANCE_BATCH.md)
+- [V2 7DTD Sandbox Authority](V2_7DTD_SANDBOX_AUTHORITY.md)
 
-- [Engineering Standards](ENGINEERING.md) — build, dependency, testing, filesystem safety, compatibility, and definition-of-done rules.
-- [Error Handling](ERROR_HANDLING.md) — exception boundaries, cancellation, diagnostics, exit codes, and conservative failure semantics.
-- [Storage](STORAGE.md) — local persistence, immutable revisions, atomic writes, and the remote-storage boundary.
-- [Persistence Compatibility](PERSISTENCE_COMPATIBILITY.md) — versioned document envelopes, migrations, and controlled compatibility failures.
-- [Workspace Recovery](WORKSPACE_RECOVERY.md) — prepared workspace states and recovery after interrupted sessions.
+## UI/product experience
 
-## Adapter documentation
+- [UI and UX Roadmap](UI_ROADMAP.md) — authoritative first-release navigation/information architecture, user journeys and product terminology.
+- [Cross-Workstream Contract](CROSS_WORKSTREAM_CONTRACT.md) — action/state meaning.
 
-- [Game Adapter Guide](ADAPTER_GUIDE.md) — adapter responsibilities, contract rules, and adding a game without contaminating Core.
-- [Factorio Adapter](FACTORIO.md) — Factorio discovery, environment handling, state capture, restore, launch, limitations, and validation.
-- [Palworld Adapter](PALWORLD.md) — Palworld client/server discovery, dedicated hosting, capture, restore verification, canonical commit, and player-identity limitation.
+Known current implementation drift:
 
-Additional adapter documents belong here when their behavior becomes product-relevant.
+```text
+approved
+Games Library
+-> game workspace
+-> Worlds for selected game
+-> selected World details
 
-## Required review for changes
+current WPF shell
+fixed World-list sidebar
++ compact game selector
++ permanent detail pane
+```
 
-Before accepting a meaningful product or architecture change, check:
+The UI contract wins. This is the next product reconciliation after documentation cleanup.
 
-- Does it preserve one current valid World state and one active writer?
-- Does it keep game-specific behavior inside the adapter?
-- Does it complete the handoff through capture, durable storage, verification, and commit?
-- Does it preserve the previous valid state on failure?
-- Is Steam, Discord, Windows, or the game already responsible for the proposed feature?
-- Does it directly remove a development/private-test assumption between the qualified product and a real Steam release?
-- Does it remove a direct blocker on the path to Steam Early Access?
-- Does it add commercial reliability rather than uncontrolled scope?
-- If it changes an adapter capability, is that capability backed by deterministic or empirical evidence?
+## Backend contracts
 
-When a boundary changes deliberately, update the authoritative documentation before implementation.
+- [Backend Roadmap](BACKEND_ROADMAP.md) — current implemented authority model + remaining external provider/Steam gates.
+- [Backend API Contract](BE_API_CONTRACT.md) — implemented `/api/v1` route families, result/error/idempotency/transfer semantics.
+- [Backend Schema and Data Lifecycle](BE_SCHEMA_AND_LIFECYCLE.md) — current PostgreSQL logical stores/invariants/transactions/retention.
+- [Backend Provider Evaluation](BE_PROVIDER_EVALUATION.md) — provider-neutral criteria + current qualified first disposable Instance/Caddy topology.
+- [Backend Operations and Recovery](BE_OPERATIONS_RUNBOOK.md) — current health/deploy/incident/backup/restore operating contract.
+- [Backend Security Threat Model](BE_SECURITY_THREAT_MODEL.md) — current identity/authority/transfer/network/security boundary.
+
+## Runtime/adapter contracts
+
+- [Adapter and Background Runtime Roadmap](ADAPTER_RUNTIME_ROADMAP.md) — current writable lifecycle, automatic Join, manual direct-connect presentation distinction, recovery/background behavior.
+- [Game Adapter Guide](ADAPTER_GUIDE.md) — stable rules for safely adding/deepening an adapter; current detailed capability matrix lives in Platform Status.
+- [Native World Creation](NATIVE_WORLD_CREATION.md) — game-native generator rule; Factorio is current reference implementation.
+- [Factorio Adapter](FACTORIO.md) — active dedicated-server/RCON Host path, UDP 34197, no advertised AutomaticHostStop, remaining empirical gates.
+- [Palworld Adapter](PALWORLD.md) — read-only `WorldOption.sav`, disposable management settings, REST/process-tree save-stop, identity limitations.
+
+Current Desktop catalog contains 19 first-party adapters. Catalog presence never implies every action capability.
+
+## Persistence/recovery/engineering
+
+- [Storage](STORAGE.md) — implemented local + shared storage/transfer/current-head separation.
+- [Persistence Compatibility](PERSISTENCE_COMPATIBILITY.md) — integrity-protected storage schemas, state-payload binding, device-settings v1->v2 migration.
+- [Workspace Recovery](WORKSPACE_RECOVERY.md) — durable Active/RecoveryPending/CleanupPending/interrupted-session semantics.
+- [Engineering Standards](ENGINEERING.md) — dependency/build/testing/bounds/filesystem/documentation rules.
+- [Error Handling](ERROR_HANDLING.md) — conservative failure/cancellation/retry/diagnostic semantics.
+
+## Historical checkpoints — evidence only
+
+The following files intentionally preserve milestone evidence. **Do not use their old “current/next” wording as present-day implementation guidance.**
+
+Planning/sign-off history:
+
+- `UI0_SIGNOFF_CHECKLIST.md`
+- `BE0_SIGNOFF_CHECKLIST.md`
+- `AR0_SIGNOFF_CHECKLIST.md`
+- `BE1_LOCAL_SIMULATION.md`
+
+Implementation checkpoint history:
+
+- `E1_STATUS.md`
+- `BE2_STATUS.md`
+- `BE3_S3_CHECKPOINT.md`
+- `BE4_STATUS.md`
+- `BE5_STATUS.md`
+- `E4_DESKTOP_STATUS.md`
+- `E6_STATUS.md`
+- `E8_STATUS.md`
+
+Important known stale historical statements are listed explicitly in `DOCUMENTATION_AUDIT.md`. In particular, `E4_DESKTOP_STATUS.md` contains an old Factorio “direct listen-host is current” paragraph and old production `STEWARD_*` client configuration wording; current Factorio/V3/code contracts supersede them.
+
+## Current executable facts worth checking before changing scope
+
+- Desktop catalog: 19 adapters.
+- Action claims come from `GameAdapterCapabilities`, not catalog registration.
+- Factorio active `IGameAdapter` Host path uses dedicated server + RCON; managed game endpoint is UDP 34197; no `AutomaticHostStop` flag.
+- Palworld advertises Host + Host Stop + exact game version; no automatic Join; manual direct-connect guidance is presentation-only.
+- 7DTD/PZ managed runtime remains evidence-gated/frozen.
+- shared backend/storage/authority already exists: Backend.Api + PostgreSQL + private S3-compatible object storage + remote Desktop composition.
+- production Steam release config is package-owned; ordinary `STEWARD_*` environment configuration is engineering/acceptance-only.
+- Steam owns installation/update; Steward has no self-updater requirement.
+- first disposable provider topology uses one Instance + Caddy + exact loopback trusted-proxy peer; final vendor selection remains open.
+- V3-E has started; #138 is the first real Windows evidence-driven defect/fix.
+
+## Change review
+
+Before a meaningful product/architecture change ask:
+
+- Does it preserve one current valid World and one writer?
+- Does game-specific behavior stay in the adapter?
+- Does canonical head still advance last?
+- Does failure preserve previous valid state/recovery evidence?
+- Does Steam/Windows/the game already own the proposed mechanism?
+- Is the change backed by a concrete product requirement or real evidence?
+- Can the problem be removed instead of solved with another subsystem?
+
+When a boundary deliberately changes, update active documentation in the same slice.

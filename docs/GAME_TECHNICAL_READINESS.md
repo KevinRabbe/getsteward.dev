@@ -152,7 +152,7 @@ Steam Workshop payload already installed
 -> old vanilla proof could still see an empty local mods root
 ```
 
-#178 derives `steamapps/workshop/content/1169040` from the already-known Steam appmanifest and refuses this pre-materialization ambiguity. Its error explicitly does **not** claim installed Workshop content is active.
+#178 derives `steamapps/workshop/content/1169040` from the already-known Steam appmanifest and refuses this pre-materialization ambiguity. Its error explicitly does **not** claim installed Workshop payload is active.
 
 No Necesse mod-list parser or Workshop manager was added.
 
@@ -261,3 +261,64 @@ Examples of questions already eliminated instead of tested include:
 - Project Zomboid's dedicated-server safe-stop command path is `save` -> `quit`; the real question is process/save completion in the managed isolated lifecycle, not command discovery.
 - Palworld `WorldOption.sav` is read-only canonical input; do not reopen encoder/compressor experiments.
 - Palworld managed Host delegates official server-mod suppression to native `-NoMods`; do not build a Steward Workshop/activation model or manual mod test for that boundary.
+- a missing required dedicated-server installation is sufficient negative evidence that a server-dependent path cannot run on that device.
+
+## Test-value rule
+
+Before adding an empirical game test, classify the question:
+
+| Question type | Default treatment |
+|---|---|
+| Installation/app/tool present? | Determine from platform-native metadata/discovery. |
+| Which native files form the current World? | Determine from game-specific technical evidence and deterministic fixtures. |
+| Which nearby files are player/account/backup/config state? | Classify technically; test capture exclusion deterministically. |
+| Is downloaded mod content actually enabled? | Inspect native activation authority when it exists; do not equate cache presence with activation. |
+| Is an unsupported loader/bootstrap installed? | Inspect its stable native/bootstrap markers deterministically. |
+| Does a vanilla-only allowlist match real stock content? | Compare with current released platform/depot evidence and fail closed on unknown entries. |
+| Is the native server stop/control command documented? | Treat the documented protocol/command as deterministic input; use real acceptance to observe lifecycle completion, not to discover alternatives by trial and error. |
+| Exact game/mod/content version? | Inspect native manifests/content identity; fail closed if exactness is unavailable. |
+| Can this device Host when required server tooling is absent? | No. Negative installation evidence is enough. |
+| Does the real game replace/bootstrap processes? | Empirical only when session ownership depends on it. |
+| What exact signal means the real server is ready? | Empirical unless a stable native protocol/documented signal already proves it. |
+| Did native safe shutdown finish the authoritative save? | Empirical only when complete process/file semantics do not already provide a terminal mutation barrier; for current 7DTD, complete owned-process exit is sufficient before capture. |
+| Can another Internet connection reach the Host? | Empirical network boundary. |
+| Does real client Join enter the intended Host? | Empirical game/network boundary. |
+
+## Time-gated persistence candidates
+
+Some technical boundaries should be rechecked **after a released format transition**, not manually tested now.
+
+- **Valheim:** not currently registered. Wait for released 1.0 persistence, then inspect the final native save/server representation (#164).
+- **ASTRONEER:** current adapter is truthful for the current build; inspect the released Save Slots/autosave-history representation after the announced save-system overhaul ships (#169).
+- **Enshrouded:** current Early Access selector/generation boundary remains qualified; recheck released 1.0 persistence after October 15, 2026 (#170).
+
+The rule is:
+
+```text
+native persistence contract is changing
+-> do not guess the future representation
+-> freeze speculative implementation
+-> recheck the released representation later
+```
+
+## Relationship to V3 and V4
+
+V3 remains the current release-evidence stage. This matrix does not make an unobserved runtime/network claim green.
+
+V4 used this map to add one small read-only selected-game summary derived directly from existing capability truth. V4 is complete at that small boundary; it did not add a second support taxonomy, prerequisite model, backend state, or game-specific lifecycle logic.
+
+The post-V4 technical audit did not reopen V4. It corrected five adapter-owned deterministic exactness boundaries exposed by current evidence:
+
+```text
+#171 Core Keeper official mod.io
+-> #178 Necesse pre-materialization Workshop state
+-> #181 ASTRONEER install-root UE4SS/direct PAKs
+-> #184 Smalland exact stock PAK names
+-> #192 Palworld native -NoMods managed Host
+```
+
+The active release work therefore remains V3-E/V3-F evidence. Future deterministic writes should still require a concrete demonstrated truth gap like the five above.
+
+## Final rule
+
+> **Do not test what is already knowable. Test only the uncertainty that remains at the actual boundary of the claim.**

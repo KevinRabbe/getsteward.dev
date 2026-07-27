@@ -15,13 +15,22 @@ from .ror_commercial import verify_ror_commercial_product
 from .util import atomic_write_json, load_json, make_read_only, sha256_file, utc_now_iso
 
 
-_SELLABILITY_VERSION = "0.1.0"
+_SELLABILITY_VERSION = "0.1.1"
 _GLEIF_PRODUCT = "prod_global_legal_entity_history"
 _ROR_PRODUCT = "prod_global_research_organization_history"
 _GLEIF_DATASET = "ds_gleif_lei_level1_concat"
 _ROR_EVIDENCE_RELATIVE = Path("docs/live-acceptance/ror-v2.9-v2.10.json")
 _ALLOWED_LICENSE_PLANS = {"INTERNAL_COMMERCIAL", "OEM_REDISTRIBUTION"}
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_TERMS_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
+_RESERVED_ENVELOPE_FILES = {
+    "approval.json",
+    "operational.json",
+    "sale.json",
+    "approval.json.sha256",
+    "operational.json.sha256",
+    "sale.json.sha256",
+}
 
 
 def _catalog_path(project_root: Path, product_id: str) -> Path:
@@ -125,12 +134,24 @@ def _parse_approved_at(value: Any) -> str:
     return value
 
 
+def _validate_terms_id(value: Any) -> str:
+    if not isinstance(value, str) or _TERMS_ID_RE.fullmatch(value) is None:
+        raise SellabilityError(
+            "terms_id must be a lowercase safe identifier using letters, digits, dot, underscore, or hyphen"
+        )
+    return value
+
+
 def _safe_relative_file(parent: Path, value: Any, *, field: str) -> Path:
     if not isinstance(value, str) or not value:
         raise SellabilityError(f"{field} must be a non-empty relative file path")
+    if "/" in value or "\\" in value:
+        raise SellabilityError(f"{field} must be one file name in the approval directory")
     relative = Path(value)
     if relative.is_absolute() or ".." in relative.parts or relative.name != value:
         raise SellabilityError(f"{field} must be one file name in the approval directory")
+    if value in _RESERVED_ENVELOPE_FILES or value.endswith(".sha256"):
+        raise SellabilityError(f"{field} conflicts with a reserved sale-envelope file name")
     path = parent / relative
     if not path.is_file():
         raise SellabilityError(f"Referenced terms document not found: {path}")
@@ -149,15 +170,15 @@ def verify_terms_approval(
         raise SellabilityError("Unsupported customer-terms approval record version")
     if approval.get("status") != "APPROVED":
         raise SellabilityError("Customer-terms approval record is not APPROVED")
-    terms_id = approval.get("terms_id")
-    if not isinstance(terms_id, str) or not terms_id or "/" in terms_id or "\\" in terms_id:
-        raise SellabilityError("terms_id must be one stable non-empty identifier")
+    terms_id = _validate_terms_id(approval.get("terms_id"))
     plan = approval.get("license_plan")
     if plan not in _ALLOWED_LICENSE_PLANS:
         raise SellabilityError(f"Unsupported license_plan: {plan!r}")
     products = approval.get("applies_to_product_ids")
     if not isinstance(products, list) or not products or not all(isinstance(item, str) for item in products):
         raise SellabilityError("applies_to_product_ids must be a non-empty list of product IDs")
+    if len(products) != len(set(products)):
+        raise SellabilityError("applies_to_product_ids must not contain duplicates")
     if product_id is not None and product_id not in products:
         raise SellabilityError(f"Approved terms do not apply to product {product_id}")
     _parse_approved_at(approval.get("approved_at"))
@@ -256,6 +277,7 @@ def _operational_acceptance(
     project_root: Path,
     data_root: Path,
     product_id: str,
+    candidate_bundle_sha256: str | None = None,
 ) -> dict[str, Any]:
     if product_id == _GLEIF_PRODUCT:
         report = production_acceptance_report(
@@ -280,14 +302,24 @@ def _operational_acceptance(
         evidence_hash, evidence_size = sha256_file(evidence_path)
         wrapper = load_json(evidence_path)
         evidence = wrapper.get("evidence")
+        commercial_evidence = evidence.get("commercial_candidate") if isinstance(evidence, dict) else None
+        evidence_bundle_hash = (
+            commercial_evidence.get("bundle_sha256")
+            if isinstance(commercial_evidence, dict)
+            else None
+        )
         passed = (
             wrapper.get("status") == "PASS"
             and wrapper.get("exit_code") == 0
             and isinstance(evidence, dict)
             and evidence.get("status") == "PASS"
-            and (evidence.get("commercial_candidate") or {}).get("status") == "PRODUCT_CANDIDATE"
-            and (evidence.get("commercial_candidate") or {}).get("customer_terms_status") == "LEGAL_REVIEW_REQUIRED"
+            and isinstance(commercial_evidence, dict)
+            and commercial_evidence.get("status") == "PRODUCT_CANDIDATE"
+            and commercial_evidence.get("customer_terms_status") == "LEGAL_REVIEW_REQUIRED"
+            and int(commercial_evidence.get("adjacent_pair_count", 0)) >= 1
             and (evidence.get("history") or {}).get("matches_published_updated_existing") is True
+            and isinstance(candidate_bundle_sha256, str)
+            and evidence_bundle_hash == candidate_bundle_sha256
         )
         return {
             "status": "PASS" if passed else "ALERT",
@@ -295,6 +327,9 @@ def _operational_acceptance(
             "evidence_path": str(evidence_path),
             "evidence_sha256": evidence_hash,
             "evidence_size_bytes": evidence_size,
+            "candidate_bundle_sha256": candidate_bundle_sha256,
+            "evidence_candidate_bundle_sha256": evidence_bundle_hash,
+            "candidate_bundle_match": evidence_bundle_hash == candidate_bundle_sha256,
             "evidence": wrapper,
         }
 
@@ -315,6 +350,7 @@ def sellability_report(
         project_root=project_root,
         data_root=data_root,
         product_id=product_id,
+        candidate_bundle_sha256=candidate["product"]["bundle_sha256"],
     )
     approval = (
         verify_terms_approval(terms_approval_path, product_id=product_id)
@@ -363,7 +399,8 @@ def sale_envelope_path(
     snapshot_id: str,
     terms_id: str,
 ) -> Path:
-    return data_root / "sale-envelopes" / product_id / snapshot_id / terms_id
+    safe_terms_id = _validate_terms_id(terms_id)
+    return data_root / "sale-envelopes" / product_id / snapshot_id / safe_terms_id
 
 
 def _write_checksum(path: Path) -> str:
@@ -392,7 +429,7 @@ def build_sale_envelope(
     if report["status"] != "TECHNICALLY_READY_FOR_SALE":
         raise SellabilityError(f"Sale envelope is blocked: {report['status']}")
     approval = report["terms_approval"]
-    terms_id = str(approval["terms_id"])
+    terms_id = _validate_terms_id(approval["terms_id"])
     final_dir = sale_envelope_path(data_root, product_id, snapshot_id, terms_id)
     if final_dir.exists():
         verified = verify_sale_envelope(
@@ -489,12 +526,17 @@ def _verify_operational_snapshot(product_id: str, operational: dict[str, Any]) -
     elif product_id == _ROR_PRODUCT:
         wrapper = operational.get("evidence")
         evidence = wrapper.get("evidence") if isinstance(wrapper, dict) else None
+        commercial = evidence.get("commercial_candidate") if isinstance(evidence, dict) else None
         if not isinstance(wrapper, dict) or wrapper.get("status") != "PASS":
             raise SellabilityError("Stored ROR acceptance wrapper is invalid")
         if not isinstance(evidence, dict) or evidence.get("status") != "PASS":
             raise SellabilityError("Stored ROR acceptance evidence is invalid")
         if (evidence.get("history") or {}).get("matches_published_updated_existing") is not True:
             raise SellabilityError("Stored ROR real-history acceptance is incomplete")
+        if not isinstance(commercial, dict) or int(commercial.get("adjacent_pair_count", 0)) < 1:
+            raise SellabilityError("Stored ROR commercial acceptance has no history pair")
+        if commercial.get("bundle_sha256") != operational.get("candidate_bundle_sha256"):
+            raise SellabilityError("Stored ROR operational evidence is bound to a different candidate bundle")
     else:
         raise SellabilityError(f"No operational evidence verifier registered for {product_id}")
 
@@ -507,9 +549,10 @@ def verify_sale_envelope(
     snapshot_id: str,
     terms_id: str,
 ) -> dict[str, Any]:
+    safe_terms_id = _validate_terms_id(terms_id)
     _product_definition(project_root, product_id)
     _, candidate = _candidate_manifest(data_root, product_id, snapshot_id)
-    final_dir = sale_envelope_path(data_root, product_id, snapshot_id, terms_id)
+    final_dir = sale_envelope_path(data_root, product_id, snapshot_id, safe_terms_id)
     sale_path = final_dir / "sale.json"
     sale_hash = _verify_checksum(sale_path)
     sale = load_json(sale_path)
@@ -517,14 +560,18 @@ def verify_sale_envelope(
         raise SellabilityError("Sale envelope has the wrong status")
     if sale.get("product_id") != product_id or sale.get("snapshot_id") != snapshot_id:
         raise SellabilityError("Sale envelope product/snapshot identity mismatch")
-    if sale.get("terms_id") != terms_id:
+    if sale.get("terms_id") != safe_terms_id:
         raise SellabilityError("Sale envelope terms identity mismatch")
     if sale.get("candidate_manifest_sha256") != candidate["product"]["manifest_sha256"]:
         raise SellabilityError("Sale envelope candidate manifest hash mismatch")
     if sale.get("candidate_bundle_sha256") != candidate["product"]["bundle_sha256"]:
         raise SellabilityError("Sale envelope candidate bundle hash mismatch")
+    if sale.get("approval_record_file") != "approval.json":
+        raise SellabilityError("Sale envelope approval file name mismatch")
+    if sale.get("operational_evidence_file") != "operational.json":
+        raise SellabilityError("Sale envelope operational evidence file name mismatch")
 
-    approval_path = final_dir / str(sale.get("approval_record_file", ""))
+    approval_path = final_dir / "approval.json"
     approval = verify_terms_approval(approval_path, product_id=product_id)
     approval_hash = _verify_checksum(approval_path)
     if approval_hash != sale.get("approval_record_sha256"):
@@ -538,12 +585,16 @@ def verify_sale_envelope(
     if document_hash != sale.get("terms_document_sha256"):
         raise SellabilityError("Sale envelope terms-document sidecar mismatch")
 
-    operational_path = final_dir / str(sale.get("operational_evidence_file", ""))
+    operational_path = final_dir / "operational.json"
     operational_hash = _verify_checksum(operational_path)
     if operational_hash != sale.get("operational_evidence_sha256"):
         raise SellabilityError("Sale envelope operational-evidence hash mismatch")
     operational = load_json(operational_path)
     _verify_operational_snapshot(product_id, operational)
+    if product_id == _ROR_PRODUCT and operational.get("candidate_bundle_sha256") != sale.get(
+        "candidate_bundle_sha256"
+    ):
+        raise SellabilityError("Sale envelope ROR operational evidence is not bound to this candidate")
 
     for field in (
         "source_rights_preserved",
@@ -564,7 +615,7 @@ def verify_sale_envelope(
         "status": "VERIFIED",
         "product_id": product_id,
         "snapshot_id": snapshot_id,
-        "terms_id": terms_id,
+        "terms_id": safe_terms_id,
         "sale_envelope_dir": str(final_dir),
         "sale": {**sale, "sale_sha256": sale_hash},
         "terms_approval": approval,

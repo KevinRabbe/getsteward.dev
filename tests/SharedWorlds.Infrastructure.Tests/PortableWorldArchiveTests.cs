@@ -31,7 +31,7 @@ public sealed class PortableWorldArchiveTests
         await using var extracted = new MemoryStream();
         var read = await PortableWorldArchive.ValidateAndExtractStateAsync(artifact, extracted);
 
-        Assert.Equal(written, read);
+        Assert.Equivalent(written, read, strict: true);
         Assert.Equal(stateBytes, extracted.ToArray());
         Assert.Equal(0, extracted.Position);
         Assert.Equal("Creator", read.Presentation?.Creator);

@@ -66,33 +66,36 @@ The earlier V3 sandbox-authority experiment is retired. Current V3 game document
 - The managed-host transform therefore enables the built-in service interface on a bounded Steward-selected port and deliberately sets `TelnetPassword` to empty. There is no Steward management credential or authentication exchange to own.
 - Current server documentation exposes the built-in Telnet interface and documents `shutdown` as the supported server-stop command.
 - The control implementation should use ordinary Telnet/NVT command-line termination. There is no reason to run a separate experiment whose goal is to discover the smallest non-standard byte sequence the server happens to accept.
+- After documented graceful shutdown, complete owned dedicated-server process exit is the capture barrier. Do not invent a second final-save log protocol once the process can no longer mutate its World files.
+- Qualified #198 provides an acceptance-only executable that composes the existing capture/restore/configuration primitives, observes the loopback listener, sends documented `shutdown`, requires process exit before capture, and relaunches the captured result. It does not grant runtime capabilities or guess readiness.
 
 **Empirical questions:**
 
 1. What observable log/process/network boundary proves the restored named World is fully ready for players rather than merely that the process or local management socket exists?
-2. After the documented local Telnet `shutdown` command is sent through the bounded control path, does the actual long-lived server process exit reliably?
-3. What observable boundary proves the final authoritative save is complete before Steward capture begins?
+2. Does the actual listener match the documented empty-password loopback-only mode on the real release machine?
+3. After the documented local Telnet `shutdown` command is sent through the bounded control path, does the actual long-lived server process exit reliably without forced cleanup?
 4. Does the resulting isolated `Saves/...` + `GeneratedWorlds/...` bundle capture every authoritative change needed for a second launch of the same updated World?
 
 **Test setup:**
 
 - Windows machine with the current 7 Days to Die client and dedicated server installed.
 - One disposable known V3 World and one exact deliberately non-default `SandboxCode` supplied explicitly for that World.
-- An adapter-owned isolated user-data workspace; never use the live player World as the writable test target.
-- A managed `serverconfig.xml` with `TelnetEnabled=true`, one known test port, and an empty `TelnetPassword` so the game uses its documented loopback-only mode.
-- Record the dedicated-server PID/process tree, management-port listeners, server log, and isolated World file timestamps/sizes before and after stop.
+- Use the qualified `tools/SharedWorlds.SevenDaysToDieProbe` from #198 rather than hand-building a second lifecycle harness.
+- Preflight with `dotnet run --project tools/SharedWorlds.SevenDaysToDieProbe -- --list`.
+- Run one disposable lifecycle with `dotnet run --project tools/SharedWorlds.SevenDaysToDieProbe -- --lifecycle-acceptance "<exact World display name or ID>"`.
+- Retain the probe's server log/config evidence and post-first-run captured package.
 
 **Acceptance evidence:**
 
 - The server loads the intended restored `GameWorld`/`GameName` with the supplied non-default `SandboxCode` rather than silently substituting defaults.
 - The management listener is observed on loopback only, matching the current documented empty-password mode; any contradictory real behavior is recorded as a game-version finding before Steward relies on it.
-- A specific readiness signal is observed before the test client is considered able to join.
+- A specific readiness signal is observed before the test client is considered able to join; Telnet reachability alone is not readiness.
 - The actual long-lived dedicated-server process is identified and is not confused with a bootstrap/launcher process.
-- The documented Telnet `shutdown` path reaches a clean terminal state without Steward killing the process.
-- The final save/capture boundary is observable rather than inferred from a fixed sleep.
+- The documented Telnet `shutdown` path reaches complete owned-process exit without Steward killing the process.
+- Capture begins only after that process-exit barrier; no fixed sleep or separate final-save log protocol is required.
 - The captured result restores and launches as the same updated World in a second disposable run.
 
-**Promotion rule:** First turn the observed readiness/shutdown/final-save trace into the smallest bounded local control/lifecycle implementation with regression tests. Then repeat this real scenario through Steward. Only after that second proof may 7DTD promote automatic Host/Stop. Join remains a separate capability proof.
+**Promotion rule:** The #198 probe qualifies the acceptance procedure only. After one real lifecycle pass identifies a reliable readiness signal, implement the smallest bounded production Host/Stop lifecycle and regression-test that signal/control boundary, then repeat the scenario through normal Steward product flow. Only after that proof may 7DTD promote automatic Host/Stop. Join remains a separate capability proof.
 
 ## Palworld — native Join, REST exposure, and decoder-elimination boundary
 
@@ -240,101 +243,3 @@ Also record:
 **Frozen product state:** CI proves compilation, packaging, neutral `DesktopText` resource resolution on Windows, deterministic accessibility metadata, live-region event wiring, and the per-monitor DPI manifest. CI does not claim that a real assistive technology or monitor transition has been observed.
 
 **Empirical questions:**
-
-1. Does keyboard focus remain visibly identifiable across the main World list, primary actions, import surface, access dialogs, and tray interaction?
-2. Do Windows UI Automation clients/Narrator receive the intended control names and `LiveRegionChanged` announcements?
-3. Does the `PerMonitorV2` declaration behave correctly while moving Steward between monitors with different scaling factors?
-
-**Acceptance evidence:**
-
-- Tab/Shift+Tab traversal reaches every interactive first-release action in a sensible order with a visible focus indicator.
-- World rows, import rows, invitation rows, access rows, tray actions, and recovery actions expose meaningful accessible names.
-- Status, environment-readiness, import-result, dialog-status, and responsibility changes are announced by a Windows UI Automation client/Narrator.
-- At mixed DPI/scaling values, text remains readable, controls remain operable, and no primary action is clipped or unreachable after moving the window between monitors.
-
-## Steam production acceptance — release-only credentials
-
-**Frozen product state:** Real Steam publisher credentials and the production Steward Steam AppID are not development prerequisites and must not be replaced by fake credentials or an authentication bypass.
-
-**Run only when Steward is entering Steam onboarding/release acceptance.**
-
-**Acceptance evidence:**
-
-- Real production Steward Steam AppID is configured through the intended release/deployment path.
-- Real publisher-side Steam Web API credentials remain server-side only.
-- Steam authentication tickets from real Steam clients are verified by the deployed Steward backend through the production verification path.
-- Two distinct Steam accounts/installations can exercise the intended shared-World authority flow without a development auth bypass.
-- The release/depot/update path is validated through Steam; Steward does not add a second self-updater.
-
-## E8 — real game endurance and measured large Worlds
-
-**Frozen product state:** CI proves synthetic large-transfer behavior and accelerated backend authority endurance. Steward does **not** currently claim that a real game process has run under managed ownership for 24 hours or that the synthetic 256 MiB object represents the largest real first-release World package.
-
-**Already deterministic/CI-proven:**
-
-- One 256 MiB S3-compatible immutable package transfers as four 64 MiB parts.
-- The transfer survives disposal/recreation of the client/store boundary after only the first two parts are complete.
-- Final streamed download reproduces the exact byte count and SHA-256.
-- One PostgreSQL writable reservation survives 2,880 accepted heartbeats at 30-second logical intervals with the same session/generation and one reservation row.
-
-**Empirical questions:**
-
-1. What are the observed capture/package sizes and capture/restore durations for representative large real Worlds from each first-release adapter?
-2. Can a real managed game/server session run for an extended period, stop through the adapter's proven safe boundary, and produce a valid capture without lifecycle drift or lost responsibility?
-3. Do real large packages transfer, resume, verify, materialize, and restore within acceptable disk/network behavior on representative user hardware and production-like connectivity?
-
-**Test setup:**
-
-- Representative Windows machine(s) with the real game/adapter installation.
-- A deliberately large but known-good World for the adapter under test.
-- Steward-managed isolated workspace and exact environment.
-- For shared transfer evidence, a production-like S3-compatible endpoint/network path; do not replace measured game packages with generated bytes for this test.
-- Record package size, capture time, restore/materialization time, transfer time, peak temporary disk use, and final SHA/integrity result.
-
-**Acceptance evidence:**
-
-- Managed game/server process remains associated with the same Steward responsibility for the full test session.
-- Safe stop/capture boundary is observed rather than inferred from timeout.
-- Capture produces a package accepted by the existing adapter preflight/integrity path.
-- Restore from that captured package launches/loads the same updated World.
-- Interrupted transfer can resume and final bytes pass exact size/SHA verification.
-- Disk preflight/temporary usage behaves within the established hard limits and does not consume unbounded space.
-
-**Promotion rule:** Synthetic CI remains permanent regression evidence, but claims about real-game endurance, representative package sizes, or practical large-World transfer behavior require this measured evidence.
-
-## E8 — EU production deployment and residency
-
-**Frozen product state:** Steward's provider-neutral backend is designed for an EU deployment and E4-A proves the deployment mechanics independently of Steam credentials. The project does **not** currently claim production EU residency merely because the software can be deployed there.
-
-**Empirical question:** Does the selected production/staging provider configuration actually keep Steward-controlled persistent backend data, backups, object storage, and operational logs in the intended EU deployment boundary?
-
-**Test setup:**
-
-- Real disposable or staging Steward API deployment in the selected EU region.
-- Real PostgreSQL instance/cluster selected for Steward.
-- Real private S3-compatible bucket/storage selected for Steward.
-- Provider control-plane/account evidence for configured regions, backup locations, replication, and log storage.
-- No Steam publisher credentials are required for the E4-A infrastructure portion of this test.
-
-**Acceptance evidence:**
-
-- API compute is deployed in the intended EU region.
-- PostgreSQL primary storage and configured backups/replicas used by Steward are located in the intended EU boundary.
-- Object storage bucket and any configured replication used by Steward are located in the intended EU boundary.
-- Steward-controlled operational log/diagnostic sinks configured for the backend are located in the intended EU boundary.
-- Health/readiness, schema initialization, restart, backup/restore, and transfer probes pass against those real resources.
-- Any provider feature that can create non-EU copies is either disabled for Steward data or explicitly documented before a residency claim is made.
-
-**Promotion rule:** Provider capability or marketing documentation alone is not acceptance evidence. Record the actual deployed resource configuration before marking EU residency/deployment verification complete.
-
-## Recording new deferred tests
-
-Add a new section when deterministic work reaches an empirical boundary. State:
-
-- the exact unknown;
-- the capability/assumption that remains frozen;
-- the minimum reproducible setup;
-- observable pass/fail evidence; and
-- the exact condition under which Steward may promote the capability.
-
-Do not write “test manually later” without those details.

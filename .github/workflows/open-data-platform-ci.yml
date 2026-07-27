@@ -69,6 +69,7 @@ jobs:
           python commercial_product.py --help
           python ror_registry.py --help
           python ror_commercial_product.py --help
+          python commercial_readiness.py --help
 
       - name: PowerShell syntax
         if: runner.os == 'Windows'

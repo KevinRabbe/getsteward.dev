@@ -11,8 +11,9 @@ namespace SharedWorlds.Core.Abstractions;
 /// modded variants) whose captured bytes have not earned that claim.
 ///
 /// Supported means the adapter's existing canonical state package may be placed into a Safe World
-/// portable artifact as-is. It does not authorize redistributing the game, mods, credentials, player
-/// identity state, or any other files outside that already-qualified captured-state package.
+/// portable artifact as-is. Gameplay-owned content inside that qualified World state remains part of
+/// the World. This authority does not extend to the game, mod binaries, account credentials, device
+/// state, or unrelated player/account files outside the already-qualified captured-state package.
 /// </summary>
 public interface IPublicWorldExportAdapter
 {

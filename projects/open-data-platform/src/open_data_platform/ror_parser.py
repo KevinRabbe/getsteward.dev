@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import shutil
 import uuid
 import zipfile
@@ -17,7 +18,7 @@ from .util import atomic_write_json, load_json, make_read_only, sha256_file, utc
 from .verify import verify_snapshot
 
 
-_PARSER_VERSION = "0.1.0"
+_PARSER_VERSION = "0.1.1"
 _EXPECTED_DATASET_ID = "ds_ror_organizations"
 _EXPECTED_SCHEMA = "ROR Schema 2.1"
 _EXPECTED_FIELDS = {
@@ -36,6 +37,21 @@ _EXPECTED_FIELDS = {
 _ALLOWED_STATUS = {"active", "inactive", "withdrawn"}
 _ALLOWED_RELATIONSHIP_TYPES = {"related", "parent", "child", "predecessor", "successor"}
 _EXCLUDED_SOURCE_FIELDS = ["locations"]
+_ROR_ID_RE = re.compile(r"^https://ror\.org/0[a-z0-9]{8,9}$")
+_ROR_SUFFIX_RE = re.compile(r"^0[a-z0-9]{8,9}$")
+
+
+def is_valid_ror_id(value: str) -> bool:
+    return _ROR_ID_RE.fullmatch(value) is not None
+
+
+def canonical_ror_id(value: str) -> str:
+    candidate = value.strip().lower()
+    if _ROR_SUFFIX_RE.fullmatch(candidate):
+        candidate = "https://ror.org/" + candidate
+    if not is_valid_ror_id(candidate):
+        raise ParseError(f"Invalid ROR identifier: {value!r}")
+    return candidate
 
 
 def _write_checksum(path: Path) -> str:
@@ -116,7 +132,6 @@ def _iter_json_array(stream: TextIO, *, chunk_size: int = 1024 * 1024) -> Iterat
                     if eof:
                         return
                     compact_and_read()
-                
             break
 
         while True:
@@ -182,7 +197,7 @@ def normalize_ror_record(record: Any, ordinal: int) -> dict[str, Any]:
         )
 
     ror_id = record["id"]
-    if not isinstance(ror_id, str) or not ror_id.startswith("https://ror.org/") or len(ror_id.rsplit("/", 1)[-1]) != 9:
+    if not isinstance(ror_id, str) or not is_valid_ror_id(ror_id):
         raise ParseError(f"ROR record #{ordinal} has invalid id: {ror_id!r}")
     status = record["status"]
     if status not in _ALLOWED_STATUS:
@@ -197,7 +212,7 @@ def normalize_ror_record(record: Any, ordinal: int) -> dict[str, Any]:
         relationship_id = relationship.get("id")
         relationship_type = relationship.get("type")
         label = relationship.get("label")
-        if not isinstance(relationship_id, str) or not relationship_id.startswith("https://ror.org/"):
+        if not isinstance(relationship_id, str) or not is_valid_ror_id(relationship_id):
             raise ParseError(f"ROR record #{ordinal} contains invalid relationship id")
         if relationship_type not in _ALLOWED_RELATIONSHIP_TYPES:
             raise ParseError(f"ROR record #{ordinal} contains unknown relationship type: {relationship_type!r}")
@@ -244,12 +259,22 @@ def validate_normalized_ror_record(record: Any, ordinal: int) -> dict[str, Any]:
     }
     if set(record) != expected:
         raise ParseError(f"Normalized ROR record #{ordinal} schema mismatch")
-    if not isinstance(record["ror_id"], str) or not record["ror_id"].startswith("https://ror.org/"):
+    if not isinstance(record["ror_id"], str) or not is_valid_ror_id(record["ror_id"]):
         raise ParseError(f"Normalized ROR record #{ordinal} has invalid ror_id")
     if not isinstance(record["display_name"], str) or not record["display_name"]:
         raise ParseError(f"Normalized ROR record #{ordinal} has invalid display_name")
     if record["status"] not in _ALLOWED_STATUS:
         raise ParseError(f"Normalized ROR record #{ordinal} has invalid status")
+    relationships = record.get("relationships")
+    if not isinstance(relationships, list):
+        raise ParseError(f"Normalized ROR record #{ordinal} has invalid relationships")
+    for relationship in relationships:
+        if not isinstance(relationship, dict) or not isinstance(relationship.get("id"), str):
+            raise ParseError(f"Normalized ROR record #{ordinal} has invalid relationship")
+        if not is_valid_ror_id(relationship["id"]):
+            raise ParseError(f"Normalized ROR record #{ordinal} has invalid relationship id")
+        if relationship.get("type") not in _ALLOWED_RELATIONSHIP_TYPES:
+            raise ParseError(f"Normalized ROR record #{ordinal} has invalid relationship type")
     return record
 
 

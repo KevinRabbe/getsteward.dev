@@ -10,7 +10,8 @@ namespace SharedWorlds.Desktop;
 /// <summary>
 /// Owns the authenticated shared-World runtime used by the Windows desktop after external identity has
 /// already been verified. Once authenticated, all shared World metadata, transfer, authority, commit,
-/// recovery, flat access-management, and host-presence traffic flows through remote Infrastructure.
+/// recovery, flat access-management, host-presence, and ephemeral player-presence traffic flows through
+/// remote Infrastructure.
 /// </summary>
 internal sealed class StewardDesktopRemoteRuntime : IDisposable
 {
@@ -33,10 +34,11 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         StewardWorldSessionCoordinator coordinator,
         StewardWorldStorage storage,
         WorldLifecycleService lifecycle,
-        WorldJoinService join,
+        CoordinatedWorldJoinService join,
         StewardPendingSyncRecoveryService pendingSyncRecovery,
         StewardInitialWorldPublisher initialWorldPublisher,
         StewardWorldAccessClient access,
+        StewardWorldPlayerPresenceClient playerPresence,
         UserIdentity user)
     {
         _apiClient = apiClient;
@@ -52,15 +54,17 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         PendingSyncRecovery = pendingSyncRecovery;
         InitialWorldPublisher = initialWorldPublisher;
         Access = access;
+        PlayerPresence = playerPresence;
         User = user;
     }
 
     public StewardWorldStorage Storage { get; }
     public WorldLifecycleService Lifecycle { get; }
-    public WorldJoinService Join { get; }
+    public CoordinatedWorldJoinService Join { get; }
     public StewardPendingSyncRecoveryService PendingSyncRecovery { get; }
     public StewardInitialWorldPublisher InitialWorldPublisher { get; }
     public StewardWorldAccessClient Access { get; }
+    public StewardWorldPlayerPresenceClient PlayerPresence { get; }
     public UserIdentity User { get; }
 
     public async Task<StewardRemoteWorldMetadata?> GetWorldMetadataAsync(
@@ -132,6 +136,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
             var hostPresence = new StewardHostPresenceClient(apiClient);
             var worldCreation = new StewardWorldCreationClient(apiClient);
             var access = new StewardWorldAccessClient(apiClient, accessSession);
+            var playerPresence = new StewardWorldPlayerPresenceClient(apiClient, accessSession);
             var authority = new StewardAuthorityClient(apiClient);
             var abandon = new StewardReservationAbandonClient(apiClient);
             var packageDownloads = new StewardPackageDownloadClient(apiClient);
@@ -171,7 +176,8 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 recoveryStore,
                 managedSessionGate,
                 lifecycleObserver);
-            var join = new WorldJoinService(storage);
+            var coreJoin = new WorldJoinService(storage);
+            var join = new CoordinatedWorldJoinService(coreJoin, playerPresence);
             var pendingSyncRecovery = new StewardPendingSyncRecoveryService(
                 storage,
                 coordinator,
@@ -195,6 +201,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 pendingSyncRecovery,
                 initialWorldPublisher,
                 access,
+                playerPresence,
                 authenticatedUser);
         }
         catch

@@ -88,6 +88,9 @@ builder.Services.AddSingleton<ISharedWorldReservationAbandonStore>(services =>
 builder.Services.AddSingleton<PostgreSqlSharedWorldHostPresenceStore>();
 builder.Services.AddSingleton<ISharedWorldHostPresenceStore>(services =>
     services.GetRequiredService<PostgreSqlSharedWorldHostPresenceStore>());
+builder.Services.AddSingleton<PostgreSqlSharedWorldPlayerPresenceStore>();
+builder.Services.AddSingleton<ISharedWorldPlayerPresenceStore>(services =>
+    services.GetRequiredService<PostgreSqlSharedWorldPlayerPresenceStore>());
 
 builder.Services.AddSingleton<PostgreSqlStewardSessionStore>();
 builder.Services.AddSingleton<IStewardSessionStore>(services =>
@@ -138,6 +141,10 @@ builder.Services.AddSingleton(services => new SharedWorldAccessService(
     services.GetRequiredService<ISharedWorldAccessStore>(),
     services.GetRequiredService<ISharedWorldResponsibilityInspector>(),
     () => DateTimeOffset.UtcNow));
+builder.Services.AddSingleton(services => new SharedWorldPlayerPresenceService(
+    services.GetRequiredService<SharedWorldAccessService>(),
+    services.GetRequiredService<ISharedWorldPlayerPresenceStore>(),
+    () => DateTimeOffset.UtcNow));
 builder.Services.AddSingleton(services => new SharedPackageTransferService(
     services.GetRequiredService<ISharedWorldMetadataStore>(),
     services.GetRequiredService<SharedRevisionMetadataService>(),
@@ -178,6 +185,7 @@ if (useForwardedClientAddress)
 var dataSource = app.Services.GetRequiredService<NpgsqlDataSource>();
 await PostgreSqlBackendSchema.InitializeAsync(dataSource);
 await PostgreSqlSharedWorldHostPresenceSchema.InitializeAsync(dataSource);
+await PostgreSqlSharedWorldPlayerPresenceSchema.InitializeAsync(dataSource);
 
 app.UseStewardApiProblemHandling();
 app.MapGet("/health/live", () => Results.Ok(new { status = "live" }));
@@ -189,6 +197,7 @@ app.MapStewardRevisionMetadataApiV1();
 app.MapStewardAuthorityApiV1();
 app.MapStewardReservationAbandonApiV1();
 app.MapStewardHostPresenceApiV1();
+app.MapStewardWorldPlayerPresenceApiV1();
 
 await app.RunAsync();
 

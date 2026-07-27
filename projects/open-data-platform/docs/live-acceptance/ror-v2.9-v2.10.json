@@ -1,0 +1,136 @@
+{
+  "evidence": {
+    "commercial_candidate": {
+      "adjacent_pair_count": 1,
+      "bundle_sha256": "93062170f2776282b89589ffdfd3cdbe22536ab009084910bb409fdf3481533a",
+      "bundle_size_bytes": 35508583,
+      "customer_terms_status": "LEGAL_REVIEW_REQUIRED",
+      "status": "PRODUCT_CANDIDATE"
+    },
+    "execution_order": [
+      "v2.10",
+      "v2.9"
+    ],
+    "history": {
+      "artifact_sha256": "1c48365311fd621604e61b0ff5ce0041b07b39ad38bf9b54fa843ca02aa7e3ce",
+      "change_event_count": 6411,
+      "change_type_counts": {
+        "ADMIN_CHANGED": 2920,
+        "DISPLAY_NAME_CHANGED": 69,
+        "DOMAINS_CHANGED": 35,
+        "ESTABLISHED_CHANGED": 13,
+        "EXTERNAL_IDS_CHANGED": 2019,
+        "LINKS_CHANGED": 55,
+        "NAMES_CHANGED": 512,
+        "NEW": 3491,
+        "RELATIONSHIPS_CHANGED": 575,
+        "STATUS_CHANGED": 48,
+        "TYPES_CHANGED": 1518
+      },
+      "changes_sha256": "0e42b7130188380b58b108f364faf8b729c4377d420978ddc3ac9c6ddaa43d1c",
+      "from_source_version": "v2.9",
+      "matches_published_updated_existing": true,
+      "observed_changed_existing": 2920,
+      "observed_new": 3491,
+      "observed_removed": 0,
+      "published_updated_existing": 2920,
+      "to_source_version": "v2.10",
+      "unchanged_ror_id_count": 126126
+    },
+    "products": {
+      "v2.10": {
+        "product_sha256": "b8c67a80b174d467d62fb255bac3d2d22c0a00a0442969bf9a346f77c29c517a",
+        "quality_sha256": "1bb5a03e6c7a9bd776ac3514e7dc0c07b3cef8eeb40cc281b563a20309f0d8f6",
+        "record_count": 132537
+      },
+      "v2.9": {
+        "product_sha256": "803d795eedc08260883acd0a6f04e1d253e826dae8c2ffb428c8d7ed93f2c84b",
+        "quality_sha256": "60738d753088d06c6550e809c51f65bc3fee2e4c6c553229ff2e9fa51916e7f7",
+        "record_count": 129046
+      }
+    },
+    "run_metrics": {
+      "v2.10": {
+        "download_bytes": 34874884,
+        "duplicate_lei_count": null,
+        "error": null,
+        "finished_at": "2026-07-27T11:01:40Z",
+        "metrics_path": "/home/runner/work/_temp/ror-live/metrics/runs/run_9828f1d1-4532-4b43-a3ca-e762c91fcaf9.json",
+        "metrics_version": 2,
+        "normalized_records_bytes": 103461680,
+        "peak_rss_bytes": 44335104,
+        "physical_data_bytes_after": 269581943,
+        "physical_data_bytes_before": 150,
+        "physical_growth_bytes": 269581793,
+        "product_database_bytes": 110387200,
+        "raw_size_bytes": 34874884,
+        "record_count": 132537,
+        "release_bundle_bytes": 20848247,
+        "run_id": "run_9828f1d1-4532-4b43-a3ca-e762c91fcaf9",
+        "snapshot_id": "snp_af6b34b8-be4a-4e67-bc4c-9e7d1b22cc12",
+        "source_dataset_id": "ds_ror_organizations",
+        "source_version": "v2.10",
+        "stage_seconds": {
+          "analytics": 3.576177,
+          "changes": 2.159061,
+          "ingest": 14.4028,
+          "parse": 5.210112,
+          "product": 8.154004,
+          "release": 5.878822
+        },
+        "started_at": "2026-07-27T11:01:00Z",
+        "status": "COMPLETED",
+        "total_seconds": 39.381966,
+        "unique_lei_count": null
+      },
+      "v2.9_backfill": {
+        "download_bytes": 33656669,
+        "duplicate_lei_count": null,
+        "error": null,
+        "finished_at": "2026-07-27T11:02:55Z",
+        "metrics_path": "/home/runner/work/_temp/ror-live/metrics/runs/run_d304e350-79f8-4334-9000-063d9affeb2d.json",
+        "metrics_version": 2,
+        "normalized_records_bytes": 100517677,
+        "peak_rss_bytes": 51339264,
+        "physical_data_bytes_after": 541858363,
+        "physical_data_bytes_before": 269582324,
+        "physical_growth_bytes": 272276039,
+        "product_database_bytes": 107212800,
+        "raw_size_bytes": 33656669,
+        "record_count": 129046,
+        "release_bundle_bytes": 20174956,
+        "run_id": "run_d304e350-79f8-4334-9000-063d9affeb2d",
+        "snapshot_id": "snp_f79d8d7e-c207-41ed-92e0-6b2e04e38d9e",
+        "source_dataset_id": "ds_ror_organizations",
+        "source_version": "v2.9",
+        "stage_seconds": {
+          "analytics": 3.431585,
+          "changes": 8.261962,
+          "ingest": 44.840343,
+          "parse": 4.977547,
+          "product": 7.859415,
+          "release": 5.698807
+        },
+        "started_at": "2026-07-27T11:01:40Z",
+        "status": "COMPLETED",
+        "total_seconds": 75.07169,
+        "unique_lei_count": null
+      }
+    },
+    "snapshots": {
+      "v2.10": "snp_af6b34b8-be4a-4e67-bc4c-9e7d1b22cc12",
+      "v2.9": "snp_f79d8d7e-c207-41ed-92e0-6b2e04e38d9e"
+    },
+    "source_records": {
+      "v2.10": 21458494,
+      "v2.9": 20818161
+    },
+    "status": "PASS"
+  },
+  "exit_code": 0,
+  "head_sha": "319b5fe525143f4099af3f248607b058fd686815",
+  "run_attempt": "1",
+  "run_id": "30260269821",
+  "status": "PASS",
+  "workflow": "ROR Live Acceptance"
+}

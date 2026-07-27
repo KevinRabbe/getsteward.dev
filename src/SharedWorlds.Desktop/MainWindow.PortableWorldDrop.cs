@@ -33,10 +33,11 @@ public partial class MainWindow
         await OpenPortableWorldFromPathAsync(sourcePath);
     }
 
-    private static bool TryResolveDroppedPortableWorld(
+    internal static bool TryResolveDroppedPortableWorld(
         IDataObject data,
         out string sourcePath)
     {
+        ArgumentNullException.ThrowIfNull(data);
         sourcePath = string.Empty;
         if (!data.GetDataPresent(DataFormats.FileDrop) ||
             data.GetData(DataFormats.FileDrop) is not string[] paths)

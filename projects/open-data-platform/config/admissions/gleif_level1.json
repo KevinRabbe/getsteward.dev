@@ -1,0 +1,20 @@
+{
+  "admission_decision_id": "adm_gleif_level1_cc0_v1",
+  "source_dataset_id": "ds_gleif_lei_level1_concat",
+  "status": "ALLOW",
+  "reviewed_on": "2026-07-23",
+  "license_id": "CC0-1.0",
+  "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "terms_url": "https://www.gleif.org/en/meta/lei-data-terms-of-use",
+  "basis": "GLEIF states that data available through its Access Service are provided under CC0 1.0.",
+  "commercial_use_allowed": true,
+  "storage_allowed": true,
+  "modification_allowed": true,
+  "redistribution_allowed": true,
+  "attribution_required_by_cc0": false,
+  "notes": [
+    "This record is the explicit v0.1 admission rule for the GLEIF Level 1 Concatenated File.",
+    "It does not automatically approve unrelated GLEIF website materials or other datasets.",
+    "Re-check if the source terms, license metadata, publisher identity, or access method changes."
+  ]
+}

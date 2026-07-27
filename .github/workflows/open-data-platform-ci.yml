@@ -1,0 +1,73 @@
+name: Open Data Platform CI
+
+on:
+  push:
+    paths:
+      - "projects/open-data-platform/**"
+      - ".github/workflows/open-data-platform-ci.yml"
+  pull_request:
+    paths:
+      - "projects/open-data-platform/**"
+      - ".github/workflows/open-data-platform-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: open-data-platform-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+        python-version:
+          - "3.11"
+
+    defaults:
+      run:
+        working-directory: projects/open-data-platform
+
+    env:
+      PYTHONPATH: src
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Python version
+        run: python --version
+
+      - name: Compile
+        run: python -m compileall -q odp.py src tests
+
+      - name: Offline tests
+        run: python -m unittest discover -s tests -v
+
+      - name: CLI smoke
+        run: python odp.py --help
+
+      - name: PowerShell syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path .\scripts -Filter *.ps1 | ForEach-Object {
+            [void][ScriptBlock]::Create((Get-Content -LiteralPath $_.FullName -Raw))
+          }
+
+      - name: Diff whitespace check
+        working-directory: .
+        run: git diff --check

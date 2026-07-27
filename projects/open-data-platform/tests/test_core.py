@@ -1,0 +1,628 @@
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+import stat
+import tempfile
+import threading
+import unittest
+import zipfile
+from dataclasses import dataclass
+from pathlib import Path
+from unittest.mock import patch
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+
+from open_data_platform.archive import archive_staged_file
+from open_data_platform.backup import restore_release, verify_replica_release
+from open_data_platform.deployment import deployment_readiness
+from open_data_platform.discovery import discover_latest
+from open_data_platform.errors import ParseError, PlatformError, QueryError
+from open_data_platform.http_client import find_download_url, find_publication_date
+from open_data_platform.monitor import monitor_report
+from open_data_platform.parser import parse_snapshot, verify_normalized_artifact
+from open_data_platform.pipeline import run_gleif_pipeline
+from open_data_platform.product import build_product, verify_product
+from open_data_platform.query import lookup_lei, search_name
+from open_data_platform.release import build_release, verify_release
+from open_data_platform.operations import replicate_release, status_report
+from open_data_platform.retention import retention_plan
+from open_data_platform.runtime import pipeline_lock, pipeline_lock_status, recovery_plan
+from open_data_platform.schedule import schedule_plan
+from open_data_platform.serve import create_server
+from open_data_platform.verify import verify_snapshot
+
+
+@dataclass(frozen=True)
+class Remote:
+    publication_date: str = "2026-07-22"
+    download_url: str = "https://leidata.gleif.org/api/v1/concatenated-files/lei2/20260722/zip"
+    cdf_version: str = "LEI_3_1"
+    record_count: int = 3380454
+
+
+class MetadataTests(unittest.TestCase):
+    def test_extracts_date_and_download_url(self):
+        metadata = {
+            "publish_date": "2026-07-22T12:00:00Z",
+            "cdf_version": "LEI_3_1",
+            "download": {
+                "zip": "https://leidata.gleif.org/api/v1/concatenated-files/lei2/20260722/zip"
+            },
+        }
+        self.assertEqual(find_publication_date(metadata), "2026-07-22")
+        self.assertEqual(
+            find_download_url(metadata, ["leidata.gleif.org"]),
+            metadata["download"]["zip"],
+        )
+
+    def test_discovery_prefers_concatenated_endpoint_over_embedded_lou_file(self):
+        metadata = {
+            "data": {
+                "content_date": "2026-07-23 09:00:01",
+                "record_count": 3381912,
+                "cdf_version": "LEI_3.1",
+                "sources": [
+                    {
+                        "lou_file": {
+                            "record_count": 526991,
+                            "file": "https://leidata.gleif.org/api/v1/source-files/lei2/get/3924761/zip",
+                        }
+                    }
+                ],
+            }
+        }
+        source = {
+            "metadata_url": "https://leidata.gleif.org/api/v1/concatenated-files/lei2/latest",
+            "allowed_hosts": ["leidata.gleif.org"],
+            "download_url_template": "https://leidata.gleif.org/api/v1/concatenated-files/lei2/{yyyymmdd}/zip",
+        }
+        with patch("open_data_platform.discovery.get_json", return_value=metadata):
+            remote = discover_latest(source)
+        self.assertEqual(
+            remote.download_url,
+            "https://leidata.gleif.org/api/v1/concatenated-files/lei2/20260723/zip",
+        )
+        self.assertEqual(remote.record_count, 3381912)
+
+
+class RuntimeTests(unittest.TestCase):
+    def test_pipeline_lock_and_recovery_plan_are_report_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertEqual(pipeline_lock_status(root)["status"], "CLEAR")
+            with pipeline_lock(root) as metadata:
+                active = pipeline_lock_status(root)
+                self.assertEqual(active["status"], "ACTIVE")
+                self.assertEqual(active["metadata"]["run_id"], metadata["run_id"])
+                with self.assertRaises(PlatformError):
+                    with pipeline_lock(root):
+                        pass
+                plan = recovery_plan(root)
+                self.assertEqual(plan["status"], "REVIEW_REQUIRED")
+                self.assertEqual(plan["recommended_action"], "WAIT_FOR_ACTIVE_PIPELINE")
+            self.assertEqual(pipeline_lock_status(root)["status"], "CLEAR")
+
+            stale_path = root / "events" / "pipeline.lock"
+            stale_path.write_text(
+                '{"lock_version": 1, "pid": 2147483647, "run_id": "run_stale"}\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(pipeline_lock_status(root)["status"], "STALE")
+            self.assertEqual(recovery_plan(root)["recommended_action"], "REVIEW_LOCK_AND_TEMP_ARTIFACTS")
+
+    def test_schedule_plan_is_non_mutating_and_validates_time(self):
+        plan = schedule_plan(
+            project_root=Path("C:/odp"),
+            python_exe="C:/Python/python.exe",
+            data_root=Path("data"),
+            replica_root=Path("E:/replica"),
+            frequency="weekly",
+            start_time="03:30",
+        )
+        self.assertEqual(plan["mode"], "PLAN_ONLY")
+        self.assertEqual(plan["frequency"], "weekly")
+        self.assertTrue(plan["lock_required"])
+        self.assertIn("register_task_scheduler.ps1", plan["registration"])
+        with self.assertRaises(ValueError):
+            schedule_plan(project_root=Path("C:/odp"), start_time="3:30")
+
+
+class ArchiveTests(unittest.TestCase):
+    def test_archive_and_verify(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            staged = root / "staging" / "source.zip"
+            staged.parent.mkdir(parents=True)
+            staged.write_bytes(b"fake zip bytes for deterministic unit test")
+
+            source = {
+                "source_id": "src_gleif",
+                "source_dataset_id": "ds_gleif_lei_level1_concat",
+                "publisher": "GLEIF",
+                "dataset_name": "Level 1",
+                "acquisition_method": "test",
+            }
+            admission = {
+                "admission_decision_id": "adm1",
+                "license_id": "CC0-1.0",
+                "terms_url": "https://www.gleif.org/en/meta/lei-data-terms-of-use",
+            }
+
+            manifest = archive_staged_file(
+                staged_path=staged,
+                data_root=root,
+                source=source,
+                admission=admission,
+                remote=Remote(),
+                acquisition_metadata={"bytes_downloaded": 42},
+            )
+            result = verify_snapshot(root, manifest["snapshot_id"])
+            self.assertTrue(result["manifest_ok"])
+            self.assertTrue(result["content_ok"])
+            self.assertFalse(staged.exists())
+
+    def test_identical_bytes_are_physically_deduplicated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = {
+                "source_id": "src_gleif",
+                "source_dataset_id": "ds_gleif_lei_level1_concat",
+                "publisher": "GLEIF",
+                "dataset_name": "Level 1",
+                "acquisition_method": "test",
+            }
+            admission = {
+                "admission_decision_id": "adm1",
+                "license_id": "CC0-1.0",
+                "terms_url": "https://www.gleif.org/en/meta/lei-data-terms-of-use",
+            }
+            manifests = []
+            for i in range(2):
+                staged = root / "staging" / f"source{i}.zip"
+                staged.parent.mkdir(parents=True, exist_ok=True)
+                staged.write_bytes(b"same bytes")
+                manifests.append(archive_staged_file(
+                    staged_path=staged,
+                    data_root=root,
+                    source=source,
+                    admission=admission,
+                    remote=Remote(publication_date=f"2026-07-2{2+i}"),
+                    acquisition_metadata={},
+                ))
+            self.assertEqual(manifests[0]["content"]["content_id"], manifests[1]["content"]["content_id"])
+            self.assertTrue(manifests[1]["content"]["deduplicated_existing_content"])
+
+
+def _cdf_xml(
+    *,
+    record_count: int = 1,
+    include_second_record: bool = False,
+    duplicate_second_record: bool = False,
+) -> str:
+    second_record = """
+    <LEIRecord>
+      <LEI>529900T8BM49AURSDO55</LEI>
+      <Entity>
+        <LegalName xml:lang="en">Example Trading AG</LegalName>
+        <LegalAddress xml:lang="en">
+          <FirstAddressLine>Market Street 2</FirstAddressLine>
+          <City>Zurich</City>
+          <Country>CH</Country>
+        </LegalAddress>
+        <HeadquartersAddress xml:lang="en">
+          <FirstAddressLine>Market Street 2</FirstAddressLine>
+          <City>Zurich</City>
+          <Country>CH</Country>
+        </HeadquartersAddress>
+        <EntityStatus>ACTIVE</EntityStatus>
+      </Entity>
+      <Registration>
+        <InitialRegistrationDate>2018-02-03T00:00:00Z</InitialRegistrationDate>
+        <LastUpdateDate>2026-07-20T00:00:00Z</LastUpdateDate>
+        <RegistrationStatus>ISSUED</RegistrationStatus>
+        <NextRenewalDate>2027-07-20T00:00:00Z</NextRenewalDate>
+        <ManagingLOU>5299000J2N45DDNE4Y28</ManagingLOU>
+      </Registration>
+    </LEIRecord>
+    """ if include_second_record else ""
+    if duplicate_second_record:
+        second_record = second_record.replace("529900T8BM49AURSDO55", "5493001KJTIIGC8Y1R12")
+
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<LEIData xmlns="http://www.gleif.org/data/schema/lei/common/2016">
+  <LEIHeader>
+    <ContentDate>2026-07-20T00:00:00Z</ContentDate>
+    <FileContent>GLEIF_FULL_PUBLISHED</FileContent>
+    <RecordCount>{record_count}</RecordCount>
+  </LEIHeader>
+  <LEIRecord>
+    <LEI>5493001KJTIIGC8Y1R12</LEI>
+    <Entity>
+      <LegalName xml:lang="en">Example Holdings GmbH</LegalName>
+      <LegalAddress xml:lang="de">
+        <FirstAddressLine>Main Street 1</FirstAddressLine>
+        <AdditionalAddressLine>Building A</AdditionalAddressLine>
+        <City>Berlin</City>
+        <Region>BE</Region>
+        <Country>DE</Country>
+        <PostalCode>10115</PostalCode>
+      </LegalAddress>
+      <HeadquartersAddress xml:lang="de">
+        <FirstAddressLine>Main Street 1</FirstAddressLine>
+        <City>Berlin</City>
+        <Country>DE</Country>
+      </HeadquartersAddress>
+      <RegistrationAuthority>
+        <RegistrationAuthorityID>RA000123</RegistrationAuthorityID>
+        <RegistrationAuthorityEntityID>HRB12345</RegistrationAuthorityEntityID>
+      </RegistrationAuthority>
+      <LegalJurisdiction>DE</LegalJurisdiction>
+      <EntityCategory>GENERAL</EntityCategory>
+      <LegalForm>
+        <EntityLegalFormCode>2HBR</EntityLegalFormCode>
+      </LegalForm>
+      <EntityStatus>ACTIVE</EntityStatus>
+      <EntityCreationDate>2000-01-01T00:00:00Z</EntityCreationDate>
+    </Entity>
+    <Registration>
+      <InitialRegistrationDate>2012-02-03T00:00:00Z</InitialRegistrationDate>
+      <LastUpdateDate>2026-07-20T00:00:00Z</LastUpdateDate>
+      <RegistrationStatus>ISSUED</RegistrationStatus>
+      <NextRenewalDate>2027-07-20T00:00:00Z</NextRenewalDate>
+      <ManagingLOU>5299000J2N45DDNE4Y28</ManagingLOU>
+      <ValidationSources>FULLY_CORROBORATED</ValidationSources>
+    </Registration>
+  </LEIRecord>
+  {second_record}
+</LEIData>
+"""
+
+
+def _archive_cdf(
+    root: Path,
+    *,
+    record_count: int = 1,
+    include_second_record: bool = False,
+    duplicate_second_record: bool = False,
+) -> dict:
+    staged = root / "staging" / "gleif.zip"
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(staged, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("lei_20260720.xml", _cdf_xml(
+            record_count=record_count,
+            include_second_record=include_second_record,
+            duplicate_second_record=duplicate_second_record,
+        ))
+
+    source = {
+        "source_id": "src_gleif",
+        "source_dataset_id": "ds_gleif_lei_level1_concat",
+        "publisher": "GLEIF",
+        "dataset_name": "Level 1",
+        "acquisition_method": "test",
+    }
+    admission = {
+        "admission_decision_id": "adm1",
+        "license_id": "CC0-1.0",
+        "terms_url": "https://www.gleif.org/en/meta/lei-data-terms-of-use",
+    }
+    return archive_staged_file(
+        staged_path=staged,
+        data_root=root,
+        source=source,
+        admission=admission,
+        remote=Remote(record_count=record_count),
+        acquisition_metadata={"bytes_downloaded": staged.stat().st_size},
+    )
+
+
+class ParserTests(unittest.TestCase):
+    def test_streams_cdf_into_immutable_normalized_artifact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _archive_cdf(root, record_count=2, include_second_record=True)
+
+            result = parse_snapshot(root, manifest["snapshot_id"])
+
+            self.assertEqual(result["status"], "PARSED")
+            artifact_dir = root / "normalized" / manifest["source_dataset_id"] / manifest["snapshot_id"]
+            artifact = json.loads((artifact_dir / "artifact.json").read_text(encoding="utf-8"))
+            records = [
+                json.loads(line)
+                for line in (artifact_dir / "records.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(artifact["record_count"], 2)
+            self.assertEqual(artifact["cdf_header"]["file_content"], "GLEIF_FULL_PUBLISHED")
+            self.assertEqual(records[0]["legal_name"], "Example Holdings GmbH")
+            self.assertEqual(records[0]["legal_address"]["country"], "DE")
+            self.assertEqual(records[0]["registration_authority"]["entity_id"], "HRB12345")
+            self.assertEqual(records[1]["lei"], "529900T8BM49AURSDO55")
+            self.assertEqual(result["quality"]["records_written"], 2)
+            self.assertTrue((artifact_dir / "records.jsonl.sha256").exists())
+            self.assertTrue((artifact_dir / "artifact.json.sha256").exists())
+            verified = verify_normalized_artifact(root, manifest["snapshot_id"])
+            self.assertEqual(verified["status"], "VERIFIED")
+            self.assertEqual(verified["record_count"], 2)
+
+            no_change = parse_snapshot(root, manifest["snapshot_id"])
+            self.assertEqual(no_change["status"], "NO_CHANGE")
+
+    def test_rejects_header_record_count_mismatch_without_publishing_partial_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _archive_cdf(root, record_count=2)
+
+            with self.assertRaises(ParseError):
+                parse_snapshot(root, manifest["snapshot_id"])
+
+            artifact_dir = root / "normalized" / manifest["source_dataset_id"] / manifest["snapshot_id"]
+            self.assertFalse(artifact_dir.exists())
+
+
+class ProductTests(unittest.TestCase):
+    def test_builds_and_verifies_sqlite_product(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _archive_cdf(root, record_count=2, include_second_record=True)
+            parse_snapshot(root, manifest["snapshot_id"])
+
+            result = build_product(root, manifest["snapshot_id"])
+
+            self.assertEqual(result["status"], "BUILT")
+            self.assertEqual(result["record_count"], 2)
+            self.assertTrue((Path(result["product_dir"]) / "lei.sqlite.sha256").exists())
+            connection = sqlite3.connect(result["database_path"])
+            try:
+                rows = connection.execute(
+                    "SELECT lei, legal_name, entity_status FROM lei ORDER BY lei"
+                ).fetchall()
+            finally:
+                connection.close()
+            self.assertEqual(rows, [
+                ("529900T8BM49AURSDO55", "Example Trading AG", "ACTIVE"),
+                ("5493001KJTIIGC8Y1R12", "Example Holdings GmbH", "ACTIVE"),
+            ])
+
+            verified = verify_product(root, manifest["snapshot_id"])
+            self.assertEqual(verified["status"], "VERIFIED")
+            self.assertEqual(verified["record_count"], 2)
+            self.assertEqual(
+                build_product(root, manifest["snapshot_id"])["status"],
+                "NO_CHANGE",
+            )
+
+    def test_rejects_tampered_normalized_checksum_before_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _archive_cdf(root)
+            parse_snapshot(root, manifest["snapshot_id"])
+            checksum_path = (
+                root
+                / "normalized"
+                / manifest["source_dataset_id"]
+                / manifest["snapshot_id"]
+                / "records.jsonl.sha256"
+            )
+            os.chmod(checksum_path, stat.S_IRUSR | stat.S_IWUSR)
+            checksum_path.write_text("0" * 64 + "  records.jsonl\n", encoding="ascii")
+
+            with self.assertRaises(ParseError):
+                build_product(root, manifest["snapshot_id"])
+
+    def test_preserves_duplicate_lei_rows_and_reports_ambiguous_lookup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _archive_cdf(
+                root,
+                record_count=2,
+                include_second_record=True,
+                duplicate_second_record=True,
+            )
+            parse_snapshot(root, manifest["snapshot_id"])
+            product = build_product(root, manifest["snapshot_id"])
+
+            self.assertEqual(product["record_count"], 2)
+            self.assertEqual(product["product"]["unique_lei_count"], 1)
+            self.assertEqual(product["product"]["duplicate_lei_count"], 1)
+            ambiguous = lookup_lei(root, "5493001KJTIIGC8Y1R12", snapshot_id=manifest["snapshot_id"])
+            self.assertEqual(ambiguous["status"], "AMBIGUOUS")
+            self.assertEqual(ambiguous["count"], 2)
+
+            server = create_server(root, snapshot_id=manifest["snapshot_id"], port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with self.assertRaises(HTTPError) as conflict:
+                    urlopen(f"http://127.0.0.1:{server.server_port}/v1/lei/5493001KJTIIGC8Y1R12")
+                self.assertEqual(conflict.exception.code, 409)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+    def test_monitor_report_is_healthy_for_a_verified_release(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _archive_cdf(root)
+            parse_snapshot(root, manifest["snapshot_id"])
+            build_product(root, manifest["snapshot_id"])
+            build_release(root, manifest["snapshot_id"])
+
+            report = monitor_report(root, snapshot_id=manifest["snapshot_id"])
+
+            self.assertEqual(report["status"], "HEALTHY")
+            self.assertEqual(report["exit_code"], 0)
+            self.assertEqual(report["alerts"], [])
+            self.assertEqual(report["deployment"]["status"], "READY")
+
+
+class ReleaseAndQueryTests(unittest.TestCase):
+    def test_builds_release_and_serves_verified_read_only_queries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _archive_cdf(root, record_count=2, include_second_record=True)
+            parse_snapshot(root, manifest["snapshot_id"])
+            build_product(root, manifest["snapshot_id"])
+
+            release = build_release(root, manifest["snapshot_id"])
+
+            self.assertEqual(release["status"], "BUILT")
+            self.assertTrue(Path(release["bundle_path"]).exists())
+            verified = verify_release(root, manifest["snapshot_id"])
+            self.assertEqual(verified["status"], "VERIFIED")
+            with zipfile.ZipFile(release["bundle_path"], "r") as bundle:
+                self.assertIn("product/lei.sqlite", bundle.namelist())
+                self.assertIn("source/manifest.json", bundle.namelist())
+
+            found = lookup_lei(root, "5493001KJTIIGC8Y1R12", snapshot_id=manifest["snapshot_id"])
+            self.assertEqual(found["status"], "FOUND")
+            self.assertEqual(found["record"]["legal_name"], "Example Holdings GmbH")
+            self.assertEqual(found["provenance"]["snapshot_id"], manifest["snapshot_id"])
+
+            search = search_name(root, "Example", snapshot_id=manifest["snapshot_id"], limit=10)
+            self.assertEqual(search["count"], 2)
+            self.assertEqual(search["records"][0]["legal_name"], "Example Holdings GmbH")
+
+            missing = lookup_lei(root, "00000000000000000000", snapshot_id=manifest["snapshot_id"])
+            self.assertEqual(missing["status"], "NOT_FOUND")
+
+            replica = root / "release-replica"
+            replicated = replicate_release(root, manifest["snapshot_id"], replica)
+            self.assertEqual(replicated["status"], "REPLICATED")
+            self.assertTrue((replica / manifest["source_dataset_id"] / manifest["snapshot_id"] / "release.zip").exists())
+            self.assertEqual(
+                replicate_release(root, manifest["snapshot_id"], replica)["status"],
+                "NO_CHANGE",
+            )
+            replica_check = verify_replica_release(replica, manifest["snapshot_id"])
+            self.assertEqual(replica_check["status"], "VERIFIED")
+            restored_root = root / "restored-failover"
+            restored = restore_release(replica, manifest["snapshot_id"], restored_root)
+            self.assertEqual(restored["status"], "RESTORED")
+            self.assertTrue(restored["query_failover_ready"])
+            restored_lookup = lookup_lei(
+                restored_root,
+                "5493001KJTIIGC8Y1R12",
+                snapshot_id=manifest["snapshot_id"],
+            )
+            self.assertEqual(restored_lookup["status"], "FOUND")
+            self.assertEqual(
+                restore_release(replica, manifest["snapshot_id"], restored_root)["status"],
+                "NO_CHANGE",
+            )
+
+            status = status_report(root)
+            self.assertEqual(status["snapshot_count"], 1)
+            snapshot_status = status["snapshots"][0]
+            self.assertEqual(snapshot_status["raw"], "VERIFIED")
+            self.assertEqual(snapshot_status["normalized"], "VERIFIED")
+            self.assertEqual(snapshot_status["product"], "VERIFIED")
+            self.assertEqual(snapshot_status["release"], "VERIFIED")
+
+    def test_end_to_end_pipeline_records_completion_events(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _archive_cdf(root)
+            fake_ingest_result = {"status": "ARCHIVED", "snapshot": manifest, "replica_path": None}
+
+            with patch("open_data_platform.pipeline.ingest_latest", return_value=fake_ingest_result):
+                result = run_gleif_pipeline(
+                    source_config=root / "source.json",
+                    admission_config=root / "admission.json",
+                    data_root=root,
+                )
+
+            self.assertEqual(result["status"], "COMPLETED")
+            self.assertEqual(result["release"]["status"], "BUILT")
+            events = (root / "events" / "events.jsonl").read_text(encoding="utf-8")
+            self.assertIn('"event": "PIPELINE_COMPLETED"', events)
+
+    def test_http_service_and_retention_plan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _archive_cdf(root)
+            parse_snapshot(root, manifest["snapshot_id"])
+            build_product(root, manifest["snapshot_id"])
+            build_release(root, manifest["snapshot_id"])
+
+            server = create_server(root, snapshot_id=manifest["snapshot_id"], port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_port}"
+            try:
+                with urlopen(base_url + "/healthz") as response:
+                    health = json.loads(response.read().decode("utf-8"))
+                self.assertEqual(health["status"], "OK")
+                self.assertEqual(health["provenance"]["snapshot_id"], manifest["snapshot_id"])
+
+                with urlopen(base_url + "/v1/lei/5493001KJTIIGC8Y1R12") as response:
+                    lookup = json.loads(response.read().decode("utf-8"))
+                self.assertEqual(lookup["status"], "FOUND")
+
+                with urlopen(base_url + "/v1/search?name=Example&limit=1") as response:
+                    search = json.loads(response.read().decode("utf-8"))
+                self.assertEqual(search["count"], 1)
+
+                with self.assertRaises(HTTPError) as missing:
+                    urlopen(base_url + "/v1/lei/00000000000000000000")
+                self.assertEqual(missing.exception.code, 404)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+            plan = retention_plan(root, keep_latest=1)
+            self.assertEqual(plan["mode"], "REPORT_ONLY")
+            self.assertFalse(plan["policy"]["deletion_enabled"])
+            self.assertEqual(len(plan["retained"]), 1)
+            self.assertGreater(plan["storage"]["total_bytes"], 0)
+
+            readiness = deployment_readiness(root, snapshot_id=manifest["snapshot_id"])
+            self.assertEqual(readiness["status"], "READY")
+            self.assertEqual(
+                {check["name"] for check in readiness["checks"]},
+                {"release", "query_product", "normalized_artifact"},
+            )
+            self.assertIn("serve", readiness["service"]["suggested_command"])
+
+    def test_http_service_requires_auth_for_remote_binding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = _archive_cdf(root)
+            parse_snapshot(root, manifest["snapshot_id"])
+            build_product(root, manifest["snapshot_id"])
+            token_path = root / "odp.token"
+            token_path.write_text("test-token\n", encoding="utf-8")
+
+            with self.assertRaises(QueryError):
+                create_server(root, snapshot_id=manifest["snapshot_id"], host="0.0.0.0", port=0)
+
+            server = create_server(
+                root,
+                snapshot_id=manifest["snapshot_id"],
+                host="127.0.0.1",
+                port=0,
+                auth_token_file=token_path,
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_port}"
+            try:
+                with self.assertRaises(HTTPError) as unauthorized:
+                    urlopen(base_url + "/healthz")
+                self.assertEqual(unauthorized.exception.code, 401)
+
+                request = Request(base_url + "/healthz", headers={"Authorization": "Bearer test-token"})
+                with urlopen(request) as response:
+                    health = json.loads(response.read().decode("utf-8"))
+                self.assertEqual(health["status"], "OK")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+
+if __name__ == "__main__":
+    unittest.main()

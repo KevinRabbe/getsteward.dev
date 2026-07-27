@@ -23,12 +23,14 @@ public sealed class PortableWorldImportService
         Stream source,
         IGameAdapter adapter,
         Stream stateStaging,
+        UserIdentity owner,
         PortableWorldArchiveLimits? limits = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(adapter);
         ArgumentNullException.ThrowIfNull(stateStaging);
+        ArgumentNullException.ThrowIfNull(owner);
         cancellationToken.ThrowIfCancellationRequested();
 
         PortableWorldManifest? manifest = null;
@@ -83,7 +85,7 @@ public sealed class PortableWorldImportService
                 worldId,
                 ParentRevisionId: null,
                 CreatedAt: importedAt,
-                CreatedBy: null,
+                CreatedBy: owner,
                 Manifest: manifest.Environment);
 
             var stateRevision = new StateRevision(
@@ -91,7 +93,7 @@ public sealed class PortableWorldImportService
                 worldId,
                 ParentRevisionId: null,
                 CreatedAt: importedAt,
-                CreatedBy: null,
+                CreatedBy: owner,
                 AdapterId: manifest.GameAdapterId,
                 StatePackageId: stateRevisionId.ToString());
 
@@ -99,7 +101,7 @@ public sealed class PortableWorldImportService
                 worldId,
                 manifest.WorldName,
                 manifest.GameAdapterId,
-                Members: [],
+                Members: [owner],
                 CurrentEnvironmentRevisionId: environmentRevisionId,
                 CurrentStateRevisionId: stateRevisionId)
             {

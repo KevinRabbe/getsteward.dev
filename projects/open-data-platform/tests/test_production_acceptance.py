@@ -43,6 +43,7 @@ def _fake_result(root: Path, *, source_version: str, snapshot_id: str) -> dict:
             "bundle_path": str(bundle),
             "bundle_size_bytes": bundle.stat().st_size,
         },
+        "changes": {"status": "NO_PREVIOUS_SNAPSHOT", "to_snapshot_id": snapshot_id},
     }
 
 
@@ -57,6 +58,7 @@ class ProductionAcceptanceTests(unittest.TestCase):
                 patch("open_data_platform.pipeline.parse_snapshot", return_value=fake["parse"]),
                 patch("open_data_platform.pipeline.build_product", return_value=fake["product"]),
                 patch("open_data_platform.pipeline.build_release", return_value=fake["release"]),
+                patch("open_data_platform.pipeline.build_changes_from_previous", return_value=fake["changes"]),
             ):
                 result = run_gleif_pipeline(
                     source_config=root / "source.json",
@@ -68,7 +70,10 @@ class ProductionAcceptanceTests(unittest.TestCase):
             metrics = result["metrics"]
             self.assertEqual(metrics["source_version"], "2026-07-27")
             self.assertEqual(metrics["record_count"], 10)
-            self.assertEqual(set(metrics["stage_seconds"]), {"ingest", "parse", "product", "release"})
+            self.assertEqual(
+                set(metrics["stage_seconds"]),
+                {"ingest", "parse", "product", "release", "changes"},
+            )
             self.assertTrue(Path(metrics["metrics_path"]).exists())
 
             report = production_acceptance_report(root, required_versions=7)
@@ -92,8 +97,8 @@ class ProductionAcceptanceTests(unittest.TestCase):
                     started_at=f"{source_version}T02:00:00Z",
                     finished_at=f"{source_version}T02:10:00Z",
                     status="COMPLETED",
-                    stage_seconds={"ingest": 1, "parse": 2, "product": 3, "release": 4},
-                    total_seconds=10,
+                    stage_seconds={"ingest": 1, "parse": 2, "product": 3, "release": 4, "changes": 5},
+                    total_seconds=15,
                     physical_bytes_before=index * 1000,
                     physical_bytes_after=(index + 1) * 1000,
                     result=result,
@@ -106,8 +111,8 @@ class ProductionAcceptanceTests(unittest.TestCase):
                 started_at="2026-07-27T03:00:00Z",
                 finished_at="2026-07-27T03:10:00Z",
                 status="COMPLETED",
-                stage_seconds={"ingest": 1, "parse": 1, "product": 1, "release": 1},
-                total_seconds=4,
+                stage_seconds={"ingest": 1, "parse": 1, "product": 1, "release": 1, "changes": 1},
+                total_seconds=5,
                 physical_bytes_before=7000,
                 physical_bytes_after=7000,
                 result=duplicate,

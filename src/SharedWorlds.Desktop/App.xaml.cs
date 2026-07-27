@@ -13,6 +13,11 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
         base.OnStartup(e);
 
+        // Register only as an available per-user handler. Windows remains authoritative over which
+        // application is the user's default for .safeworld.
+        _ = PortableWorldFileAssociation.TryRegisterCurrentExecutable();
+        var startupPortableWorldPath = PortableWorldStartupActivation.ResolvePath(e.Args);
+
         var window = new MainWindow
         {
             Title = $"Steward {StewardBuildVersion.Current}"
@@ -25,6 +30,11 @@ public partial class App : Application
         var initialization = window.InitializeUnifiedStartupAsync();
         window.Show();
         await initialization;
+
+        if (startupPortableWorldPath is not null)
+        {
+            await window.OpenPortableWorldFromPathAsync(startupPortableWorldPath);
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)

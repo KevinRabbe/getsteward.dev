@@ -113,9 +113,8 @@ public static class StewardHostPresenceApi
                 Retryable: false));
         }
 
-        // Reservation/session/installation identity remains internal authority state. The current
-        // holder identity is already visible through World membership and is safe to expose here so
-        // the World lobby can label the authoritative Host without inventing a second Host model.
+        // Readers only need joinability evidence. Reservation/session/installation identity remains
+        // internal authority state and is deliberately not disclosed through this read endpoint.
         return Results.Ok(new HostPresenceResponse(
             "HostPresence",
             Retryable: false,
@@ -123,9 +122,7 @@ public static class StewardHostPresenceApi
                 presence.State,
                 presence.Address,
                 presence.Port,
-                presence.JoinToken,
-                presence.Holder.Provider,
-                presence.Holder.ExternalId)));
+                presence.JoinToken)));
     }
 
     private static async Task<IResult> ClearAsync(
@@ -222,9 +219,7 @@ public static class StewardHostPresenceApi
         SharedWorldHostPresenceState State,
         string? Address,
         int? Port,
-        string? JoinToken,
-        string HostProvider,
-        string HostExternalId);
+        string? JoinToken);
 
     public sealed record HostPresenceResponse(
         string Code,

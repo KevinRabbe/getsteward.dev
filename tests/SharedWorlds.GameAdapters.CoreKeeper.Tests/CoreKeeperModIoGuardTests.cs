@@ -90,6 +90,22 @@ public sealed class CoreKeeperModIoGuardTests
     }
 
     [Fact]
+    public void DuplicateStorageRedirectFailsClosed()
+    {
+        using var temp = new TempDirectory();
+        var defaultRoot = temp.CreateDirectory("default-modio");
+        var settingsRoot = temp.CreateDirectory("settings-modio");
+        File.WriteAllText(
+            Path.Combine(settingsRoot, "globalsettings.json"),
+            "{\"RootLocalStoragePath\":\"C:/one\",\"RootLocalStoragePath\":\"C:/two\"}");
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => CoreKeeperModIoGuard.RequireNoInstalledMods(defaultRoot, settingsRoot));
+
+        Assert.Contains("ambiguous or invalid", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void RelativeStorageRedirectFailsClosed()
     {
         using var temp = new TempDirectory();
@@ -119,6 +135,50 @@ public sealed class CoreKeeperModIoGuardTests
             () => CoreKeeperModIoGuard.RequireNoInstalledMods(defaultRoot, settingsRoot));
 
         Assert.Contains("metadata safety limit", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SettingsRootOccupiedByFileFailsClosed()
+    {
+        using var temp = new TempDirectory();
+        var defaultRoot = temp.CreateDirectory("default-modio");
+        var settingsRoot = Path.Combine(temp.Path, "settings-modio");
+        File.WriteAllText(settingsRoot, "not-a-directory");
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => CoreKeeperModIoGuard.RequireNoInstalledMods(defaultRoot, settingsRoot));
+
+        Assert.Contains("settings root", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not a regular directory", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void LinkedRedirectedStorageRootFailsClosed()
+    {
+        using var temp = new TempDirectory();
+        var defaultRoot = temp.CreateDirectory("default-modio");
+        var settingsRoot = temp.CreateDirectory("settings-modio");
+        var outsideRoot = temp.CreateDirectory("outside-modio");
+        var linkedRoot = Path.Combine(temp.Path, "linked-modio");
+
+        try
+        {
+            Directory.CreateSymbolicLink(linkedRoot, outsideRoot);
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+        {
+            return;
+        }
+
+        File.WriteAllText(
+            Path.Combine(settingsRoot, "globalsettings.json"),
+            JsonSerializer.Serialize(new { RootLocalStoragePath = linkedRoot }));
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => CoreKeeperModIoGuard.RequireNoInstalledMods(defaultRoot, settingsRoot));
+
+        Assert.Contains("storage root", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("linked", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -1,0 +1,21 @@
+{
+  "product_id": "prod_global_research_organization_history",
+  "name": "Global Research Organization History",
+  "status": "PRODUCT_CANDIDATE",
+  "primary_dataset_id": "ds_ror_organizations",
+  "description": "Verified ROR organization reference data, historical semantic changes, quality intelligence, and downloadable distributions with conservative exclusion of source location fields.",
+  "source_rights": "CC0-1.0",
+  "source_terms_url": "https://ror.org/about/terms/",
+  "cc0_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "customer_terms_status": "LEGAL_REVIEW_REQUIRED",
+  "non_affiliation_required": true,
+  "delivery_model": "immutable_downloadable_bundle",
+  "default_distribution": "sqlite",
+  "optional_distributions": [
+    "csv",
+    "parquet"
+  ],
+  "excluded_source_fields": [
+    "locations"
+  ]
+}

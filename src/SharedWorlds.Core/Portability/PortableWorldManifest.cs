@@ -3,6 +3,19 @@ using SharedWorlds.Core.Environment;
 namespace SharedWorlds.Core.Portability;
 
 /// <summary>
+/// Metadata known before Safe World writes the opaque state payload. The archive writer derives the
+/// payload length and SHA-256 while copying bytes and produces the immutable manifest from this input.
+/// </summary>
+public sealed record PortableWorldDescription(
+    string GameAdapterId,
+    string WorldName,
+    string SnapshotId,
+    DateTimeOffset CreatedAt,
+    EnvironmentManifest Environment,
+    PortableWorldPresentation? Presentation = null,
+    PortableWorldOrigin? StartedFrom = null);
+
+/// <summary>
 /// Stable, game-agnostic metadata for one immutable portable World snapshot.
 /// The payload remains opaque adapter-owned bytes; this contract only describes the snapshot,
 /// its exact environment, integrity, and optional human-facing provenance.

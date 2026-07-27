@@ -186,7 +186,11 @@ public partial class MainWindow
 
             source.Position = 0;
             var importer = new PortableWorldImportService(_storage);
-            var result = await importer.ImportAsync(source, adapter, staging);
+            var result = await importer.ImportAsync(
+                source,
+                adapter,
+                staging,
+                GetLocalUser());
 
             StatusText.Text = $"Opened '{result.World.Name}' as an independent World.";
             await RefreshUnifiedWorldsAsync(result.World.Id, preserveStatus: true);

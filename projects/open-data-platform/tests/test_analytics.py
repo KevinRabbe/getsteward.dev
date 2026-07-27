@@ -137,7 +137,7 @@ class AnalyticsTests(unittest.TestCase):
             self.assertEqual(profile["legal_jurisdiction_counts"], {"DE": 2, "FR": 1})
             self.assertEqual(profile["entity_category_counts"], {"<NULL>": 1, "GENERAL": 2})
             self.assertEqual(profile["legal_form_code_counts"], {"<NULL>": 1, "AG": 1, "GMBH": 1})
-            self.assertEqual(profile["duplicate_rate"], 1 / 3)
+            self.assertEqual(profile["duplicate_rate"], round(1 / 3, 12))
 
     def test_quality_tampering_is_detected(self):
         with tempfile.TemporaryDirectory() as tmp:

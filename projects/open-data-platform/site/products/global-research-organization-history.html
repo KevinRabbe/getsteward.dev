@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Verified ROR organization reference data with reproducible historical changes, quality evidence, provenance, SQLite, CSV, and Parquet distributions.">
+  <title>Global Research Organization History — Databasis</title>
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="../index.html">Databasis</a>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="global-research-organization-history.html">Databases</a>
+        <a href="../methodology.html">Methodology</a>
+        <a href="../index.html#about">About</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container">
+        <span class="eyebrow">Commercial data product candidate</span>
+        <h1>Global Research Organization History</h1>
+        <p class="lead">Verified ROR history, ready to ingest. Stop maintaining your own release archive, semantic diff pipeline, quality trail, and distribution packaging.</p>
+        <div class="actions">
+          <span class="button disabled" aria-disabled="true">Purchase opening after terms review</span>
+          <a class="button secondary" href="#included">See what is included</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section soft">
+      <div class="container">
+        <span class="eyebrow">Accepted v2.9 → v2.10 evidence</span>
+        <div class="grid">
+          <div class="card">
+            <div class="metric">132,537</div>
+            <div class="metric-label">organizations in accepted ROR v2.10 product state</div>
+          </div>
+          <div class="card">
+            <div class="metric">3,491</div>
+            <div class="metric-label">new organizations between v2.9 and v2.10</div>
+          </div>
+          <div class="card">
+            <div class="metric">2,920</div>
+            <div class="metric-label">changed existing organizations between v2.9 and v2.10</div>
+          </div>
+        </div>
+        <p class="muted">The accepted comparison recorded 0 removed organizations for this release pair. Older commercial bundles remain immutable when later source releases arrive.</p>
+      </div>
+    </section>
+
+    <section class="section" id="included">
+      <div class="container">
+        <span class="eyebrow">One product, multiple useful distributions</span>
+        <h2>Everything needed to ingest and audit the release.</h2>
+        <div class="grid two">
+          <article class="card">
+            <h3>Data</h3>
+            <ul class="list-clean">
+              <li>Verified SQLite organization database</li>
+              <li>CSV distribution of the verified product state</li>
+              <li>Optional Parquet distribution</li>
+              <li>Adjacent semantic history artifacts across packaged source states</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>Evidence</h3>
+            <ul class="list-clean">
+              <li>Product and source manifests</li>
+              <li>Schema definition</li>
+              <li>Quality profile and quality timeline</li>
+              <li>Checksums, provenance, field policy, and legal-status notices</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section soft">
+      <div class="container">
+        <span class="eyebrow">Built for teams already using ROR</span>
+        <h2>Replace recurring pipeline maintenance with a versioned input.</h2>
+        <div class="grid">
+          <article class="card">
+            <h3>Publishing platforms</h3>
+            <p>Use a reproducible organization reference state for affiliation normalization, metadata enrichment, and institution-aware workflows.</p>
+          </article>
+          <article class="card">
+            <h3>Research-information products</h3>
+            <p>Track which organization state and history your analysis used without reconstructing old ROR releases after the fact.</p>
+          </article>
+          <article class="card">
+            <h3>Data engineering teams</h3>
+            <p>Consume SQLite, CSV, or Parquet while retaining hashes, schema, quality evidence, and exact release provenance for audit and rebuilds.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <span class="eyebrow">Bundle shape</span>
+        <h2>Designed to be understandable without our runtime.</h2>
+        <div class="code-block">product.zip
+├── product.json
+├── README.txt
+├── SOURCE_LICENSES.json
+├── FIELD_POLICY.json
+├── LEGAL_STATUS.json
+├── NON_AFFILIATION.txt
+├── data/
+│   ├── organizations.sqlite
+│   ├── organizations.csv
+│   └── organizations.parquet     optional
+├── schema/
+│   └── organizations.json
+├── quality/
+│   ├── organizations-quality.json
+│   └── timeline.json
+└── history/
+    └── &lt;old-version&gt;__&lt;new-version&gt;.jsonl</div>
+      </div>
+    </section>
+
+    <section class="section soft">
+      <div class="container">
+        <span class="eyebrow">Rights boundary</span>
+        <h2>We sell the work around the source, not ownership of the source.</h2>
+        <div class="grid two">
+          <div class="card">
+            <h3>Underlying ROR data</h3>
+            <p>The product records ROR IDs and included metadata as CC0 1.0 source data. Customers retain the underlying source-data rights independently of our commercial terms.</p>
+            <p><a href="https://ror.org/about/terms/">ROR terms</a> · <a href="https://creativecommons.org/publicdomain/zero/1.0/">CC0 1.0</a></p>
+          </div>
+          <div class="card">
+            <h3>Independent Databasis layer</h3>
+            <p>The paid product value is historical capture, reproducible filtering, semantic change computation, quality intelligence, schemas, integrity/provenance machinery, packaging, and delivery convenience.</p>
+          </div>
+        </div>
+        <div class="callout" style="margin-top: 18px;">
+          <strong>Non-affiliation:</strong> This is an independent product. It is not provided, supported, authorized, endorsed, or affiliated with ROR or its governing organizations. ROR location fields are excluded from normalized, product, history, and commercial customer data under the current conservative field policy.
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <span class="eyebrow">Commercial status</span>
+        <h2>Technical proof is complete. Human terms review is intentionally separate.</h2>
+        <p class="lead">The product will not expose a live checkout until the exact customer-terms document has completed the project’s human legal-review gate and the sale envelope binds the exact deliverable to that approved document.</p>
+        <div class="actions">
+          <span class="button disabled" aria-disabled="true">Purchase not active yet</span>
+          <a class="button secondary" href="../methodology.html">Review the methodology</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-row">
+      <span>Global Research Organization History</span>
+      <span>Downloadable, immutable, independently verified.</span>
+    </div>
+  </footer>
+</body>
+</html>

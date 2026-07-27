@@ -29,7 +29,10 @@ public sealed class PortableWorldImportServiceTests
                 creator: "Creator");
             await using var staging = new MemoryStream();
 
-            var result = await service.ImportAsync(artifact, new TestAdapter("factorio"), staging);
+            var result = await service.ImportAsync(
+                artifact,
+                new QualifiedAdapter("factorio"),
+                staging);
 
             Assert.Equal("500h Megabase", result.World.Name);
             Assert.Equal("factorio", result.World.GameAdapterId);
@@ -93,11 +96,17 @@ public sealed class PortableWorldImportServiceTests
                 creator: "Creator");
 
             await using var firstStaging = new MemoryStream();
-            var first = await service.ImportAsync(artifact, new TestAdapter("factorio"), firstStaging);
+            var first = await service.ImportAsync(
+                artifact,
+                new QualifiedAdapter("factorio"),
+                firstStaging);
 
             artifact.Position = 0;
             await using var secondStaging = new MemoryStream();
-            var second = await service.ImportAsync(artifact, new TestAdapter("factorio"), secondStaging);
+            var second = await service.ImportAsync(
+                artifact,
+                new QualifiedAdapter("factorio"),
+                secondStaging);
 
             Assert.NotEqual(first.World.Id, second.World.Id);
             Assert.NotEqual(first.World.CurrentEnvironmentRevisionId, second.World.CurrentEnvironmentRevisionId);
@@ -128,9 +137,79 @@ public sealed class PortableWorldImportServiceTests
             await using var staging = new MemoryStream();
 
             var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
-                service.ImportAsync(artifact, new TestAdapter("different-game"), staging));
+                service.ImportAsync(
+                    artifact,
+                    new QualifiedAdapter("different-game"),
+                    staging));
 
             Assert.Contains("factorio", exception.Message, StringComparison.Ordinal);
+            Assert.Empty(await storage.ListWorldsAsync());
+            Assert.Equal(0, staging.Length);
+            Assert.Equal(0, staging.Position);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
+    public async Task ImportRejectsAdapterWithoutPublicPortabilityAuthority()
+    {
+        var root = CreateRoot();
+        try
+        {
+            var storage = new LocalWorldStorage(root);
+            var service = new PortableWorldImportService(storage);
+            await using var artifact = await CreateArtifactAsync(
+                "state"u8.ToArray(),
+                "snapshot",
+                DateTimeOffset.UtcNow,
+                creator: null);
+            await using var staging = new MemoryStream();
+
+            var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+                service.ImportAsync(
+                    artifact,
+                    new PrivateOnlyAdapter("factorio"),
+                    staging));
+
+            Assert.Contains("public portable Worlds", exception.Message, StringComparison.Ordinal);
+            Assert.Empty(await storage.ListWorldsAsync());
+            Assert.Equal(0, staging.Length);
+            Assert.Equal(0, staging.Position);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
+    public async Task ImportRejectsEnvironmentNotApprovedForPublicPortability()
+    {
+        var root = CreateRoot();
+        try
+        {
+            var storage = new LocalWorldStorage(root);
+            var service = new PortableWorldImportService(storage);
+            await using var artifact = await CreateArtifactAsync(
+                "state"u8.ToArray(),
+                "snapshot",
+                DateTimeOffset.UtcNow,
+                creator: null);
+            await using var staging = new MemoryStream();
+            const string reason = "This exact environment has not earned the public portability claim.";
+
+            var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+                service.ImportAsync(
+                    artifact,
+                    new QualifiedAdapter(
+                        "factorio",
+                        PublicWorldExportReadiness.Unsupported(reason)),
+                    staging));
+
+            Assert.Equal(reason, exception.Message);
             Assert.Empty(await storage.ListWorldsAsync());
             Assert.Equal(0, staging.Length);
             Assert.Equal(0, staging.Position);
@@ -153,7 +232,10 @@ public sealed class PortableWorldImportServiceTests
             await using var staging = new MemoryStream();
 
             await Assert.ThrowsAnyAsync<Exception>(() =>
-                service.ImportAsync(artifact, new TestAdapter("factorio"), staging));
+                service.ImportAsync(
+                    artifact,
+                    new PrivateOnlyAdapter("factorio"),
+                    staging));
 
             Assert.Empty(await storage.ListWorldsAsync());
             Assert.Equal(0, staging.Length);
@@ -216,7 +298,7 @@ public sealed class PortableWorldImportServiceTests
         }
     }
 
-    private sealed class TestAdapter(string id) : IGameAdapter
+    private abstract class TestAdapterBase(string id) : IGameAdapter
     {
         public string Id { get; } = id;
         public string DisplayName => Id;
@@ -266,4 +348,20 @@ public sealed class PortableWorldImportServiceTests
             CancellationToken cancellationToken = default)
             => Task.CompletedTask;
     }
+
+    private sealed class QualifiedAdapter(
+        string id,
+        PublicWorldExportReadiness? readiness = null)
+        : TestAdapterBase(id), IPublicWorldExportAdapter
+    {
+        public Task<PublicWorldExportReadiness> CheckPublicWorldExportAsync(
+            EnvironmentManifest exactEnvironment,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(readiness ?? PublicWorldExportReadiness.Supported());
+        }
+    }
+
+    private sealed class PrivateOnlyAdapter(string id) : TestAdapterBase(id);
 }

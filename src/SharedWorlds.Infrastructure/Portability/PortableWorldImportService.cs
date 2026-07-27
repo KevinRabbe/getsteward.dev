@@ -52,6 +52,27 @@ public sealed class PortableWorldImportService
                     "Portable World environment adapter does not match the selected game adapter.");
             }
 
+            // A public portable artifact must not turn ordinary private capture/restore support into a
+            // new public portability claim. Reuse the existing exact-environment public distribution
+            // authority as the positive gate: only a state boundary already qualified to leave one
+            // device may enter another device through .safeworld. Archive integrity remains a separate
+            // boundary and was verified above; this gate does not bless arbitrary payload bytes.
+            if (adapter is not IPublicWorldExportAdapter publicWorldAdapter)
+            {
+                throw new NotSupportedException(
+                    $"{adapter.DisplayName} has not been qualified for public portable Worlds.");
+            }
+
+            var publicReadiness = await publicWorldAdapter.CheckPublicWorldExportAsync(
+                manifest.Environment,
+                cancellationToken);
+            if (!publicReadiness.IsSupported)
+            {
+                throw new NotSupportedException(
+                    publicReadiness.Reason ??
+                    $"{adapter.DisplayName} has not been qualified for this portable World environment.");
+            }
+
             var importedAt = DateTimeOffset.UtcNow;
             var worldId = WorldId.New();
             var environmentRevisionId = RevisionId.New();

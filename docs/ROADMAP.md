@@ -1,6 +1,6 @@
 # Master Roadmap
 
-Status: **CURRENT — V3 RELEASE-CANDIDATE PREPARATION IS COMPLETE; DOCUMENTATION/UI RECONCILIATION AND EVIDENCE-DRIVEN V3-E ARE ACTIVE; V3-F REMAINS THE FINAL EXTERNAL RELEASE GATE.**
+Status: **CURRENT — DETERMINISTIC FIRST-RELEASE PRODUCT/UI RECONCILIATION IS COMPLETE; V3-E REAL WINDOWS ACCEPTANCE IS ACTIVE; V3-F REMAINS THE FINAL EXTERNAL RELEASE GATE.**
 
 ## Product target
 
@@ -18,24 +18,25 @@ They implement one product model. No workstream may invent a competing definitio
 
 The generic product platform is implemented. Deterministic V3 Steam release-candidate preparation is complete through qualified PR #137.
 
-The current executable/product baseline is V3-E PR #138:
+The current non-documentation executable/UI baseline is PR #151:
 
-> `e63c6f7d20d103cd2ea3d9a922b73de3c3ba1f5f`
+> `01cb15927a9e056fb9a6784d037eabde66e7d819`
 
-The first real Windows V3-E run already produced useful evidence: legacy device-settings migration failed because Windows would not atomically replace the settings file while Steward still held its source read handle open. #138 closes that read boundary before the migration write and regression-tests the fix.
+PR #153 then closes the remaining deterministic first-release product-contract/documentation reconciliation without reopening Core/backend/adapter authority. Before this final status cleanup, its latest documentation head `35e5f6464eeea113a8ab9ecf66b64f4055553803` had already passed all five top-level workflow groups.
 
-That changes the development mode:
+The first real Windows V3-E run also produced useful evidence earlier: legacy device-settings migration failed because Windows would not atomically replace the settings file while Steward still held its source read handle open. #138 closes that read boundary before the migration write and regression-tests the fix.
+
+That leaves one development mode:
 
 ```text
 platform architecture complete
 + deterministic V3 release shape complete
++ deterministic first-release product/UI contract complete
 + real V3-E evidence has started
 
 therefore
 
 stop inventing generic subsystems
--> reconcile stale documentation with executable truth
--> reconcile known UI implementation drift with the approved UI contract
 -> continue real V3-E observations
 -> fix only concrete release defects that evidence exposes
 -> open V3-F with the real Steam/provider resources
@@ -45,27 +46,21 @@ The final production Steam/AppID/publisher/depot/two-installation/game proof rem
 
 ## Current priority order
 
-### 1. Documentation truth — ACTIVE
+### 1. Deterministic documentation/product reconciliation — COMPLETE
 
-Before changing product behavior, remove active-sounding contradictions that can send implementation in the wrong direction.
+The post-#138 reconciliation stack is closed:
 
-Current sequence:
+```text
+#139-#145 documentation-state reconciliation
+-> #147 Games Library hierarchy
+-> #148 small World Lobby
+-> #149 existing-search audit + missing World sort + global Settings
+-> #150 responsibility-backed game attention
+-> #151 localization-ready fixed product vocabulary
+-> #153 publish-first Share/access contract simplification
+```
 
-1. documentation state audit;
-2. root/current-status documents;
-3. this master roadmap;
-4. architecture/storage current-state language;
-5. backend contract/status wording;
-6. adapter/runtime/native-creation/persistence wording;
-7. leave historical milestone evidence historical unless it still misdirects current work.
-
-`DOCUMENTATION_AUDIT.md` is the temporary status overlay while this reconciliation is in progress.
-
-A historical document does not need to be rewritten merely because its old “next step” has passed. Preserve useful evidence; remove or mark only statements that could still be mistaken for current guidance.
-
-### 2. Games Library information architecture — NEXT PRODUCT RECONCILIATION
-
-The approved first-release UI hierarchy remains:
+The approved first-release hierarchy is implemented:
 
 ```text
 Games Library
@@ -75,22 +70,13 @@ Games Library
 -> selected World details/actions
 ```
 
-The current WPF shell still presents a fixed World-list sidebar with a compact game selector beside a permanent selected-World detail pane.
+Search was already present; only the missing sort was added. Global Settings reuses the existing device-settings owner. The lobby is a small read-only operational glance. Share publishes first and Manage access owns membership changes afterward. No pre-publication invitation staging, Steward friends graph, destructive shared-World delete workflow, or second UI-only state machine was added.
 
-With 19 adapters, this is implementation drift from the approved product contract, not a reason to redefine the contract around the current sidebar.
+`DOCUMENTATION_AUDIT.md` is now the current classification of active vs historical documentation, not a temporary implementation queue.
 
-After documentation reconciliation, implement the smallest UI change that restores the approved game-first hierarchy while preserving:
+There is no known deterministic first-release product discrepancy left to implement merely to remain busy.
 
-- the existing shared/local World truth model;
-- capability-driven Start/Host/Join/Stop/Create availability;
-- recovery responsibility;
-- Share/Manage access;
-- tray/background lifecycle;
-- accessibility and narrow-window behavior.
-
-Do not add a second UI-only state machine or game-name branching.
-
-### 3. V3-E — real Windows release acceptance — STARTED
+### 2. V3-E — real Windows release acceptance — ACTIVE
 
 Continue real-machine observations that CI cannot prove:
 
@@ -118,7 +104,7 @@ observe real failure
 
 Do not convert “might fail on Windows” into speculative product code.
 
-### 4. V3-F — real Steam/provider/game release gate — EXTERNAL
+### 3. V3-F — real Steam/provider/game release gate — EXTERNAL
 
 Open this gate only when the product owner decides the release candidate is otherwise good enough to spend the external setup cost.
 
@@ -156,7 +142,7 @@ No Friends Build fallback, static production token, fake publisher key, `steam_a
 
 Canonical runbook: `STEAM_RELEASE_GATE.md`.
 
-### 5. Performance — ONLY FROM MEASUREMENTS
+### 4. Performance — ONLY FROM MEASUREMENTS
 
 Do not optimize transfer/storage/runtime architecture merely because an optimization is imaginable.
 
@@ -343,6 +329,8 @@ The old E-stage sequence is preserved here only as provenance. It is not the act
 | V3-A..D | Production release config, exact depot bytes, matched public backend identity, action-specific release claims. |
 | #137 | Final deterministic V3-E/V3-F gate aligned with Steam-owned install/update. |
 | #138 | First real V3-E Windows defect/fix. |
+| #139-#145 | Active-documentation reconciliation to executable truth. |
+| #147-#153 | Deterministic first-release UI/product reconciliation closed without new generic authority. |
 
 Historical status files remain evidence. Their old “next phase” statements do not override this roadmap.
 
@@ -399,10 +387,10 @@ No unknown networking problem gets a traversal subsystem before the real failure
 
 For active execution use:
 
-- `DOCUMENTATION_AUDIT.md` — document freshness during reconciliation;
+- `DOCUMENTATION_AUDIT.md` — current active-vs-historical document classification and reconciliation closure;
 - `V3_STEAM_RELEASE_CANDIDATE.md` — current release-stage contract;
 - `PLATFORM_IMPLEMENTATION_STATUS.md` — stable platform/current executable state;
-- `UI_ROADMAP.md` — approved UI hierarchy/state/action contract;
+- `UI_ROADMAP.md` — implemented deterministic UI hierarchy/state/action contract;
 - `STEAM_RELEASE_GATE.md` — final real V3-E/V3-F acceptance batch;
 - `DEFERRED_EMPIRICAL_TESTS.md` — exact unproven real-system questions.
 

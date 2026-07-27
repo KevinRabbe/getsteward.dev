@@ -1,31 +1,42 @@
 # Documentation State Audit
 
-Status: **RECONCILED — ACTIVE DOCUMENTATION MATCHES THE QUALIFIED PRODUCT/PLATFORM STATE; ONE KNOWN UI IMPLEMENTATION DRIFT REMAINS.**
+Status: **RECONCILED — ACTIVE DOCUMENTATION MATCHES THE CURRENT QUALIFIED DETERMINISTIC PRODUCT; NO KNOWN DETERMINISTIC UI/PRODUCT DRIFT REMAINS.**
 
-Executable/product baseline used for the audit:
+## Current baselines
 
-> `e63c6f7d20d103cd2ea3d9a922b73de3c3ba1f5f` — PR #138, first evidence-driven V3-E Windows defect/fix
+The useful baselines are intentionally separated:
 
-Documentation-only reconciliation stack:
+- generic platform-completion checkpoint: PR #72, `9db4765948e3b69b4d07bc1442d7a1be5c2e3fc7`;
+- deterministic V3 Steam release-shape closure: PR #137, `8765394c63d5d6257479269b11ab5c1f86bd7865`;
+- first evidence-driven V3-E Windows defect/fix: PR #138, `e63c6f7d20d103cd2ea3d9a922b73de3c3ba1f5f`;
+- current non-documentation executable/UI product head: PR #151, `01cb15927a9e056fb9a6784d037eabde66e7d819`;
+- current deterministic product-contract head: PR #153, `2556a3ef1ba08f72b83c8c14b55ecef9e4b7ce27`.
+
+The later UI/product work did not reopen Core/backend/adapter authority. It reconciled the commercial Desktop with the already-approved product contract and then removed stale product requirements that added no authority.
+
+## Reconciliation stack after #138
 
 ```text
-#139 documentation-state audit / Factorio interface correction
--> #140 root README
--> #141 V3 + platform status
--> #142 master roadmap
--> #143 architecture + storage
--> #144 backend contracts
--> #145 runtime/adapters/native creation/persistence
--> final authority/index cleanup
+#139-#145 documentation-state reconciliation
+-> #147 Games Library hierarchy
+-> #148 small World Lobby
+-> #149 existing-search audit + missing World sort + global Settings
+-> #150 responsibility-backed game attention
+-> #151 localization-ready fixed product vocabulary
+-> #153 publish-first Share/access contract simplification
 ```
 
-Documentation-only commits do not redefine executable product ancestry.
+Important negative findings:
 
-## Result
+- search was already implemented and wired; duplicate search work was deleted;
+- a richer/decorative game-banner subsystem was not required;
+- pre-publication invitation staging added no authority and was removed from first release;
+- destructive shared-World deletion has no backend terminal contract and was removed from first release;
+- production Steam-friendly identity/invite selection belongs to the real V3-F Steam boundary, not a Steward friends graph.
 
-The audit found that Steward's **core product architecture was not fundamentally stale**. Most drift came from old milestone/status prose continuing to sound current after the implementation advanced.
+## Audit rule
 
-The reconciliation therefore followed this rule:
+When prose and production code disagree, inspect the actual authority/caller contract before changing either side.
 
 ```text
 current contract still correct
@@ -39,49 +50,35 @@ old milestone proof still useful
 
 old active-sounding statement conflicts with current code
 -> explicitly mark it non-authoritative
+
+supposed missing feature already exists or adds no authority
+-> delete the duplicate requirement
 ```
 
-The one remaining intentional docs↔implementation mismatch is the Games Library information architecture. In that case the **documented UI contract is current and the WPF implementation is the drift**.
-
-## Audit method
-
-When prose and production code disagree, inspect the actual contract callers use before changing either side.
-
-This mattered during the audit for Factorio.
-
-A first pass saw the simpler public `FactorioAdapter.LaunchHostAsync` method plus an old E4 status paragraph and incorrectly concluded the dedicated-server/RCON path was inactive.
-
-The deeper code check found:
-
-```text
-FactorioAdapter : IGameAdapter
-explicit IGameAdapter.LaunchHostAsync
--> LaunchAuthoritativeHostAsync
--> dedicated Factorio server
--> authenticated loopback RCON readiness
--> normal graphical host client
-```
-
-Core/Desktop consume adapters as `IGameAdapter`, so that explicit interface implementation is the product path.
-
-The audit was corrected rather than forcing current code toward the stale E4 checkpoint description.
+This rule previously prevented a false Factorio regression: the public helper looked simpler, but the explicit `IGameAdapter.LaunchHostAsync` path already used the dedicated server + RCON implementation consumed by Core/Desktop.
 
 ## Current executable/product facts
 
-- deterministic V3 release preparation is complete through qualified #137;
-- real V3-E Windows acceptance has started;
-- #138 fixed the first real V3-E defect: Windows v1 -> v2 device-settings migration held the source read handle open during atomic replacement;
+- generic product platform is implemented;
+- deterministic V3 release preparation is complete;
+- V3-E real Windows acceptance has started;
+- #138 fixed the first real V3-E Windows defect in device-settings v1 -> v2 migration;
 - Desktop contains 19 first-party adapters;
-- `GameAdapterCapabilities` owns Start/Host/Join/Stop/Create action claims;
+- `GameAdapterCapabilities` owns Start/Host/Join/Stop/Create claims;
 - shared Backend.Api/PostgreSQL/S3/remote Desktop authority is implemented;
 - production Steam config is package-owned; engineering `STEWARD_*` configuration remains an acceptance/development source;
 - Steam owns Steward installation/update;
 - Factorio active Host path is dedicated server + RCON + graphical host client on managed UDP 34197; no `AutomaticHostStop` flag;
 - Palworld advertises Host + Host Stop + exact game version, not automatic Join;
-- Palworld manual direct-connect guidance is presentation-only, not a guided-manual Steward client lifecycle;
 - 7DTD/PZ managed runtime remains frozen behind recorded empirical gates;
 - Factorio is the current `NativeWorldCreation` adapter;
-- local World/recovery persistence uses integrity-protected schemas; state revision v4 binds payload SHA inside protected metadata; device settings have a separate v1 -> v2 migration contract.
+- Games Library -> game workspace -> Worlds -> selected World details is implemented;
+- the World Lobby is membership + observed current players + authoritative current Host, not a social network;
+- global Settings reuses the existing device-settings owner;
+- fixed first-release product vocabulary is resource-owned/localization-ready;
+- Share publishes one creator-owned shared World first; Manage access owns invitations afterward;
+- destructive shared deletion is deliberately absent from first release;
+- local World/recovery persistence uses integrity-protected schemas and device settings retain the v1 -> v2 migration contract.
 
 ## Active documentation classification
 
@@ -91,41 +88,42 @@ The audit was corrected rather than forcing current code toward the stale E4 che
 |---|---|---|
 | `NON_NEGOTIABLE_RULES.md` | **CURRENT** | Product/safety boundaries. |
 | `PRODUCT_BOUNDARY.md` | **CURRENT** | Product definition/non-goals. |
-| `DECISIONS.md` | **CURRENT** | Active durable decisions only; completed sequencing/planning lock removed. |
-| `ARCHITECTURE.md` | **CURRENT** | Local + remote storage/coordination/backend authority now described as implemented. |
+| `DECISIONS.md` | **CURRENT** | Active durable decisions. |
+| `ARCHITECTURE.md` | **CURRENT** | Local + remote storage/coordination/backend authority implemented. |
 | `DOMAIN_MODEL.md` | **CURRENT** | Active World/revision/session/recovery model. |
-| `WORLD_LIFECYCLE.md` | **CURRENT** | Generic handoff ordering remains aligned. |
-| `CROSS_WORKSTREAM_CONTRACT.md` | **CURRENT** | UI/backend/runtime state/action authority mapping. |
+| `WORLD_LIFECYCLE.md` | **CURRENT** | Generic handoff ordering. |
+| `CROSS_WORKSTREAM_CONTRACT.md` | **CURRENT** | Publish-first Share/access split and current UI/backend/runtime authority mapping. |
+| `PRODUCT_COMPLETENESS.md` | **CURRENT** | Deterministic first-release product completeness closed; remaining gates empirical. |
 
 ### Current execution/release
 
 | Document | Status | Current note |
 |---|---|---|
-| `ROADMAP.md` | **CURRENT** | Current sequence: docs -> Games Library -> V3-E -> V3-F -> measurements. Historical E stages retained only as provenance. |
-| `V3_STEAM_RELEASE_CANDIDATE.md` | **CURRENT** | Correct final #137 SHA + #138 first real V3-E evidence. |
-| `PLATFORM_IMPLEMENTATION_STATUS.md` | **CURRENT** | Separates generic platform-completion checkpoint from current #138 product line; 19-adapter matrix current. |
+| `ROADMAP.md` | **CURRENT** | Deterministic product/UI reconciliation complete; V3-E then V3-F are next. |
+| `V3_STEAM_RELEASE_CANDIDATE.md` | **CURRENT** | Deterministic Steam release shape + #138 first real V3-E evidence; no invented V3-G subsystem. |
+| `PLATFORM_IMPLEMENTATION_STATUS.md` | **CURRENT** | Generic platform frozen; current executable/product line includes #147-#151 UI reconciliation. |
 | `STEAM_RELEASE_GATE.md` | **CURRENT EXTERNAL RUNBOOK** | Real V3-E/V3-F provider/Steam/Windows/game batch. |
-| `DEFERRED_EMPIRICAL_TESTS.md` | **CURRENT EMPIRICAL REGISTRY** | Exact unproven real-system questions; individual defects may be closed in later evidence PRs without invalidating remaining questions. |
+| `DEFERRED_EMPIRICAL_TESTS.md` | **CURRENT EMPIRICAL REGISTRY** | Exact unproven real-system questions. |
+| `V2_REAL_ACCEPTANCE_BATCH.md` | **CURRENT EXTERNAL RUNBOOK** | One expensive real-machine/Friends Build/network batch also piggybacks Windows UI evidence. |
 | `E4_LIVE_ACCEPTANCE_DEPLOYMENT.md` | **CURRENT EXTERNAL RUNBOOK** | Qualified Instance + Caddy + exact-one-proxy first disposable topology. |
 
 ### UI
 
 | Document | Status | Current note |
 |---|---|---|
-| `UI_ROADMAP.md` | **CURRENT CONTRACT — IMPLEMENTATION DRIFT REMAINS** | Approved Games Library -> game workspace -> per-game Worlds hierarchy. |
+| `UI_ROADMAP.md` | **CURRENT / IMPLEMENTED DETERMINISTIC CONTRACT** | Game-first hierarchy, search/sort, Settings, attention, lobby, recovery, publish-first Share and non-destructive first release are reconciled. |
+| `V2_WORLD_LOBBY.md` | **CURRENT** | Small operational lobby boundary; no Steward social network. |
 
-The current WPF shell still uses a fixed World-list sidebar + compact game selector + permanent detail pane.
-
-**Decision:** UI contract wins. This is the next product implementation reconciliation.
+There is no known current docs↔WPF hierarchy mismatch after #147-#151.
 
 ### Backend
 
 | Document | Status | Current note |
 |---|---|---|
-| `BACKEND_ROADMAP.md` | **CURRENT** | BE-1..5 treated as implemented history; current authority/external gates described. |
-| `BE_API_CONTRACT.md` | **CURRENT** | Implemented `/api/v1` route families/results/idempotency/direct transfer. |
+| `BACKEND_ROADMAP.md` | **CURRENT** | BE-1..5 are implemented history; current authority/external gates described. |
+| `BE_API_CONTRACT.md` | **CURRENT** | Implemented `/api/v1` route families/results/idempotency/direct transfer. No destructive shared-World delete route exists. |
 | `BE_SCHEMA_AND_LIFECYCLE.md` | **CURRENT** | Implemented PostgreSQL logical stores/transactions/retention. |
-| `BE_PROVIDER_EVALUATION.md` | **CURRENT** | Criteria + qualified first Instance/Caddy topology; final vendor still open. |
+| `BE_PROVIDER_EVALUATION.md` | **CURRENT** | Criteria + qualified first Instance/Caddy topology; final provider evidence remains empirical. |
 | `BE_OPERATIONS_RUNBOOK.md` | **CURRENT** | Current deterministic vs real operational/restore boundary. |
 | `BE_SECURITY_THREAT_MODEL.md` | **CURRENT** | Production Steam + private Friends proof + authority/transfer/proxy threat model. |
 
@@ -134,8 +132,8 @@ The current WPF shell still uses a fixed World-list sidebar + compact game selec
 | Document | Status | Current note |
 |---|---|---|
 | `ADAPTER_RUNTIME_ROADMAP.md` | **CURRENT** | Implemented runtime, automatic Join vs presentation-only direct connect, current Factorio/Palworld boundaries. |
-| `ADAPTER_GUIDE.md` | **CURRENT** | Stable adapter construction rules; current detailed per-game matrix delegated to Platform Status. |
-| `NATIVE_WORLD_CREATION.md` | **CURRENT** | Factorio current implementation; other games remain unadvertised evidence-gated candidates. |
+| `ADAPTER_GUIDE.md` | **CURRENT** | Stable adapter construction rules; current matrix delegated to Platform Status. |
+| `NATIVE_WORLD_CREATION.md` | **CURRENT** | Factorio current implementation; other games remain evidence-gated. |
 | `FACTORIO.md` | **CURRENT** | Explicit interface Host path, UDP 34197, no AutomaticHostStop. |
 | `PALWORLD.md` | **CURRENT** | Read-only WorldOption/runtime REST/process-tree lifecycle. |
 
@@ -151,7 +149,7 @@ The current WPF shell still uses a fixed World-list sidebar + compact game selec
 
 ## Historical checkpoint classification
 
-The following documents intentionally remain historical evidence. Their old “current/next” language does **not** override active contracts:
+The following documents remain historical evidence. Their old “current/next” language does not override active contracts.
 
 ### Planning/sign-off history
 
@@ -172,58 +170,25 @@ The following documents intentionally remain historical evidence. Their old “c
 - `E8_STATUS.md`
 - `V2_FRIENDS_BUILD.md` as the completed deterministic V2 stage
 
-These files are not deleted because they contain useful proof, failure history, and implementation provenance.
+These files are intentionally retained for proof, failure history, and provenance.
 
 ## Known stale historical statements
 
 Historical does not mean every sentence remains technically current.
 
-### `E4_DESKTOP_STATUS.md`
-
-Two sections are explicitly superseded:
-
-1. its production Desktop configuration centered on three `STEWARD_*` environment values predates V3 package-owned `steward-steam-release.json`;
-2. its Factorio “current truth” paragraph says direct `factorio --host` is active and the dedicated-server/RCON code is inactive. Current explicit `IGameAdapter.LaunchHostAsync` proves the opposite.
-
-Use current V3/Factorio/runtime documentation and code, not those historical paragraphs.
-
-### Other old checkpoint next-step statements
-
-Old statements such as:
-
+Examples that must not override current code/contracts include:
+- E4-era environment-variable-centered production Desktop configuration before package-owned V3 Steam release configuration;
+- old Factorio prose saying direct `factorio --host` is the active interface path;
 - “BE-3 is active”;
 - “next phase is E2/E4/E8”;
 - “four production adapters”;
-- “guided manual Join”; 
+- “guided manual Join”;
 - “implement installer/updater”;
+- old pre-#147 fixed-sidebar UI descriptions.
 
-are historical sequencing/evidence, not current work.
+Use current active docs/code instead.
 
-The active documents listed above have been reconciled so these statements no longer need to be interpreted by guesswork.
-
-## Reconciled differences
-
-The audit originally found these docs↔code differences:
-
-| Area | Result after reconciliation |
-|---|---|
-| root README four-adapter/E4-era state | **reconciled** |
-| V3/platform status stopped before #138 | **reconciled** |
-| roadmap old E-stage active queue | **reconciled** |
-| guided-manual Join in active planning | **reconciled/removed** |
-| architecture/storage called shared backend future | **reconciled** |
-| backend said BE-3 active | **reconciled** |
-| API docs used proposed `/v1` routes | **reconciled to implemented `/api/v1`** |
-| provider evaluation still chose Serverless first | **reconciled to qualified Instance + Caddy candidate** |
-| adapter guide said 18 adapters | **reconciled to 19; matrix de-duplicated** |
-| Factorio host path confusion | **reconciled from explicit interface implementation** |
-| native creation framed as V2 future breadth | **reconciled; Factorio current, others evidence-gated** |
-| persistence doc predated integrity/device-settings migration | **reconciled** |
-| backend operations/security still planning/BE-2 wording | **reconciled** |
-| active decisions still contained completed sequencing/planning lock | **reconciled** |
-| Games Library docs vs current WPF layout | **INTENTIONALLY OPEN — implementation drift is next** |
-
-## Stable rules that were not changed by cleanup
+## Stable rules not changed by reconciliation
 
 - one current valid World state;
 - at most one writable Steward authority;
@@ -243,10 +208,16 @@ The audit originally found these docs↔code differences:
 
 ## Next implementation boundary
 
-Documentation reconciliation is complete enough to stop being the blocker.
+There is no known deterministic first-release product discrepancy to implement merely to remain busy.
 
-The next deterministic product discrepancy is now unambiguous:
+The next work is empirical:
 
-> **Bring the WPF Desktop navigation back to the approved Games Library -> game workspace -> Worlds -> selected World hierarchy without changing backend/runtime authority or inventing a UI-only truth model.**
+```text
+exact qualified Windows build
+-> continue V3-E real-machine acceptance
+-> record first concrete failure or successful evidence
+-> fix only a demonstrated owning boundary
+-> then run V3-F real Steam/provider/game gate
+```
 
-After that, continue evidence-driven V3-E real Windows acceptance and eventually the real V3-F release gate.
+Do not create a new generic feature, status model, social layer, deletion workflow, networking subsystem, or release tier until real evidence demonstrates that it is required.

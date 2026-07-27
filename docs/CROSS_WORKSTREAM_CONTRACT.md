@@ -81,18 +81,36 @@ Steam/game multiplayer-session invitations remain outside the Steward World-acce
 
 ### Share World
 
+First release publishes the World before asking Steward to manage additional members:
+
 ```text
 Only on this PC
 -> authenticate/verify service
--> choose Steam identities
--> upload and verify initial state/environment as required
--> atomically establish shared World authority
+-> verify exact canonical environment
+-> publish and verify immutable initial state/environment
+-> establish shared World authority
 -> sharer becomes sole Access Manager
--> create World-access invitations
--> invited identities accept individually
+-> Shared / Ready
 ```
 
-Failed sharing never destroys the original local managed World.
+Membership invitations are a separate **Manage access** operation after the World exists:
+
+```text
+Shared / Ready
+-> Manage access
+-> Add person
+-> World-access invitation pending
+-> invited identity accepts individually
+```
+
+This separation is deliberate:
+- initial publication has one authenticated creator and one Access Manager;
+- invitation selection cannot block or partially define canonical World creation;
+- failed/declined invitations do not make an otherwise valid shared World incomplete;
+- pending invitations grant no package/reservation/commit access;
+- World-access invitations remain distinct from Steam/game multiplayer-session invitations.
+
+Failed initial sharing never destroys the original local managed World. Once remote side effects may have occurred, the existing write-ahead Shared marker keeps local writable fallback locked and Retry sharing resumes the same immutable IDs.
 
 ### Manage access
 
@@ -105,8 +123,9 @@ Normal member:
 Access Manager additionally:
 - Add person;
 - Remove access;
-- Transfer access management atomically;
-- stop sharing/delete only according to backend deletion policy.
+- Transfer access management atomically.
+
+**Destructive shared-World deletion / Stop sharing is not a first-release action.** There is no current backend terminal-deletion contract, and the UI must not manufacture one. An Access Manager who wants to stop being responsible can transfer Access Manager to another active member and then leave when responsibility is safely resolved. A future deletion feature requires an explicit backend rule for canonical metadata, immutable package retention, active reservations, pending invitations, and recovery references before UI work begins.
 
 Revocation of a member with active writable responsibility becomes pending until that responsibility resolves safely.
 
@@ -198,7 +217,7 @@ The release proof must include:
 1. Import a local Factorio World and reach **Ready / Only on this PC**.
 2. Start and safely capture a Factorio local session.
 3. Host a local-only Factorio World without requiring persistent Steward sharing where adapter capability supports it.
-4. Share a World explicitly and prove pending invitations grant no access before acceptance.
+4. Share a World explicitly; then create a World-access invitation through Manage access and prove the pending invitation grants no access before acceptance.
 5. Host a shared Factorio session, stop/save, publish, and commit.
 6. Repeat the equivalent hosted lifecycle with Palworld dedicated hosting.
 7. PC A commits `N+1`; PC B downloads/verifies `N+1` and commits `N+2`; PC A downloads/verifies `N+2`.

@@ -28,6 +28,18 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      - name: Build lifecycle acceptance probe
+        shell: pwsh
+        run: |
+          dotnet build tools/SharedWorlds.SevenDaysToDieProbe/SharedWorlds.SevenDaysToDieProbe.csproj --configuration Release --nologo --verbosity minimal 2>&1 | Tee-Object -FilePath seven-days-to-die-probe-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Smoke lifecycle acceptance probe
+        shell: pwsh
+        run: |
+          dotnet run --project tools/SharedWorlds.SevenDaysToDieProbe/SharedWorlds.SevenDaysToDieProbe.csproj --configuration Release --no-build -- --help 2>&1 | Tee-Object -FilePath seven-days-to-die-probe-smoke.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Restore
         run: dotnet restore tests/SharedWorlds.GameAdapters.SevenDaysToDie.Tests/SharedWorlds.GameAdapters.SevenDaysToDie.Tests.csproj
 
@@ -42,4 +54,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: seven-days-to-die-test-log
-          path: seven-days-to-die-test.log
+          path: |
+            seven-days-to-die-probe-build.log
+            seven-days-to-die-probe-smoke.log
+            seven-days-to-die-test.log

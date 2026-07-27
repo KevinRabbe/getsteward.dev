@@ -52,14 +52,20 @@ internal static partial class PalworldDedicatedServerHosting
     }
 
     internal static Process StartManagedHost(PalworldManagedHostLaunchContext context)
+        => Process.Start(CreateManagedHostStartInfo(context))
+            ?? throw new InvalidOperationException("Palworld dedicated server failed to start.");
+
+    internal static ProcessStartInfo CreateManagedHostStartInfo(PalworldManagedHostLaunchContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
-        return Process.Start(new ProcessStartInfo
+        var startInfo = new ProcessStartInfo
         {
             FileName = context.ServerExecutable,
             WorkingDirectory = context.ServerRoot,
             UseShellExecute = false
-        }) ?? throw new InvalidOperationException("Palworld dedicated server failed to start.");
+        };
+        startInfo.ArgumentList.Add("-NoMods");
+        return startInfo;
     }
 }
 

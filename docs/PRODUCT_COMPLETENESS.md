@@ -127,7 +127,7 @@ Steam, Discord, Windows, the game, or the deployment platform already own those 
 ## Current execution order
 
 ```text
-Deterministic first-release product completeness   CLOSED by #147-#152
+Deterministic first-release product completeness   CLOSED by #147-#153
 -> V3-E real Windows acceptance
 -> V3-F real Steam/provider/game acceptance
    including production Steam invite/identity UX

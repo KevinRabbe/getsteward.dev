@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -32,7 +33,12 @@ public partial class MainWindow
         var headingIndex = gameHeader.Children.IndexOf(SelectedGameNameText);
         gameHeader.Children.Insert(headingIndex + 1, _gameTechnicalReadinessText);
 
-        GameLibraryList.SelectionChanged += (_, _) => UpdateGameTechnicalReadinessSummary();
+        var headingDescriptor = DependencyPropertyDescriptor.FromProperty(
+            TextBlock.TextProperty,
+            typeof(TextBlock));
+        headingDescriptor?.AddValueChanged(
+            SelectedGameNameText,
+            (_, _) => UpdateGameTechnicalReadinessSummary());
     }
 
     private void UpdateGameTechnicalReadinessSummary()
@@ -42,8 +48,8 @@ public partial class MainWindow
             return;
         }
 
-        if (GameLibraryList.SelectedItem is not GameLibraryItem selected ||
-            !TryGetAdapter(selected.AdapterId, out var adapter))
+        if (_selectedGameAdapterId is null ||
+            !TryGetAdapter(_selectedGameAdapterId, out var adapter))
         {
             _gameTechnicalReadinessText.Text = string.Empty;
             return;

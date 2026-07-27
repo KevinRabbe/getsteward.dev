@@ -39,19 +39,26 @@ class RorIdentifierExpansionTests(unittest.TestCase):
         expanded = "https://ror.org/0108w9x786"
         self.assertEqual(canonical_ror_id(legacy), legacy)
         self.assertEqual(canonical_ror_id("03yrm5c26"), legacy)
+        self.assertEqual(canonical_ror_id("03YRM5C26"), legacy)
         self.assertEqual(canonical_ror_id(expanded), expanded)
         self.assertEqual(canonical_ror_id("0108w9x786"), expanded)
+        self.assertEqual(canonical_ror_id("0108W9X786"), expanded)
 
         normalized = normalize_ror_record(_record(expanded, legacy), 1)
         self.assertEqual(normalized["ror_id"], expanded)
         self.assertEqual(normalized["relationships"][0]["id"], legacy)
+
+    def test_source_records_remain_strictly_canonical(self):
+        legacy = "https://ror.org/03yrm5c26"
+        record = _record("https://ror.org/03YRM5C26", legacy)
+        with self.assertRaises(ParseError):
+            normalize_ror_record(record, 1)
 
     def test_rejects_noncanonical_ror_identifiers(self):
         for value in (
             "https://ror.org/not-an-id",
             "https://example.org/03yrm5c26",
             "13yrm5c26",
-            "03YRm5c26",
             "03yrm5c2",
             "0108w9x7860",
         ):
@@ -102,7 +109,7 @@ class RorIdentifierExpansionTests(unittest.TestCase):
             patch("open_data_platform.ror_query.verify_ror_product", return_value=verified),
             patch("open_data_platform.ror_query.sqlite3.connect", return_value=fake_connection),
         ):
-            result = lookup_ror(Path("data"), "snp_test", "0108w9x786")
+            result = lookup_ror(Path("data"), "snp_test", "0108W9X786")
         self.assertEqual(result["status"], "FOUND")
         self.assertEqual(result["ror_id"], expanded)
         self.assertEqual(fake_connection.params, (expanded,))

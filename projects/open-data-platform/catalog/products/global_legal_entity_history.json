@@ -1,0 +1,19 @@
+{
+  "product_id": "prod_global_legal_entity_history",
+  "name": "Global Legal Entity History",
+  "status": "PRODUCT_CANDIDATE",
+  "primary_dataset_id": "ds_gleif_lei_level1_concat",
+  "optional_relationship_dataset_id": "ds_gleif_rr_level2_concat",
+  "description": "Verified current legal-entity reference data, accumulated historical changes, quality intelligence, and optional GLEIF relationship data in downloadable formats.",
+  "source_rights": "CC0-1.0",
+  "source_terms_url": "https://www.gleif.org/en/meta/lei-data-terms-of-use",
+  "cc0_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "customer_terms_status": "LEGAL_REVIEW_REQUIRED",
+  "non_affiliation_required": true,
+  "delivery_model": "immutable_downloadable_bundle",
+  "default_distribution": "sqlite",
+  "optional_distributions": [
+    "csv",
+    "parquet"
+  ]
+}

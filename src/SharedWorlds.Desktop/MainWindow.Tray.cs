@@ -23,7 +23,7 @@ public partial class MainWindow
         _trayIcon = new Forms.NotifyIcon
         {
             Icon = System.Drawing.SystemIcons.Application,
-            Text = "Steward",
+            Text = "Safe World",
             Visible = true,
             ContextMenuStrip = CreateTrayMenu()
         };
@@ -38,20 +38,20 @@ public partial class MainWindow
     {
         var menu = new Forms.ContextMenuStrip
         {
-            AccessibleName = "Steward tray menu",
-            AccessibleDescription = "Open Steward or quit when Steward has no active World responsibility."
+            AccessibleName = "Safe World tray menu",
+            AccessibleDescription = "Open Safe World or quit when Safe World has no active World responsibility."
         };
         var open = new Forms.ToolStripMenuItem(DesktopText.OpenSteward)
         {
             AccessibleName = DesktopText.OpenSteward,
-            AccessibleDescription = "Open the Steward window."
+            AccessibleDescription = "Open the Safe World window."
         };
         open.Click += (_, _) => OpenStewardWindow();
 
         var quit = new Forms.ToolStripMenuItem(DesktopText.QuitSteward)
         {
             AccessibleName = DesktopText.QuitSteward,
-            AccessibleDescription = "Quit Steward when no active or unresolved World responsibility remains."
+            AccessibleDescription = "Quit Safe World when no active or unresolved World responsibility remains."
         };
         quit.Click += (_, _) => RequestQuitSteward();
 
@@ -101,19 +101,19 @@ public partial class MainWindow
         var snapshot = _responsibilityTracker.Current;
         _trayIcon.Text = snapshot.Kind switch
         {
-            WorldLifecycleResponsibilityKind.None => "Steward",
-            WorldLifecycleResponsibilityKind.InterruptedSession => "Steward - Interrupted session",
-            WorldLifecycleResponsibilityKind.RecoveryNeeded => "Steward - Recovery needed",
-            WorldLifecycleResponsibilityKind.CleanupPending => "Steward - Action required",
+            WorldLifecycleResponsibilityKind.None => "Safe World",
+            WorldLifecycleResponsibilityKind.InterruptedSession => "Safe World - Interrupted session",
+            WorldLifecycleResponsibilityKind.RecoveryNeeded => "Safe World - Recovery needed",
+            WorldLifecycleResponsibilityKind.CleanupPending => "Safe World - Action required",
             _ => snapshot.Phase switch
             {
-                WorldLifecyclePhase.Running => "Steward - Running",
+                WorldLifecyclePhase.Running => "Safe World - Running",
                 WorldLifecyclePhase.WaitingForSafeCapture or
                 WorldLifecyclePhase.Capturing or
                 WorldLifecyclePhase.StoringCandidate or
                 WorldLifecyclePhase.Committing or
-                WorldLifecyclePhase.Finalizing => "Steward - Saving World",
-                _ => "Steward - Preparing"
+                WorldLifecyclePhase.Finalizing => "Safe World - Saving World",
+                _ => "Safe World - Preparing"
             }
         };
     }
@@ -150,8 +150,8 @@ public partial class MainWindow
         if (!responsibility.CanQuitWithoutGuard)
         {
             MessageBox.Show(
-                "Steward still has an active or unresolved World responsibility. Resolve or safely finish it before quitting.",
-                "Steward is still responsible for a World",
+                "Safe World still has an active or unresolved World responsibility. Resolve or safely finish it before quitting.",
+                "Safe World is still responsible for a World",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
             return;

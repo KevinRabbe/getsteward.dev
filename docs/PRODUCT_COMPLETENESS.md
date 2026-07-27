@@ -70,12 +70,14 @@ The lobby is a read-only card on selected shared-World details. The existing Man
 
 ## Sharing / invitation completeness
 
-| Requirement | State | Remaining work |
+| Requirement | State | Current truth / remaining evidence |
 |---|---|---|
+| Initial Share World publication | **DONE** | The existing executable transaction verifies the exact canonical environment, journals remote-authority intent, publishes one immutable creator-owned World, and makes the authenticated sharer the sole Access Manager. |
+| Add/invite people after sharing | **DONE** | Existing Manage access creates World-access invitations after the shared World exists. Pending invitations grant no package/reservation/commit authority and acceptance creates membership. |
 | Friends Build invite by human-readable configured name | **DONE** | Existing Friends Build lobby roster dropdown. |
-| Production Steam invite UX | **MISSING** | Current Desktop still requires manual numeric SteamID64 entry. Replace that user-facing plumbing with the smallest Steam-owned identity/friend selection mechanism available at the real release boundary; do not build a Steward friends graph. |
-| Share World choose/add identities -> review -> publish | **MISSING** | Current Share immediately publishes, then users invite later through Manage access. Approved UI contract still describes choosing/reviewing invitees as part of Share. Reconcile by either implementing that small pre-publication selection or deliberately simplifying the contract with product evidence. |
-| Stop sharing / delete shared World | **MISSING** | UI contract mentions it subject to backend deletion policy; no complete user/backend deletion contract exists yet. Decide and implement the smallest safe terminal ownership rule before release or explicitly remove it from first-release scope. |
+| Production Steam invite UX | **EMPIRICAL — V3-F** | The deterministic fallback accepts stable SteamID64 identity. Select the smallest Steam-owned friend/identity/invitation surface only with the real AppID/provider boundary; do not build a Steward friends graph. |
+| Pre-publication invite selection/review | **DEFERRED/REMOVED** | It adds staging/UI coupling without changing canonical publication or membership authority. First release publishes the World first; Manage access owns invitations afterward. |
+| Stop sharing / destructive shared-World deletion | **DEFERRED/REMOVED** | No current backend terminal-deletion contract exists. First release does not manufacture one. Access Manager responsibility can be transferred, then the former manager can leave when safe. |
 
 ## Adapter/runtime depth still requiring real evidence
 
@@ -93,7 +95,7 @@ The lobby is a read-only card on selected shared-World details. The existing Man
 | Gate | State | Remaining work |
 |---|---|---|
 | V3-E real Windows acceptance | **EMPIRICAL** | Keyboard/focus, Narrator/UI Automation, mixed DPI, tray/background, suspend/restart/logoff, real timings/endurance. PR #138 closed only the first observed Windows defect. |
-| V3-F real Steam acceptance | **EMPIRICAL** | Real AppID/depot/publisher credential, SteamPipe upload/install/update, real Web API tickets, two independent installations, real advertised game/action handoff. |
+| V3-F real Steam acceptance | **EMPIRICAL** | Real AppID/depot/publisher credential, SteamPipe upload/install/update, real Web API tickets, two independent installations, production Steam invite/identity UX, real advertised game/action handoff. |
 | Real EU provider deployment | **EMPIRICAL** | Actual API/PostgreSQL/object-storage deployment, backups/restore/logging and residency evidence. |
 | Friends Build real-use batch | **EMPIRICAL** | Real friend download/auth/lobby/Host/Join/A->B->C->A/recovery evidence. |
 | Real large-World/endurance measurements | **EMPIRICAL** | Representative real packages, timings, long managed sessions and practical transfer behavior. |
@@ -109,6 +111,8 @@ Do not put these back on the roadmap merely because Steward could implement them
 - generic party system;
 - global online/offline presence;
 - permanent player-presence history;
+- pre-publication invitation staging/review;
+- destructive shared-World deletion before a real terminal-deletion requirement and backend contract exist;
 - decorative game-banner artwork as a separate product subsystem;
 - translated locale catalogs before a locale is actually selected for release;
 - generic guided-manual Join lifecycle;
@@ -120,19 +124,17 @@ Do not put these back on the roadmap merely because Steward could implement them
 
 Steam, Discord, Windows, the game, or the deployment platform already own those concerns or the product deliberately does not need them.
 
-## Current deterministic execution order
+## Current execution order
 
 ```text
-Games Library #147                   DONE
--> small World Lobby #148           DONE
--> search audit                     DONE — already existed
--> World sort + global Settings     #149 DONE
--> responsibility-backed attention #150 DONE
--> localization-ready vocabulary   #151
--> reconcile Share/invite/delete user journeys
--> resume V3-E real Windows evidence
--> run V3-F real Steam/provider/game gate
+Deterministic first-release product completeness   CLOSED by #147-#152
+-> V3-E real Windows acceptance
+-> V3-F real Steam/provider/game acceptance
+   including production Steam invite/identity UX
+-> real EU provider deployment evidence
+-> Friends Build real-use batch
+-> real large-World/endurance measurements
 -> optimize only from measured bottlenecks
 ```
 
-A new idea enters this list only when it is a genuine first-release requirement, concrete usability defect, or evidence-driven release blocker.
+A new deterministic feature enters this list only when it is a genuine first-release requirement, concrete usability defect, or evidence-driven release blocker.

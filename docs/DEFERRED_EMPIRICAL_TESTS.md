@@ -25,8 +25,9 @@ A deferred test is not evidence that the behavior works. It is an explicit bound
 - Canonical server bundle capture.
 - Isolated workspace preparation and restore.
 - Recovery-preserving finalization.
+- The dedicated-server console safe-stop contract is `save` followed by `quit`; `quit` enters the server shutdown/save path. Do not spend a real-machine run trying alternative stop commands.
 
-**Empirical question:** Can Steward launch a Project Zomboid dedicated server against only an adapter-owned isolated user-data tree, observe the real long-lived server process correctly, request a safe stop, and then capture the resulting authoritative server bundle without reading or mutating the player's live `%USERPROFILE%/Zomboid` tree?
+**Empirical question:** Can Steward launch a Project Zomboid dedicated server against only an adapter-owned isolated user-data tree, observe the real long-lived server process correctly, exercise the known `save` -> `quit` path to actual process/save completion, and then capture the resulting authoritative server bundle without reading or mutating the player's live `%USERPROFILE%/Zomboid` tree?
 
 **Test setup:**
 
@@ -41,7 +42,7 @@ A deferred test is not evidence that the behavior works. It is an explicit bound
 - The actual long-lived server process is identified; a bootstrap/launcher exit is not mistaken for session completion.
 - The server loads the restored named World rather than a default/new World.
 - The live player Project Zomboid user-data tree receives no authoritative World/config/database writes from the managed session.
-- Steward can request a safe server shutdown through a supported mechanism and can distinguish clean shutdown from forced termination.
+- The bounded `save` -> `quit` path reaches actual clean shutdown/final-save completion and is distinguishable from forced termination.
 - After shutdown, the isolated bundle contains the expected save/config/database changes and can be captured/restored byte-preservingly by the existing adapter path.
 - A second launch from the captured result loads the same updated World.
 
@@ -63,12 +64,13 @@ The earlier V3 sandbox-authority experiment is retired. Current V3 game document
 - Exact V3 `SandboxCode` is an explicit World-specific reproduction input; Steward does not decode, regenerate, guess, or replace it from unrelated machine-local configuration.
 - Current V3 server documentation states that an empty `TelnetPassword` makes the service interface listen only on local loopback.
 - The managed-host transform therefore enables the built-in service interface on a bounded Steward-selected port and deliberately sets `TelnetPassword` to empty. There is no Steward management credential or authentication exchange to own.
-- Current server documentation exposes the built-in local service interface and documents `shutdown` as the supported server-stop command; the shipped Windows launcher demonstrates the interface through local raw PuTTY/Telnet rather than a custom RCON protocol.
+- Current server documentation exposes the built-in Telnet interface and documents `shutdown` as the supported server-stop command.
+- The control implementation should use ordinary Telnet/NVT command-line termination. There is no reason to run a separate experiment whose goal is to discover the smallest non-standard byte sequence the server happens to accept.
 
 **Empirical questions:**
 
 1. What observable log/process/network boundary proves the restored named World is fully ready for players rather than merely that the process or local management socket exists?
-2. What exact minimal raw line framing does the current V3 local service interface accept for `shutdown`, and after that command does the actual long-lived server process exit reliably?
+2. After the documented local Telnet `shutdown` command is sent through the bounded control path, does the actual long-lived server process exit reliably?
 3. What observable boundary proves the final authoritative save is complete before Steward capture begins?
 4. Does the resulting isolated `Saves/...` + `GeneratedWorlds/...` bundle capture every authoritative change needed for a second launch of the same updated World?
 
@@ -79,20 +81,18 @@ The earlier V3 sandbox-authority experiment is retired. Current V3 game document
 - An adapter-owned isolated user-data workspace; never use the live player World as the writable test target.
 - A managed `serverconfig.xml` with `TelnetEnabled=true`, one known test port, and an empty `TelnetPassword` so the game uses its documented loopback-only mode.
 - Record the dedicated-server PID/process tree, management-port listeners, server log, and isolated World file timestamps/sizes before and after stop.
-- For the first control observation, use an ordinary local raw/Telnet client and record only the bytes/text needed to determine accepted command-line framing. There is no password to record or redact.
 
 **Acceptance evidence:**
 
 - The server loads the intended restored `GameWorld`/`GameName` with the supplied non-default `SandboxCode` rather than silently substituting defaults.
 - The management listener is observed on loopback only, matching the current documented empty-password mode; any contradictory real behavior is recorded as a game-version finding before Steward relies on it.
 - A specific readiness signal is observed before the test client is considered able to join.
-- The minimum accepted raw `shutdown` line framing is recorded without depending on cosmetic welcome/banner text.
 - The actual long-lived dedicated-server process is identified and is not confused with a bootstrap/launcher process.
-- `shutdown` reaches a clean terminal state without Steward killing the process.
+- The documented Telnet `shutdown` path reaches a clean terminal state without Steward killing the process.
 - The final save/capture boundary is observable rather than inferred from a fixed sleep.
 - The captured result restores and launches as the same updated World in a second disposable run.
 
-**Promotion rule:** First turn the observed readiness/raw-shutdown/final-save trace into the smallest bounded local control/lifecycle implementation with regression tests. Then repeat this real scenario through Steward. Only after that second proof may 7DTD promote automatic Host/Stop. Join remains a separate capability proof.
+**Promotion rule:** First turn the observed readiness/shutdown/final-save trace into the smallest bounded local control/lifecycle implementation with regression tests. Then repeat this real scenario through Steward. Only after that second proof may 7DTD promote automatic Host/Stop. Join remains a separate capability proof.
 
 ## Palworld — native Join, REST exposure, and decoder-elimination boundary
 

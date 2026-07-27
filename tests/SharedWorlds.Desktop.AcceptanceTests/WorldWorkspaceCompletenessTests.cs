@@ -24,6 +24,8 @@ public sealed class WorldWorkspaceCompletenessTests
         Assert.Contains("nameof(UnifiedWorldListItem.Name)", completeness, StringComparison.Ordinal);
         Assert.Contains("ListSortDirection.Descending", completeness, StringComparison.Ordinal);
         Assert.Contains("ListSortDirection.Ascending", completeness, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.SortNameAscending", completeness, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.SortNameDescending", completeness, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -34,10 +36,10 @@ public sealed class WorldWorkspaceCompletenessTests
         var hostingPreference = File.ReadAllText(FindRepositoryFile(
             "src/SharedWorlds.Desktop/MainWindow.UnifiedHostingPreference.cs"));
 
-        Assert.Contains("Content = \"Settings\"", completeness, StringComparison.Ordinal);
+        Assert.Contains("Content = DesktopText.Settings", completeness, StringComparison.Ordinal);
         Assert.Contains("sidebarGrid.Children.Remove(existingSettings);", completeness, StringComparison.Ordinal);
         Assert.Contains("content.Children.Add(existingSettings);", completeness, StringComparison.Ordinal);
-        Assert.Contains("Hosting on this device", completeness, StringComparison.Ordinal);
+        Assert.Contains("existingSettings.Header = DesktopText.HostingOnThisDevice", completeness, StringComparison.Ordinal);
         Assert.DoesNotContain("new CheckBox", completeness, StringComparison.Ordinal);
 
         Assert.Contains("AllowHostingCheckBox.Click += UnifiedAllowHostingCheckBox_Click", hostingPreference, StringComparison.Ordinal);

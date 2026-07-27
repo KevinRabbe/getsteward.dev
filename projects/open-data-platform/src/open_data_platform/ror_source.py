@@ -59,8 +59,12 @@ def _canonical_md5(checksum: str) -> str:
     return raw.zfill(32)
 
 
-def discover_latest_ror(source: dict[str, Any]) -> RemoteRorSnapshot:
-    metadata = get_json(source["metadata_url"], source["allowed_hosts"])
+def _remote_from_metadata(
+    source: dict[str, Any],
+    metadata: Any,
+    *,
+    expected_record_id: int | None = None,
+) -> RemoteRorSnapshot:
     if not isinstance(metadata, dict):
         raise AcquisitionError("Zenodo ROR metadata must be a JSON object")
     nested = metadata.get("metadata")
@@ -69,6 +73,14 @@ def discover_latest_ror(source: dict[str, Any]) -> RemoteRorSnapshot:
     release_date = nested.get("publication_date")
     if not isinstance(release_date, str) or not release_date:
         raise AcquisitionError("Zenodo ROR metadata is missing publication_date")
+
+    record_id = metadata.get("id")
+    if not isinstance(record_id, int) or record_id < 1:
+        raise AcquisitionError("Zenodo ROR metadata is missing numeric record id")
+    if expected_record_id is not None and record_id != expected_record_id:
+        raise AcquisitionError(
+            f"Zenodo returned record {record_id} while {expected_record_id} was requested"
+        )
 
     files = metadata.get("files")
     if not isinstance(files, list):
@@ -91,7 +103,10 @@ def discover_latest_ror(source: dict[str, Any]) -> RemoteRorSnapshot:
         raise AcquisitionError("Zenodo ROR file is missing links")
     download_url = links.get("self") or links.get("content")
     if not isinstance(download_url, str):
-        raise AcquisitionError("Zenodo ROR file is missing a download URL")
+        template = source.get("download_url_template")
+        if not isinstance(template, str) or not template:
+            raise AcquisitionError("Zenodo ROR file is missing a download URL")
+        download_url = template.format(record_id=record_id, filename=filename)
     validate_https_url(download_url, source["allowed_hosts"])
 
     checksum = file_info.get("checksum")
@@ -99,17 +114,13 @@ def discover_latest_ror(source: dict[str, Any]) -> RemoteRorSnapshot:
         raise AcquisitionError("Zenodo ROR file is missing its expected MD5 checksum")
     expected_md5 = _canonical_md5(checksum)
 
-    version = _release_version(metadata, filename)
-    record_id = metadata.get("id")
-    if not isinstance(record_id, int):
-        raise AcquisitionError("Zenodo ROR metadata is missing numeric record id")
     doi = metadata.get("doi")
     concept_doi = metadata.get("conceptdoi")
     if not isinstance(doi, str) or not isinstance(concept_doi, str):
         raise AcquisitionError("Zenodo ROR metadata is missing DOI identity")
 
     return RemoteRorSnapshot(
-        publication_date=version,
+        publication_date=_release_version(metadata, filename),
         download_url=download_url,
         cdf_version=_EXPECTED_SCHEMA,
         record_count=None,
@@ -123,6 +134,23 @@ def discover_latest_ror(source: dict[str, Any]) -> RemoteRorSnapshot:
     )
 
 
+def discover_latest_ror(source: dict[str, Any]) -> RemoteRorSnapshot:
+    metadata = get_json(source["metadata_url"], source["allowed_hosts"])
+    return _remote_from_metadata(source, metadata)
+
+
+def discover_ror_record(source: dict[str, Any], record_id: int) -> RemoteRorSnapshot:
+    if record_id < 1:
+        raise ValueError("record_id must be a positive integer")
+    template = source.get("record_metadata_url_template")
+    if not isinstance(template, str) or not template:
+        raise AcquisitionError("ROR source config has no record_metadata_url_template")
+    url = template.format(record_id=record_id)
+    validate_https_url(url, source["allowed_hosts"])
+    metadata = get_json(url, source["allowed_hosts"])
+    return _remote_from_metadata(source, metadata, expected_record_id=record_id)
+
+
 def _md5(path: Path) -> str:
     digest = hashlib.md5(usedforsecurity=False)
     with path.open("rb") as handle:
@@ -131,20 +159,18 @@ def _md5(path: Path) -> str:
     return digest.hexdigest()
 
 
-def ingest_latest_ror(
+def _ingest_remote_ror(
     *,
-    source_config: Path,
-    admission_config: Path,
+    source: dict[str, Any],
+    admission: dict[str, Any],
+    remote: RemoteRorSnapshot,
     data_root: Path,
-    replica_root: Path | None = None,
+    replica_root: Path | None,
+    discovery_mode: str,
 ) -> dict[str, Any]:
-    source = load_source(source_config)
-    admission = load_admission(admission_config, source)
     event_log = data_root / "events" / "events.jsonl"
     append_event(event_log, event="SOURCE_REGISTERED", payload={"source_dataset_id": source["source_dataset_id"]})
     append_event(event_log, event="ADMITTED", payload={"admission_decision_id": admission["admission_decision_id"]})
-
-    remote = discover_latest_ror(source)
     append_event(
         event_log,
         event="REMOTE_VERSION_DISCOVERED",
@@ -153,10 +179,16 @@ def ingest_latest_ror(
             "source_version": remote.publication_date,
             "publication_date": remote.release_date,
             "zenodo_record_id": remote.zenodo_record_id,
+            "discovery_mode": discovery_mode,
         },
     )
     existing = _snapshot_already_archived(data_root, source["source_dataset_id"], remote.publication_date)
     if existing is not None:
+        existing_record_id = (existing.get("acquisition_response") or {}).get("zenodo_record_id")
+        if existing_record_id is not None and int(existing_record_id) != remote.zenodo_record_id:
+            raise IntegrityError(
+                "ROR source version is already archived from a different Zenodo record id"
+            )
         append_event(
             event_log,
             event="NO_CHANGE",
@@ -168,7 +200,12 @@ def ingest_latest_ror(
     staging.mkdir(parents=True, exist_ok=True)
     staged_part = staging / f"{source['source_dataset_id']}_{remote.publication_date}.zip.part"
     append_event(event_log, event="DOWNLOAD_TO_STAGING", payload={"url": remote.download_url})
-    response_meta = stream_download(remote.download_url, staged_part, source["allowed_hosts"])
+    response_meta = stream_download(
+        remote.download_url,
+        staged_part,
+        source["allowed_hosts"],
+        accept="*/*",
+    )
     actual_md5 = _md5(staged_part)
     expected_md5 = remote.source_checksum.split(":", 1)[1]
     if actual_md5 != expected_md5:
@@ -193,6 +230,7 @@ def ingest_latest_ror(
             "concept_doi": remote.concept_doi,
             "publication_date": remote.release_date,
             "filename": remote.filename,
+            "discovery_mode": discovery_mode,
         }
     )
     manifest = archive_staged_file(
@@ -222,3 +260,44 @@ def ingest_latest_ror(
         "snapshot": manifest,
         "replica_path": str(replica_path) if replica_path else None,
     }
+
+
+def ingest_latest_ror(
+    *,
+    source_config: Path,
+    admission_config: Path,
+    data_root: Path,
+    replica_root: Path | None = None,
+) -> dict[str, Any]:
+    source = load_source(source_config)
+    admission = load_admission(admission_config, source)
+    remote = discover_latest_ror(source)
+    return _ingest_remote_ror(
+        source=source,
+        admission=admission,
+        remote=remote,
+        data_root=data_root,
+        replica_root=replica_root,
+        discovery_mode="latest",
+    )
+
+
+def ingest_ror_record(
+    *,
+    source_config: Path,
+    admission_config: Path,
+    record_id: int,
+    data_root: Path,
+    replica_root: Path | None = None,
+) -> dict[str, Any]:
+    source = load_source(source_config)
+    admission = load_admission(admission_config, source)
+    remote = discover_ror_record(source, record_id)
+    return _ingest_remote_ror(
+        source=source,
+        admission=admission,
+        remote=remote,
+        data_root=data_root,
+        replica_root=replica_root,
+        discovery_mode="explicit_record",
+    )

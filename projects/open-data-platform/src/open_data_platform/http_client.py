@@ -13,6 +13,7 @@ from .errors import AcquisitionError
 
 _USER_AGENT = "OpenDataPlatform-v0.1 (+local archival research)"
 _DATE_RE = re.compile(r"(?<!\d)(20\d{2})[-/]?(\d{2})[-/]?(\d{2})(?!\d)")
+_DEFAULT_BINARY_ACCEPT = "application/zip,application/octet-stream"
 
 
 class _AllowlistedRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -104,10 +105,22 @@ def find_scalar(metadata: Any, key_tokens: tuple[str, ...]) -> Any | None:
     return None
 
 
-def stream_download(url: str, destination: Path, allowed_hosts: Iterable[str], timeout: int = 120) -> dict[str, Any]:
+def stream_download(
+    url: str,
+    destination: Path,
+    allowed_hosts: Iterable[str],
+    timeout: int = 120,
+    *,
+    accept: str = _DEFAULT_BINARY_ACCEPT,
+) -> dict[str, Any]:
     validate_https_url(url, allowed_hosts)
+    if not accept or "\r" in accept or "\n" in accept:
+        raise ValueError("accept must be one non-empty HTTP header value")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT, "Accept": "application/zip,application/octet-stream"})
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": _USER_AGENT, "Accept": accept},
+    )
     try:
         with _opener(allowed_hosts).open(req, timeout=timeout) as response, destination.open("wb") as out:
             total = 0

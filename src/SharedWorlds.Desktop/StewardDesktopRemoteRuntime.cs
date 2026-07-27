@@ -10,7 +10,8 @@ namespace SharedWorlds.Desktop;
 /// <summary>
 /// Owns the authenticated shared-World runtime used by the Windows desktop after external identity has
 /// already been verified. Once authenticated, all shared World metadata, transfer, authority, commit,
-/// recovery, flat access-management, and host-presence traffic flows through remote Infrastructure.
+/// recovery, flat access-management, host-presence, and ephemeral player-presence traffic flows through
+/// remote Infrastructure.
 /// </summary>
 internal sealed class StewardDesktopRemoteRuntime : IDisposable
 {
@@ -37,6 +38,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         StewardPendingSyncRecoveryService pendingSyncRecovery,
         StewardInitialWorldPublisher initialWorldPublisher,
         StewardWorldAccessClient access,
+        StewardWorldPlayerPresenceClient playerPresence,
         UserIdentity user)
     {
         _apiClient = apiClient;
@@ -52,6 +54,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         PendingSyncRecovery = pendingSyncRecovery;
         InitialWorldPublisher = initialWorldPublisher;
         Access = access;
+        PlayerPresence = playerPresence;
         User = user;
     }
 
@@ -61,6 +64,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
     public StewardPendingSyncRecoveryService PendingSyncRecovery { get; }
     public StewardInitialWorldPublisher InitialWorldPublisher { get; }
     public StewardWorldAccessClient Access { get; }
+    public StewardWorldPlayerPresenceClient PlayerPresence { get; }
     public UserIdentity User { get; }
 
     public async Task<StewardRemoteWorldMetadata?> GetWorldMetadataAsync(
@@ -85,6 +89,12 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         return adapter is IManagedHostEndpointProvider endpointProvider
             ? new CoordinatedHostGameAdapter(adapter, endpointProvider, _coordinator, worldId)
             : adapter;
+    }
+
+    public IGameAdapter CoordinateAutomaticJoin(WorldId worldId, IGameAdapter adapter)
+    {
+        ArgumentNullException.ThrowIfNull(adapter);
+        return new CoordinatedJoinGameAdapter(adapter, PlayerPresence, worldId);
     }
 
     public static StewardDesktopRemoteRuntime Create(
@@ -132,6 +142,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
             var hostPresence = new StewardHostPresenceClient(apiClient);
             var worldCreation = new StewardWorldCreationClient(apiClient);
             var access = new StewardWorldAccessClient(apiClient, accessSession);
+            var playerPresence = new StewardWorldPlayerPresenceClient(apiClient, accessSession);
             var authority = new StewardAuthorityClient(apiClient);
             var abandon = new StewardReservationAbandonClient(apiClient);
             var packageDownloads = new StewardPackageDownloadClient(apiClient);
@@ -195,6 +206,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 pendingSyncRecovery,
                 initialWorldPublisher,
                 access,
+                playerPresence,
                 authenticatedUser);
         }
         catch

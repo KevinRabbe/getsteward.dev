@@ -2,7 +2,7 @@
   "exit_code": 1,
   "failure_log_tail": [
     "Traceback (most recent call last):",
-    "  File \"/home/runner/work/getsteward.dev/getsteward.dev/projects/open-data-platform/src/open_data_platform/http_client.py\", line 112, in stream_download",
+    "  File \"/home/runner/work/getsteward.dev/getsteward.dev/projects/open-data-platform/src/open_data_platform/http_client.py\", line 125, in stream_download",
     "    with _opener(allowed_hosts).open(req, timeout=timeout) as response, destination.open(\"wb\") as out:",
     "         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
     "  File \"/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/urllib/request.py\", line 525, in open",
@@ -47,13 +47,13 @@
     "  File \"/home/runner/work/getsteward.dev/getsteward.dev/projects/open-data-platform/src/open_data_platform/ror_source.py\", line 203, in _ingest_remote_ror",
     "    response_meta = stream_download(remote.download_url, staged_part, source[\"allowed_hosts\"])",
     "                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
-    "  File \"/home/runner/work/getsteward.dev/getsteward.dev/projects/open-data-platform/src/open_data_platform/http_client.py\", line 136, in stream_download",
+    "  File \"/home/runner/work/getsteward.dev/getsteward.dev/projects/open-data-platform/src/open_data_platform/http_client.py\", line 149, in stream_download",
     "    raise AcquisitionError(f\"Download failed: {exc}\") from exc",
     "open_data_platform.errors.AcquisitionError: Download failed: HTTP Error 406: NOT ACCEPTABLE"
   ],
-  "head_sha": "d5671831e0dd26d556cfa8266fda34c8df1ea518",
+  "head_sha": "d9b524df6a867b0283873292af70807f429799ba",
   "run_attempt": "1",
-  "run_id": "30259539851",
+  "run_id": "30260159103",
   "status": "FAIL",
   "workflow": "ROR Live Acceptance"
 }

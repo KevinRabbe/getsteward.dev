@@ -1,6 +1,6 @@
 # Game Technical Readiness
 
-Status: **CURRENT TECHNICAL EVIDENCE MAP — 19 REGISTERED FIRST-PARTY ADAPTERS; CAPABILITY, STATE-OWNERSHIP AND ENVIRONMENT-EXACTNESS BOUNDARIES RECHECKED THROUGH #192**
+Status: **CURRENT TECHNICAL EVIDENCE MAP — 19 REGISTERED FIRST-PARTY ADAPTERS; CAPABILITY, STATE-OWNERSHIP AND ENVIRONMENT-EXACTNESS BOUNDARIES RECHECKED THROUGH #192; 7DTD LIFECYCLE ACCEPTANCE TOOLING QUALIFIED THROUGH #198**
 
 ## Purpose
 
@@ -49,7 +49,7 @@ Real game execution is needed only when the claim itself is about execution: pro
 |---|---|---|---|---|
 | **Factorio** | Native ZIP save; isolated write-data/mod workspace; capture selects the newest valid non-autosave state. | Steam/standalone discovery, exact game environment and required mod/startup-settings reproduction. | Start, Host, automatic Join, native Create; no advertised user-triggered Host Stop. | Real Internet UDP 34197 reachability, actual remote Join, repeated real safe save/server-end/capture, cross-device handoff. |
 | **Palworld** | Dedicated-server World directory; canonical `WorldOption.sav` remains read-only; disposable runtime INI owns only management overrides. | Client + dedicated-server discovery, exact dedicated-server build, selected native World id/server configuration, and managed Host forces Pocketpair's native `-NoMods` mode so official server mods are disabled by PalServer rather than modeled by Steward. | Host + Host Stop; native direct-connect presentation; no automatic client Join. | Real two-network native Join/handoff and remaining external firewall/settings-materialization observations. |
-| **7 Days to Die** | `Saves/<GameWorld>/<GameName>` plus matching `GeneratedWorlds/<GameWorld>`; exact opaque `SandboxCode` is a separate required World-specific reproduction input. | Client + dedicated-server discovery/build; isolated user-data workspace; bounded managed `serverconfig.xml`; game-native loopback-only empty-password Telnet mode with documented `shutdown`. | State/environment only; Host/Stop/Join frozen. | Restored-World readiness, real long-lived process exit after the documented Telnet stop path, final-save completion, capture/relaunch; Join separately. |
+| **7 Days to Die** | `Saves/<GameWorld>/<GameName>` plus matching `GeneratedWorlds/<GameWorld>`; exact opaque `SandboxCode` is a separate required World-specific reproduction input. | Client + dedicated-server discovery/build; isolated user-data workspace; bounded managed `serverconfig.xml`; game-native loopback-only empty-password Telnet mode with documented `shutdown`; #198 qualifies the disposable lifecycle acceptance tool. | State/environment only; Host/Stop/Join frozen. | Restored-World readiness, real loopback-listener confirmation, clean owned-process exit after documented Telnet shutdown, capture/relaunch; Join separately. |
 | **Project Zomboid** | Canonical multiplayer server bundle restored into adapter-owned isolated user data. | Client + dedicated-server discovery/build plus exact configured Workshop content identity; console `save` -> `quit` is the known safe-stop command path. | State/environment only; Host/Stop/Join frozen. | Actual isolated dedicated-server process ownership, real `save`/`quit` completion, no writes to live profile, capture/relaunch. |
 | **Terraria** | Local vanilla top-level `.wld`; `.wld.bak`, Steam Cloud and tModLoader state excluded. | Exact Steam build; vanilla Terraria only. tModLoader is a separate product/state tree. | Import/state + exact game version. | None required for the current claimed slice. Runtime actions require separate evidence before promotion. |
 | **Stardew Valley** | Host-owned save directory containing exactly the current same-named save + `SaveGameInfo`; `_old` recovery files excluded. | Exact Steam build; `StardewModdingAPI.exe`/SMAPI or active Mods cause refusal. | Import/state + exact game version. | None required for the current claimed slice. Multiplayer lifecycle is separate. |
@@ -257,67 +257,7 @@ Examples of questions already eliminated instead of tested include:
 
 - 7DTD `SandboxCode` is an explicit World-specific dedicated-server reproduction input; do not test whether save bytes magically make it unnecessary.
 - 7DTD uses the game-native empty-password loopback-only Telnet mode and documented `shutdown`; do not invent a management credential or a custom command-framing discovery task.
+- 7DTD capture follows documented graceful `shutdown` -> complete owned-process exit -> capture; do not invent a separate final-save log protocol after the process is gone.
 - Project Zomboid's dedicated-server safe-stop command path is `save` -> `quit`; the real question is process/save completion in the managed isolated lifecycle, not command discovery.
 - Palworld `WorldOption.sav` is read-only canonical input; do not reopen encoder/compressor experiments.
 - Palworld managed Host delegates official server-mod suppression to native `-NoMods`; do not build a Steward Workshop/activation model or manual mod test for that boundary.
-- a missing required dedicated-server installation is sufficient negative evidence that a server-dependent path cannot run on that device.
-
-## Test-value rule
-
-Before adding an empirical game test, classify the question:
-
-| Question type | Default treatment |
-|---|---|
-| Installation/app/tool present? | Determine from platform-native metadata/discovery. |
-| Which native files form the current World? | Determine from game-specific technical evidence and deterministic fixtures. |
-| Which nearby files are player/account/backup/config state? | Classify technically; test capture exclusion deterministically. |
-| Is downloaded mod content actually enabled? | Inspect native activation authority when it exists; do not equate cache presence with activation. |
-| Is an unsupported loader/bootstrap installed? | Inspect its stable native/bootstrap markers deterministically. |
-| Does a vanilla-only allowlist match real stock content? | Compare with current released platform/depot evidence and fail closed on unknown entries. |
-| Is the native server stop/control command documented? | Treat the documented protocol/command as deterministic input; use real acceptance to observe lifecycle completion, not to discover alternatives by trial and error. |
-| Exact game/mod/content version? | Inspect native manifests/content identity; fail closed if exactness is unavailable. |
-| Can this device Host when required server tooling is absent? | No. Negative installation evidence is enough. |
-| Does the real game replace/bootstrap processes? | Empirical only when session ownership depends on it. |
-| What exact signal means the real server is ready? | Empirical unless a stable native protocol/documented signal already proves it. |
-| Did native safe shutdown finish the authoritative save? | Empirical when file/process semantics cannot prove it beforehand. |
-| Can another Internet connection reach the Host? | Empirical network boundary. |
-| Does real client Join enter the intended Host? | Empirical game/network boundary. |
-
-## Time-gated persistence candidates
-
-Some technical boundaries should be rechecked **after a released format transition**, not manually tested now.
-
-- **Valheim:** not currently registered. Wait for released 1.0 persistence, then inspect the final native save/server representation (#164).
-- **ASTRONEER:** current adapter is truthful for the current build; inspect the released Save Slots/autosave-history representation after the announced save-system overhaul ships (#169).
-- **Enshrouded:** current Early Access selector/generation boundary remains qualified; recheck released 1.0 persistence after October 15, 2026 (#170).
-
-The rule is:
-
-```text
-native persistence contract is changing
--> do not guess the future representation
--> freeze speculative implementation
--> recheck the released representation later
-```
-
-## Relationship to V3 and V4
-
-V3 remains the current release-evidence stage. This matrix does not make an unobserved runtime/network claim green.
-
-V4 used this map to add one small read-only selected-game summary derived directly from existing capability truth. V4 is complete at that small boundary; it did not add a second support taxonomy, prerequisite model, backend state, or game-specific lifecycle logic.
-
-The post-V4 technical audit did not reopen V4. It corrected five adapter-owned deterministic exactness boundaries exposed by current evidence:
-
-```text
-#171 Core Keeper official mod.io
--> #178 Necesse pre-materialization Workshop state
--> #181 ASTRONEER install-root UE4SS/direct PAKs
--> #184 Smalland exact stock PAK names
--> #192 Palworld native -NoMods managed Host
-```
-
-The active release work therefore remains V3-E/V3-F evidence. Future deterministic writes should still require a concrete demonstrated truth gap like the five above.
-
-## Final rule
-
-> **Do not test what is already knowable. Test only the uncertainty that remains at the actual boundary of the claim.**

@@ -1,0 +1,20 @@
+{
+  "admission_decision_id": "adm_gleif_rr_level2_cc0_v1",
+  "source_dataset_id": "ds_gleif_rr_level2_concat",
+  "status": "ALLOW",
+  "reviewed_on": "2026-07-27",
+  "license_id": "CC0-1.0",
+  "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "terms_url": "https://www.gleif.org/en/meta/lei-data-terms-of-use",
+  "basis": "GLEIF states that data available through its Access Service are provided under CC0 1.0; this admission is limited to the RR-CDF Concatenated File.",
+  "commercial_use_allowed": true,
+  "storage_allowed": true,
+  "modification_allowed": true,
+  "redistribution_allowed": true,
+  "attribution_required_by_cc0": false,
+  "notes": [
+    "This rule admits only the GLEIF Level 2 RR-CDF Concatenated File.",
+    "Reporting Exceptions remain a separate dataset and are not admitted by this rule.",
+    "Re-check if source terms, license metadata, publisher identity, format, or access method changes."
+  ]
+}

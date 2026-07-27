@@ -11,13 +11,15 @@ from typing import Any, Iterator
 from .errors import ProductError
 from .product import verify_product
 from .relationship_product import verify_relationship_product
+from .ror_product import verify_ror_product
 from .util import atomic_write_json, load_json, make_read_only, sha256_file, utc_now_iso
 
 
-_DISTRIBUTION_VERSION = "0.1.0"
+_DISTRIBUTION_VERSION = "0.1.1"
 _PARQUET_ENGINE_VERSION = "25.0.0"
 _LEVEL1_DATASET = "ds_gleif_lei_level1_concat"
 _RR_DATASET = "ds_gleif_rr_level2_concat"
+_ROR_DATASET = "ds_ror_organizations"
 
 
 def distribution_path(
@@ -95,6 +97,20 @@ def _verified_source_product(
             "product_database_sha256": product["product_sha256"],
             "database_path": verified["database_path"],
             "table": "relationship",
+            "record_count": verified["record_count"],
+        }
+    if dataset_id == _ROR_DATASET:
+        verified = verify_ror_product(data_root, snapshot_id, output_root=product_root)
+        product = verified["product"]
+        return {
+            "dataset_id": dataset_id,
+            "snapshot_id": snapshot_id,
+            "source_version": product["source_version"],
+            "product_type": product["product_type"],
+            "product_manifest_sha256": product["manifest_sha256"],
+            "product_database_sha256": product["product_sha256"],
+            "database_path": verified["database_path"],
+            "table": "organization",
             "record_count": verified["record_count"],
         }
     raise ProductError(f"No distribution builder registered for dataset {dataset_id}")

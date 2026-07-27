@@ -1,17 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
-  <resheader name="resmimetype">
-    <value>text/microsoft-resx</value>
-  </resheader>
-  <resheader name="version">
-    <value>2.0</value>
-  </resheader>
-  <resheader name="reader">
-    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
-  </resheader>
-  <resheader name="writer">
-    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
-  </resheader>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
   <data name="Tagline" xml:space="preserve"><value>Click World. Play.</value></data>
   <data name="Games" xml:space="preserve"><value>Games</value></data>
   <data name="GamesLibrary" xml:space="preserve"><value>Games Library</value></data>
@@ -84,6 +76,7 @@
   <data name="SavingWorld" xml:space="preserve"><value>Saving World</value></data>
   <data name="RecoveryNeeded" xml:space="preserve"><value>Recovery needed</value></data>
   <data name="ActionRequired" xml:space="preserve"><value>Action required</value></data>
+  <data name="InterruptedSessionResolution" xml:space="preserve"><value>Interrupted session — choose Retry recovery or Continue from last safe state.</value></data>
   <data name="NoManagedWorldsYet" xml:space="preserve"><value>No managed Worlds yet</value></data>
   <data name="OneManagedWorld" xml:space="preserve"><value>1 managed World</value></data>
   <data name="ManagedWorldsFormat" xml:space="preserve"><value>{0} managed Worlds</value></data>

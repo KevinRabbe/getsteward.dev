@@ -34,7 +34,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         StewardWorldSessionCoordinator coordinator,
         StewardWorldStorage storage,
         WorldLifecycleService lifecycle,
-        WorldJoinService join,
+        CoordinatedWorldJoinService join,
         StewardPendingSyncRecoveryService pendingSyncRecovery,
         StewardInitialWorldPublisher initialWorldPublisher,
         StewardWorldAccessClient access,
@@ -60,7 +60,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
 
     public StewardWorldStorage Storage { get; }
     public WorldLifecycleService Lifecycle { get; }
-    public WorldJoinService Join { get; }
+    public CoordinatedWorldJoinService Join { get; }
     public StewardPendingSyncRecoveryService PendingSyncRecovery { get; }
     public StewardInitialWorldPublisher InitialWorldPublisher { get; }
     public StewardWorldAccessClient Access { get; }
@@ -89,12 +89,6 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         return adapter is IManagedHostEndpointProvider endpointProvider
             ? new CoordinatedHostGameAdapter(adapter, endpointProvider, _coordinator, worldId)
             : adapter;
-    }
-
-    public IGameAdapter CoordinateAutomaticJoin(WorldId worldId, IGameAdapter adapter)
-    {
-        ArgumentNullException.ThrowIfNull(adapter);
-        return new CoordinatedJoinGameAdapter(adapter, PlayerPresence, worldId);
     }
 
     public static StewardDesktopRemoteRuntime Create(
@@ -182,7 +176,8 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 recoveryStore,
                 managedSessionGate,
                 lifecycleObserver);
-            var join = new WorldJoinService(storage);
+            var coreJoin = new WorldJoinService(storage);
+            var join = new CoordinatedWorldJoinService(coreJoin, playerPresence);
             var pendingSyncRecovery = new StewardPendingSyncRecoveryService(
                 storage,
                 coordinator,

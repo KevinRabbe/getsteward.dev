@@ -26,6 +26,10 @@ public sealed class DesktopTextAcceptanceTests
             }
 
             Assert.Equal("Add World", DesktopText.Import);
+            Assert.Equal("More", DesktopText.More);
+            Assert.Equal("Open World File…", DesktopText.OpenWorldFile);
+            Assert.Equal("Started from {0}", DesktopText.StartedFromFormat);
+            Assert.Equal("Started from {0} by {1}", DesktopText.StartedFromCreatorFormat);
             Assert.Equal("Join", DesktopText.Join);
             Assert.Equal("Stop and Save", DesktopText.StopAndSave);
             Assert.Equal("Retry recovery", DesktopText.RetryRecovery);
@@ -42,6 +46,7 @@ public sealed class DesktopTextAcceptanceTests
         WithUiCulture(cultureName, () =>
         {
             Assert.Equal("Add World", DesktopText.Import);
+            Assert.Equal("Open World File…", DesktopText.OpenWorldFile);
             Assert.Equal("Retry recovery", DesktopText.RetryRecovery);
             Assert.Equal("Continue from last safe state", DesktopText.ContinueFromLastSafeState);
         });

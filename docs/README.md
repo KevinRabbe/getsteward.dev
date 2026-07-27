@@ -2,19 +2,19 @@
 
 Status: **CURRENT DOCUMENTATION INDEX**
 
-Steward's generic platform architecture, deterministic V3 release preparation, and deterministic first-release UI/product reconciliation are complete. Real V3-E/V3-F acceptance remains evidence-driven.
+Steward's generic platform architecture, deterministic V3 release preparation, deterministic first-release UI/product reconciliation, and small V4 technical-readiness presentation are complete. Real V3-E/V3-F acceptance remains evidence-driven.
 
 Use [Documentation State Audit](DOCUMENTATION_AUDIT.md) when deciding whether an older checkpoint file is current guidance or historical evidence.
 
 ## Current project mode
 
-> **Deterministic first-release product work is closed. V3-E real Windows evidence is active; V3-F remains the real provider/Steam/game release gate. Do not invent generic features merely because external evidence is pending.**
+> **Deterministic product work is closed at the current proven boundary. V3-E real Windows evidence is active; V3-F remains the real provider/Steam/game release gate. Do not invent generic features merely because external evidence is pending.**
 
-Current non-documentation executable/UI baseline:
+Current non-documentation executable/UI head:
 
-> `01cb15927a9e056fb9a6784d037eabde66e7d819` — PR #151
+> `c93e3606e7990bed1fb8cdec68575e706ac2f1ec` — PR #160
 
-Current deterministic product-contract/documentation line is PR #153. Later documentation-only reconciliation does not redefine Core/backend/adapter authority.
+The deterministic first-release product checkpoint remains qualified PR #153. V4 #158/#160 adds only a derived technical-evidence map and read-only capability summary; it does not redefine Core/backend/adapter authority or make any empirical V3 gate green.
 
 The next meaningful work is:
 
@@ -24,7 +24,7 @@ real V3-E observation
 -> real V3-F Steam/provider/game gate
 ```
 
-Independent deterministic work is allowed only when it creates concrete value without pretending to satisfy those empirical gates. [V4 Technical Readiness](V4_TECHNICAL_READINESS.md) is one such deliberately small future goal.
+[V4 Technical Readiness](V4_TECHNICAL_READINESS.md) is complete at its intentionally small boundary. It is not a new active feature phase.
 
 ## Start here
 
@@ -39,7 +39,8 @@ For current work, read in this order:
 7. [V3 Steam Release Candidate](V3_STEAM_RELEASE_CANDIDATE.md)
 8. [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md)
 9. [Game Technical Readiness](GAME_TECHNICAL_READINESS.md)
-10. [Documentation State Audit](DOCUMENTATION_AUDIT.md)
+10. [V4 Technical Readiness](V4_TECHNICAL_READINESS.md)
+11. [Documentation State Audit](DOCUMENTATION_AUDIT.md)
 
 For the final external release batch use [Steam Release Gate](STEAM_RELEASE_GATE.md).
 
@@ -77,9 +78,9 @@ Production code/executable contracts still win over stale prose when a direct co
 - [V3 Steam Release Candidate](V3_STEAM_RELEASE_CANDIDATE.md) — deterministic V3 #133-#137 complete; V3-E started with #138.
 - [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) — stable generic platform checkpoint + current 19-adapter/action-capability state.
 - [Game Technical Readiness](GAME_TECHNICAL_READINESS.md) — what each adapter already proves technically vs what genuinely needs a real game/network observation.
+- [V4 Technical Readiness](V4_TECHNICAL_READINESS.md) — completed small derived-readiness goal; no new authority or support taxonomy.
 - [Steam Release Gate](STEAM_RELEASE_GATE.md) — one-pass real Steam/provider/Windows/game acceptance.
 - [Deferred Empirical Tests](DEFERRED_EMPIRICAL_TESTS.md) — exact real-system questions that deterministic CI does not claim to answer.
-- [V4 Technical Readiness](V4_TECHNICAL_READINESS.md) — deliberately small future product goal that projects existing capability/install/environment truth instead of adding authority.
 
 V2 remains useful private acceptance evidence, not the active deterministic development stage:
 
@@ -92,7 +93,8 @@ V2 remains useful private acceptance evidence, not the active deterministic deve
 
 - [UI and UX Roadmap](UI_ROADMAP.md) — authoritative first-release navigation/information architecture, user journeys and product terminology.
 - [Cross-Workstream Contract](CROSS_WORKSTREAM_CONTRACT.md) — action/state meaning.
-- [Product Completeness](PRODUCT_COMPLETENESS.md) — deterministic Games Library/UI requirements are closed by #147-#153.
+- [Product Completeness](PRODUCT_COMPLETENESS.md) — deterministic first-release Games Library/UI requirements are closed by #147-#153.
+- [V4 Technical Readiness](V4_TECHNICAL_READINESS.md) — the selected-game workspace additionally projects the adapter's existing managed-action capability truth.
 
 The approved hierarchy is implemented:
 
@@ -103,7 +105,7 @@ Games Library
 -> selected World details
 ```
 
-Search, sort, global Settings, game attention, small World Lobby, localization-ready fixed vocabulary, and publish-first Share/access are also reconciled. There is no known current deterministic UI hierarchy discrepancy to implement merely to stay busy.
+Search, sort, global Settings, game attention, small World Lobby, localization-ready fixed vocabulary, publish-first Share/access, and the small game technical-readiness summary are reconciled. There is no known current deterministic UI hierarchy discrepancy to implement merely to stay busy.
 
 ## Backend contracts
 
@@ -126,6 +128,14 @@ Search, sort, global Settings, game attention, small World Lobby, localization-r
 Current Desktop catalog contains 19 first-party adapters. Catalog presence never implies every action capability.
 
 For the later fifteen state/import/environment adapters, real gameplay is not required merely to re-prove their current narrow advertised slice. Real execution becomes necessary only when promoting a runtime capability such as Start, Host, Stop or Join.
+
+The current code audit confirms:
+
+- Factorio: Mods + Start + Host + automatic Join + ExactGameVersion + native Create; no Host Stop.
+- Palworld: Host + Host Stop + ExactGameVersion; no automatic Join.
+- 7DTD: Mods + ExactGameVersion; no managed runtime actions.
+- Project Zomboid: Mods + ExactGameVersion + ExactModVersions; no managed runtime actions.
+- all other fifteen registered adapters: ExactGameVersion only at the capability layer, with concrete state/import/environment implementations underneath.
 
 ## Persistence/recovery/engineering
 
@@ -172,6 +182,7 @@ Important known stale historical statements are listed explicitly in `DOCUMENTAT
 - Steam owns installation/update; Steward has no self-updater requirement.
 - first disposable provider topology uses one Instance + Caddy + exact loopback trusted-proxy peer; final vendor selection remains open.
 - V3-E has started; #138 is the first real Windows evidence-driven defect/fix.
+- V4 technical-readiness presentation is derived only from existing capability truth and adds no new product authority.
 
 ## Change review
 

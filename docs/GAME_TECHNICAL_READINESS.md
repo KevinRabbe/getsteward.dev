@@ -1,6 +1,6 @@
 # Game Technical Readiness
 
-Status: **CURRENT TECHNICAL EVIDENCE MAP — 19 REGISTERED FIRST-PARTY ADAPTERS**
+Status: **CURRENT TECHNICAL EVIDENCE MAP — 19 REGISTERED FIRST-PARTY ADAPTERS; CAPABILITY SHAPE RECHECKED AGAINST CURRENT CODE DURING V4**
 
 ## Purpose
 
@@ -66,6 +66,43 @@ Real game execution is needed only when the claim itself is about execution: pro
 | **Abiotic Factor** | Complete `Worlds/<World>/` subtree, including World-owned nested multiplayer `PlayerData` and sandbox settings; profile-level state above `Worlds` excluded. | Exact Steam build; UE4SS loader surface causes refusal. | Import/state + exact game version. | None required for the current claimed slice. |
 | **V Rising** | Non-cloud v4 session: latest native autosave generation + World/session metadata; older recovery generations and `ServerHostSettings.json` excluded. | Exact Steam build; BepInEx surface causes refusal. | Import/state + exact game version. | None required for the current claimed slice. Cloud/dedicated lifecycle remains outside it. |
 | **Space Engineers** | Complete direct SteamID64-profile World directory requiring native core World files; top-level native `Backup` history excluded. | Exact Steam build; bounded native config proves vanilla/no enabled mods or fails closed. | Import/state + exact game version. | None required for the current claimed slice. Dedicated/runtime/mod depth is separate. |
+
+## Current-code capability audit
+
+The V4 audit re-opened the current adapter declarations instead of relying only on historical PR prose.
+
+Current executable capability shape is:
+
+```text
+Factorio
+-> Mods
+-> AutomaticLocalLaunch
+-> AutomaticHostLaunch
+-> AutomaticClientJoin
+-> ExactGameVersion
+-> NativeWorldCreation
+
+Palworld
+-> AutomaticHostLaunch
+-> AutomaticHostStop
+-> ExactGameVersion
+
+7 Days to Die
+-> Mods
+-> ExactGameVersion
+
+Project Zomboid
+-> Mods
+-> ExactGameVersion
+-> ExactModVersions
+
+Terraria through Space Engineers
+-> ExactGameVersion only
+```
+
+For every one of the fifteen narrow adapters, the code also contains concrete installation/World discovery, environment inspection/verification, capture, preparation, restore, and finalization paths. Their lack of runtime action flags is therefore a deliberate product boundary, not absence of technical adapter work.
+
+Do not create a second hard-coded capability matrix in production code or tests merely to mirror this documentation. `IGameAdapter.Capabilities` remains executable authority; this section is an audit record.
 
 ## What the matrix means
 
@@ -133,9 +170,9 @@ native persistence contract is changing
 
 V3 remains the current release-evidence stage. This matrix does not make an unobserved runtime/network claim green.
 
-It provides the foundation for a small later V4 goal: make Steward surface the technical truth it already has so users do not discover support limitations by trial and error.
+V4 used this map to add one small read-only selected-game summary derived directly from existing capability truth. V4 is complete at that small boundary; it did not add a second support taxonomy, prerequisite model, backend state, or game-specific lifecycle logic.
 
-V4 must derive that presentation from existing capability, installation, environment and responsibility truth. It must not create a second support taxonomy or another backend/state machine.
+The next active work therefore returns to V3-E/V3-F evidence rather than extending V4 merely because more readiness UI could be imagined.
 
 ## Final rule
 

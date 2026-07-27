@@ -42,6 +42,7 @@ Use these states:
 | Game attention indicator | **DONE** | #150 projects the existing `WorldLifecycleResponsibilityTracker` into the affected game tile summary: Preparing/Running/Hosting/Saving World/Recovery needed/Action required. No second status cache exists. |
 | Global Settings surface | **DONE** | #149 adds top-level Settings and re-homes the existing device-hosting control; the same `DeviceSettingsStore` and WPF control instances remain owners. |
 | Localization-ready fixed product vocabulary | **DONE** | #151 routes fixed first-release navigation/action/state terms through the existing `DesktopText` resource catalog and proves neutral fallback under another UI culture. Shipping translated catalogs is later localization content, not missing UI architecture. |
+| Game technical-readiness summary | **DONE** | #160 adds one read-only selected-game summary derived only from existing `IGameAdapter.Capabilities`: World state/import support plus currently advertised managed actions. No second capability/readiness model exists. |
 
 ## World Lobby — current first-release boundary
 
@@ -84,11 +85,11 @@ The lobby is a read-only card on selected shared-World details. The existing Man
 | Area | State | Remaining evidence |
 |---|---|---|
 | Factorio Internet Host/Join/handoff | **EMPIRICAL** | Real two-network reachability, Join, safe capture/commit, cross-device continuation. |
-| Palworld native Join/handoff | **EMPIRICAL** | Real two-network native IP:port Join plus safe Stop/capture/handoff. Automatic client Join is not advertised, so manual clients are intentionally absent from lobby player presence. |
+| Palworld native Join / release-runtime boundary | **EMPIRICAL** | Real two-network native IP:port Join on UDP 8211; verify the externally observed Windows Firewall/REST management-port boundary; run the already-defined settings-materialization experiment to determine whether shipped PlM/Oodle decoding can be deleted. Managed save/shutdown/full-process-tree-exit/runtime-input-restore/capture itself already has real-machine evidence. `AutomaticClientJoin` remains deliberately absent. |
 | 7 Days to Die managed runtime | **EMPIRICAL** | Readiness, minimal local shutdown framing, clean long-lived exit, final-save boundary, capture/relaunch; Join separate. |
 | Project Zomboid managed runtime | **EMPIRICAL** | Isolated dedicated-server lifecycle, safe shutdown, capture/relaunch without live-profile ownership. |
-| Valheim | **EMPIRICAL/DEFERRED** | Recheck released 1.0 save/server behavior before implementing/promoting lifecycle depth. |
-| Other 15 adapters | **DEFERRED/REMOVED for gameplay actions** | Intentionally state/import/environment slices until evidence justifies deeper capabilities. |
+| Valheim | **DEFERRED — TIME-GATED** | Do not implement against the changing pre-1.0 persistence boundary. Recheck the released 1.0 save/server representation after Valheim 1.0 ships, then decide whether an adapter slice is justified. |
+| Other 15 adapters | **DEFERRED/REMOVED for gameplay actions** | Intentionally state/import/environment slices. Their current claimed slice does not require gameplay launches; deeper actions need evidence only when deliberately promoted. |
 
 ## Release evidence still open
 
@@ -120,7 +121,8 @@ Do not put these back on the roadmap merely because Steward could implement them
 - permanent Steward game servers;
 - Steward self-updater;
 - public email/password account platform;
-- save branching/merging.
+- save branching/merging;
+- generic game prerequisite/host-eligibility taxonomy merely to enrich readiness text.
 
 Steam, Discord, Windows, the game, or the deployment platform already own those concerns or the product deliberately does not need them.
 
@@ -128,6 +130,7 @@ Steam, Discord, Windows, the game, or the deployment platform already own those 
 
 ```text
 Deterministic first-release product completeness   CLOSED by #147-#153
+Small derived V4 technical-readiness value         CLOSED by #158/#160
 -> V3-E real Windows acceptance
 -> V3-F real Steam/provider/game acceptance
    including production Steam invite/identity UX
@@ -137,4 +140,4 @@ Deterministic first-release product completeness   CLOSED by #147-#153
 -> optimize only from measured bottlenecks
 ```
 
-A new deterministic feature enters this list only when it is a genuine first-release requirement, concrete usability defect, or evidence-driven release blocker.
+A new deterministic feature enters this list only when it is a genuine release requirement, concrete usability defect, or evidence-driven blocker. A manual game test enters the queue only when the remaining claim actually crosses a real runtime/network/process boundary.

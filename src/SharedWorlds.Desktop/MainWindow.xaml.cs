@@ -34,8 +34,8 @@ public partial class MainWindow : Window
         InitializeNativeWorldCreationUi();
         InitializeGameTechnicalReadinessUi();
 
-        // Keep the existing local data root for persistence compatibility while the product shell
-        // moves from the old SharedWorlds working name to Steward.
+        // Keep the existing local data root for persistence compatibility while the visible product
+        // moves to the Safe World name.
         var sharedWorldsRoot = Path.Combine(GetLocalDataRoot(), "SharedWorlds");
         var storageRoot = Path.Combine(sharedWorldsRoot, "data");
         _storage = new LocalWorldStorage(storageRoot);
@@ -97,7 +97,7 @@ public partial class MainWindow : Window
             ShowError(
                 "Could not load device settings",
                 new InvalidOperationException(
-                    "Steward kept hosting and shared Worlds disabled on this device because its durable device settings could not be loaded.",
+                    "Safe World kept hosting and shared Worlds disabled on this device because its durable device settings could not be loaded.",
                     exception));
         }
 
@@ -171,7 +171,7 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             StatusText.Text = "Operation failed.";
-            ShowError("Steward operation failed", exception);
+            ShowError("Safe World operation failed", exception);
         }
         finally
         {
@@ -195,6 +195,7 @@ public partial class MainWindow : Window
         UpdateWorldVersionPolicyUi();
         UpdateEnvironmentReadinessUi();
         UpdateResponsibilityPresentation();
+        UpdatePortableWorldExportBusyState();
     }
 
     private void UpdateHostingPreferenceText()

@@ -159,7 +159,7 @@ try
 
     await adapter.FinalizePreparedWorldAsync(
         firstPrepared,
-        PreparedWorldDisposition.Delete,
+        PreparedWorldDisposition.Discard,
         cancellation.Token);
     firstPrepared = null;
 
@@ -193,7 +193,7 @@ try
 
     await adapter.FinalizePreparedWorldAsync(
         secondPrepared,
-        PreparedWorldDisposition.Delete,
+        PreparedWorldDisposition.Discard,
         cancellation.Token);
     secondPrepared = null;
 

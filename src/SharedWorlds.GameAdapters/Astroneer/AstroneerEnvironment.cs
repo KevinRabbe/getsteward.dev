@@ -110,6 +110,7 @@ internal static partial class AstroneerEnvironment
             installation.Metadata,
             AstroneerInstallationDiscovery.PaksRootPathKey,
             "ASTRONEER's Saved/Paks directory");
+        AstroneerInstalledModGuard.RequireNoInstallRootMods(installation.RootPath);
     }
 
     private static void RequireEmptyOptionalDirectory(

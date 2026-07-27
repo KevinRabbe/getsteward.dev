@@ -1,0 +1,20 @@
+{
+  "approval_record_version": 1,
+  "status": "NOT_APPROVED_TEMPLATE",
+  "terms_id": "replace-with-reviewed-terms-v1",
+  "license_plan": "INTERNAL_COMMERCIAL",
+  "applies_to_product_ids": [
+    "prod_global_legal_entity_history"
+  ],
+  "approved_at": "REPLACE_WITH_TIMEZONE_AWARE_ISO_TIMESTAMP",
+  "review_reference": "REPLACE_WITH_HUMAN_LEGAL_REVIEW_REFERENCE",
+  "terms_document_file": "REPLACE-WITH-REVIEWED-TERMS.txt",
+  "terms_document_sha256": "REPLACE_WITH_LOWERCASE_SHA256",
+  "source_rights_preserved": false,
+  "no_exclusive_source_data_claim": false,
+  "non_affiliation_preserved": false,
+  "usage_metering_required": false,
+  "revenue_share_required": false,
+  "telemetry_required": false,
+  "template_warning": "This file is deliberately not an approval. Do not change status to APPROVED until a human legal reviewer has approved the exact referenced terms document and all required invariants are true."
+}

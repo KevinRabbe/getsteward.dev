@@ -167,7 +167,6 @@ internal static partial class CoreKeeperInstallationDiscovery
                     "Mods")),
                 [GameSteamAppIdKey] = GameSteamAppId
             };
-
             var manifestPath = Path.Combine(
                 library,
                 "steamapps",
@@ -497,6 +496,7 @@ internal static partial class CoreKeeperEnvironment
             installation.Metadata,
             CoreKeeperInstallationDiscovery.WorkshopContentRootPathKey,
             "Core Keeper's Steam Workshop content directory");
+        CoreKeeperModIoGuard.RequireNoInstalledModsForCurrentWindowsUser();
 
         if (!installation.Metadata.TryGetValue(
                 CoreKeeperInstallationDiscovery.SaveProfilesRootPathKey,

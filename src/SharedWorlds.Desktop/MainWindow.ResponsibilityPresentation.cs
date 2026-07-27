@@ -268,19 +268,18 @@ public partial class MainWindow
     private static string FormatResponsibility(WorldLifecycleResponsibilitySnapshot snapshot)
         => snapshot.Kind switch
         {
-            WorldLifecycleResponsibilityKind.InterruptedSession =>
-                "Interrupted session — choose Retry recovery or Continue from last safe state.",
-            WorldLifecycleResponsibilityKind.RecoveryNeeded => "Recovery needed",
-            WorldLifecycleResponsibilityKind.CleanupPending => "Action required",
+            WorldLifecycleResponsibilityKind.InterruptedSession => DesktopText.InterruptedSessionResolution,
+            WorldLifecycleResponsibilityKind.RecoveryNeeded => DesktopText.RecoveryNeeded,
+            WorldLifecycleResponsibilityKind.CleanupPending => DesktopText.ActionRequired,
             WorldLifecycleResponsibilityKind.ActiveLifecycle => snapshot.Phase switch
             {
-                WorldLifecyclePhase.Running => "Running",
+                WorldLifecyclePhase.Running => DesktopText.Running,
                 WorldLifecyclePhase.WaitingForSafeCapture or
                 WorldLifecyclePhase.Capturing or
                 WorldLifecyclePhase.StoringCandidate or
                 WorldLifecyclePhase.Committing or
-                WorldLifecyclePhase.Finalizing => "Saving World",
-                _ => "Preparing"
+                WorldLifecyclePhase.Finalizing => DesktopText.SavingWorld,
+                _ => DesktopText.Preparing
             },
             _ => string.Empty
         };

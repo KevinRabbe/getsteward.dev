@@ -138,16 +138,14 @@ public partial class MainWindow
         {
             IReadOnlyList<StewardRemoteWorldMember> members;
             StewardRemoteWorldMetadata? metadata;
-            IReadOnlyList<StewardRemoteWorldPlayerPresence> players;
-            StewardRemoteHostPresence? host;
+            StewardRemoteWorldPlayerPresenceSnapshot snapshot;
             IReadOnlyList<StewardRemoteNamedIdentity> namedIdentities = [];
 
             try
             {
                 members = await runtime.Access.ListMembersAsync(world.Id);
                 metadata = await runtime.GetWorldMetadataAsync(world.Id);
-                players = await runtime.PlayerPresence.ListAsync(world.Id);
-                host = await runtime.GetHostPresenceAsync(world.Id);
+                snapshot = await runtime.PlayerPresence.GetSnapshotAsync(world.Id);
 
                 if (string.Equals(runtime.User.Provider, "friends-build", StringComparison.Ordinal))
                 {
@@ -194,16 +192,13 @@ public partial class MainWindow
                     : externalId;
             }
 
-            var hostProvider = host?.HostProvider;
-            var hostExternalId = host?.HostExternalId;
+            var host = snapshot.Host;
             bool IsHost(string provider, string externalId)
-                => !string.IsNullOrWhiteSpace(hostProvider) &&
-                   !string.IsNullOrWhiteSpace(hostExternalId) &&
-                   string.Equals(provider, hostProvider, StringComparison.Ordinal) &&
-                   string.Equals(externalId, hostExternalId, StringComparison.Ordinal);
+                => host is not null &&
+                   IsSameIdentity(provider, externalId, host.Provider, host.ExternalId);
 
             playingRows.Children.Clear();
-            var playing = players
+            var playing = snapshot.Players
                 .Select(player => new LobbyPlayerRow(
                     player.Provider,
                     player.ExternalId,
@@ -211,14 +206,17 @@ public partial class MainWindow
                     IsHost(player.Provider, player.ExternalId)))
                 .ToList();
 
-            if (!string.IsNullOrWhiteSpace(hostProvider) &&
-                !string.IsNullOrWhiteSpace(hostExternalId) &&
-                playing.All(row => !IsSameIdentity(row.Provider, row.ExternalId, hostProvider, hostExternalId)))
+            if (host is not null &&
+                playing.All(row => !IsSameIdentity(
+                    row.Provider,
+                    row.ExternalId,
+                    host.Provider,
+                    host.ExternalId)))
             {
                 playing.Add(new LobbyPlayerRow(
-                    hostProvider,
-                    hostExternalId,
-                    ResolveName(hostProvider, hostExternalId),
+                    host.Provider,
+                    host.ExternalId,
+                    ResolveName(host.Provider, host.ExternalId),
                     IsHost: true));
             }
 

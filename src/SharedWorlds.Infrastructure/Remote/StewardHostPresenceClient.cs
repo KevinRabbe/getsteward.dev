@@ -16,9 +16,7 @@ public sealed record StewardRemoteHostPresence(
     StewardRemoteHostPresenceState State,
     string? Address,
     int? Port,
-    string? JoinToken,
-    string? HostProvider = null,
-    string? HostExternalId = null);
+    string? JoinToken);
 
 public enum PublishStewardRemoteHostPresenceStatus
 {
@@ -30,8 +28,8 @@ public enum PublishStewardRemoteHostPresenceStatus
 
 /// <summary>
 /// Transport client for short-lived hosted-session evidence. Host presence is deliberately not
-/// writable World authority: readers receive connection evidence plus the already-member Host identity,
-/// while publishers must already hold the exact active reservation identified by session and generation.
+/// writable World authority: readers receive only the connection evidence needed by Join, while
+/// publishers must already hold the exact active reservation identified by session and generation.
 /// </summary>
 public sealed class StewardHostPresenceClient
 {
@@ -246,9 +244,7 @@ public sealed class StewardHostPresenceClient
         string State,
         string? Address,
         int? Port,
-        string? JoinToken,
-        string? HostProvider,
-        string? HostExternalId)
+        string? JoinToken)
     {
         public StewardRemoteHostPresence ToDomain()
         {
@@ -261,9 +257,7 @@ public sealed class StewardHostPresenceClient
                 state,
                 Address,
                 Port,
-                JoinToken,
-                HostProvider,
-                HostExternalId);
+                JoinToken);
         }
     }
 }

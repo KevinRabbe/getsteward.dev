@@ -46,6 +46,10 @@ public static class DesktopText
     public static string Shared => Get(nameof(Shared));
     public static string Import => Get(nameof(Import));
     public static string Refresh => Get(nameof(Refresh));
+    public static string More => Get(nameof(More));
+    public static string OpenWorldFile => Get(nameof(OpenWorldFile));
+    public static string StartedFromFormat => Get(nameof(StartedFromFormat));
+    public static string StartedFromCreatorFormat => Get(nameof(StartedFromCreatorFormat));
     public static string Invites => Get(nameof(Invites));
     public static string SharedWorldInvitations => Get(nameof(SharedWorldInvitations));
     public static string BackToWorlds => Get(nameof(BackToWorlds));

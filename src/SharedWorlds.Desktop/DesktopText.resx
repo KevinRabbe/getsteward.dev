@@ -41,6 +41,10 @@
   <data name="Shared" xml:space="preserve"><value>Shared</value></data>
   <data name="Import" xml:space="preserve"><value>Add World</value></data>
   <data name="Refresh" xml:space="preserve"><value>Refresh</value></data>
+  <data name="More" xml:space="preserve"><value>More</value></data>
+  <data name="OpenWorldFile" xml:space="preserve"><value>Open World File…</value></data>
+  <data name="StartedFromFormat" xml:space="preserve"><value>Started from {0}</value></data>
+  <data name="StartedFromCreatorFormat" xml:space="preserve"><value>Started from {0} by {1}</value></data>
   <data name="Invites" xml:space="preserve"><value>Invites</value></data>
   <data name="SharedWorldInvitations" xml:space="preserve"><value>Shared World invitations</value></data>
   <data name="BackToWorlds" xml:space="preserve"><value>Back to Worlds</value></data>

@@ -144,7 +144,8 @@ def build_ror_product(
                 PRAGMA journal_mode=DELETE;
                 PRAGMA synchronous=FULL;
                 CREATE TABLE organization (
-                    ror_id TEXT PRIMARY KEY,
+                    row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ror_id TEXT NOT NULL UNIQUE,
                     display_name TEXT NOT NULL,
                     status TEXT NOT NULL,
                     established INTEGER,

@@ -57,6 +57,7 @@ public static class StewardWorldPlayerPresenceApi
         HttpRequest request,
         StewardSessionService sessions,
         SharedWorldPlayerPresenceService presence,
+        SharedWorldHostPresenceService hostPresence,
         CancellationToken cancellationToken)
     {
         var caller = await AuthenticateAsync(request, sessions, cancellationToken);
@@ -65,9 +66,10 @@ public static class StewardWorldPlayerPresenceApi
             return StewardApiResults.AuthenticationRequired();
         }
 
+        var id = new WorldId(worldId);
         var visible = await presence.ListVisibleAsync(
             caller.Identity,
-            new WorldId(worldId),
+            id,
             cancellationToken);
         if (visible is null)
         {
@@ -76,14 +78,29 @@ public static class StewardWorldPlayerPresenceApi
                 Retryable: false));
         }
 
+        // Lobby Host truth is composed from the already-existing reservation-backed Host-presence
+        // service. The Join endpoint remains unchanged and lobby readers receive no address/token,
+        // reservation generation, session ID, or installation ID.
+        var host = await hostPresence.GetVisibleAsync(
+            caller.Identity,
+            id,
+            cancellationToken);
+
         return Results.Ok(new PlayerPresenceResponse(
             "PlayerPresence",
             Retryable: false,
-            Data: visible
-                .Select(static item => new PlayerPresenceData(
-                    item.Player.Provider,
-                    item.Player.ExternalId))
-                .ToArray()));
+            Data: new PlayerPresenceSnapshotData(
+                visible
+                    .Select(static item => new PlayerPresenceData(
+                        item.Player.Provider,
+                        item.Player.ExternalId))
+                    .ToArray(),
+                host is null
+                    ? null
+                    : new LobbyHostData(
+                        host.Holder.Provider,
+                        host.Holder.ExternalId,
+                        host.State))));
     }
 
     private static async Task<IResult> ClearAsync(
@@ -134,8 +151,17 @@ public static class StewardWorldPlayerPresenceApi
         string Provider,
         string ExternalId);
 
+    public sealed record LobbyHostData(
+        string Provider,
+        string ExternalId,
+        SharedWorldHostPresenceState State);
+
+    public sealed record PlayerPresenceSnapshotData(
+        IReadOnlyList<PlayerPresenceData> Players,
+        LobbyHostData? Host);
+
     public sealed record PlayerPresenceResponse(
         string Code,
         bool Retryable,
-        IReadOnlyList<PlayerPresenceData>? Data = null);
+        PlayerPresenceSnapshotData? Data = null);
 }

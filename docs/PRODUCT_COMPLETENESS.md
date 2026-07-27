@@ -36,10 +36,11 @@ Use these states:
 |---|---|---|
 | Games -> selected game -> Worlds -> World details | **DONE** | PR #147 restores the approved game-first hierarchy. |
 | All registered games visible even with zero Worlds | **DONE** | #147 renders every registered first-party adapter and managed-World count. |
-| Game workspace search/sort | **MISSING** | `UI_ROADMAP.md` requires search/sort; selected-game workspace does not expose it yet. |
+| Game workspace search | **DONE** | Repository audit during #149 found the existing `MainWindow.WorldSearch.cs` implementation already wired by unified startup; no replacement search was added. |
+| Game workspace sort | **DONE** | #149 adds only the missing name A–Z / Z–A projection on the same WPF collection view used by search. Canonical World order/state is unchanged. |
 | Game banner/header | **PARTIAL** | Selected game title exists; richer header/banner presentation remains incomplete. |
-| Game attention indicator | **MISSING** | Library should surface active / Waiting to sync / Action required / Recovery needed Worlds without hiding them one level down. |
-| Global Settings surface | **MISSING** | Approved global navigation includes Settings; current device setting remains embedded in the World sidebar. |
+| Game attention indicator | **MISSING** | Library should surface active / Waiting to sync / Action required / Recovery needed Worlds without hiding them one level down. Bind this to the existing responsibility tracker rather than inventing another status model. |
+| Global Settings surface | **DONE** | #149 adds top-level Settings and re-homes the existing device-hosting control; the same `DeviceSettingsStore` and WPF control instances remain owners. |
 | Localization-ready complete UI | **PARTIAL** | `DesktopText` infrastructure exists but many direct English strings remain in current Desktop surfaces. |
 
 ## World Lobby — current first-release boundary
@@ -120,10 +121,12 @@ Steam, Discord, Windows, the game, or the deployment platform already own those 
 ## Current deterministic execution order
 
 ```text
-Games Library #147                     DONE
--> small World Lobby #148             DONE after final docs qualification
--> close remaining UI completeness gaps
-   (search/sort, attention, Settings, localization cleanup)
+Games Library #147                  DONE
+-> small World Lobby #148          DONE
+-> search audit                    DONE — already existed
+-> World sort + global Settings    #149
+-> responsibility-backed game attention + remaining small UI gaps
+   (game header/banner, localization cleanup)
 -> reconcile Share/invite/delete user journeys
 -> resume V3-E real Windows evidence
 -> run V3-F real Steam/provider/game gate

@@ -18,6 +18,7 @@ public partial class MainWindow
 
     private void InitializeWorldLobbyUi()
     {
+        InitializeCompletenessControlsUi();
         if (_worldLobbyCard is not null)
         {
             return;

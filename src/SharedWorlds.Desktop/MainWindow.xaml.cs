@@ -30,6 +30,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         InitializeLiveRegionAnnouncements();
+        InitializeWorldLobbyUi();
         InitializeNativeWorldCreationUi();
 
         // Keep the existing local data root for persistence compatibility while the product shell

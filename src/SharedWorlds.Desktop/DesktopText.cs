@@ -83,6 +83,7 @@ public static class DesktopText
     public static string SavingWorld => Get(nameof(SavingWorld));
     public static string RecoveryNeeded => Get(nameof(RecoveryNeeded));
     public static string ActionRequired => Get(nameof(ActionRequired));
+    public static string InterruptedSessionResolution => Get(nameof(InterruptedSessionResolution));
 
     public static string NoManagedWorldsYet => Get(nameof(NoManagedWorldsYet));
     public static string OneManagedWorld => Get(nameof(OneManagedWorld));

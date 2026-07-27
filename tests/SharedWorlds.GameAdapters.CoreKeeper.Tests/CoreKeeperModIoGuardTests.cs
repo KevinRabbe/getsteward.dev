@@ -165,7 +165,7 @@ public sealed class CoreKeeperModIoGuardTests
         {
             Directory.CreateSymbolicLink(linkedRoot, outsideRoot);
         }
-        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+        catch (Exception linkException) when (linkException is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
         {
             return;
         }

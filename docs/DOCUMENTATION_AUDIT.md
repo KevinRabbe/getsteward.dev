@@ -12,9 +12,9 @@ The useful baselines are intentionally separated:
 - deterministic first-release product-contract checkpoint: PR #153, `0f5f30886d982f77c36c7099203ba9fbed0aeb60`;
 - V4 technical evidence/goal checkpoint: PR #158, `dad21cd2f56668bb2060aa09063a8b9bf9520c3c`;
 - V4 capability-derived Desktop summary: PR #160, `c93e3606e7990bed1fb8cdec68575e706ac2f1ec`;
-- current non-documentation executable head after the game environment-exactness audit: PR #184, `553d49e47dc8dd6c4fe15e97c363a53ff86655dd`.
+- current non-documentation executable head after the game environment-exactness audit: PR #192, `f89743f51dceb6ee3a107c94b73b547af94ef663`.
 
-The post-V4 adapter hardening did not reopen Core/backend/product authority. It corrected four concrete game-owned deterministic exactness boundaries found by current technical evidence.
+The post-V4 adapter hardening did not reopen Core/backend/product authority. It corrected five concrete game-owned deterministic exactness boundaries found by current technical evidence.
 
 ## Reconciliation stack after #138
 
@@ -33,6 +33,7 @@ The post-V4 adapter hardening did not reopen Core/backend/product authority. It 
 -> #178 Necesse pre-materialization Workshop exactness boundary
 -> #181 ASTRONEER install-root UE4SS/direct-PAK boundary
 -> #184 Smalland exact current stock PAK boundary
+-> #192 Palworld native -NoMods managed Host boundary
 ```
 
 Important negative findings:
@@ -46,7 +47,8 @@ Important negative findings:
 - a generic cross-game prerequisite/host-eligibility model was not required for V4 and was deliberately not created;
 - a generic mod-detection framework was not required by the environment-exactness audit; every correction remained adapter-owned;
 - Necesse Workshop payload was not falsely equated with enabled mods: native `modlist.data` authority was identified first and only the pre-materialization uncertainty was closed;
-- ASTRONEER stock PAK integrity was not expanded into multi-gigabyte Steam-file hashing; only the demonstrated mod-surface blind spot was closed.
+- ASTRONEER stock PAK integrity was not expanded into multi-gigabyte Steam-file hashing; only the demonstrated mod-surface blind spot was closed;
+- Palworld's new official dedicated-server mod system was not turned into a Steward Workshop/settings/deployment subsystem: managed Host delegates suppression to Pocketpair's native `-NoMods` launch contract.
 
 ## Audit rule
 
@@ -78,6 +80,8 @@ This rule previously prevented a false Factorio regression: the public helper lo
 
 It also prevented a false Necesse fix: Workshop content can be installed while disabled, so the audit located Necesse's real persisted activation state before deciding what uncertainty actually remained.
 
+For Palworld 1.0, the same rule removed more work: Pocketpair already owns official server-mod suppression through `-NoMods`, so Steward only binds that native launch contract instead of modeling Palworld's Workshop state.
+
 ## Current executable/product facts
 
 - generic product platform is implemented;
@@ -92,11 +96,11 @@ It also prevented a false Necesse fix: Workshop content can be installed while d
 - production Steam config is package-owned; engineering `STEWARD_*` configuration remains an acceptance/development source;
 - Steam owns Steward installation/update;
 - Factorio active Host path is dedicated server + RCON + graphical host client on managed UDP 34197; no `AutomaticHostStop` flag;
-- Palworld advertises Host + Host Stop + exact game version, not automatic Join;
+- Palworld advertises Host + Host Stop + exact game version, not automatic Join; its managed dedicated Host now launches PalServer with native `-NoMods` so official server mods are disabled by the game rather than modeled by Steward;
 - 7DTD/PZ managed runtime remains frozen behind recorded empirical gates;
 - Factorio is the current `NativeWorldCreation` adapter;
 - the other fifteen registered adapters intentionally advertise only `ExactGameVersion` at the capability layer while implementing concrete state/import/environment behavior;
-- the current game exactness line additionally contains #171 Core Keeper mod.io, #178 Necesse Workshop pre-materialization, #181 ASTRONEER install-root mod detection, and #184 Smalland exact stock PAK names;
+- the current game exactness line additionally contains #171 Core Keeper mod.io, #178 Necesse Workshop pre-materialization, #181 ASTRONEER install-root mod detection, #184 Smalland exact stock PAK names, and #192 Palworld native no-mods managed Host;
 - Games Library -> game workspace -> Worlds -> selected World details is implemented;
 - the World Lobby is membership + observed current players + authoritative current Host, not a social network;
 - global Settings reuses the existing device-settings owner;
@@ -128,8 +132,6 @@ It also prevented a false Necesse fix: Workshop content can be installed while d
 | `ROADMAP.md` | **CURRENT** | Deterministic product/UI reconciliation complete; V3-E then V3-F are active. |
 | `V3_STEAM_RELEASE_CANDIDATE.md` | **CURRENT** | Deterministic Steam release shape + #138 first real V3-E evidence; no invented V3-G subsystem. |
 | `PLATFORM_IMPLEMENTATION_STATUS.md` | **CURRENT** | Generic platform frozen; current 19-adapter/action-capability state. |
-| `V4_TECHNICAL_READINESS.md` | **CURRENT / COMPLETE SMALL GOAL** | #158/#160 derive technical-readiness presentation from existing adapter truth; no new authority or active V4 feature phase. |
-| `STEAM_RELEASE_GATE.md` | **CURRENT EXTERNAL RUNBOOK** | Real V3-E/V3-F provider/Steam/Windows/game batch. |
 | `DEFERRED_EMPIRICAL_TESTS.md` | **CURRENT EMPIRICAL REGISTRY** | Exact unproven real-system questions only. |
 | `V2_REAL_ACCEPTANCE_BATCH.md` | **CURRENT EXTERNAL RUNBOOK** | One expensive real-machine/Friends Build/network batch also piggybacks Windows UI evidence. |
 | `E4_LIVE_ACCEPTANCE_DEPLOYMENT.md` | **CURRENT EXTERNAL RUNBOOK** | Qualified Instance + Caddy + exact-one-proxy first disposable topology. |
@@ -160,10 +162,10 @@ There is no known current docs↔WPF hierarchy mismatch after #147-#153. #160 ad
 |---|---|---|
 | `ADAPTER_RUNTIME_ROADMAP.md` | **CURRENT** | Implemented runtime, automatic Join vs presentation-only direct connect, current Factorio/Palworld boundaries. |
 | `ADAPTER_GUIDE.md` | **CURRENT** | Stable adapter construction/evidence rules. |
-| `GAME_TECHNICAL_READINESS.md` | **CURRENT TECHNICAL EVIDENCE MAP** | 19-adapter native/environment/action/empirical boundary; state ownership and current environment-exactness audit reconciled through #184. |
+| `GAME_TECHNICAL_READINESS.md` | **CURRENT TECHNICAL EVIDENCE MAP** | 19-adapter native/environment/action/empirical boundary; state ownership and current environment-exactness audit reconciled through #192. |
 | `NATIVE_WORLD_CREATION.md` | **CURRENT** | Factorio current implementation; other games remain evidence-gated. |
 | `FACTORIO.md` | **CURRENT** | Explicit interface Host path, UDP 34197, no AutomaticHostStop. |
-| `PALWORLD.md` | **CURRENT** | Read-only WorldOption/runtime REST/process-tree lifecycle. |
+| `PALWORLD.md` | **CURRENT** | Read-only WorldOption/runtime REST/process-tree lifecycle; managed Host uses native `-NoMods`. |
 
 ### Persistence/recovery/engineering
 
@@ -238,7 +240,7 @@ Use current active docs/code instead.
 
 ## Next implementation boundary
 
-There is no known deterministic product/UI/adapter-exactness discrepancy to implement merely to remain busy after #184. V4 remains closed at its intentionally small derived-readiness boundary.
+There is no known deterministic product/UI/adapter-exactness discrepancy to implement merely to remain busy after #192. V4 remains closed at its intentionally small derived-readiness boundary.
 
 The next release work is empirical:
 

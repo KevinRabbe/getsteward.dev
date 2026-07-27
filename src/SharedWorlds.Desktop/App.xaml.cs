@@ -13,10 +13,18 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
         base.OnStartup(e);
 
+        var startupPortableWorldPath = PortableWorldStartupActivation.ResolvePath(e.Args);
+        if (!TryBecomePrimaryDesktop(startupPortableWorldPath))
+        {
+            // A primary Safe World process already owns this user/session. The activation request was
+            // handed off (or failed closed); never construct a second local storage/runtime writer.
+            Shutdown();
+            return;
+        }
+
         // Register only as an available per-user handler. Windows remains authoritative over which
         // application is the user's default for .safeworld.
         _ = PortableWorldFileAssociation.TryRegisterCurrentExecutable();
-        var startupPortableWorldPath = PortableWorldStartupActivation.ResolvePath(e.Args);
 
         var window = new MainWindow
         {
@@ -30,15 +38,12 @@ public partial class App : Application
         var initialization = window.InitializeUnifiedStartupAsync();
         window.Show();
         await initialization;
-
-        if (startupPortableWorldPath is not null)
-        {
-            await window.OpenPortableWorldFromPathAsync(startupPortableWorldPath);
-        }
+        await CompletePrimaryDesktopStartupAsync(window);
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
+        DisposeDesktopSingleInstance();
         DispatcherUnhandledException -= OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException -= OnAppDomainUnhandledException;
         base.OnExit(e);

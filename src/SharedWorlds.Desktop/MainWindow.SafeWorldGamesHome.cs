@@ -1,6 +1,7 @@
 using System.Collections;
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 
 namespace SharedWorlds.Desktop;
@@ -29,6 +30,8 @@ public partial class MainWindow
 
         GameLibraryList.SelectionChanged += SafeWorldGameLibraryList_SelectionChanged;
 
+        RehomeSafeWorldGameActions();
+
         // The import browser remains the existing authoritative discovery/capture flow, but once a
         // game is selected the game itself is already the scope. Do not ask the user to choose it twice.
         if (_importGameTiles?.Parent is ScrollViewer importGameScroller)
@@ -38,6 +41,27 @@ public partial class MainWindow
 
         ApplySafeWorldAddWorldCopy();
         await ApplySafeWorldGameLibraryFilterAsync();
+    }
+
+    private void RehomeSafeWorldGameActions()
+    {
+        if (OpenImportButton.Parent is not Grid gamesHeader ||
+            BackToGamesButton.Parent is not DockPanel gameHeader)
+        {
+            return;
+        }
+
+        gamesHeader.Children.Remove(OpenImportButton);
+        gamesHeader.Visibility = Visibility.Collapsed;
+
+        Grid.SetColumn(OpenImportButton, 0);
+        DockPanel.SetDock(OpenImportButton, Dock.Right);
+        OpenImportButton.Margin = new Thickness(8, 0, 0, 0);
+        OpenImportButton.MinHeight = 32;
+        AutomationProperties.SetHelpText(
+            OpenImportButton,
+            "Add a World already saved by this game to Safe World.");
+        gameHeader.Children.Add(OpenImportButton);
     }
 
     private void SafeWorldGameLibraryList_SelectionChanged(object sender, SelectionChangedEventArgs e)

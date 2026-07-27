@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ror-live-acceptance-${{ github.ref }}
@@ -32,6 +32,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -42,16 +44,60 @@ jobs:
         run: python -m compileall -q src scripts/ror_live_acceptance.py
 
       - name: Run real out-of-order ROR acceptance
-        run: >-
-          python scripts/ror_live_acceptance.py
-          --data-root "${{ runner.temp }}/ror-live"
-          --output "${{ runner.temp }}/ror-live-acceptance.json"
-
-      - name: Show acceptance evidence
-        if: always()
+        id: live
+        shell: bash
         run: |
-          if [ -f "${{ runner.temp }}/ror-live-acceptance.json" ]; then
-            cat "${{ runner.temp }}/ror-live-acceptance.json"
+          set +e
+          python scripts/ror_live_acceptance.py \
+            --data-root "${{ runner.temp }}/ror-live" \
+            --output "${{ runner.temp }}/ror-live-acceptance.json" \
+            >"${{ runner.temp }}/ror-live.log" 2>&1
+          exit_code=$?
+          set -e
+          echo "exit_code=${exit_code}" >> "$GITHUB_OUTPUT"
+          cat "${{ runner.temp }}/ror-live.log"
+
+      - name: Persist compact branch evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p docs/live-acceptance
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          runner_temp = Path(os.environ["RUNNER_TEMP"])
+          evidence_path = runner_temp / "ror-live-acceptance.json"
+          log_path = runner_temp / "ror-live.log"
+          exit_code = int("${{ steps.live.outputs.exit_code || '999' }}")
+
+          status = {
+              "workflow": "ROR Live Acceptance",
+              "head_sha": os.environ.get("GITHUB_SHA"),
+              "run_id": os.environ.get("GITHUB_RUN_ID"),
+              "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
+              "exit_code": exit_code,
+              "status": "PASS" if exit_code == 0 and evidence_path.exists() else "FAIL",
+          }
+          if evidence_path.exists():
+              evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+              status["evidence"] = evidence
+          else:
+              log_lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines() if log_path.exists() else []
+              status["failure_log_tail"] = log_lines[-120:]
+
+          Path("docs/live-acceptance/ror-v2.9-v2.10.json").write_text(
+              json.dumps(status, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/live-acceptance/ror-v2.9-v2.10.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Record ROR live acceptance evidence"
+            git push origin HEAD:agent/ror-live-acceptance-v1
           fi
 
       - name: Upload compact acceptance evidence
@@ -62,3 +108,9 @@ jobs:
           path: ${{ runner.temp }}/ror-live-acceptance.json
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Enforce live acceptance result
+        if: always()
+        shell: bash
+        run: |
+          test "${{ steps.live.outputs.exit_code }}" = "0"

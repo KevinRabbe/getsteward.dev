@@ -25,6 +25,8 @@ data/distributions/*
 !data/distributions/.gitkeep
 data/analytics/*
 !data/analytics/.gitkeep
+data/commercial/*
+!data/commercial/.gitkeep
 data/logs/*
 !data/logs/.gitkeep
 data/metrics/*

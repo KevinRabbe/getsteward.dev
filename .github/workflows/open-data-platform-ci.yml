@@ -68,6 +68,7 @@ jobs:
           python quality_intelligence.py --help
           python commercial_product.py --help
           python ror_registry.py --help
+          python ror_commercial_product.py --help
 
       - name: PowerShell syntax
         if: runner.os == 'Windows'

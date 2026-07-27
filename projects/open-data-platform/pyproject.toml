@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "open-data-platform-v01"
-version = "0.22.0"
-description = "Verified open-data archive, historical backfill, semantic changes, relationships, distributions, quality intelligence, and commercial packaging"
+version = "0.23.0"
+description = "Verified open-data archive, historical backfill, semantic changes, distributions, quality intelligence, and independent commercial product candidates"
 requires-python = ">=3.11"
 dependencies = []
 

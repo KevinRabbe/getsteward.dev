@@ -39,7 +39,7 @@
   <data name="Ready" xml:space="preserve"><value>Ready</value></data>
   <data name="OnlyOnThisPc" xml:space="preserve"><value>Only on this PC</value></data>
   <data name="Shared" xml:space="preserve"><value>Shared</value></data>
-  <data name="Import" xml:space="preserve"><value>Import</value></data>
+  <data name="Import" xml:space="preserve"><value>Add World</value></data>
   <data name="Refresh" xml:space="preserve"><value>Refresh</value></data>
   <data name="Invites" xml:space="preserve"><value>Invites</value></data>
   <data name="SharedWorldInvitations" xml:space="preserve"><value>Shared World invitations</value></data>

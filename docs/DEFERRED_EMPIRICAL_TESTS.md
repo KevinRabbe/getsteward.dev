@@ -104,6 +104,7 @@ The managed Host/save/shutdown/capture lifecycle itself already has real-machine
 
 - Client and dedicated-server installation discovery and exact dedicated-server build verification.
 - Managed Host owns a dedicated Palworld server session and publishes only native game endpoint `8211` as Join material; REST/admin control is never published.
+- Managed Host launches PalServer with Pocketpair's native `-NoMods` argument, so the game itself forcibly disables official server mods. Steward does not need a Workshop inventory, `PalModSettings.ini` parser, mod deployment/synchronization model, or a manual mod acceptance test for this boundary.
 - Host presence composition reaches `Starting` then `Ready` and clears before capture/commit.
 - The Desktop can present the exact Ready `IP:8211` through the native manual-direct-connect contract without pretending Steward owns a client session.
 - Real managed-host evidence already proves authenticated localhost REST info/settings, `POST /save`, `POST /shutdown`, full Palworld process-tree exit, byte-exact restoration of user-owned runtime inputs, and the final capture boundary.
@@ -157,7 +158,7 @@ Use the already-defined disposable acceptance probe shape from historical PR #3 
 clone selected dedicated World to disposable World ID
 -> redirect GameUserSettings.ini only to the clone
 -> leave cloned WorldOption.sav byte-exact/intact
--> launch PalServer without Steward REST management
+-> launch PalServer -NoMods without Steward REST management
 -> observe normal Shipping-process startup
 -> request disposable process-group shutdown
 -> wait for full Palworld process tree exit
@@ -206,8 +207,8 @@ The standard-port choice is deliberate. Factorio documents UDP `34197` as its no
 - A real HTTPS Steward backend using the intended deployment/proxy topology.
 - If HTTPS terminates at one reverse proxy, configure only that exact proxy through `ReverseProxy__KnownProxyIp` and record the peer IP Backend.Api actually sees for the proxy.
 - Factorio installed on both PCs with matching verified environment.
-- One shared Factorio World with both Friends Build identities authorized.
-- No manual edit of host-presence rows and no external public-IP helper added for the test.
+- One shared World with both identities authorized.
+- No manual host-presence edits, no public-IP helper service, no Steam server listing, no temporary relay.
 - First run with the host router's existing configuration unchanged. Only if UDP `34197` is unreachable, optionally repeat after one explicit UDP `34197` forward to distinguish a normal router prerequisite from a missing Steward mechanism.
 
 **Acceptance evidence:**

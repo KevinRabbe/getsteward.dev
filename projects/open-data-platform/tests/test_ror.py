@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from open_data_platform.archive import archive_staged_file
+from open_data_platform.distributions import build_csv_distribution, verify_distribution
 from open_data_platform.errors import ParseError
 from open_data_platform.release import verify_release
 from open_data_platform.ror_parser import parse_ror_snapshot, verify_ror_artifact
@@ -133,7 +135,7 @@ class RorDatabaseTests(unittest.TestCase):
         self.assertEqual(remote.zenodo_record_id, 21458494)
         self.assertEqual(remote.source_checksum, "md5:0123456789abcdef0123456789abcdef")
 
-    def test_ror_parse_product_release_and_queries_exclude_locations(self):
+    def test_ror_parse_product_release_distribution_and_queries_exclude_locations(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             first_id = "https://ror.org/03yrm5c26"
@@ -162,6 +164,19 @@ class RorDatabaseTests(unittest.TestCase):
             self.assertEqual(product["product"]["excluded_source_fields"], ["locations"])
             self.assertEqual(verify_ror_product(root, snapshot_id)["status"], "VERIFIED")
 
+            distribution = build_csv_distribution(root, snapshot_id)
+            self.assertEqual(distribution["status"], "BUILT")
+            verified_distribution = verify_distribution(root, snapshot_id, "csv")
+            self.assertEqual(verified_distribution["status"], "VERIFIED")
+            with Path(distribution["data_path"]).open("r", encoding="utf-8", newline="") as handle:
+                rows = list(csv.reader(handle))
+            header = rows[0]
+            self.assertIn("ror_id", header)
+            self.assertIn("relationships_json", header)
+            self.assertNotIn("locations", header)
+            self.assertNotIn("locations_json", header)
+            self.assertEqual(len(rows) - 1, 2)
+
             lookup = lookup_ror(root, snapshot_id, "03yrm5c26")
             self.assertEqual(lookup["status"], "FOUND")
             self.assertEqual(lookup["organization"]["display_name"], "Example University")
@@ -180,6 +195,7 @@ class RorDatabaseTests(unittest.TestCase):
 
             self.assertEqual(parse_ror_snapshot(root, snapshot_id)["status"], "NO_CHANGE")
             self.assertEqual(build_ror_product(root, snapshot_id)["status"], "NO_CHANGE")
+            self.assertEqual(build_csv_distribution(root, snapshot_id)["status"], "NO_CHANGE")
             self.assertEqual(build_ror_release(root, snapshot_id)["status"], "NO_CHANGE")
 
     def test_unknown_schema_field_fails_instead_of_being_silently_dropped(self):

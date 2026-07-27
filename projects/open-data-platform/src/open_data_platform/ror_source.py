@@ -46,6 +46,19 @@ def _release_version(metadata: dict[str, Any], filename: str) -> str:
     return match.group(0)
 
 
+def _canonical_md5(checksum: str) -> str:
+    if not checksum.lower().startswith("md5:"):
+        raise AcquisitionError("Zenodo ROR file is missing its expected MD5 checksum")
+    raw = checksum.split(":", 1)[1].lower()
+    if len(raw) not in {31, 32} or any(ch not in "0123456789abcdef" for ch in raw):
+        raise AcquisitionError("Zenodo ROR file has an invalid MD5 checksum value")
+    # Zenodo's current ROR concept-record metadata has been observed returning
+    # a 31-digit hexadecimal MD5 when the canonical digest starts with zero.
+    # Normalize only that exact representation; downloaded bytes are still
+    # verified against the canonical 32-digit digest before archival.
+    return raw.zfill(32)
+
+
 def discover_latest_ror(source: dict[str, Any]) -> RemoteRorSnapshot:
     metadata = get_json(source["metadata_url"], source["allowed_hosts"])
     if not isinstance(metadata, dict):
@@ -82,11 +95,9 @@ def discover_latest_ror(source: dict[str, Any]) -> RemoteRorSnapshot:
     validate_https_url(download_url, source["allowed_hosts"])
 
     checksum = file_info.get("checksum")
-    if not isinstance(checksum, str) or not checksum.lower().startswith("md5:"):
+    if not isinstance(checksum, str):
         raise AcquisitionError("Zenodo ROR file is missing its expected MD5 checksum")
-    expected_md5 = checksum.split(":", 1)[1].lower()
-    if len(expected_md5) != 32 or any(ch not in "0123456789abcdef" for ch in expected_md5):
-        raise AcquisitionError("Zenodo ROR file has an invalid MD5 checksum value")
+    expected_md5 = _canonical_md5(checksum)
 
     version = _release_version(metadata, filename)
     record_id = metadata.get("id")

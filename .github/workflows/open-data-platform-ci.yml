@@ -52,13 +52,22 @@ jobs:
         run: python --version
 
       - name: Compile
-        run: python -m compileall -q odp.py src tests
+        run: python -m compileall -q .
 
       - name: Offline tests
         run: python -m unittest discover -s tests -v
 
-      - name: CLI smoke
-        run: python odp.py --help
+      - name: Launcher smoke
+        shell: bash
+        run: |
+          python odp.py --help
+          python production_acceptance.py --help
+          python historical_changes.py --help
+          python gleif_relationships.py --help
+          python build_distribution.py --help
+          python quality_intelligence.py --help
+          python commercial_product.py --help
+          python ror_registry.py --help
 
       - name: PowerShell syntax
         if: runner.os == 'Windows'

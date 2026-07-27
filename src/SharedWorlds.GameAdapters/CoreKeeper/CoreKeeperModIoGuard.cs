@@ -40,27 +40,30 @@ internal static class CoreKeeperModIoGuard
             : StringComparer.Ordinal;
         var storageRoots = new HashSet<string>(comparer)
         {
-            NormalizeRequiredAbsolutePath(defaultStorageRoot, "Core Keeper's default mod.io storage root")
+            NormalizeRequiredAbsolutePath(
+                defaultStorageRoot,
+                "Core Keeper's default mod.io storage root")
         };
 
-        var fullSettingsRoot = Path.GetFullPath(settingsRoot);
-        if (Directory.Exists(fullSettingsRoot))
-        {
-            RequireRegularDirectory(
+        var fullSettingsRoot = NormalizeRequiredAbsolutePath(
+            settingsRoot,
+            "Core Keeper's mod.io settings root");
+        if (TryRequireRegularPath(
                 fullSettingsRoot,
-                "Core Keeper's mod.io settings root");
-
+                expectDirectory: true,
+                "Core Keeper's mod.io settings root"))
+        {
             AddOverrideIfPresent(
                 storageRoots,
                 Path.Combine(fullSettingsRoot, "globalsettings.json"),
                 "mod.io global storage settings");
 
             var gameSettingsRoot = Path.Combine(fullSettingsRoot, ModIoGameId);
-            if (Directory.Exists(gameSettingsRoot))
-            {
-                RequireRegularDirectory(
+            if (TryRequireRegularPath(
                     gameSettingsRoot,
-                    "Core Keeper's mod.io game-settings root");
+                    expectDirectory: true,
+                    "Core Keeper's mod.io game-settings root"))
+            {
                 AddPerProfileOverrides(storageRoots, gameSettingsRoot);
             }
         }
@@ -110,8 +113,9 @@ internal static class CoreKeeperModIoGuard
                         $"Core Keeper's mod.io settings contain more than Steward's {MaximumLocalProfiles} local-profile safety limit.");
                 }
 
-                RequireRegularDirectory(
+                _ = TryRequireRegularPath(
                     profileDirectory,
+                    expectDirectory: true,
                     "a Core Keeper mod.io local-profile settings directory");
                 AddOverrideIfPresent(
                     storageRoots,
@@ -136,7 +140,7 @@ internal static class CoreKeeperModIoGuard
         string settingsPath,
         string description)
     {
-        if (!File.Exists(settingsPath))
+        if (!TryRequireRegularPath(settingsPath, expectDirectory: false, description))
         {
             return;
         }
@@ -175,14 +179,6 @@ internal static class CoreKeeperModIoGuard
         {
             try
             {
-                var attributes = File.GetAttributes(fullPath);
-                if ((attributes & FileAttributes.ReparsePoint) != 0 ||
-                    (attributes & FileAttributes.Directory) != 0)
-                {
-                    throw new InvalidOperationException(
-                        $"{description} is not a regular owned file: {fullPath}");
-                }
-
                 if (stream.Length > MaximumSettingsBytes)
                 {
                     throw new InvalidOperationException(
@@ -197,21 +193,31 @@ internal static class CoreKeeperModIoGuard
                         CommentHandling = JsonCommentHandling.Skip,
                         MaxDepth = 32
                     });
-                if (document.RootElement.ValueKind != JsonValueKind.Object ||
-                    !document.RootElement.TryGetProperty("RootLocalStoragePath", out var rootElement))
+                if (document.RootElement.ValueKind != JsonValueKind.Object)
+                {
+                    throw new InvalidOperationException(
+                        $"{description} is not a JSON object: {fullPath}");
+                }
+
+                var roots = document.RootElement
+                    .EnumerateObject()
+                    .Where(property => property.NameEquals("RootLocalStoragePath"))
+                    .ToArray();
+                if (roots.Length == 0)
                 {
                     return null;
                 }
 
-                if (rootElement.ValueKind != JsonValueKind.String ||
-                    string.IsNullOrWhiteSpace(rootElement.GetString()))
+                if (roots.Length != 1 ||
+                    roots[0].Value.ValueKind != JsonValueKind.String ||
+                    string.IsNullOrWhiteSpace(roots[0].Value.GetString()))
                 {
                     throw new InvalidOperationException(
-                        $"{description} contains an invalid RootLocalStoragePath value: {fullPath}");
+                        $"{description} contains an ambiguous or invalid RootLocalStoragePath value: {fullPath}");
                 }
 
                 return NormalizeRequiredAbsolutePath(
-                    rootElement.GetString()!,
+                    roots[0].Value.GetString()!,
                     $"the RootLocalStoragePath from {description}");
             }
             catch (InvalidOperationException)
@@ -260,19 +266,28 @@ internal static class CoreKeeperModIoGuard
         }
     }
 
-    private static void RequireRegularDirectory(
+    private static bool TryRequireRegularPath(
         string path,
+        bool expectDirectory,
         string description)
     {
         try
         {
             var attributes = File.GetAttributes(path);
-            if ((attributes & FileAttributes.Directory) == 0 ||
-                (attributes & FileAttributes.ReparsePoint) != 0)
+            var isDirectory = (attributes & FileAttributes.Directory) != 0;
+            if ((attributes & FileAttributes.ReparsePoint) != 0 ||
+                isDirectory != expectDirectory)
             {
                 throw new InvalidOperationException(
-                    $"{description} is linked or is not a regular directory: {path}");
+                    $"{description} is linked or is not a regular {(expectDirectory ? "directory" : "file")}: {path}");
             }
+
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
         }
         catch (InvalidOperationException)
         {
@@ -288,19 +303,38 @@ internal static class CoreKeeperModIoGuard
 
     private static void RequireEmptyModsDirectory(string storageRoot)
     {
-        var modsPath = Path.Combine(storageRoot, ModIoGameId, "mods");
-        if (!Directory.Exists(modsPath))
+        if (!TryRequireRegularPath(
+                storageRoot,
+                expectDirectory: true,
+                "a Core Keeper mod.io storage root"))
+        {
+            return;
+        }
+
+        var gameRoot = Path.Combine(storageRoot, ModIoGameId);
+        if (!TryRequireRegularPath(
+                gameRoot,
+                expectDirectory: true,
+                "Core Keeper's mod.io game-content root"))
+        {
+            return;
+        }
+
+        var modsPath = Path.Combine(gameRoot, "mods");
+        if (!TryRequireRegularPath(
+                modsPath,
+                expectDirectory: true,
+                "Core Keeper's official mod.io content directory"))
         {
             return;
         }
 
         try
         {
-            if (!CoreKeeperWorldDiscovery.IsRegularDirectory(modsPath) ||
-                Directory.EnumerateFileSystemEntries(modsPath).Any())
+            if (Directory.EnumerateFileSystemEntries(modsPath).Any())
             {
                 throw new InvalidOperationException(
-                    "Core Keeper's official mod.io content directory is linked or non-empty. Steward's current Core Keeper adapter is vanilla-only.");
+                    "Core Keeper's official mod.io content directory is non-empty. Steward's current Core Keeper adapter is vanilla-only.");
             }
         }
         catch (InvalidOperationException)

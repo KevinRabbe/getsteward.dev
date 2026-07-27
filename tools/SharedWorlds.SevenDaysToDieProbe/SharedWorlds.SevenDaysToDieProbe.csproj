@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>SharedWorlds.SevenDaysToDieProbe</AssemblyName>
+    <RootNamespace>SharedWorlds.SevenDaysToDieProbe</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/SharedWorlds.GameAdapters/SevenDaysToDie/SharedWorlds.GameAdapters.SevenDaysToDie.csproj" />
+  </ItemGroup>
+</Project>

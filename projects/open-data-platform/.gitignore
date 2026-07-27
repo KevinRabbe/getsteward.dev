@@ -21,6 +21,8 @@ data/releases/*
 !data/releases/.gitkeep
 data/changes/*
 !data/changes/.gitkeep
+data/distributions/*
+!data/distributions/.gitkeep
 data/logs/*
 !data/logs/.gitkeep
 data/metrics/*

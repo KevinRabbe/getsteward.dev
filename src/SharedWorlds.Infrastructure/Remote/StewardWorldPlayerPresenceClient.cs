@@ -9,9 +9,19 @@ public sealed record StewardRemoteWorldPlayerPresence(
     string Provider,
     string ExternalId);
 
+public sealed record StewardRemoteLobbyHost(
+    string Provider,
+    string ExternalId,
+    StewardRemoteHostPresenceState State);
+
+public sealed record StewardRemoteWorldPlayerPresenceSnapshot(
+    IReadOnlyList<StewardRemoteWorldPlayerPresence> Players,
+    StewardRemoteLobbyHost? Host);
+
 /// <summary>
-/// Client for non-authoritative, short-lived World-player presentation presence. Presence is never a
-/// reservation, access grant, Host decision, or canonical-state signal.
+/// Client for the deliberately non-authoritative World-lobby snapshot. Player presence is short-lived
+/// presentation evidence; Host identity comes from the backend's existing reservation-backed Host
+/// presence. Neither can grant access or mutate World authority.
 /// </summary>
 public sealed class StewardWorldPlayerPresenceClient
 {
@@ -34,7 +44,7 @@ public sealed class StewardWorldPlayerPresenceClient
         _accessTokens = accessTokens;
     }
 
-    public async Task<IReadOnlyList<StewardRemoteWorldPlayerPresence>> ListAsync(
+    public async Task<StewardRemoteWorldPlayerPresenceSnapshot> GetSnapshotAsync(
         WorldId worldId,
         CancellationToken cancellationToken = default)
     {
@@ -49,9 +59,12 @@ public sealed class StewardWorldPlayerPresenceClient
             throw CreateUnexpectedResponse(response);
         }
 
-        return DeserializeRequiredData<PlayerPresenceDto[]>(response)
-            .Select(static item => new StewardRemoteWorldPlayerPresence(item.Provider, item.ExternalId))
-            .ToArray();
+        var data = DeserializeRequiredData<PlayerPresenceSnapshotDto>(response);
+        return new StewardRemoteWorldPlayerPresenceSnapshot(
+            data.Players
+                .Select(static item => new StewardRemoteWorldPlayerPresence(item.Provider, item.ExternalId))
+                .ToArray(),
+            data.Host?.ToDomain());
     }
 
     public async Task PublishAsync(
@@ -168,6 +181,26 @@ public sealed class StewardWorldPlayerPresenceClient
     private sealed record PlayerPresenceDto(
         string Provider,
         string ExternalId);
+
+    private sealed record LobbyHostDto(
+        string Provider,
+        string ExternalId,
+        string State)
+    {
+        public StewardRemoteLobbyHost ToDomain()
+        {
+            if (!Enum.TryParse<StewardRemoteHostPresenceState>(State, ignoreCase: false, out var state))
+            {
+                throw new InvalidDataException($"Steward returned unknown lobby Host state '{State}'.");
+            }
+
+            return new StewardRemoteLobbyHost(Provider, ExternalId, state);
+        }
+    }
+
+    private sealed record PlayerPresenceSnapshotDto(
+        PlayerPresenceDto[] Players,
+        LobbyHostDto? Host);
 
     private sealed record ApiResponse(
         string Code,

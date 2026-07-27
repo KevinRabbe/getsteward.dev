@@ -1,11 +1,11 @@
 # Platform Implementation Status
 
-Status: **PLATFORM CODE/CI COMPLETE — DETERMINISTIC V3 PREPARATION COMPLETE; V3-E REAL WINDOWS ACCEPTANCE HAS STARTED; RELEASE ACCEPTANCE REMAINS OPEN.**
+Status: **PLATFORM CODE/CI COMPLETE — DETERMINISTIC V3 PREPARATION AND FIRST-RELEASE PRODUCT/UI RECONCILIATION ARE COMPLETE; V3-E REAL WINDOWS ACCEPTANCE IS ACTIVE; RELEASE ACCEPTANCE REMAINS OPEN.**
 
 This document records two different facts that should not be confused:
 
 1. the **generic Steward platform boundary** is already implemented and stable;
-2. the **current executable/product line** has advanced into evidence-driven V3-E work.
+2. the **current executable/product line** has completed deterministic first-release reconciliation and is now evidence-driven.
 
 Neither statement claims that real provider, real Steam, final Windows, or final game/network release acceptance has completed.
 
@@ -29,17 +29,21 @@ That generic platform boundary remains frozen unless concrete evidence demonstra
 
 ## Current qualified executable/product line
 
-The current non-documentation executable/product baseline is V3-E PR #138:
+The current non-documentation executable/UI baseline is PR #151:
+
+> `01cb15927a9e056fb9a6784d037eabde66e7d819`
+
+It sits on the evidence-driven V3-E defect/fix from PR #138:
 
 > `e63c6f7d20d103cd2ea3d9a922b73de3c3ba1f5f`
 
-It sits on the fully qualified deterministic V3 closure from PR #137:
+which in turn sits on the fully qualified deterministic V3 closure from PR #137:
 
 > `8765394c63d5d6257479269b11ab5c1f86bd7865`
 
-Both exact heads passed all five top-level workflow groups.
+PR #153 then closes the remaining deterministic first-release Share/access and active-documentation contract without changing Core/backend/adapter authority. Its documentation-audit head `35e5f6464eeea113a8ab9ecf66b64f4055553803` passed all five top-level workflow groups before this final status cleanup.
 
-The deterministic V3 release shape now includes:
+The deterministic V3 release shape includes:
 
 - **V3-A / #133** — package-owned non-secret Steam release configuration;
 - **V3-B / #134** — exact self-contained Release `win-x64` depot content with external size/SHA-256 evidence;
@@ -59,7 +63,9 @@ real Windows startup with legacy v1 device settings
 
 PR #138 closes that concrete defect by disposing the source read handle before the migration write/replacement and adds a Windows-relevant regression test. It does not change settings-schema meaning or weaken the fail-closed boundary.
 
-The remaining V3-E/V3-F work is still empirical. One observed/fixed defect is evidence that the process has started, not evidence that release acceptance is complete.
+After #138, #139-#145 reconciled active documentation; #147 implemented the game-first Games Library hierarchy; #148 added the small World Lobby; #149 closed World sort + global Settings; #150 added responsibility-backed game attention; #151 made fixed product vocabulary localization-ready; and #153 simplified Share/access around publish-first authority while removing unsupported destructive deletion from first release.
+
+No known deterministic first-release UI/product drift remains. The remaining V3-E/V3-F work is empirical.
 
 ## Latest adapter-composition checkpoint
 
@@ -86,7 +92,7 @@ For current release-candidate development, the generic Steward platform is consi
 
 The platform is **not** reopened merely because another abstraction, security wrapper, release-tier enum, or generic feature can be imagined.
 
-A UI implementation may still be corrected to an already-approved UI contract without reopening Core/platform architecture. The current Games Library navigation drift is one such product/UI reconciliation, not evidence that the generic World/backend/adapter platform is missing.
+UI correction to an already-approved product contract does not reopen Core/platform architecture. #147-#151 already closed the known Games Library/UI implementation drift through the existing World, responsibility, device-settings, and capability truth; #153 then removed Share requirements that had no corresponding authority.
 
 Reopen generic platform implementation only when at least one of these is true:
 
@@ -182,7 +188,7 @@ Still external:
 
 Qualified #131 already defines the first small deployment topology; absence of cloud-account access is an external resource boundary, not a reason to add another Steward deployment subsystem.
 
-### V3-E — real Windows release acceptance — STARTED
+### V3-E — real Windows release acceptance — ACTIVE
 
 First concrete evidence already exists:
 
@@ -235,15 +241,17 @@ The current ancestry includes:
 - V3-C matched production public Steam auth configuration #135;
 - V3-D capability-driven release claims #136;
 - final deterministic V3 gate #137;
-- first evidence-driven V3-E Windows defect/fix #138.
+- first evidence-driven V3-E Windows defect/fix #138;
+- documentation-state reconciliation #139-#145;
+- deterministic first-release Games Library/UI/product reconciliation #147-#153.
 
-Documentation-only reconciliation after #138 does not redefine this executable/product ancestry.
+Documentation-only reconciliation after #138 does not redefine the generic platform ancestry; it keeps active product/status prose aligned with qualified executable truth.
 
 Use `V3_STEAM_RELEASE_CANDIDATE.md` for the active release goal, this file for the stable platform/current executable checkpoint, `DOCUMENTATION_AUDIT.md` for document freshness, and adapter-specific code/docs/PR evidence for game-level details.
 
 ## Development rule from here
 
-> **Platform stable. Release claims are capability/evidence-driven. Remove measured release blockers; do not grow Core/UI to accommodate speculation.**
+> **Platform stable. Deterministic first-release product/UI work closed. Release claims are capability/evidence-driven. Remove measured release blockers; do not grow Core/UI to accommodate speculation.**
 
 When work reaches an empirical uncertainty that cannot be settled in CI, record/freeze the exact test and move to another independent deterministic path.
 

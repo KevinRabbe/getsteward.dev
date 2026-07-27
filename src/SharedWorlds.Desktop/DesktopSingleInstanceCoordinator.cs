@@ -168,12 +168,12 @@ internal sealed class DesktopSingleInstanceCoordinator : IDisposable
                     maxNumberOfServerInstances: 1,
                     PipeTransmissionMode.Byte,
                     PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-                await server.WaitForConnectionAsync(cancellationToken);
+                await server.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
 
-                var request = await ReadRequestAsync(server, cancellationToken);
-                await activationHandler(request);
-                await server.WriteAsync(new byte[] { 1 }, cancellationToken);
-                await server.FlushAsync(cancellationToken);
+                var request = await ReadRequestAsync(server, cancellationToken).ConfigureAwait(false);
+                await activationHandler(request).ConfigureAwait(false);
+                await server.WriteAsync(new byte[] { 1 }, cancellationToken).ConfigureAwait(false);
+                await server.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -193,7 +193,7 @@ internal sealed class DesktopSingleInstanceCoordinator : IDisposable
         CancellationToken cancellationToken)
     {
         var header = new byte[sizeof(int)];
-        await stream.ReadExactlyAsync(header, cancellationToken);
+        await stream.ReadExactlyAsync(header, cancellationToken).ConfigureAwait(false);
         var length = BinaryPrimitives.ReadInt32LittleEndian(header);
         if (length < 0 || length > MaximumActivationBytes)
         {
@@ -206,7 +206,7 @@ internal sealed class DesktopSingleInstanceCoordinator : IDisposable
         }
 
         var payload = new byte[length];
-        await stream.ReadExactlyAsync(payload, cancellationToken);
+        await stream.ReadExactlyAsync(payload, cancellationToken).ConfigureAwait(false);
         var rawPath = StrictUtf8.GetString(payload);
         var portablePath = PortableWorldStartupActivation.ResolvePath([rawPath]);
         if (portablePath is null)

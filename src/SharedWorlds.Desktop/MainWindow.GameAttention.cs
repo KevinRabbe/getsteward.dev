@@ -1,9 +1,57 @@
+using System.ComponentModel;
+using System.Windows;
+using System.Windows.Controls;
 using SharedWorlds.Core.Worlds;
 
 namespace SharedWorlds.Desktop;
 
 public partial class MainWindow
 {
+    private DependencyPropertyDescriptor? _gameAttentionResponsibilityTextDescriptor;
+    private DependencyPropertyDescriptor? _gameAttentionResponsibilityVisibilityDescriptor;
+    private DependencyPropertyDescriptor? _gameAttentionItemsSourceDescriptor;
+    private bool _gameAttentionInitialized;
+
+    private void InitializeGameAttentionProjection()
+    {
+        if (_gameAttentionInitialized ||
+            _worldResponsibilityText is null ||
+            _worldResponsibilityBanner is null)
+        {
+            return;
+        }
+
+        _gameAttentionInitialized = true;
+
+        // Do not subscribe to a second lifecycle state machine. The existing responsibility
+        // presentation is already driven by WorldLifecycleResponsibilityTracker. Observe only its
+        // WPF projection so this layer can update another presentation surface.
+        _gameAttentionResponsibilityTextDescriptor = DependencyPropertyDescriptor.FromProperty(
+            TextBlock.TextProperty,
+            typeof(TextBlock));
+        _gameAttentionResponsibilityTextDescriptor?.AddValueChanged(
+            _worldResponsibilityText,
+            (_, _) => UpdateGameLibraryResponsibilityAttention());
+
+        _gameAttentionResponsibilityVisibilityDescriptor = DependencyPropertyDescriptor.FromProperty(
+            UIElement.VisibilityProperty,
+            typeof(Border));
+        _gameAttentionResponsibilityVisibilityDescriptor?.AddValueChanged(
+            _worldResponsibilityBanner,
+            (_, _) => UpdateGameLibraryResponsibilityAttention());
+
+        // RefreshUnifiedWorldsAsync rebuilds the game list from canonical World data. Reapply the
+        // current attention projection whenever that presentation collection is replaced.
+        _gameAttentionItemsSourceDescriptor = DependencyPropertyDescriptor.FromProperty(
+            ItemsControl.ItemsSourceProperty,
+            typeof(ListBox));
+        _gameAttentionItemsSourceDescriptor?.AddValueChanged(
+            GameLibraryList,
+            (_, _) => UpdateGameLibraryResponsibilityAttention());
+
+        UpdateGameLibraryResponsibilityAttention();
+    }
+
     /// <summary>
     /// Projects the already-authoritative one-device responsibility snapshot into the Games Library.
     /// This owns no lifecycle state: when the tracker changes, the tile summary is rebuilt from the

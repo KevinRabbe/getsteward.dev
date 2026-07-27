@@ -9,10 +9,11 @@ The useful baselines are intentionally separated:
 - generic platform-completion checkpoint: PR #72, `9db4765948e3b69b4d07bc1442d7a1be5c2e3fc7`;
 - deterministic V3 Steam release-shape closure: PR #137, `8765394c63d5d6257479269b11ab5c1f86bd7865`;
 - first evidence-driven V3-E Windows defect/fix: PR #138, `e63c6f7d20d103cd2ea3d9a922b73de3c3ba1f5f`;
-- current non-documentation executable/UI product head: PR #151, `01cb15927a9e056fb9a6784d037eabde66e7d819`;
-- current deterministic product-contract head: PR #153, `2556a3ef1ba08f72b83c8c14b55ecef9e4b7ce27`.
+- deterministic first-release product-contract checkpoint: PR #153, `0f5f30886d982f77c36c7099203ba9fbed0aeb60`;
+- V4 technical evidence/goal checkpoint: PR #158, `dad21cd2f56668bb2060aa09063a8b9bf9520c3c`;
+- current non-documentation executable/UI head: PR #160, `c93e3606e7990bed1fb8cdec68575e706ac2f1ec`.
 
-The later UI/product work did not reopen Core/backend/adapter authority. It reconciled the commercial Desktop with the already-approved product contract and then removed stale product requirements that added no authority.
+The later UI/product/readiness work did not reopen Core/backend/adapter authority. It reconciled the commercial Desktop with the approved product contract, removed stale requirements that added no authority, then projected existing adapter capability truth in one small read-only V4 surface.
 
 ## Reconciliation stack after #138
 
@@ -23,7 +24,9 @@ The later UI/product work did not reopen Core/backend/adapter authority. It reco
 -> #149 existing-search audit + missing World sort + global Settings
 -> #150 responsibility-backed game attention
 -> #151 localization-ready fixed product vocabulary
--> #153 publish-first Share/access contract simplification
+-> #153 publish-first Share/access contract simplification + deterministic first-release closure
+-> #158 canonical 19-game technical evidence map + small V4 goal
+-> #160 capability-derived selected-game technical readiness summary
 ```
 
 Important negative findings:
@@ -32,7 +35,9 @@ Important negative findings:
 - a richer/decorative game-banner subsystem was not required;
 - pre-publication invitation staging added no authority and was removed from first release;
 - destructive shared-World deletion has no backend terminal contract and was removed from first release;
-- production Steam-friendly identity/invite selection belongs to the real V3-F Steam boundary, not a Steward friends graph.
+- production Steam-friendly identity/invite selection belongs to the real V3-F Steam boundary, not a Steward friends graph;
+- the fifteen state-only adapters do not need ceremonial gameplay tests for their current state/import/environment claim;
+- a generic cross-game prerequisite/host-eligibility model was not required for V4 and was deliberately not created.
 
 ## Audit rule
 
@@ -61,6 +66,7 @@ This rule previously prevented a false Factorio regression: the public helper lo
 
 - generic product platform is implemented;
 - deterministic V3 release preparation is complete;
+- deterministic first-release product/UI work is closed through #153;
 - V3-E real Windows acceptance has started;
 - #138 fixed the first real V3-E Windows defect in device-settings v1 -> v2 migration;
 - Desktop contains 19 first-party adapters;
@@ -72,12 +78,14 @@ This rule previously prevented a false Factorio regression: the public helper lo
 - Palworld advertises Host + Host Stop + exact game version, not automatic Join;
 - 7DTD/PZ managed runtime remains frozen behind recorded empirical gates;
 - Factorio is the current `NativeWorldCreation` adapter;
+- the other fifteen registered adapters intentionally advertise only `ExactGameVersion` at the capability layer while implementing concrete state/import/environment behavior;
 - Games Library -> game workspace -> Worlds -> selected World details is implemented;
 - the World Lobby is membership + observed current players + authoritative current Host, not a social network;
 - global Settings reuses the existing device-settings owner;
 - fixed first-release product vocabulary is resource-owned/localization-ready;
 - Share publishes one creator-owned shared World first; Manage access owns invitations afterward;
 - destructive shared deletion is deliberately absent from first release;
+- V4 technical readiness is a read-only projection of existing capability truth and adds no second support model;
 - local World/recovery persistence uses integrity-protected schemas and device settings retain the v1 -> v2 migration contract.
 
 ## Active documentation classification
@@ -93,17 +101,18 @@ This rule previously prevented a false Factorio regression: the public helper lo
 | `DOMAIN_MODEL.md` | **CURRENT** | Active World/revision/session/recovery model. |
 | `WORLD_LIFECYCLE.md` | **CURRENT** | Generic handoff ordering. |
 | `CROSS_WORKSTREAM_CONTRACT.md` | **CURRENT** | Publish-first Share/access split and current UI/backend/runtime authority mapping. |
-| `PRODUCT_COMPLETENESS.md` | **CURRENT** | Deterministic first-release product completeness closed; remaining gates empirical. |
+| `PRODUCT_COMPLETENESS.md` | **CURRENT** | Deterministic first-release product completeness closed; remaining release gates empirical. |
 
 ### Current execution/release
 
 | Document | Status | Current note |
 |---|---|---|
-| `ROADMAP.md` | **CURRENT** | Deterministic product/UI reconciliation complete; V3-E then V3-F are next. |
+| `ROADMAP.md` | **CURRENT** | Deterministic product/UI reconciliation complete; V3-E then V3-F are active. |
 | `V3_STEAM_RELEASE_CANDIDATE.md` | **CURRENT** | Deterministic Steam release shape + #138 first real V3-E evidence; no invented V3-G subsystem. |
-| `PLATFORM_IMPLEMENTATION_STATUS.md` | **CURRENT** | Generic platform frozen; current executable/product line includes #147-#151 UI reconciliation. |
+| `PLATFORM_IMPLEMENTATION_STATUS.md` | **CURRENT** | Generic platform frozen; current 19-adapter/action-capability state. |
+| `V4_TECHNICAL_READINESS.md` | **CURRENT / COMPLETE SMALL GOAL** | #158/#160 derive technical-readiness presentation from existing adapter truth; no new authority or active V4 feature phase. |
 | `STEAM_RELEASE_GATE.md` | **CURRENT EXTERNAL RUNBOOK** | Real V3-E/V3-F provider/Steam/Windows/game batch. |
-| `DEFERRED_EMPIRICAL_TESTS.md` | **CURRENT EMPIRICAL REGISTRY** | Exact unproven real-system questions. |
+| `DEFERRED_EMPIRICAL_TESTS.md` | **CURRENT EMPIRICAL REGISTRY** | Exact unproven real-system questions only. |
 | `V2_REAL_ACCEPTANCE_BATCH.md` | **CURRENT EXTERNAL RUNBOOK** | One expensive real-machine/Friends Build/network batch also piggybacks Windows UI evidence. |
 | `E4_LIVE_ACCEPTANCE_DEPLOYMENT.md` | **CURRENT EXTERNAL RUNBOOK** | Qualified Instance + Caddy + exact-one-proxy first disposable topology. |
 
@@ -114,7 +123,7 @@ This rule previously prevented a false Factorio regression: the public helper lo
 | `UI_ROADMAP.md` | **CURRENT / IMPLEMENTED DETERMINISTIC CONTRACT** | Game-first hierarchy, search/sort, Settings, attention, lobby, recovery, publish-first Share and non-destructive first release are reconciled. |
 | `V2_WORLD_LOBBY.md` | **CURRENT** | Small operational lobby boundary; no Steward social network. |
 
-There is no known current docs↔WPF hierarchy mismatch after #147-#151.
+There is no known current docs↔WPF hierarchy mismatch after #147-#153. #160 adds only the qualified capability-derived game-readiness summary.
 
 ### Backend
 
@@ -132,7 +141,8 @@ There is no known current docs↔WPF hierarchy mismatch after #147-#151.
 | Document | Status | Current note |
 |---|---|---|
 | `ADAPTER_RUNTIME_ROADMAP.md` | **CURRENT** | Implemented runtime, automatic Join vs presentation-only direct connect, current Factorio/Palworld boundaries. |
-| `ADAPTER_GUIDE.md` | **CURRENT** | Stable adapter construction rules; current matrix delegated to Platform Status. |
+| `ADAPTER_GUIDE.md` | **CURRENT** | Stable adapter construction/evidence rules. |
+| `GAME_TECHNICAL_READINESS.md` | **CURRENT TECHNICAL EVIDENCE MAP** | 19-adapter native/environment/action/empirical boundary; capability shape rechecked against current code during V4. |
 | `NATIVE_WORLD_CREATION.md` | **CURRENT** | Factorio current implementation; other games remain evidence-gated. |
 | `FACTORIO.md` | **CURRENT** | Explicit interface Host path, UDP 34197, no AutomaticHostStop. |
 | `PALWORLD.md` | **CURRENT** | Read-only WorldOption/runtime REST/process-tree lifecycle. |
@@ -204,11 +214,12 @@ Use current active docs/code instead.
 - failure preserves previous valid state and recovery evidence;
 - provider/object storage does not become canonical authority;
 - empirical uncertainty freezes only the dependent claim;
-- remove/delegate problems before adding another Steward subsystem.
+- remove/delegate problems before adding another Steward subsystem;
+- do not ask a human to rediscover a native/platform fact that is already deterministically knowable.
 
 ## Next implementation boundary
 
-There is no known deterministic first-release product discrepancy to implement merely to remain busy.
+There is no known deterministic product discrepancy to implement merely to remain busy. V4 is closed at its intentionally small derived-readiness boundary.
 
 The next work is empirical:
 
@@ -220,4 +231,4 @@ exact qualified Windows build
 -> then run V3-F real Steam/provider/game gate
 ```
 
-Do not create a new generic feature, status model, social layer, deletion workflow, networking subsystem, or release tier until real evidence demonstrates that it is required.
+Do not create a new generic feature, prerequisite taxonomy, status model, social layer, deletion workflow, networking subsystem, or release tier until real evidence demonstrates that it is required.

@@ -54,6 +54,18 @@ public enum StartYourOwnPolicy
     SeedOnly = 1
 }
 
+/// <summary>
+/// Lightweight attribution for a World that began as an independent copy of a published snapshot.
+/// It never creates synchronization, ancestry, merge, or ownership semantics between Worlds.
+/// </summary>
+public sealed record WorldProvenance(
+    string SnapshotId,
+    string WorldName,
+    DateTimeOffset SnapshotCreatedAt,
+    string? Creator = null,
+    string? Description = null,
+    string? SourceUrl = null);
+
 public sealed record World(
     WorldId Id,
     string Name,
@@ -89,4 +101,10 @@ public sealed record World(
     /// writing to this World's canonical history.
     /// </summary>
     public StartYourOwnPolicy StartYourOwnPolicy { get; init; } = StartYourOwnPolicy.Disabled;
+
+    /// <summary>
+    /// Optional source attribution for a copied/published World. This is presentation metadata only;
+    /// the local World has its own identity and immutable revision history.
+    /// </summary>
+    public WorldProvenance? StartedFrom { get; init; }
 }

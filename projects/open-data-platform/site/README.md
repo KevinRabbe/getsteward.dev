@@ -35,19 +35,24 @@ The website must never infer sale readiness merely because CI is green or a paym
 
 Launch choice: **Lemon Squeezy first**, with Paddle retained as a fallback.
 
+Before wiring a live checkout, obtain provider-policy confirmation that the exact product is eligible. Lemon Squeezy generally supports digitally fulfilled goods, but its acceptable-use rules also reject products where the merchant lacks the required rights and certain resale-style products. Our product must be described accurately as an independently produced B2B database built from CC0 source data, with paid value in historical capture, semantic changes, quality/provenance, schemas, integrity and packaging—not as a resale of proprietary third-party content.
+
+If Lemon Squeezy declines the product under its own provider policy, evaluate a different Merchant of Record rather than changing the source-rights model or making an inaccurate rights claim.
+
 The initial intended external setup is intentionally small:
 
-1. create and activate the business/store account through the provider's required verification process;
-2. create one product for the `INTERNAL_COMMERCIAL` ROR offer;
-3. use one-time pricing initially;
-4. upload/deliver only the exact commercial artifact permitted by the sale-envelope process;
-5. put the real hosted checkout URL into the site only after the commercial gate above passes.
+1. ask the provider to pre-clear the exact CC0-derived product description;
+2. create and activate the business/store account through the provider's required verification process;
+3. create one product for the `INTERNAL_COMMERCIAL` ROR offer;
+4. use one-time pricing initially;
+5. upload/deliver only the exact commercial artifact permitted by the sale-envelope process;
+6. put the real hosted checkout URL into the site only after the commercial gate above passes.
 
 Do not implement a second billing or download-entitlement system in this repository unless a proven requirement appears.
 
 ## Price
 
-The current GTM hypothesis is to validate a one-time internal-commercial price roughly in the **€490–€990** range against real buyer conversations.
+The current GTM hypothesis is to validate a one-time internal-commercial price roughly in the **€490–€990** range against real buyer conversations, with **€790** as the first conversation anchor.
 
 This range is not a public price commitment. The static site deliberately omits a price until the commercial terms are approved and the hypothesis has enough customer evidence to choose an actual launch price.
 

@@ -222,7 +222,7 @@ internal static partial class SmallandEnvironment
         }
     }
 
-    [GeneratedRegex("^pakchunk[0-9]+-WindowsNoEditor\\.pak$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^pakchunk[0-5]-WindowsNoEditor\\.pak$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex StockPakNameRegex();
 
     [GeneratedRegex("\\\"buildid\\\"\\s+\\\"([^\\\"]+)\\\"", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]

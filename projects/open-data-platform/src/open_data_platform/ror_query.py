@@ -5,7 +5,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from .errors import QueryError
+from .errors import ParseError, QueryError
+from .ror_parser import canonical_ror_id
 from .ror_product import verify_ror_product
 
 
@@ -32,11 +33,10 @@ def lookup_ror(
     *,
     product_root: Path | None = None,
 ) -> dict[str, Any]:
-    value = ror_id.strip()
-    if not value.startswith("https://ror.org/"):
-        value = "https://ror.org/" + value
-    if len(value.rsplit("/", 1)[-1]) != 9:
-        raise QueryError(f"Invalid ROR ID: {ror_id!r}")
+    try:
+        value = canonical_ror_id(ror_id)
+    except ParseError as exc:
+        raise QueryError(str(exc)) from exc
 
     verified = verify_ror_product(data_root, snapshot_id, output_root=product_root)
     database = Path(verified["database_path"])

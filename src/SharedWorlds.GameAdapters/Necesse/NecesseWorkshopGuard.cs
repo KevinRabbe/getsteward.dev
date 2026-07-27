@@ -67,7 +67,7 @@ internal static class NecesseWorkshopGuard
             if (Directory.EnumerateFileSystemEntries(fullRoot).Any())
             {
                 throw new InvalidOperationException(
-                    "Necesse has installed Steam Workshop content whose enabled/load-order state Steward does not currently reproduce. Steward therefore cannot prove this installation is a vanilla-exact environment.");
+                    "Necesse has installed Steam Workshop payload. Steward's current vanilla-only adapter cannot prove this installation is vanilla-exact before relying on Necesse's materialized local mod state; installed Workshop content is not being claimed as active.");
             }
         }
         catch (InvalidOperationException)

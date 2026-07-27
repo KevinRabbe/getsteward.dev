@@ -36,3 +36,7 @@ class QueryError(PlatformError):
 
 class ChangeError(PlatformError):
     """Two verified product states cannot be compared safely."""
+
+
+class SellabilityError(PlatformError):
+    """Commercial sale-readiness evidence is incomplete or inconsistent."""

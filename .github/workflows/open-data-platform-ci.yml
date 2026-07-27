@@ -71,3 +71,36 @@ jobs:
       - name: Diff whitespace check
         working-directory: .
         run: git diff --check
+
+  parquet:
+    name: Parquet / ${{ matrix.os }} / Python 3.11
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    defaults:
+      run:
+        working-directory: projects/open-data-platform
+
+    env:
+      PYTHONPATH: src
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pinned optional Parquet engine
+        run: python -m pip install --disable-pip-version-check pyarrow==25.0.0
+
+      - name: Parquet distribution tests
+        run: python -m unittest discover -s tests -p "test_distributions.py" -v

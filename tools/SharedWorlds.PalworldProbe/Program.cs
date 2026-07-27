@@ -309,6 +309,7 @@ static async Task<bool> RunRestAcceptanceAsync(
         {
             FileName = serverExecutable,
             WorkingDirectory = serverRoot,
+            Arguments = "-NoMods",
             UseShellExecute = false,
             CreateNoWindow = true
         });

@@ -32,3 +32,7 @@ class ReleaseError(PlatformError):
 
 class QueryError(PlatformError):
     """A read-only consumer query cannot be completed safely."""
+
+
+class ChangeError(PlatformError):
+    """Two verified product states cannot be compared safely."""

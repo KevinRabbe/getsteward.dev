@@ -26,6 +26,17 @@ public sealed class GameTechnicalReadinessPresentationTests
     }
 
     [Fact]
+    public void ReadinessSummaryTracksTheActualSelectedGameNotOnlyLibraryClicks()
+    {
+        var source = File.ReadAllText(
+            FindRepositoryFile("src/SharedWorlds.Desktop/MainWindow.GameTechnicalReadiness.cs"));
+
+        Assert.Contains("DependencyPropertyDescriptor.FromProperty", source, StringComparison.Ordinal);
+        Assert.Contains("_selectedGameAdapterId", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("GameLibraryList.SelectionChanged", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TechnicalReadinessVocabularyUsesNeutralResourceFallback()
     {
         var previous = CultureInfo.CurrentUICulture;

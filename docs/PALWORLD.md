@@ -38,7 +38,7 @@ read canonical WorldOption.sav
    - RESTAPIEnabled
    - RESTAPIPort
 -> park canonical WorldOption.sav
--> launch PalServer
+-> launch PalServer -NoMods
 -> authenticate only through localhost
 -> verify active World and effective settings
 -> run session
@@ -51,6 +51,8 @@ read canonical WorldOption.sav
 -> verify hashes and transient-credential absence
 -> allow capture
 ```
+
+`-NoMods` is Pocketpair's native dedicated-server switch that forcibly disables mods. Steward binds that game-owned boundary for managed Host instead of adding a Palworld Workshop inventory, `PalModSettings.ini` parser, mod deployment/synchronization path, or mod capability.
 
 A canonical input is never restored underneath a still-running Palworld process.
 
@@ -141,7 +143,7 @@ PalServer.exe
 
 The Shipping process owns the REST listener. Steward waits for the complete Palworld process tree, not merely the launcher PID.
 
-Core exposes only the game-agnostic managed-host lifecycle. The Palworld adapter owns readiness, save, shutdown, process observation, runtime-input restoration, and abnormal-exit recovery.
+Core exposes only the game-agnostic managed-host lifecycle. The Palworld adapter owns readiness, save, shutdown, process observation, runtime-input restoration, native no-mods launch mode, and abnormal-exit recovery.
 
 An unexpected external/crash exit still restores user-owned runtime inputs after Palworld is gone, but it does not create a normal automatic commit. The workspace remains recovery-pending.
 

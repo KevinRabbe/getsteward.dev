@@ -115,3 +115,40 @@ jobs:
 
       - name: Parquet distribution tests
         run: python -m unittest discover -s tests -p "test_distributions.py" -v
+
+  diagnostic-unittest-log:
+    name: Diagnostic unittest log
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: projects/open-data-platform
+
+    env:
+      PYTHONPATH: src
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Capture offline test output
+        shell: bash
+        run: |
+          set +e
+          python -m unittest discover -s tests -v > unittest.log 2>&1
+          printf '%s\n' "$?" > unittest.exit
+          exit 0
+
+      - name: Upload unittest output
+        uses: actions/upload-artifact@v4
+        with:
+          name: open-data-platform-unittest-diagnostic
+          path: |
+            projects/open-data-platform/unittest.log
+            projects/open-data-platform/unittest.exit
+          if-no-files-found: error

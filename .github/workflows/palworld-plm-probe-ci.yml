@@ -29,6 +29,12 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      - name: Build Palworld probe
+        shell: pwsh
+        run: |
+          dotnet build tools/SharedWorlds.PalworldProbe/SharedWorlds.PalworldProbe.csproj --configuration Release --nologo --verbosity minimal 2>&1 | Tee-Object -FilePath palworld-probe-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test Palworld adapter
         shell: pwsh
         run: |
@@ -40,4 +46,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: palworld-test-log
-          path: palworld-test.log
+          path: |
+            palworld-probe-build.log
+            palworld-test.log

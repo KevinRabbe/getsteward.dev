@@ -209,10 +209,13 @@ Real-machine experiments are batched rather than allowed to block unrelated prod
 
 Current deferred items include:
 
-1. prove the Windows Firewall REST boundary from a genuinely external LAN peer;
-2. run the Palworld-native settings-materialization experiment to determine whether shipped PlM decoding can be eliminated.
+1. prove the documented presentation-only manual Join path from a genuinely separate Internet connection: Steward publishes the Ready host address + native UDP `8211`, and the friend enters that exact endpoint in Palworld's own Join Multiplayer UI;
+2. prove the Windows Firewall REST boundary from a genuinely external LAN peer;
+3. run the Palworld-native settings-materialization experiment to determine whether shipped PlM decoding can be eliminated.
 
-Neither item justifies reopening WorldOption write/encode experiments.
+The exact setups/pass-fail evidence live in `DEFERRED_EMPIRICAL_TESTS.md`; `V2_PALWORLD_MANUAL_JOIN.md` preserves the deterministic manual-direct-connect composition.
+
+None of these items justifies reopening WorldOption write/encode experiments or adding speculative NAT traversal before the measured network result exists.
 
 ## Non-goals
 

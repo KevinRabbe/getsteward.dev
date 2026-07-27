@@ -1,53 +1,117 @@
-# V2 World Lobby
+# World Lobby
+
+Status: **CURRENT PRODUCT CONTRACT — SMALL OPERATIONAL LOBBY, NOT A SOCIAL NETWORK**
 
 ## Product rule
 
 The World itself is the lobby.
 
-Steward does not add a separate party, group, friends graph, chat, voice, matchmaking, or presence system merely to show who shares a World.
+Steward does not add a separate party, friends graph, chat, voice, matchmaking, public discovery, or social-network layer.
 
-The lobby answers one product question:
+The first-release lobby answers exactly three operational questions:
 
-> Who is part of this World?
+1. Who belongs to this World?
+2. Who is currently playing this World through a Steward-observed session?
+3. Who is the current Host?
 
-## Existing authority reused
+Canonical rule:
 
-The canonical World access list remains the membership authority.
+> **World Lobby = World membership + ephemeral current-player presence + authoritative current Host.**
 
-The backend continues to store stable provider/external identity references for World membership and invitations. Friends Build display names are presentation data from the already bounded private identity configuration; they are not copied into World membership persistence.
+Steam and Discord remain the social surfaces around the World. Steward owns only the World-specific operational facts that neither one can derive from Steward's shared-World lifecycle by itself.
 
-For the private Friends Build, an authenticated `friends-build` session may read the configured public identity roster:
+## Authority reused
 
-- provider;
-- stable opaque external ID;
-- display name.
+The lobby deliberately composes existing truths rather than creating a Lobby/Party domain object.
 
-Credential hashes and bootstrap credentials are never part of this response.
+### World group
 
-## Desktop behavior
+The canonical World access list remains membership authority.
 
-For Friends Build shared Worlds:
+- active members appear in the World group;
+- the existing Access Manager is labeled as the administrative access responsibility;
+- revocation-pending membership remains an access-state fact rather than a gameplay role;
+- membership mutations continue through the existing access/invitation API.
 
-- the existing access dialog is presented as the World lobby;
-- members are shown by display name;
-- the Access Manager is marked only as the existing operational access responsibility;
-- inviting uses a dropdown of configured friend names rather than requiring an opaque ID;
-- current members and the caller are removed from the invite choices;
-- remove access, Access Manager transfer, leave, accept, and decline continue to use the existing access API and stable identity references.
+### Current Host
 
-Steam mode keeps its existing SteamID64 invitation path for the later public/commercial release.
+Host truth comes only from the existing reservation-backed Host-presence path.
+
+The lobby may show the Host identity and whether the managed Host is starting/ready, but it does not create another Host flag or infer Host from player presence.
+
+Lobby presentation never receives reservation session/generation/installation identity, Join tokens, or Host network coordinates merely to label the Host.
+
+### Playing now
+
+Non-Host player presence is deliberately short-lived presentation evidence.
+
+Current first-release rule:
+
+```text
+automatic Join launches a real client process
+-> Steward publishes current authenticated member presence
+-> refresh every 15 seconds while Steward observes the client session
+-> client session ends
+-> Steward clears presence
+
+backend visibility TTL = 45 seconds
+```
+
+Only active World members may publish/read presence. Revocation-pending identities are not rendered as currently playing.
+
+If explicit cleanup cannot reach the backend, TTL expiry removes stale presentation state.
+
+Manual/native Join that Steward does not observe does not fake presence. A missing presence row is therefore not authority evidence that a player is definitely absent from the native game session.
+
+## Desktop presentation
+
+The selected shared-World details surface contains a small read-only lobby card:
+
+```text
+WORLD LOBBY
+
+Playing now
+Kevin — HOST
+Alex
+
+World group
+Kevin — Access Manager
+Alex
+Sarah
+```
+
+The existing **Manage access** dialog remains the mutation surface. The lobby card does not duplicate invitation/removal/transfer workflows.
+
+For the private Friends Build, display names come from the already bounded configured identity roster. Stable provider/external IDs remain persistence identity and are not replaced by display names.
+
+Production Steam friend/invite/name presentation remains a separate release-completeness item; Steward must reuse Steam rather than build a friends graph.
+
+## Presence is non-authoritative
+
+Player presence may never:
+
+- acquire, release, reclaim, or extend writable authority;
+- change membership;
+- grant Join permission;
+- decide who is Host;
+- advance or select canonical World state;
+- clear recovery responsibility;
+- become durable presence history.
+
+A presence failure is a presentation failure. It must not terminate an already-running read-only Join session.
 
 ## Deliberately absent
 
-V2 does not add:
+The World Lobby does **not** add:
 
-- online/offline presence;
-- gameplay presence;
-- host-status polling for the lobby;
+- global online/offline presence;
+- gameplay presence outside the selected World;
+- friends or follower relationships;
 - chat or voice;
 - parties;
 - social roles;
-- a friends graph;
-- public discovery or matchmaking.
+- profiles/feed/activity history;
+- public lobby/server discovery;
+- matchmaking.
 
-Those are not needed to make World membership visible and easy to use with Discord as the communication layer.
+Discord remains the communication/social surface. Steam remains the platform identity/friends/invitation surface where useful.

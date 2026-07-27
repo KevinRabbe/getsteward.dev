@@ -1,6 +1,6 @@
 # V4 — Technical Readiness
 
-Status: **FUTURE PRODUCT GOAL — SMALL, DERIVED, NO NEW AUTHORITY**
+Status: **DETERMINISTIC V4 GOAL COMPLETE — SMALL, DERIVED, NO NEW AUTHORITY. V3-E/V3-F REMAIN THE ACTIVE RELEASE GATES.**
 
 ## Goal
 
@@ -8,96 +8,133 @@ Status: **FUTURE PRODUCT GOAL — SMALL, DERIVED, NO NEW AUTHORITY**
 
 V3 remains the active release-evidence stage. V4 does not supersede V3-E/V3-F and must not be used to hide missing real release evidence.
 
-V4 is intentionally small. It turns existing technical truth into clearer product guidance.
+V4 was intentionally kept small. It turns existing technical truth into clearer product guidance without making Steward own another support system.
 
-## Why this adds value
-
-The current platform already knows a surprising amount before a game is launched:
-
-- whether the game installation exists;
-- whether required dedicated-server tooling exists;
-- exact game/build identity where supported;
-- known mod/environment compatibility;
-- whether a World is technically reproducible;
-- which actions the adapter actually advertises;
-- whether the current World/device/environment blocks an otherwise supported action;
-- whether an unavailable action is simply outside the adapter's proven slice.
-
-Without a clear projection of that information, a user can interpret a disabled action as something they should experiment with manually.
-
-V4 should make the existing answer explicit instead.
-
-## Product rule
+## Completed V4 shape
 
 ```text
-existing adapter capabilities
-+ installation discovery
-+ current environment verification
-+ existing World/responsibility state
--> read-only technical readiness explanation
+current adapter capability truth
++ canonical engineering evidence map
+-> small read-only selected-game technical summary
 ```
 
-No new domain state is created.
+No new domain state, backend API, persistence schema, support taxonomy, polling service, or game-specific Desktop branching exists.
 
-## V4-A — Game technical readiness summary
+### V4-A — selected-game technical readiness summary — DONE
 
-Add one small read-only summary to the selected-game/workspace experience.
+Qualified PR #160 adds one small read-only line beneath the selected-game heading.
 
-The summary should answer only useful questions such as:
+It derives directly from `IGameAdapter.Capabilities` and says:
 
 ```text
-Installed                         Yes / No
-Managed Worlds                    <existing count>
-Import                            Available / limitation
-Start World                       Available / unsupported / blocked reason
-Host World                        Available / unsupported / missing server tool / blocked reason
-Join                              Available when a Host is Ready / unsupported
-Stop and Save                     Available / unsupported
-Create World                      Available / unsupported
-Environment                       Ready / exact mismatch / unsupported modded environment
+World state/import supported
++ currently advertised managed actions
 ```
 
-The exact presentation can be smaller than this list. The implementation should reuse existing labels/results where possible rather than creating a dashboard framework.
+Examples:
 
-### Important distinction
+```text
+Factorio
+World state/import supported • Adapter supports: Start World, Host World, Join, Create World
+```
 
-The UI must distinguish:
+```text
+Terraria
+World state/import supported • No managed play actions yet
+```
 
-- **unsupported by the currently proven adapter slice**;
-- **supported, but unavailable on this device/World right now**;
-- **requires a real release/network proof before Steward may advertise it more broadly**.
+The summary deliberately does **not** try to duplicate World/device-specific readiness. Existing World details already own:
 
-It must not imply that an empirical release gate can be solved by clicking Retry.
+- exact environment verification;
+- Start/Host enabled state and reasons;
+- hosting-device preference;
+- Join capability/readiness;
+- recovery/responsibility state.
 
-## V4-B — Explain negative installation evidence
+That separation avoids a second capability engine.
 
-When an action requires native tooling that is not installed, that absence is already useful evidence.
+Exact qualified V4-A head:
 
-Example:
+> `c93e3606e7990bed1fb8cdec68575e706ac2f1ec`
+
+All five top-level workflow groups passed on that exact head.
+
+### V4-B — negative prerequisite explanation — NOT A REQUIRED SUBSYSTEM
+
+The original V4 sketch considered a generic game-level explanation such as:
 
 ```text
 Palworld Dedicated Server not installed
 -> this device cannot Host through Steward's Palworld dedicated-server path
 ```
 
-Steward should say that directly when the existing adapter discovery can already prove it.
+The implementation audit found an important boundary: `IGameAdapter` exposes capability truth and installation discovery, but it does not expose one universal structured model for every game-specific native prerequisite.
 
-Do not add:
+Creating a new cross-game prerequisite schema merely to enrich this summary would violate the V4 constraint.
+
+Therefore V4 does **not** add:
 
 - generic host-eligibility scoring;
-- background server-tool installers;
-- automatic SteamCMD ownership;
-- a new machine-capability database.
+- a machine-capability database;
+- a prerequisite taxonomy;
+- server-tool installers;
+- SteamCMD ownership;
+- another readiness cache.
 
-A missing prerequisite is an explanation, not a new subsystem.
+When an existing adapter/environment/action result already has a concrete negative reason, Steward may present that reason at the surface that owns it. A future adapter may expose a stronger generic prerequisite only if real product evidence proves that the contract is genuinely universal.
 
-## V4-C — Technical evidence map stays canonical
+A missing prerequisite is useful negative evidence, but it is not automatically a reason to create a new subsystem.
+
+## Canonical technical evidence map — DONE
 
 `GAME_TECHNICAL_READINESS.md` records the engineering evidence boundary for every registered first-party adapter.
 
-When a game gains a deeper capability, update that map in the same slice.
+The map was checked against the current adapter declarations after V4 planning:
+
+- Factorio advertises Mods + Start + Host + automatic Join + ExactGameVersion + native Create; no Host Stop.
+- Palworld advertises Host + Host Stop + ExactGameVersion; no automatic Join.
+- 7 Days to Die advertises Mods + ExactGameVersion; runtime actions remain frozen.
+- Project Zomboid advertises Mods + ExactGameVersion + ExactModVersions; runtime actions remain frozen.
+- all fifteen remaining registered adapters advertise `ExactGameVersion` only while implementing concrete discovery/environment/capture/restore behavior.
+
+That distinction is intentional:
+
+```text
+state/import/environment support
+!=
+runtime action support
+```
+
+When a game gains a deeper capability, update the technical evidence map in the same slice.
 
 The map is documentation/evidence authority only. Product behavior still comes from executable adapter contracts.
+
+## Manual-test reduction
+
+V4 formalizes this rule:
+
+```text
+native/platform fact already establishes the boundary
+-> encode/test it deterministically
+-> do not ask a human to rediscover it
+
+real process/network/game behavior remains unknown
+-> record the exact empirical question
+-> freeze only the dependent capability
+-> test that boundary later
+```
+
+For the fifteen state-only adapters, no gameplay launch is required merely to re-prove the current advertised state/import/environment slice.
+
+Real game execution becomes relevant when Steward wants to claim behavior that inherently depends on real execution, for example:
+
+- process/bootstrap ownership;
+- server readiness;
+- safe native shutdown;
+- final authoritative save completion;
+- automatic client Join;
+- Internet/NAT/firewall reachability;
+- cross-device continuation.
 
 ## Deliberate non-goals
 
@@ -112,13 +149,8 @@ V4 does **not** add:
 - speculative NAT traversal;
 - telemetry merely to populate a readiness page;
 - runtime tests for state-only adapters that do not claim runtime actions;
-- broad per-game settings editors.
-
-## Implementation constraint
-
-The first implementation should be possible entirely as a projection over data Steward already owns.
-
-If adding V4-A requires a new persistence schema, new authority state, a polling service, or a second capability model, the design is too large and should be reduced.
+- broad per-game settings editors;
+- a generic prerequisite/host-eligibility model.
 
 ## Evidence discipline
 
@@ -135,27 +167,37 @@ unknown real boundary
 
 Examples:
 
-- exact missing dedicated-server installation: known;
 - adapter does not advertise automatic Join: known;
 - current exact environment mismatch: known when verification reports it;
+- missing native tooling discovered by the owning adapter: useful negative evidence at that boundary;
 - whether a friend's router passes the game's UDP traffic: not knowable until the real network boundary is exercised.
 
-## Definition of done
+## Definition of done — SATISFIED
 
-V4 is complete when:
+V4 is complete at its intentionally small boundary because:
 
-1. the technical evidence map is canonical for the registered adapter set;
-2. the selected-game experience can explain useful action availability from existing truth without a second state model;
-3. missing native prerequisites can be presented as concrete negative evidence where adapters already expose them;
-4. unsupported actions remain capability-driven and are never promoted by presentation logic;
-5. no new generic platform/backend authority is introduced;
-6. documentation and deterministic tests prevent the readiness projection from drifting from the existing capability/environment owners.
+1. the technical evidence map is canonical for the 19 registered adapters;
+2. the selected-game workspace explains existing managed action depth without a second state model;
+3. unsupported actions remain capability-driven and are never promoted by presentation logic;
+4. the presentation contains no game-name branching and performs no duplicate environment/install probing;
+5. no new generic platform/backend authority was introduced;
+6. focused deterministic tests protect the projection boundary;
+7. the implementation passed the full five-workflow qualification matrix.
 
-## Priority
+Anything beyond this must earn its own product/evidence justification rather than being treated as unfinished V4 work.
 
-V4 is deliberately lower priority than completing V3 release evidence.
+## Priority after V4
 
-It is a good independent deterministic slice when real V3-E/V3-F work is blocked on external setup because it adds user/support value without changing World authority or game lifecycle behavior.
+V4 does not create a new active feature phase.
+
+The active sequence remains:
+
+```text
+V3-E real Windows evidence
+-> smallest evidence-driven correction if needed
+-> V3-F real Steam/provider/game acceptance
+-> measurement-driven changes only when real evidence justifies them
+```
 
 ## Final rule
 

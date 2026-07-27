@@ -1,6 +1,6 @@
 # Game Technical Readiness
 
-Status: **CURRENT TECHNICAL EVIDENCE MAP — 19 REGISTERED FIRST-PARTY ADAPTERS; CAPABILITY SHAPE RECHECKED AGAINST CURRENT CODE DURING V4**
+Status: **CURRENT TECHNICAL EVIDENCE MAP — 19 REGISTERED FIRST-PARTY ADAPTERS; CAPABILITY AND STATE-OWNERSHIP BOUNDARIES RECHECKED DURING V4**
 
 ## Purpose
 
@@ -62,7 +62,7 @@ Real game execution is needed only when the claim itself is about execution: pro
 | **Conan Exiles Enhanced** | Current single-player/co-op slot SQLite database `game_0.db`..`game_9.db`; WAL/SHM/journal sidecars make capture unsafe and are refused. | Steam-manifest-derived install identity, exact build, active `modlist.txt` refusal. | Import/state + exact game version. | None required for the current idle-database slice. Live-database/runtime support would need separate evidence. |
 | **Raft** | Current `World/<name>/<name>.rgd`; backup/history members and separate Player tree excluded. | Exact Steam build; known Raft mod-loader surfaces cause refusal. | Import/state + exact game version. | None required for the current claimed slice. |
 | **ICARUS** | One current Prospect `.json` under canonical SteamID64 profile; rolling backups and character/account/meta-inventory state excluded. | Exact Steam build; active Paks mods cause refusal. | Import/state + exact game version. | None required for the current claimed slice. |
-| **Smalland** | Direct `Worlds/<World>.wld`; player and map-annotation persistence excluded. | Exact Steam build; extra/linked gameplay Paks cause vanilla-exact refusal. | Import/state + exact game version. | None required for the current claimed slice. |
+| **Smalland** | Direct `Worlds/<World>.wld`; separate `Players/*.plr` character state and root map-annotation `.sav` state are excluded. Personal Great Tree bases/tames are player-owned and portable between Worlds rather than canonical World state. | Exact Steam build; extra/linked gameplay Paks cause vanilla-exact refusal. | Import/state + exact game version. | None required for the current claimed slice. |
 | **Abiotic Factor** | Complete `Worlds/<World>/` subtree, including World-owned nested multiplayer `PlayerData` and sandbox settings; profile-level state above `Worlds` excluded. | Exact Steam build; UE4SS loader surface causes refusal. | Import/state + exact game version. | None required for the current claimed slice. |
 | **V Rising** | Non-cloud v4 session: latest native autosave generation + World/session metadata; older recovery generations and `ServerHostSettings.json` excluded. | Exact Steam build; BepInEx surface causes refusal. | Import/state + exact game version. | None required for the current claimed slice. Cloud/dedicated lifecycle remains outside it. |
 | **Space Engineers** | Complete direct SteamID64-profile World directory requiring native core World files; top-level native `Backup` history excluded. | Exact Steam build; bounded native config proves vanilla/no enabled mods or fails closed. | Import/state + exact game version. | None required for the current claimed slice. Dedicated/runtime/mod depth is separate. |
@@ -124,6 +124,31 @@ find the supported native World
 That contract can be qualified without pretending that a game session occurred.
 
 A manual launch of each game would only become necessary when Steward wants to claim a deeper action such as Start, Host, Stop or Join.
+
+### Player-owned state is not missing World state
+
+Some games deliberately separate portable/player-owned progression from the World.
+
+Smalland makes that boundary especially visible:
+
+```text
+Worlds/<World>.wld
+-> canonical World/open-world state for Steward's current slice
+
+Players/*.plr
+-> character-owned state
+-> personal Great Tree base + associated portable tames
+-> can travel with that player between Worlds
+
+root map-annotation .sav
+-> separate player/map presentation state
+```
+
+Steward therefore must **not** pull the player file into the canonical Smalland World merely because a personal Great Tree base appears while that player is present. Doing so would mix player identity/progression into shared World authority.
+
+A future feature that deliberately transfers player-owned progression would need its own product/identity boundary. It is not missing state from the current World adapter and does not justify a gameplay test of the `.wld` capture contract.
+
+The same ownership discipline already applies in other adapters that deliberately exclude character/account/map/meta-inventory state.
 
 ### The first four have real runtime questions because they claim or are preparing runtime depth
 

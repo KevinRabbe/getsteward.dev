@@ -94,6 +94,88 @@ The earlier V3 sandbox-authority experiment is retired. Current V3 game document
 
 **Promotion rule:** First turn the observed readiness/raw-shutdown/final-save trace into the smallest bounded local control/lifecycle implementation with regression tests. Then repeat this real scenario through Steward. Only after that second proof may 7DTD promote automatic Host/Stop. Join remains a separate capability proof.
 
+## Palworld — native Join, REST exposure, and decoder-elimination boundary
+
+**Frozen product state:** Palworld advertises automatic Host + Host Stop + exact game version. It does not advertise `AutomaticClientJoin`. `IManualDirectConnectProvider` is presentation-only: Steward publishes the Ready host address + native UDP game port `8211`, and the friend enters that endpoint in Palworld's own Join Multiplayer UI.
+
+The managed Host/save/shutdown/capture lifecycle itself already has real-machine evidence. `WorldOption.sav` remains canonical read-only input; Steward has no writer/compressor path.
+
+**Already deterministic/empirically proven:**
+
+- Client and dedicated-server installation discovery and exact dedicated-server build verification.
+- Managed Host owns a dedicated Palworld server session and publishes only native game endpoint `8211` as Join material; REST/admin control is never published.
+- Host presence composition reaches `Starting` then `Ready` and clears before capture/commit.
+- The Desktop can present the exact Ready `IP:8211` through the native manual-direct-connect contract without pretending Steward owns a client session.
+- Real managed-host evidence already proves authenticated localhost REST info/settings, `POST /save`, `POST /shutdown`, full Palworld process-tree exit, byte-exact restoration of user-owned runtime inputs, and the final capture boundary.
+- Production PlM handling is read-only decompression only. Oodle lookup is restricted to usable regular runtime files already installed beneath discovered Palworld roots; Steward does not download/copy/redistribute Oodle.
+
+**Empirical questions:**
+
+1. On two normal Windows PCs on separate real Internet connections, can PC B reach PC A's exact managed Palworld server through the published address + UDP `8211` and enter the intended World through Palworld's native Join Multiplayer UI?
+2. Palworld's REST listener has been observed binding to `0.0.0.0`. Under the intended release/Windows Firewall environment, can a genuinely external LAN peer reach the ephemeral REST management port, or is the host-local management boundary effectively blocked as intended?
+3. Can Palworld itself materialize every non-management effective `WorldOption.sav` setting into a disposable game-written `PalWorldSettings.ini`, allowing the shipped PlM/Oodle decode dependency to be deleted entirely?
+
+**Two-network Join setup:**
+
+- Exact qualified Steward build on PC A and PC B on separate real Internet connections.
+- Real HTTPS backend using the intended deployment/proxy topology.
+- Matching Palworld client environment on B and required Palworld Dedicated Server installation/build on A.
+- One shared Palworld World with both identities authorized.
+- Use the current managed Host path unchanged; do not manually edit presence or substitute another public-IP service.
+- First try the host router/firewall as-is. If UDP `8211` is unreachable, record the failure boundary before changing anything; only then may one ordinary native-port router/firewall prerequisite be tested to distinguish configuration from missing Steward functionality.
+
+**Two-network Join acceptance evidence:**
+
+```text
+PC A Host
+-> backend presence becomes Starting then Ready
+-> Ready exposes host-observed address + UDP 8211
+-> PC B sees the same endpoint in Steward
+-> PC B enters it in Palworld Join Multiplayer
+-> PC B reaches the exact managed dedicated server / intended World
+-> PC A Stop and Save
+-> host presence disappears before capture/commit
+-> captured World remains valid for the next session
+```
+
+Record whether Windows Firewall/router configuration was already sufficient and the exact boundary at which a failure occurs. Do not add `steam://connect`, UI automation, public-IP lookup, forwarded-header broadening, UPnP, STUN, relay, or generic NAT traversal before this proof demonstrates a concrete missing mechanism.
+
+**REST exposure setup/evidence:**
+
+- During a disposable managed Host session, record the ephemeral REST port selected by Steward without exposing the transient admin credential.
+- From the host itself, prove Steward's existing localhost-authenticated REST lifecycle still works.
+- From a second machine on the same reachable LAN, attempt only the minimum connection needed to determine whether the REST listener is externally reachable through Windows Firewall.
+- Record listener binding, Windows Firewall behavior, and whether an external peer can reach the port at all.
+- If the external peer is blocked, keep the current host-local management assumption and no extra firewall subsystem is needed.
+- If it is reachable, treat that as measured security evidence and implement only the smallest owning mitigation before release; do not redesign the World lifecycle.
+
+**Settings-materialization setup/evidence:**
+
+Use the already-defined disposable acceptance probe shape from historical PR #3 rather than modifying production state:
+
+```text
+clone selected dedicated World to disposable World ID
+-> redirect GameUserSettings.ini only to the clone
+-> leave cloned WorldOption.sav byte-exact/intact
+-> launch PalServer without Steward REST management
+-> observe normal Shipping-process startup
+-> request disposable process-group shutdown
+-> wait for full Palworld process tree exit
+-> capture game-written PalWorldSettings.ini
+-> compare every non-management setting semantically against the read-only decoder oracle
+-> restore exact original configuration only after Palworld exits
+-> delete disposable World
+-> prove canonical selected WorldOption.sav hash never changed
+```
+
+Exclude only Steward's known transient management overrides (`AdminPassword`, `RESTAPIEnabled`, `RESTAPIPort`) from the semantic equivalence requirement. Forced cleanup makes the translator proof fail.
+
+**Promotion/elimination rule:**
+
+- Passing the two-network proof validates the current manual native direct-connect release path; it does **not** add `AutomaticClientJoin` because Steward still does not own the client lifecycle.
+- Resolve any demonstrated external REST exposure at the smallest owning Windows/game boundary before relying on host-local management isolation for release.
+- If settings materialization proves semantic equivalence, delete the shipped PlM/Oodle production decoder/lookup path rather than preserving it. If it fails, keep the read-only decoder and prove a usable ordinary-user Palworld Oodle runtime path during V3-F instead of inventing a writer/compressor.
+
 ## Factorio Friends Build — direct Internet Host/Join reachability
 
 **Frozen product state:** CI may prove the managed Host -> short-lived host-presence -> existing direct Join composition, but Steward does **not** claim that a friend on another real network can reach the host's Factorio UDP endpoint until this test passes.

@@ -27,6 +27,8 @@ data/analytics/*
 !data/analytics/.gitkeep
 data/commercial/*
 !data/commercial/.gitkeep
+data/sale-envelopes/*
+!data/sale-envelopes/.gitkeep
 data/logs/*
 !data/logs/.gitkeep
 data/metrics/*

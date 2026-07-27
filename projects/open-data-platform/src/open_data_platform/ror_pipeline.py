@@ -4,6 +4,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable, TypeVar
 
+from .analytics import build_quality_profile
 from .events import append_event
 from .production import data_footprint_bytes, persist_pipeline_metrics
 from .ror_parser import parse_ror_snapshot
@@ -34,6 +35,7 @@ def run_ror_pipeline(
     normalized_root: Path | None = None,
     product_root: Path | None = None,
     release_root: Path | None = None,
+    analytics_root: Path | None = None,
 ) -> dict[str, Any]:
     with pipeline_lock(data_root) as lock_metadata:
         event_log = data_root / "events" / "events.jsonl"
@@ -89,6 +91,17 @@ def run_ror_pipeline(
                     event_log=event_log,
                 ),
             )
+            analytics = _timed(
+                stage_seconds,
+                "analytics",
+                lambda: build_quality_profile(
+                    data_root,
+                    snapshot_id,
+                    product_root=product_root,
+                    normalized_root=normalized_root,
+                    output_root=analytics_root,
+                ),
+            )
             result = {
                 "status": "COMPLETED",
                 "snapshot_id": snapshot_id,
@@ -96,6 +109,7 @@ def run_ror_pipeline(
                 "parse": parsed,
                 "product": product,
                 "release": release,
+                "analytics": analytics,
             }
             metrics = persist_pipeline_metrics(
                 data_root=data_root,
@@ -117,6 +131,7 @@ def run_ror_pipeline(
                     "run_id": run_id,
                     "snapshot_id": snapshot_id,
                     "metrics_path": metrics["metrics_path"],
+                    "analytics_status": analytics["status"],
                 },
             )
             return result

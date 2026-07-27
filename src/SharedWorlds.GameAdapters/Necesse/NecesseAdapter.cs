@@ -435,6 +435,7 @@ internal static partial class NecesseEnvironment
         }
 
         var fullModsRoot = Path.GetFullPath(modsRoot);
+        NecesseWorkshopGuard.RequireNoAmbiguousWorkshopContent(installation);
         if (!Directory.Exists(fullModsRoot))
         {
             return;

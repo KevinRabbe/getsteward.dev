@@ -20,10 +20,14 @@ public sealed class GamesLibraryNavigationTests
         var backToGames = FindNamedElement(document, "BackToGamesButton");
 
         Assert.Equal("2", (string?)gamesLibrary.Attribute("Grid.ColumnSpan"));
-        Assert.Equal("Games Library", (string?)gameList.Attribute("AutomationProperties.Name"));
+        Assert.Equal(
+            "{x:Static local:DesktopText.GamesLibrary}",
+            (string?)gameList.Attribute("AutomationProperties.Name"));
         Assert.Equal("Collapsed", (string?)worldSidebar.Attribute("Visibility"));
         Assert.Equal("Collapsed", (string?)worldDetails.Attribute("Visibility"));
-        Assert.Equal("← Games", (string?)backToGames.Attribute("Content"));
+        Assert.Equal(
+            "{x:Static local:DesktopText.BackToGames}",
+            (string?)backToGames.Attribute("Content"));
     }
 
     [Fact]

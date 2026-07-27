@@ -38,13 +38,13 @@ public partial class MainWindow
             VerticalAlignment = VerticalAlignment.Top,
             ItemsSource = new[]
             {
-                "Name A–Z",
-                "Name Z–A"
+                DesktopText.SortNameAscending,
+                DesktopText.SortNameDescending
             },
             SelectedIndex = 0,
             ToolTip = "Sort managed Worlds in this game by name."
         };
-        AutomationProperties.SetName(sort, "Sort Worlds");
+        AutomationProperties.SetName(sort, DesktopText.SortWorlds);
         AutomationProperties.SetHelpText(sort, "Choose ascending or descending World-name order.");
         sort.SetResourceReference(Control.BackgroundProperty, "PanelAltBrush");
         sort.SetResourceReference(Control.ForegroundProperty, "TextBrush");
@@ -117,13 +117,13 @@ public partial class MainWindow
 
         var settingsButton = new Button
         {
-            Content = "Settings",
+            Content = DesktopText.Settings,
             Padding = new Thickness(12, 6, 12, 6),
             MinHeight = 32,
             VerticalAlignment = VerticalAlignment.Center
         };
         DockPanel.SetDock(settingsButton, Dock.Right);
-        AutomationProperties.SetName(settingsButton, "Settings");
+        AutomationProperties.SetName(settingsButton, DesktopText.Settings);
         AutomationProperties.SetHelpText(settingsButton, "Open Steward settings for this device.");
         header.Children.Add(settingsButton);
 
@@ -151,23 +151,23 @@ public partial class MainWindow
 
         var backButton = new Button
         {
-            Content = "← Back",
+            Content = DesktopText.Back,
             Padding = new Thickness(10, 5, 10, 5),
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(0, 0, 0, 18)
         };
-        AutomationProperties.SetName(backButton, "Back from Settings");
+        AutomationProperties.SetName(backButton, DesktopText.Back);
         content.Children.Add(backButton);
         content.Children.Add(new TextBlock
         {
-            Text = "Settings",
+            Text = DesktopText.Settings,
             FontSize = 30,
             FontWeight = FontWeights.SemiBold
         });
 
         var description = new TextBlock
         {
-            Text = "Device-wide Steward preferences. World-specific rules remain with each World.",
+            Text = DesktopText.SettingsDescription,
             Margin = new Thickness(0, 6, 0, 22),
             TextWrapping = TextWrapping.Wrap,
             FontSize = 13
@@ -186,7 +186,7 @@ public partial class MainWindow
             if (existingSettings is not null)
             {
                 sidebarGrid.Children.Remove(existingSettings);
-                existingSettings.Header = "Hosting on this device";
+                existingSettings.Header = DesktopText.HostingOnThisDevice;
                 existingSettings.IsExpanded = true;
                 existingSettings.Margin = new Thickness(0);
                 content.Children.Add(existingSettings);

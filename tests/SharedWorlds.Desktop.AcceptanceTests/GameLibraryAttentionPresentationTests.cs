@@ -18,12 +18,12 @@ public sealed class GameLibraryAttentionPresentationTests
         Assert.Contains("WorldLifecycleResponsibilityKind.RecoveryNeeded", source, StringComparison.Ordinal);
         Assert.Contains("WorldLifecycleResponsibilityKind.CleanupPending", source, StringComparison.Ordinal);
 
-        Assert.Contains("\"Preparing\"", source, StringComparison.Ordinal);
-        Assert.Contains("\"Running\"", source, StringComparison.Ordinal);
-        Assert.Contains("\"Hosting\"", source, StringComparison.Ordinal);
-        Assert.Contains("\"Saving World\"", source, StringComparison.Ordinal);
-        Assert.Contains("\"Recovery needed\"", source, StringComparison.Ordinal);
-        Assert.Contains("\"Action required\"", source, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.Preparing", source, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.Running", source, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.Hosting", source, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.SavingWorld", source, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.RecoveryNeeded", source, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.ActionRequired", source, StringComparison.Ordinal);
 
         Assert.DoesNotContain("Dictionary<WorldId", source, StringComparison.Ordinal);
         Assert.DoesNotContain("ConcurrentDictionary", source, StringComparison.Ordinal);

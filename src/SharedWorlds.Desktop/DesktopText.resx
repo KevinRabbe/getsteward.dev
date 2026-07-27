@@ -1,156 +1,84 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
-  <resheader name="resmimetype">
-    <value>text/microsoft-resx</value>
-  </resheader>
-  <resheader name="version">
-    <value>2.0</value>
-  </resheader>
-  <resheader name="reader">
-    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
-  </resheader>
-  <resheader name="writer">
-    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
-  </resheader>
-  <data name="Tagline" xml:space="preserve">
-    <value>Click World. Play.</value>
-  </data>
-  <data name="Games" xml:space="preserve">
-    <value>Games</value>
-  </data>
-  <data name="DeviceSettings" xml:space="preserve">
-    <value>Device settings</value>
-  </data>
-  <data name="AllowDeviceHosting" xml:space="preserve">
-    <value>Allow this device to host</value>
-  </data>
-  <data name="HostingDisabledOnDevice" xml:space="preserve">
-    <value>Hosting is disabled on this device.</value>
-  </data>
-  <data name="HostingAllowedOnDevice" xml:space="preserve">
-    <value>This device may host Worlds.</value>
-  </data>
-  <data name="SelectWorld" xml:space="preserve">
-    <value>Select a World.</value>
-  </data>
-  <data name="Play" xml:space="preserve">
-    <value>Play</value>
-  </data>
-  <data name="WorldSettings" xml:space="preserve">
-    <value>World settings</value>
-  </data>
-  <data name="KeepExactGameVersion" xml:space="preserve">
-    <value>Keep this World on this exact game version</value>
-  </data>
-  <data name="EnvironmentReadiness" xml:space="preserve">
-    <value>Environment readiness</value>
-  </data>
-  <data name="NotCheckedYet" xml:space="preserve">
-    <value>Not checked yet.</value>
-  </data>
-  <data name="TechnicalDetails" xml:space="preserve">
-    <value>Technical details</value>
-  </data>
-  <data name="WorldIdLabel" xml:space="preserve">
-    <value>World ID</value>
-  </data>
-  <data name="EnvironmentLabel" xml:space="preserve">
-    <value>Environment</value>
-  </data>
-  <data name="StateLabel" xml:space="preserve">
-    <value>State</value>
-  </data>
-  <data name="Ready" xml:space="preserve">
-    <value>Ready</value>
-  </data>
-  <data name="OnlyOnThisPc" xml:space="preserve">
-    <value>Only on this PC</value>
-  </data>
-  <data name="Shared" xml:space="preserve">
-    <value>Shared</value>
-  </data>
-  <data name="Import" xml:space="preserve">
-    <value>Import</value>
-  </data>
-  <data name="Refresh" xml:space="preserve">
-    <value>Refresh</value>
-  </data>
-  <data name="Invites" xml:space="preserve">
-    <value>Invites</value>
-  </data>
-  <data name="SharedWorldInvitations" xml:space="preserve">
-    <value>Shared World invitations</value>
-  </data>
-  <data name="BackToWorlds" xml:space="preserve">
-    <value>Back to Worlds</value>
-  </data>
-  <data name="StartWorld" xml:space="preserve">
-    <value>Start World</value>
-  </data>
-  <data name="HostWorld" xml:space="preserve">
-    <value>Host World</value>
-  </data>
-  <data name="Join" xml:space="preserve">
-    <value>Join</value>
-  </data>
-  <data name="ShareWorld" xml:space="preserve">
-    <value>Share World</value>
-  </data>
-  <data name="ManageAccess" xml:space="preserve">
-    <value>Manage access</value>
-  </data>
-  <data name="StopAndSave" xml:space="preserve">
-    <value>Stop and Save</value>
-  </data>
-  <data name="RetryConnection" xml:space="preserve">
-    <value>Retry connection</value>
-  </data>
-  <data name="RetrySharing" xml:space="preserve">
-    <value>Retry sharing</value>
-  </data>
-  <data name="RetryRecovery" xml:space="preserve">
-    <value>Retry recovery</value>
-  </data>
-  <data name="ExportRecoveryCopy" xml:space="preserve">
-    <value>Export recovery copy</value>
-  </data>
-  <data name="ContinueFromLastSafeState" xml:space="preserve">
-    <value>Continue from last safe state</value>
-  </data>
-  <data name="RetryCleanup" xml:space="preserve">
-    <value>Retry cleanup</value>
-  </data>
-  <data name="Accept" xml:space="preserve">
-    <value>Accept</value>
-  </data>
-  <data name="Decline" xml:space="preserve">
-    <value>Decline</value>
-  </data>
-  <data name="Invite" xml:space="preserve">
-    <value>Invite</value>
-  </data>
-  <data name="RemoveAccess" xml:space="preserve">
-    <value>Remove access</value>
-  </data>
-  <data name="MakeAccessManager" xml:space="preserve">
-    <value>Make Access Manager</value>
-  </data>
-  <data name="LeaveWorld" xml:space="preserve">
-    <value>Leave World</value>
-  </data>
-  <data name="Close" xml:space="preserve">
-    <value>Close</value>
-  </data>
-  <data name="VerifyEnvironment" xml:space="preserve">
-    <value>Verify Environment</value>
-  </data>
-  <data name="Repair" xml:space="preserve">
-    <value>Repair</value>
-  </data>
-  <data name="OpenSteward" xml:space="preserve">
-    <value>Open Steward</value>
-  </data>
-  <data name="QuitSteward" xml:space="preserve">
-    <value>Quit Steward</value>
-  </data>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="Tagline" xml:space="preserve"><value>Click World. Play.</value></data>
+  <data name="Games" xml:space="preserve"><value>Games</value></data>
+  <data name="GamesLibrary" xml:space="preserve"><value>Games Library</value></data>
+  <data name="GamesLibraryDescription" xml:space="preserve"><value>Choose a game to see its managed Worlds.</value></data>
+  <data name="BackToGames" xml:space="preserve"><value>← Games</value></data>
+  <data name="Worlds" xml:space="preserve"><value>Worlds</value></data>
+  <data name="Settings" xml:space="preserve"><value>Settings</value></data>
+  <data name="Back" xml:space="preserve"><value>← Back</value></data>
+  <data name="SettingsDescription" xml:space="preserve"><value>Device-wide Steward preferences. World-specific rules remain with each World.</value></data>
+  <data name="DeviceSettings" xml:space="preserve"><value>Device settings</value></data>
+  <data name="HostingOnThisDevice" xml:space="preserve"><value>Hosting on this device</value></data>
+  <data name="AllowDeviceHosting" xml:space="preserve"><value>Allow this device to host</value></data>
+  <data name="HostingDisabledOnDevice" xml:space="preserve"><value>Hosting is disabled on this device.</value></data>
+  <data name="HostingAllowedOnDevice" xml:space="preserve"><value>This device may host Worlds.</value></data>
+  <data name="SearchWorlds" xml:space="preserve"><value>Search Worlds</value></data>
+  <data name="SortWorlds" xml:space="preserve"><value>Sort Worlds</value></data>
+  <data name="SortNameAscending" xml:space="preserve"><value>Name A–Z</value></data>
+  <data name="SortNameDescending" xml:space="preserve"><value>Name Z–A</value></data>
+  <data name="SelectWorld" xml:space="preserve"><value>Select a World.</value></data>
+  <data name="Play" xml:space="preserve"><value>Play</value></data>
+  <data name="WorldSettings" xml:space="preserve"><value>World settings</value></data>
+  <data name="KeepExactGameVersion" xml:space="preserve"><value>Keep this World on this exact game version</value></data>
+  <data name="EnvironmentReadiness" xml:space="preserve"><value>Environment readiness</value></data>
+  <data name="NotCheckedYet" xml:space="preserve"><value>Not checked yet.</value></data>
+  <data name="TechnicalDetails" xml:space="preserve"><value>Technical details</value></data>
+  <data name="WorldIdLabel" xml:space="preserve"><value>World ID</value></data>
+  <data name="EnvironmentLabel" xml:space="preserve"><value>Environment</value></data>
+  <data name="StateLabel" xml:space="preserve"><value>State</value></data>
+  <data name="Ready" xml:space="preserve"><value>Ready</value></data>
+  <data name="OnlyOnThisPc" xml:space="preserve"><value>Only on this PC</value></data>
+  <data name="Shared" xml:space="preserve"><value>Shared</value></data>
+  <data name="Import" xml:space="preserve"><value>Import</value></data>
+  <data name="Refresh" xml:space="preserve"><value>Refresh</value></data>
+  <data name="Invites" xml:space="preserve"><value>Invites</value></data>
+  <data name="SharedWorldInvitations" xml:space="preserve"><value>Shared World invitations</value></data>
+  <data name="BackToWorlds" xml:space="preserve"><value>Back to Worlds</value></data>
+  <data name="StartWorld" xml:space="preserve"><value>Start World</value></data>
+  <data name="HostWorld" xml:space="preserve"><value>Host World</value></data>
+  <data name="Join" xml:space="preserve"><value>Join</value></data>
+  <data name="ShareWorld" xml:space="preserve"><value>Share World</value></data>
+  <data name="ManageAccess" xml:space="preserve"><value>Manage access</value></data>
+  <data name="StopAndSave" xml:space="preserve"><value>Stop and Save</value></data>
+  <data name="RetryConnection" xml:space="preserve"><value>Retry connection</value></data>
+  <data name="RetrySharing" xml:space="preserve"><value>Retry sharing</value></data>
+  <data name="RetryRecovery" xml:space="preserve"><value>Retry recovery</value></data>
+  <data name="ExportRecoveryCopy" xml:space="preserve"><value>Export recovery copy</value></data>
+  <data name="ContinueFromLastSafeState" xml:space="preserve"><value>Continue from last safe state</value></data>
+  <data name="RetryCleanup" xml:space="preserve"><value>Retry cleanup</value></data>
+  <data name="Accept" xml:space="preserve"><value>Accept</value></data>
+  <data name="Decline" xml:space="preserve"><value>Decline</value></data>
+  <data name="Invite" xml:space="preserve"><value>Invite</value></data>
+  <data name="RemoveAccess" xml:space="preserve"><value>Remove access</value></data>
+  <data name="MakeAccessManager" xml:space="preserve"><value>Make Access Manager</value></data>
+  <data name="LeaveWorld" xml:space="preserve"><value>Leave World</value></data>
+  <data name="Close" xml:space="preserve"><value>Close</value></data>
+  <data name="VerifyEnvironment" xml:space="preserve"><value>Verify Environment</value></data>
+  <data name="Repair" xml:space="preserve"><value>Repair</value></data>
+  <data name="OpenSteward" xml:space="preserve"><value>Open Steward</value></data>
+  <data name="QuitSteward" xml:space="preserve"><value>Quit Steward</value></data>
+  <data name="WorldLobby" xml:space="preserve"><value>World Lobby</value></data>
+  <data name="PlayingNow" xml:space="preserve"><value>Playing now</value></data>
+  <data name="WorldGroup" xml:space="preserve"><value>World group</value></data>
+  <data name="HostSuffix" xml:space="preserve"><value> — HOST</value></data>
+  <data name="HostStartingSuffix" xml:space="preserve"><value> — HOST · starting</value></data>
+  <data name="AccessManagerSuffix" xml:space="preserve"><value> — Access Manager</value></data>
+  <data name="AccessRemovalPendingSuffix" xml:space="preserve"><value> · access removal pending</value></data>
+  <data name="Preparing" xml:space="preserve"><value>Preparing</value></data>
+  <data name="Running" xml:space="preserve"><value>Running</value></data>
+  <data name="Hosting" xml:space="preserve"><value>Hosting</value></data>
+  <data name="SavingWorld" xml:space="preserve"><value>Saving World</value></data>
+  <data name="RecoveryNeeded" xml:space="preserve"><value>Recovery needed</value></data>
+  <data name="ActionRequired" xml:space="preserve"><value>Action required</value></data>
+  <data name="InterruptedSessionResolution" xml:space="preserve"><value>Interrupted session — choose Retry recovery or Continue from last safe state.</value></data>
+  <data name="NoManagedWorldsYet" xml:space="preserve"><value>No managed Worlds yet</value></data>
+  <data name="OneManagedWorld" xml:space="preserve"><value>1 managed World</value></data>
+  <data name="ManagedWorldsFormat" xml:space="preserve"><value>{0} managed Worlds</value></data>
+  <data name="NoWorldSearchMatches" xml:space="preserve"><value>No managed Worlds match this search.</value></data>
 </root>

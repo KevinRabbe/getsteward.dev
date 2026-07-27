@@ -41,7 +41,7 @@ Use these states:
 | Game banner/header | **DONE** | The selected-game workspace already has an operational header: Back to Games, selected game name, Worlds context, and Refresh. The roadmap requires a banner/header, not decorative artwork; no additional banner subsystem is required. |
 | Game attention indicator | **DONE** | #150 projects the existing `WorldLifecycleResponsibilityTracker` into the affected game tile summary: Preparing/Running/Hosting/Saving World/Recovery needed/Action required. No second status cache exists. |
 | Global Settings surface | **DONE** | #149 adds top-level Settings and re-homes the existing device-hosting control; the same `DeviceSettingsStore` and WPF control instances remain owners. |
-| Localization-ready complete UI | **PARTIAL** | `DesktopText`/resource infrastructure exists and the core action terminology is resource-backed, but several newer presentation strings remain direct English literals. Audit/normalize this boundary rather than inventing a translation subsystem. |
+| Localization-ready fixed product vocabulary | **DONE** | #151 routes fixed first-release navigation/action/state terms through the existing `DesktopText` resource catalog and proves neutral fallback under another UI culture. Shipping translated catalogs is later localization content, not missing UI architecture. |
 
 ## World Lobby — current first-release boundary
 
@@ -110,6 +110,7 @@ Do not put these back on the roadmap merely because Steward could implement them
 - global online/offline presence;
 - permanent player-presence history;
 - decorative game-banner artwork as a separate product subsystem;
+- translated locale catalogs before a locale is actually selected for release;
 - generic guided-manual Join lifecycle;
 - generic NAT traversal before measured need;
 - permanent Steward game servers;
@@ -122,12 +123,12 @@ Steam, Discord, Windows, the game, or the deployment platform already own those 
 ## Current deterministic execution order
 
 ```text
-Games Library #147                  DONE
--> small World Lobby #148          DONE
--> search audit                    DONE — already existed
--> World sort + global Settings    #149 DONE
--> responsibility-backed attention #150
--> localization-readiness audit/normalization
+Games Library #147                   DONE
+-> small World Lobby #148           DONE
+-> search audit                     DONE — already existed
+-> World sort + global Settings     #149 DONE
+-> responsibility-backed attention #150 DONE
+-> localization-ready vocabulary   #151
 -> reconcile Share/invite/delete user journeys
 -> resume V3-E real Windows evidence
 -> run V3-F real Steam/provider/game gate

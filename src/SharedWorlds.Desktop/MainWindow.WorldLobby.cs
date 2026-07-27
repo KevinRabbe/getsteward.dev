@@ -34,18 +34,18 @@ public partial class MainWindow
         };
         card.SetResourceReference(Border.BackgroundProperty, "PanelBrush");
         card.SetResourceReference(Border.BorderBrushProperty, "BorderBrush");
-        AutomationProperties.SetName(card, "World lobby");
+        AutomationProperties.SetName(card, DesktopText.WorldLobby);
 
         var root = new StackPanel();
         root.Children.Add(new TextBlock
         {
-            Text = "World Lobby",
+            Text = DesktopText.WorldLobby,
             FontSize = 18,
             FontWeight = FontWeights.SemiBold
         });
         root.Children.Add(new TextBlock
         {
-            Text = "Playing now",
+            Text = DesktopText.PlayingNow,
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 16, 0, 7)
@@ -56,7 +56,7 @@ public partial class MainWindow
 
         root.Children.Add(new TextBlock
         {
-            Text = "World group",
+            Text = DesktopText.WorldGroup,
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 16, 0, 7)
@@ -72,7 +72,7 @@ public partial class MainWindow
             TextWrapping = TextWrapping.Wrap
         };
         status.SetResourceReference(TextBlock.ForegroundProperty, "MutedTextBrush");
-        AutomationProperties.SetName(status, "World lobby status");
+        AutomationProperties.SetName(status, $"{DesktopText.WorldLobby} status");
         AutomationProperties.SetLiveSetting(status, AutomationLiveSetting.Polite);
         RegisterLiveRegion(status);
         root.Children.Add(status);
@@ -227,8 +227,8 @@ public partial class MainWindow
             {
                 var suffix = row.IsHost
                     ? host?.State == StewardRemoteHostPresenceState.Starting
-                        ? " — HOST · starting"
-                        : " — HOST"
+                        ? DesktopText.HostStartingSuffix
+                        : DesktopText.HostSuffix
                     : string.Empty;
                 AddLobbyRow(playingRows, row.DisplayName + suffix);
             }
@@ -256,10 +256,10 @@ public partial class MainWindow
                                     member.Identity.ExternalId,
                                     accessManager.Provider,
                                     accessManager.ExternalId);
-                var suffix = isManager ? " — Access Manager" : string.Empty;
+                var suffix = isManager ? DesktopText.AccessManagerSuffix : string.Empty;
                 if (member.Status == RemoteWorldMemberStatus.RevocationPending)
                 {
-                    suffix += " · access removal pending";
+                    suffix += DesktopText.AccessRemovalPendingSuffix;
                 }
 
                 AddLobbyRow(

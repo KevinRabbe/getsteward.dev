@@ -10,12 +10,12 @@ public sealed class WorldLobbyPresentationTests
         var source = File.ReadAllText(FindRepositoryFile(
             "src/SharedWorlds.Desktop/MainWindow.WorldLobby.cs"));
 
-        Assert.Contains("World Lobby", source, StringComparison.Ordinal);
-        Assert.Contains("Playing now", source, StringComparison.Ordinal);
-        Assert.Contains("World group", source, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.WorldLobby", source, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.PlayingNow", source, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.WorldGroup", source, StringComparison.Ordinal);
         Assert.Contains("runtime.PlayerPresence.GetSnapshotAsync(world.Id)", source, StringComparison.Ordinal);
-        Assert.Contains("— HOST", source, StringComparison.Ordinal);
-        Assert.Contains("— Access Manager", source, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.HostSuffix", source, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.AccessManagerSuffix", source, StringComparison.Ordinal);
         Assert.Contains("WorldDetailsPanel.Children.Insert", source, StringComparison.Ordinal);
         Assert.Contains("Visibility.Collapsed", source, StringComparison.Ordinal);
     }

@@ -11,10 +11,22 @@ public static class DesktopText
 
     public static string Tagline => Get(nameof(Tagline));
     public static string Games => Get(nameof(Games));
+    public static string GamesLibrary => Get(nameof(GamesLibrary));
+    public static string GamesLibraryDescription => Get(nameof(GamesLibraryDescription));
+    public static string BackToGames => Get(nameof(BackToGames));
+    public static string Worlds => Get(nameof(Worlds));
+    public static string Settings => Get(nameof(Settings));
+    public static string Back => Get(nameof(Back));
+    public static string SettingsDescription => Get(nameof(SettingsDescription));
     public static string DeviceSettings => Get(nameof(DeviceSettings));
+    public static string HostingOnThisDevice => Get(nameof(HostingOnThisDevice));
     public static string AllowDeviceHosting => Get(nameof(AllowDeviceHosting));
     public static string HostingDisabledOnDevice => Get(nameof(HostingDisabledOnDevice));
     public static string HostingAllowedOnDevice => Get(nameof(HostingAllowedOnDevice));
+    public static string SearchWorlds => Get(nameof(SearchWorlds));
+    public static string SortWorlds => Get(nameof(SortWorlds));
+    public static string SortNameAscending => Get(nameof(SortNameAscending));
+    public static string SortNameDescending => Get(nameof(SortNameDescending));
     public static string SelectWorld => Get(nameof(SelectWorld));
     public static string Play => Get(nameof(Play));
     public static string WorldSettings => Get(nameof(WorldSettings));
@@ -56,6 +68,27 @@ public static class DesktopText
     public static string Repair => Get(nameof(Repair));
     public static string OpenSteward => Get(nameof(OpenSteward));
     public static string QuitSteward => Get(nameof(QuitSteward));
+
+    public static string WorldLobby => Get(nameof(WorldLobby));
+    public static string PlayingNow => Get(nameof(PlayingNow));
+    public static string WorldGroup => Get(nameof(WorldGroup));
+    public static string HostSuffix => Get(nameof(HostSuffix));
+    public static string HostStartingSuffix => Get(nameof(HostStartingSuffix));
+    public static string AccessManagerSuffix => Get(nameof(AccessManagerSuffix));
+    public static string AccessRemovalPendingSuffix => Get(nameof(AccessRemovalPendingSuffix));
+
+    public static string Preparing => Get(nameof(Preparing));
+    public static string Running => Get(nameof(Running));
+    public static string Hosting => Get(nameof(Hosting));
+    public static string SavingWorld => Get(nameof(SavingWorld));
+    public static string RecoveryNeeded => Get(nameof(RecoveryNeeded));
+    public static string ActionRequired => Get(nameof(ActionRequired));
+    public static string InterruptedSessionResolution => Get(nameof(InterruptedSessionResolution));
+
+    public static string NoManagedWorldsYet => Get(nameof(NoManagedWorldsYet));
+    public static string OneManagedWorld => Get(nameof(OneManagedWorld));
+    public static string ManagedWorldsFormat => Get(nameof(ManagedWorldsFormat));
+    public static string NoWorldSearchMatches => Get(nameof(NoWorldSearchMatches));
 
     private static string Get(string key)
         => Resources.GetString(key, CultureInfo.CurrentUICulture)

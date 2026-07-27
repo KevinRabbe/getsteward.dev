@@ -9,8 +9,6 @@ namespace SharedWorlds.Desktop;
 
 public partial class MainWindow
 {
-    private const string WorldSearchPlaceholder = "Search Worlds";
-
     private readonly TextBox _worldSearchBox = new()
     {
         MinHeight = 34,
@@ -32,7 +30,7 @@ public partial class MainWindow
         }
 
         _worldSearchUiInitialized = true;
-        AutomationProperties.SetName(_worldSearchBox, WorldSearchPlaceholder);
+        AutomationProperties.SetName(_worldSearchBox, DesktopText.SearchWorlds);
         AutomationProperties.SetHelpText(
             _worldSearchBox,
             "Type a World or game name. Press Escape to clear the current search.");
@@ -109,7 +107,7 @@ public partial class MainWindow
         }
 
         _worldSearchShowingPlaceholder = true;
-        _worldSearchBox.Text = WorldSearchPlaceholder;
+        _worldSearchBox.Text = DesktopText.SearchWorlds;
         _worldSearchBox.Opacity = 0.7;
     }
 
@@ -138,7 +136,7 @@ public partial class MainWindow
         if (WorldList.SelectedItem is null && GetWorldSearchQuery().Length > 0)
         {
             _selectedWorld = null;
-            EmptyStateText.Text = "No managed Worlds match this search.";
+            EmptyStateText.Text = DesktopText.NoWorldSearchMatches;
             EmptyStateText.Visibility = Visibility.Visible;
             WorldDetailsPanel.Visibility = Visibility.Collapsed;
             UpdateUnifiedActionState();

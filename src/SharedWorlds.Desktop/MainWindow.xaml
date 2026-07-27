@@ -27,7 +27,7 @@
                     <TextBlock Text="Steward"
                                FontSize="24"
                                FontWeight="SemiBold" />
-                    <TextBlock Text="Click World. Play."
+                    <TextBlock Text="{x:Static local:DesktopText.Tagline}"
                                Margin="0,4,0,0"
                                Foreground="{StaticResource MutedTextBrush}"
                                FontSize="13" />
@@ -56,10 +56,10 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0"
                                         Margin="0,0,24,0">
-                                <TextBlock Text="Games"
+                                <TextBlock Text="{x:Static local:DesktopText.Games}"
                                            FontSize="30"
                                            FontWeight="SemiBold" />
-                                <TextBlock Text="Choose a game to see its managed Worlds."
+                                <TextBlock Text="{x:Static local:DesktopText.GamesLibraryDescription}"
                                            Margin="0,6,0,0"
                                            Foreground="{StaticResource MutedTextBrush}"
                                            FontSize="13" />
@@ -80,7 +80,7 @@
                         </Grid>
 
                         <ListBox x:Name="GameLibraryList"
-                                 AutomationProperties.Name="Games Library"
+                                 AutomationProperties.Name="{x:Static local:DesktopText.GamesLibrary}"
                                  Background="Transparent"
                                  BorderThickness="0"
                                  Foreground="{StaticResource TextBrush}"
@@ -191,7 +191,7 @@
                         <DockPanel LastChildFill="True">
                             <Button x:Name="BackToGamesButton"
                                     DockPanel.Dock="Left"
-                                    Content="← Games"
+                                    Content="{x:Static local:DesktopText.BackToGames}"
                                     AutomationProperties.HelpText="Return to the Games Library."
                                     Padding="10,5"
                                     Margin="0,0,8,0" />
@@ -206,7 +206,7 @@
                                    FontSize="20"
                                    FontWeight="SemiBold"
                                    TextWrapping="Wrap" />
-                        <TextBlock Text="Worlds"
+                        <TextBlock Text="{x:Static local:DesktopText.Worlds}"
                                    Margin="0,4,0,0"
                                    Foreground="{StaticResource MutedTextBrush}"
                                    FontSize="12" />
@@ -214,7 +214,7 @@
 
                     <ListBox x:Name="WorldList"
                              Grid.Row="1"
-                             AutomationProperties.Name="Worlds"
+                             AutomationProperties.Name="{x:Static local:DesktopText.Worlds}"
                              Background="Transparent"
                              BorderThickness="0"
                              Foreground="{StaticResource TextBrush}"
@@ -263,7 +263,7 @@
                     </ListBox>
 
                     <Expander Grid.Row="2"
-                              Header="Device settings"
+                              Header="{x:Static local:DesktopText.DeviceSettings}"
                               Foreground="{StaticResource TextBrush}"
                               Margin="2,14,2,0">
                         <Border Margin="0,8,0,0"
@@ -274,14 +274,14 @@
                                 CornerRadius="8">
                             <StackPanel>
                                 <CheckBox x:Name="AllowHostingCheckBox"
-                                          Content="Allow this device to host"
+                                          Content="{x:Static local:DesktopText.AllowDeviceHosting}"
                                           AutomationProperties.HelpText="Allow Steward to use this device for temporary World hosting when the selected game supports it." />
                                 <TextBlock x:Name="HostingPreferenceText"
                                            Margin="22,6,0,0"
                                            Foreground="{StaticResource MutedTextBrush}"
                                            FontSize="11"
                                            TextWrapping="Wrap"
-                                           Text="Hosting is disabled on this device." />
+                                           Text="{x:Static local:DesktopText.HostingDisabledOnDevice}" />
                             </StackPanel>
                         </Border>
                     </Expander>
@@ -303,7 +303,7 @@
                             Padding="12,6" />
 
                     <TextBlock x:Name="EmptyStateText"
-                               Text="Select a World."
+                               Text="{x:Static local:DesktopText.SelectWorld}"
                                Foreground="{StaticResource MutedTextBrush}"
                                FontSize="18" />
 
@@ -335,7 +335,7 @@
                             </Border>
                         </WrapPanel>
 
-                        <TextBlock Text="Play"
+                        <TextBlock Text="{x:Static local:DesktopText.Play}"
                                    Margin="0,26,0,12"
                                    FontSize="18"
                                    FontWeight="SemiBold" />
@@ -361,7 +361,7 @@
                                     Margin="0,0,10,10" />
                         </WrapPanel>
 
-                        <TextBlock Text="World settings"
+                        <TextBlock Text="{x:Static local:DesktopText.WorldSettings}"
                                    Margin="0,26,0,12"
                                    FontSize="18"
                                    FontWeight="SemiBold" />
@@ -372,7 +372,7 @@
                                 Padding="20">
                             <StackPanel>
                                 <CheckBox x:Name="KeepExactGameVersionCheckBox"
-                                          Content="Keep this World on this exact game version"
+                                          Content="{x:Static local:DesktopText.KeepExactGameVersion}"
                                           AutomationProperties.HelpText="Require Steward to verify this World against its recorded exact game environment before writable play."
                                           IsEnabled="{Binding IsEnabled, ElementName=WorldList}"
                                           Click="KeepExactGameVersionCheckBox_Click" />
@@ -384,7 +384,7 @@
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="Environment readiness"
+                        <TextBlock Text="{x:Static local:DesktopText.EnvironmentReadiness}"
                                    Margin="0,26,0,12"
                                    FontSize="18"
                                    FontWeight="SemiBold" />
@@ -399,7 +399,7 @@
                                            Foreground="{StaticResource MutedTextBrush}"
                                            FontSize="12"
                                            TextWrapping="Wrap"
-                                           Text="Not checked yet." />
+                                           Text="{x:Static local:DesktopText.NotCheckedYet}" />
                                 <WrapPanel Margin="0,14,0,0">
                                     <Button x:Name="VerifyEnvironmentButton"
                                             Content="{x:Static local:DesktopText.VerifyEnvironment}"
@@ -416,7 +416,7 @@
                             </StackPanel>
                         </Border>
 
-                        <Expander Header="Technical details"
+                        <Expander Header="{x:Static local:DesktopText.TechnicalDetails}"
                                   Foreground="{StaticResource TextBrush}"
                                   Margin="0,26,0,0">
                             <Border Margin="0,10,0,0"
@@ -438,7 +438,7 @@
 
                                     <TextBlock Grid.Row="0"
                                                Grid.Column="0"
-                                               Text="World ID"
+                                               Text="{x:Static local:DesktopText.WorldIdLabel}"
                                                Foreground="{StaticResource MutedTextBrush}"
                                                Margin="0,0,24,10" />
                                     <TextBlock x:Name="WorldIdText"
@@ -448,7 +448,7 @@
 
                                     <TextBlock Grid.Row="1"
                                                Grid.Column="0"
-                                               Text="Environment"
+                                               Text="{x:Static local:DesktopText.EnvironmentLabel}"
                                                Foreground="{StaticResource MutedTextBrush}"
                                                Margin="0,0,24,10" />
                                     <TextBlock x:Name="EnvironmentRevisionText"
@@ -458,7 +458,7 @@
 
                                     <TextBlock Grid.Row="2"
                                                Grid.Column="0"
-                                               Text="State"
+                                               Text="{x:Static local:DesktopText.StateLabel}"
                                                Foreground="{StaticResource MutedTextBrush}"
                                                Margin="0,0,24,0" />
                                     <TextBlock x:Name="StateRevisionText"
@@ -479,7 +479,7 @@
                 Background="{StaticResource PanelBrush}">
             <TextBlock x:Name="StatusText"
                        AutomationProperties.LiveSetting="Polite"
-                       Text="Ready"
+                       Text="{x:Static local:DesktopText.Ready}"
                        Foreground="{StaticResource MutedTextBrush}"
                        FontSize="12" />
         </Border>

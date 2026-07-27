@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using SharedWorlds.Core.Worlds;
@@ -106,9 +107,12 @@ public partial class MainWindow
             string.Equals(item.AdapterId, adapterId, StringComparison.Ordinal));
         var countSummary = worldCount switch
         {
-            0 => "No managed Worlds yet",
-            1 => "1 managed World",
-            _ => $"{worldCount} managed Worlds"
+            0 => DesktopText.NoManagedWorldsYet,
+            1 => DesktopText.OneManagedWorld,
+            _ => string.Format(
+                CultureInfo.CurrentUICulture,
+                DesktopText.ManagedWorldsFormat,
+                worldCount)
         };
 
         return string.IsNullOrWhiteSpace(attention)
@@ -120,20 +124,20 @@ public partial class MainWindow
         => snapshot.Kind switch
         {
             WorldLifecycleResponsibilityKind.None => null,
-            WorldLifecycleResponsibilityKind.InterruptedSession => "Recovery needed",
-            WorldLifecycleResponsibilityKind.RecoveryNeeded => "Recovery needed",
-            WorldLifecycleResponsibilityKind.CleanupPending => "Action required",
+            WorldLifecycleResponsibilityKind.InterruptedSession => DesktopText.RecoveryNeeded,
+            WorldLifecycleResponsibilityKind.RecoveryNeeded => DesktopText.RecoveryNeeded,
+            WorldLifecycleResponsibilityKind.CleanupPending => DesktopText.ActionRequired,
             WorldLifecycleResponsibilityKind.ActiveLifecycle => snapshot.Phase switch
             {
                 WorldLifecyclePhase.Running => snapshot.Mode == ManagedWorldSessionMode.Hosted
-                    ? "Hosting"
-                    : "Running",
+                    ? DesktopText.Hosting
+                    : DesktopText.Running,
                 WorldLifecyclePhase.WaitingForSafeCapture or
                 WorldLifecyclePhase.Capturing or
                 WorldLifecyclePhase.StoringCandidate or
                 WorldLifecyclePhase.Committing or
-                WorldLifecyclePhase.Finalizing => "Saving World",
-                _ => "Preparing"
+                WorldLifecyclePhase.Finalizing => DesktopText.SavingWorld,
+                _ => DesktopText.Preparing
             },
             _ => null
         };

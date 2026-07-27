@@ -29,6 +29,10 @@
   <data name="EnvironmentReadiness" xml:space="preserve"><value>Environment readiness</value></data>
   <data name="NotCheckedYet" xml:space="preserve"><value>Not checked yet.</value></data>
   <data name="TechnicalDetails" xml:space="preserve"><value>Technical details</value></data>
+  <data name="TechnicalReadiness" xml:space="preserve"><value>Technical readiness</value></data>
+  <data name="WorldStateImportSupported" xml:space="preserve"><value>World state/import supported</value></data>
+  <data name="AdapterSupportsFormat" xml:space="preserve"><value>Adapter supports: {0}</value></data>
+  <data name="NoManagedPlayActions" xml:space="preserve"><value>No managed play actions yet</value></data>
   <data name="WorldIdLabel" xml:space="preserve"><value>World ID</value></data>
   <data name="EnvironmentLabel" xml:space="preserve"><value>Environment</value></data>
   <data name="StateLabel" xml:space="preserve"><value>State</value></data>
@@ -43,6 +47,7 @@
   <data name="StartWorld" xml:space="preserve"><value>Start World</value></data>
   <data name="HostWorld" xml:space="preserve"><value>Host World</value></data>
   <data name="Join" xml:space="preserve"><value>Join</value></data>
+  <data name="CreateWorld" xml:space="preserve"><value>Create World</value></data>
   <data name="ShareWorld" xml:space="preserve"><value>Share World</value></data>
   <data name="ManageAccess" xml:space="preserve"><value>Manage access</value></data>
   <data name="StopAndSave" xml:space="preserve"><value>Stop and Save</value></data>

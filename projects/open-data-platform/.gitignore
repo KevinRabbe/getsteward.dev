@@ -23,6 +23,8 @@ data/changes/*
 !data/changes/.gitkeep
 data/distributions/*
 !data/distributions/.gitkeep
+data/analytics/*
+!data/analytics/.gitkeep
 data/logs/*
 !data/logs/.gitkeep
 data/metrics/*

@@ -4,6 +4,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable, TypeVar
 
+from .analytics import build_quality_profile
 from .changes import build_changes_from_previous
 from .events import append_event
 from .ingest import ingest_latest
@@ -36,6 +37,7 @@ def run_gleif_pipeline(
     product_root: Path | None = None,
     release_root: Path | None = None,
     changes_root: Path | None = None,
+    analytics_root: Path | None = None,
 ) -> dict[str, Any]:
     with pipeline_lock(data_root) as lock_metadata:
         event_log = data_root / "events" / "events.jsonl"
@@ -108,6 +110,17 @@ def run_gleif_pipeline(
                     event_log=event_log,
                 ),
             )
+            analytics = _timed(
+                stage_seconds,
+                "analytics",
+                lambda: build_quality_profile(
+                    data_root,
+                    snapshot_id,
+                    product_root=product_root,
+                    normalized_root=normalized_root,
+                    output_root=analytics_root,
+                ),
+            )
             result = {
                 "status": "COMPLETED",
                 "snapshot_id": snapshot_id,
@@ -116,6 +129,7 @@ def run_gleif_pipeline(
                 "product": product,
                 "release": release,
                 "changes": changes,
+                "analytics": analytics,
             }
             physical_bytes_after = data_footprint_bytes(data_root)
             metrics = persist_pipeline_metrics(
@@ -140,6 +154,7 @@ def run_gleif_pipeline(
                     "run_id": run_id,
                     "metrics_path": metrics["metrics_path"],
                     "changes_status": changes["status"],
+                    "analytics_status": analytics["status"],
                 },
             )
             return result

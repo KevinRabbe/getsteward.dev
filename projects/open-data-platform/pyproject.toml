@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "open-data-platform-v01"
-version = "0.17.0"
-description = "Verified GLEIF open-data archive, history, relationship, and distribution pipeline"
+version = "0.18.0"
+description = "Verified GLEIF open-data archive, history, relationships, distributions, and quality intelligence"
 requires-python = ">=3.11"
 dependencies = []
 

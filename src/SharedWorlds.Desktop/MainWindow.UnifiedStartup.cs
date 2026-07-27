@@ -20,6 +20,7 @@ public partial class MainWindow
         InitializeWorldSharingUi();
         InitializePortableWorldExportUi();
         InitializePortableWorldImportUi();
+        InitializePortableWorldDropUi();
 
         // Remote sharing is optional. With no production/development remote configuration Safe World
         // stays local-only; with valid configuration it authenticates through Steam and refreshes the

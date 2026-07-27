@@ -2,19 +2,28 @@
 
 Status: **CURRENT DOCUMENTATION INDEX**
 
-Steward's generic platform architecture, deterministic V3 release preparation, deterministic first-release UI/product reconciliation, and small V4 technical-readiness presentation are complete. Real V3-E/V3-F acceptance remains evidence-driven.
+Steward's generic platform architecture, deterministic V3 release preparation, deterministic first-release UI/product reconciliation, small V4 technical-readiness presentation, and the current 19-game deterministic exactness audit are complete. Real V3-E/V3-F acceptance remains evidence-driven.
 
 Use [Documentation State Audit](DOCUMENTATION_AUDIT.md) when deciding whether an older checkpoint file is current guidance or historical evidence.
 
 ## Current project mode
 
-> **Deterministic product work is closed at the current proven boundary. V3-E real Windows evidence is active; V3-F remains the real provider/Steam/game release gate. Do not invent generic features merely because external evidence is pending.**
+> **No known deterministic product discrepancy remains at the current audited boundary. V3-E real Windows evidence is active; V3-F remains the real provider/Steam/game release gate. Do not invent generic features merely because external evidence is pending.**
 
-Current non-documentation executable/UI head:
+Current non-documentation executable head:
 
-> `c93e3606e7990bed1fb8cdec68575e706ac2f1ec` — PR #160
+> `553d49e47dc8dd6c4fe15e97c363a53ff86655dd` — PR #184
 
 The deterministic first-release product checkpoint remains qualified PR #153. V4 #158/#160 adds only a derived technical-evidence map and read-only capability summary; it does not redefine Core/backend/adapter authority or make any empirical V3 gate green.
+
+A later evidence-driven adapter audit found four concrete deterministic vanilla/exactness gaps and closed them without reopening V4 or requiring gameplay tests:
+
+```text
+#171 Core Keeper official mod.io boundary
+-> #178 Necesse pre-materialization Workshop boundary
+-> #181 ASTRONEER install-root UE4SS/direct PAK boundary
+-> #184 Smalland exact stock PAK set
+```
 
 The next meaningful work is:
 
@@ -77,7 +86,7 @@ Production code/executable contracts still win over stale prose when a direct co
 - [Product Completeness](PRODUCT_COMPLETENESS.md) — implemented vs empirical vs deliberately removed first-release requirements.
 - [V3 Steam Release Candidate](V3_STEAM_RELEASE_CANDIDATE.md) — deterministic V3 #133-#137 complete; V3-E started with #138.
 - [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) — stable generic platform checkpoint + current 19-adapter/action-capability state.
-- [Game Technical Readiness](GAME_TECHNICAL_READINESS.md) — what each adapter already proves technically vs what genuinely needs a real game/network observation.
+- [Game Technical Readiness](GAME_TECHNICAL_READINESS.md) — what each adapter already proves technically vs what genuinely needs a real game/network observation; deterministic environment-exactness audit current through #184.
 - [V4 Technical Readiness](V4_TECHNICAL_READINESS.md) — completed small derived-readiness goal; no new authority or support taxonomy.
 - [Steam Release Gate](STEAM_RELEASE_GATE.md) — one-pass real Steam/provider/Windows/game acceptance.
 - [Deferred Empirical Tests](DEFERRED_EMPIRICAL_TESTS.md) — exact real-system questions that deterministic CI does not claim to answer.
@@ -120,7 +129,7 @@ Search, sort, global Settings, game attention, small World Lobby, localization-r
 
 - [Adapter and Background Runtime Roadmap](ADAPTER_RUNTIME_ROADMAP.md) — current writable lifecycle, automatic Join, manual direct-connect presentation distinction, recovery/background behavior.
 - [Game Adapter Guide](ADAPTER_GUIDE.md) — stable rules for safely adding/deepening an adapter; current detailed capability matrix lives in Platform Status.
-- [Game Technical Readiness](GAME_TECHNICAL_READINESS.md) — canonical technical/evidence view across the 19 registered adapters.
+- [Game Technical Readiness](GAME_TECHNICAL_READINESS.md) — canonical technical/evidence view across the 19 registered adapters, including current state-ownership and environment-exactness audits.
 - [Native World Creation](NATIVE_WORLD_CREATION.md) — game-native generator rule; Factorio is current reference implementation.
 - [Factorio Adapter](FACTORIO.md) — active dedicated-server/RCON Host path, UDP 34197, no advertised AutomaticHostStop, remaining empirical gates.
 - [Palworld Adapter](PALWORLD.md) — read-only `WorldOption.sav`, disposable management settings, REST/process-tree save-stop, identity limitations.
@@ -136,6 +145,8 @@ The current code audit confirms:
 - 7DTD: Mods + ExactGameVersion; no managed runtime actions.
 - Project Zomboid: Mods + ExactGameVersion + ExactModVersions; no managed runtime actions.
 - all other fifteen registered adapters: ExactGameVersion only at the capability layer, with concrete state/import/environment implementations underneath.
+
+The post-V4 environment audit additionally proved that adapter exactness must follow the game's real mod/bootstrap authority rather than a convenient folder-name assumption. Four concrete gaps were corrected through #184; the audit did not produce a generic mod-detection subsystem.
 
 ## Persistence/recovery/engineering
 
@@ -171,12 +182,14 @@ Important known stale historical statements are listed explicitly in `DOCUMENTAT
 
 ## Current executable facts worth checking before changing scope
 
+- Current qualified non-documentation head: PR #184 `553d49e47dc8dd6c4fe15e97c363a53ff86655dd`.
 - Desktop catalog: 19 adapters.
 - Action claims come from `GameAdapterCapabilities`, not catalog registration.
 - Factorio active `IGameAdapter` Host path uses dedicated server + RCON; managed game endpoint is UDP 34197; no `AutomaticHostStop` flag.
 - Palworld advertises Host + Host Stop + exact game version; no automatic Join; manual direct-connect guidance is presentation-only.
 - 7DTD/PZ managed runtime remains evidence-gated/frozen.
 - the other fifteen registered adapters intentionally expose narrower state/import/environment slices; absence of runtime actions is not an unimplemented promise.
+- current deterministic adapter exactness includes #171 Core Keeper mod.io, #178 Necesse Workshop pre-materialization, #181 ASTRONEER install-root mod surfaces, and #184 Smalland exact stock PAK set.
 - shared backend/storage/authority already exists: Backend.Api + PostgreSQL + private S3-compatible object storage + remote Desktop composition.
 - production Steam release config is package-owned; ordinary `STEWARD_*` environment configuration is engineering/acceptance-only.
 - Steam owns installation/update; Steward has no self-updater requirement.

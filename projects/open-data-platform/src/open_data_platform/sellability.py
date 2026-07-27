@@ -272,11 +272,67 @@ def _candidate_manifest(
     return manifest, verified
 
 
+def _ror_logical_candidate_match(
+    candidate_manifest: dict[str, Any],
+    evidence: dict[str, Any],
+) -> dict[str, Any]:
+    organization = candidate_manifest.get("organization_component")
+    candidate_history = candidate_manifest.get("history")
+    evidence_history = evidence.get("history")
+    products = evidence.get("products")
+    if not isinstance(organization, dict):
+        return {"matches": False, "reason": "ROR candidate has no organization_component"}
+    if not isinstance(candidate_history, list):
+        return {"matches": False, "reason": "ROR candidate has no history list"}
+    if not isinstance(evidence_history, dict) or not isinstance(products, dict):
+        return {"matches": False, "reason": "ROR operational evidence is missing deterministic product/history inputs"}
+
+    from_version = evidence_history.get("from_source_version")
+    to_version = evidence_history.get("to_source_version")
+    product_evidence = products.get(to_version) if isinstance(to_version, str) else None
+    if not isinstance(product_evidence, dict):
+        return {"matches": False, "reason": "ROR operational evidence has no product hash for its accepted target version"}
+
+    matching_pair = next(
+        (
+            item
+            for item in candidate_history
+            if isinstance(item, dict)
+            and item.get("from_source_version") == from_version
+            and item.get("to_source_version") == to_version
+        ),
+        None,
+    )
+    expected = {
+        "source_version": to_version,
+        "product_database_sha256": product_evidence.get("product_sha256"),
+        "from_source_version": from_version,
+        "to_source_version": to_version,
+        "changes_sha256": evidence_history.get("changes_sha256"),
+        "artifact_sha256": evidence_history.get("artifact_sha256"),
+    }
+    candidate = {
+        "source_version": organization.get("source_version"),
+        "product_database_sha256": organization.get("product_database_sha256"),
+        "from_source_version": matching_pair.get("from_source_version") if isinstance(matching_pair, dict) else None,
+        "to_source_version": matching_pair.get("to_source_version") if isinstance(matching_pair, dict) else None,
+        "changes_sha256": matching_pair.get("changes_sha256") if isinstance(matching_pair, dict) else None,
+        "artifact_sha256": matching_pair.get("artifact_sha256") if isinstance(matching_pair, dict) else None,
+    }
+    matches = all(isinstance(value, str) and value for value in expected.values()) and candidate == expected
+    return {
+        "matches": matches,
+        "expected": expected,
+        "candidate": candidate,
+    }
+
+
 def _operational_acceptance(
     *,
     project_root: Path,
     data_root: Path,
     product_id: str,
+    candidate_manifest: dict[str, Any] | None = None,
     candidate_bundle_sha256: str | None = None,
 ) -> dict[str, Any]:
     if product_id == _GLEIF_PRODUCT:
@@ -303,12 +359,7 @@ def _operational_acceptance(
         wrapper = load_json(evidence_path)
         evidence = wrapper.get("evidence")
         commercial_evidence = evidence.get("commercial_candidate") if isinstance(evidence, dict) else None
-        evidence_bundle_hash = (
-            commercial_evidence.get("bundle_sha256")
-            if isinstance(commercial_evidence, dict)
-            else None
-        )
-        passed = (
+        structural_pass = (
             wrapper.get("status") == "PASS"
             and wrapper.get("exit_code") == 0
             and isinstance(evidence, dict)
@@ -318,6 +369,31 @@ def _operational_acceptance(
             and commercial_evidence.get("customer_terms_status") == "LEGAL_REVIEW_REQUIRED"
             and int(commercial_evidence.get("adjacent_pair_count", 0)) >= 1
             and (evidence.get("history") or {}).get("matches_published_updated_existing") is True
+        )
+
+        if isinstance(candidate_manifest, dict):
+            logical_match = _ror_logical_candidate_match(candidate_manifest, evidence if isinstance(evidence, dict) else {})
+            passed = structural_pass and logical_match.get("matches") is True
+            return {
+                "status": "PASS" if passed else "ALERT",
+                "evidence_type": "ror_real_v2.9_v2.10_out_of_order_acceptance",
+                "evidence_path": str(evidence_path),
+                "evidence_sha256": evidence_hash,
+                "evidence_size_bytes": evidence_size,
+                "logical_candidate_match": logical_match,
+                "evidence": wrapper,
+            }
+
+        # Compatibility for the original focused unit fixture only. Real sellability
+        # evaluation always supplies candidate_manifest and therefore uses the
+        # deterministic product/history binding above.
+        evidence_bundle_hash = (
+            commercial_evidence.get("bundle_sha256")
+            if isinstance(commercial_evidence, dict)
+            else None
+        )
+        passed = (
+            structural_pass
             and isinstance(candidate_bundle_sha256, str)
             and evidence_bundle_hash == candidate_bundle_sha256
         )
@@ -350,7 +426,7 @@ def sellability_report(
         project_root=project_root,
         data_root=data_root,
         product_id=product_id,
-        candidate_bundle_sha256=candidate["product"]["bundle_sha256"],
+        candidate_manifest=candidate_manifest,
     )
     approval = (
         verify_terms_approval(terms_approval_path, product_id=product_id)
@@ -512,7 +588,12 @@ def build_sale_envelope(
     }
 
 
-def _verify_operational_snapshot(product_id: str, operational: dict[str, Any]) -> None:
+def _verify_operational_snapshot(
+    product_id: str,
+    operational: dict[str, Any],
+    *,
+    candidate_manifest: dict[str, Any] | None = None,
+) -> None:
     if operational.get("status") != "PASS":
         raise SellabilityError("Stored operational evidence is not PASS")
     if product_id == _GLEIF_PRODUCT:
@@ -535,8 +616,23 @@ def _verify_operational_snapshot(product_id: str, operational: dict[str, Any]) -
             raise SellabilityError("Stored ROR real-history acceptance is incomplete")
         if not isinstance(commercial, dict) or int(commercial.get("adjacent_pair_count", 0)) < 1:
             raise SellabilityError("Stored ROR commercial acceptance has no history pair")
-        if commercial.get("bundle_sha256") != operational.get("candidate_bundle_sha256"):
-            raise SellabilityError("Stored ROR operational evidence is bound to a different candidate bundle")
+
+        has_logical_candidate = (
+            isinstance(candidate_manifest, dict)
+            and isinstance(candidate_manifest.get("organization_component"), dict)
+            and isinstance(candidate_manifest.get("history"), list)
+        )
+        if has_logical_candidate:
+            logical_match = _ror_logical_candidate_match(candidate_manifest, evidence)
+            if logical_match.get("matches") is not True:
+                raise SellabilityError("Stored ROR operational evidence is bound to different deterministic product/history inputs")
+            if operational.get("logical_candidate_match") != logical_match:
+                raise SellabilityError("Stored ROR logical candidate binding does not match the verified evidence")
+        else:
+            # Compatibility for the original isolated unit fixture. A real verified
+            # ROR commercial manifest always has organization_component + history.
+            if commercial.get("bundle_sha256") != operational.get("candidate_bundle_sha256"):
+                raise SellabilityError("Stored ROR operational evidence is bound to a different candidate bundle")
     else:
         raise SellabilityError(f"No operational evidence verifier registered for {product_id}")
 
@@ -551,7 +647,7 @@ def verify_sale_envelope(
 ) -> dict[str, Any]:
     safe_terms_id = _validate_terms_id(terms_id)
     _product_definition(project_root, product_id)
-    _, candidate = _candidate_manifest(data_root, product_id, snapshot_id)
+    candidate_manifest, candidate = _candidate_manifest(data_root, product_id, snapshot_id)
     final_dir = sale_envelope_path(data_root, product_id, snapshot_id, safe_terms_id)
     sale_path = final_dir / "sale.json"
     sale_hash = _verify_checksum(sale_path)
@@ -590,11 +686,11 @@ def verify_sale_envelope(
     if operational_hash != sale.get("operational_evidence_sha256"):
         raise SellabilityError("Sale envelope operational-evidence hash mismatch")
     operational = load_json(operational_path)
-    _verify_operational_snapshot(product_id, operational)
-    if product_id == _ROR_PRODUCT and operational.get("candidate_bundle_sha256") != sale.get(
-        "candidate_bundle_sha256"
-    ):
-        raise SellabilityError("Sale envelope ROR operational evidence is not bound to this candidate")
+    _verify_operational_snapshot(
+        product_id,
+        operational,
+        candidate_manifest=candidate_manifest,
+    )
 
     for field in (
         "source_rights_preserved",

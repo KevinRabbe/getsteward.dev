@@ -1,6 +1,6 @@
 # Game Technical Readiness
 
-Status: **CURRENT TECHNICAL EVIDENCE MAP — 19 REGISTERED FIRST-PARTY ADAPTERS; CAPABILITY AND STATE-OWNERSHIP BOUNDARIES RECHECKED DURING V4**
+Status: **CURRENT TECHNICAL EVIDENCE MAP — 19 REGISTERED FIRST-PARTY ADAPTERS; CAPABILITY, STATE-OWNERSHIP AND ENVIRONMENT-ACTIVATION BOUNDARIES RECHECKED**
 
 ## Purpose
 
@@ -39,13 +39,13 @@ For an adapter that currently claims only discovery/import/environment/state sup
 - a known unsupported mod-loader surface correctly causes exact-environment refusal;
 - a missing required dedicated-server installation means that device cannot execute a server-dependent Host path.
 
-Those are deterministic trust-boundary questions and are already covered by adapter code/tests.
+Those are deterministic trust-boundary questions and are already covered by adapter code/tests when the native authority is known.
 
 Real game execution is needed only when the claim itself is about execution: process replacement, native readiness, authoritative save completion, safe shutdown, client Join, firewall/NAT reachability, or cross-device continuation.
 
 ## Current catalog matrix
 
-| Game | Proven native World/state boundary | Proven environment boundary | Current action depth | Genuine empirical boundary still relevant |
+| Game | Proven native World/state boundary | Proven environment boundary | Current action depth | Genuine empirical or unresolved boundary still relevant |
 |---|---|---|---|---|
 | **Factorio** | Native ZIP save; isolated write-data/mod workspace; capture selects the newest valid non-autosave state. | Steam/standalone discovery, exact game environment and required mod/startup-settings reproduction. | Start, Host, automatic Join, native Create; no advertised user-triggered Host Stop. | Real Internet UDP 34197 reachability, actual remote Join, repeated real safe save/server-end/capture, cross-device handoff. |
 | **Palworld** | Dedicated-server World directory; canonical `WorldOption.sav` remains read-only; disposable runtime INI owns only management overrides. | Client + dedicated-server discovery, exact dedicated-server build, selected native World id and server configuration. | Host + Host Stop; native direct-connect presentation; no automatic client Join. | Real two-network native Join/handoff and remaining external firewall/settings-materialization observations. |
@@ -53,19 +53,19 @@ Real game execution is needed only when the claim itself is about execution: pro
 | **Project Zomboid** | Canonical multiplayer server bundle restored into adapter-owned isolated user data. | Client + dedicated-server discovery/build plus exact configured Workshop content identity. | State/environment only; Host/Stop/Join frozen. | Actual isolated dedicated-server process ownership, safe stop, no writes to live profile, capture/relaunch. |
 | **Terraria** | Local vanilla top-level `.wld`; `.wld.bak`, Steam Cloud and tModLoader state excluded. | Exact Steam build; vanilla-only supported slice. | Import/state + exact game version. | None required for the current claimed slice. Runtime actions require separate evidence before promotion. |
 | **Stardew Valley** | Host-owned save directory containing exactly the current same-named save + `SaveGameInfo`; `_old` recovery files excluded. | Exact Steam build; SMAPI or active Mods cause refusal. | Import/state + exact game version. | None required for the current claimed slice. Multiplayer lifecycle is a separate future capability question. |
-| **Necesse** | Game-native compressed top-level World ZIP preserved byte-for-byte; uncompressed directory Worlds deliberately outside the slice. | Exact Steam build; local active mods cause refusal. | Import/state + exact game version. | None required for the current claimed slice. Dedicated-server lifecycle is separate. |
-| **Core Keeper** | Exactly three slot-matched World-owned files: world, world-info and world-generation parameters; character/map/recovery state excluded. | Exact Steam build; known manual/Workshop/profile mod surfaces cause refusal. | Import/state + exact game version. | None required for the current claimed slice. |
+| **Necesse** | Game-native compressed top-level World ZIP preserved byte-for-byte; uncompressed directory Worlds deliberately outside the slice. | Exact Steam build; local jar-mod directory causes refusal. Steam Workshop payload can be installed but disabled, so Workshop presence alone is not activation authority. | Import/state + exact game version. | **Deterministic environment gap, not a gameplay test:** identify Necesse's persisted enabled/load-order authority or fail closed when Workshop payload makes vanilla exactness unprovable. Tracked in #175. Dedicated-server lifecycle remains separate. |
+| **Core Keeper** | Exactly three slot-matched World-owned files: world, world-info and world-generation parameters; character/map/recovery state excluded. | Exact Steam build; manual Mods, Steam Workshop, per-profile mods, and official mod.io payload/redirect surfaces cause fail-closed vanilla refusal. | Import/state + exact game version. | None required for the current claimed slice. |
 | **The Planet Crafter** | Current top-level World `.json` preserved opaquely; `Backup.json` excluded. | Exact Steam build; known BepInEx bootstrap surfaces cause refusal. | Import/state + exact game version. | None required for the current claimed slice. |
 | **Satisfactory** | Steam-profile current top-level `.sav`; non-Steam profiles, backups and blueprints excluded. | Exact Steam build; active SML/mod/Workshop surfaces cause refusal. | Import/state + exact game version. | None required for the current claimed slice. |
-| **ASTRONEER** | Current top-level `.savegame`; adjacent `.savecfg` account/custom-game state excluded. | Exact Steam build; active Mods/Paks surfaces cause refusal. | Import/state + exact game version. | None required for the current claimed slice. |
-| **Enshrouded** | Bounded native index files select current data and `_info` generations; package contains only those two selectors and selected bodies. | Exact Steam build; known mod-loader/mod surfaces cause refusal. | Import/state + exact game version. | None required for the current claimed slice. |
+| **ASTRONEER** | Current top-level `.savegame`; adjacent `.savecfg` account/custom-game state excluded. | Exact Steam build; active Mods/Paks surfaces cause refusal. | Import/state + exact game version. | None required for the current claimed slice. Recheck native persistence after the announced save-slot overhaul ships (#169). |
+| **Enshrouded** | Bounded native index files select current data and `_info` generations; package contains only those two selectors and selected bodies. | Exact Steam build; known mod-loader/mod surfaces cause refusal. | Import/state + exact game version. | None required for the current claimed slice. Recheck the released 1.0 selector/generation layout after October 15, 2026 (#170). |
 | **Conan Exiles Enhanced** | Current single-player/co-op slot SQLite database `game_0.db`..`game_9.db`; WAL/SHM/journal sidecars make capture unsafe and are refused. | Steam-manifest-derived install identity, exact build, active `modlist.txt` refusal. | Import/state + exact game version. | None required for the current idle-database slice. Live-database/runtime support would need separate evidence. |
-| **Raft** | Current `World/<name>/<name>.rgd`; backup/history members and separate Player tree excluded. | Exact Steam build; known Raft mod-loader surfaces cause refusal. | Import/state + exact game version. | None required for the current claimed slice. |
+| **Raft** | Current `World/<name>/<name>.rgd`; backup/history members and separate Player tree excluded. | Exact Steam build; game-root mods and roaming RaftModLoader surfaces cause refusal. | Import/state + exact game version. | None required for the current claimed slice. |
 | **ICARUS** | One current Prospect `.json` under canonical SteamID64 profile; rolling backups and character/account/meta-inventory state excluded. | Exact Steam build; active Paks mods cause refusal. | Import/state + exact game version. | None required for the current claimed slice. |
 | **Smalland** | Direct `Worlds/<World>.wld`; separate `Players/*.plr` character state and root map-annotation `.sav` state are excluded. Personal Great Tree bases/tames are player-owned and portable between Worlds rather than canonical World state. | Exact Steam build; extra/linked gameplay Paks cause vanilla-exact refusal. | Import/state + exact game version. | None required for the current claimed slice. |
 | **Abiotic Factor** | Complete `Worlds/<World>/` subtree, including World-owned nested multiplayer `PlayerData` and sandbox settings; profile-level state above `Worlds` excluded. | Exact Steam build; UE4SS loader surface causes refusal. | Import/state + exact game version. | None required for the current claimed slice. |
 | **V Rising** | Non-cloud v4 session: latest native autosave generation + World/session metadata; older recovery generations and `ServerHostSettings.json` excluded. | Exact Steam build; BepInEx surface causes refusal. | Import/state + exact game version. | None required for the current claimed slice. Cloud/dedicated lifecycle remains outside it. |
-| **Space Engineers** | Complete direct SteamID64-profile World directory requiring native core World files; top-level native `Backup` history excluded. | Exact Steam build; bounded native config proves vanilla/no enabled mods or fails closed. | Import/state + exact game version. | None required for the current claimed slice. Dedicated/runtime/mod depth is separate. |
+| **Space Engineers** | Complete direct SteamID64-profile World directory requiring native core World files; top-level native `Backup` history excluded. | Exact Steam build; bounded native `Sandbox_config.sbc` Mods boundary proves vanilla/no enabled mods or fails closed. | Import/state + exact game version. | None required for the current claimed slice. Dedicated/runtime/mod depth is separate. |
 
 ## Current-code capability audit
 
@@ -104,6 +104,36 @@ For every one of the fifteen narrow adapters, the code also contains concrete in
 
 Do not create a second hard-coded capability matrix in production code or tests merely to mirror this documentation. `IGameAdapter.Capabilities` remains executable authority; this section is an audit record.
 
+## Environment-activation audit
+
+A later pass checked a different failure mode from save ownership: **an adapter can select the right World bytes and still overclaim exactness if it looks at the wrong mod-activation surface.**
+
+The rule is:
+
+```text
+installed payload != necessarily active payload
+
+when the game exposes a native activation authority
+-> inspect that authority
+
+when active vs inactive cannot yet be distinguished deterministically
+-> fail closed or record the deterministic gap
+-> do not ask a human to perform a ceremonial gameplay test
+```
+
+Concrete results:
+
+- **Core Keeper:** the previous vanilla proof checked manual Mods, Steam Workshop, and per-profile mod state but missed the game's official mod.io storage. #171 closes that gap by inspecting the default mod.io store plus documented global/per-profile `RootLocalStoragePath` redirects, with bounded/fail-closed metadata handling. The adapter remains vanilla-only.
+- **Necesse:** the current adapter correctly rejects local jar mods, but Steam Workshop subscriptions are a distinct client path and installed Workshop mods can be disabled. Therefore Workshop-directory presence alone is not truthful activation evidence. #175 owns the remaining deterministic question: locate the persisted enabled/load-order authority, or conservatively refuse exact vanilla proof when installed Workshop payload cannot be classified.
+- **Satisfactory:** already checks both the SML/local mod surface and Steam Workshop content; no new gap found in this pass.
+- **Conan Exiles Enhanced:** already uses the game-owned `modlist.txt` activation surface rather than treating arbitrary Workshop cache presence as active state.
+- **Space Engineers:** already validates the World's bounded native `<Mods>` configuration boundary, which is stronger than scanning a download cache.
+- **Raft:** already checks both game-root mods and the roaming RaftModLoader surface.
+- **The Planet Crafter:** current BepInEx bootstrap markers remain the relevant unsupported-mod boundary.
+- **Abiotic Factor:** as of July 2026 the developer still states there is no official mod support; UE4SS/third-party-loader refusal remains the correct class of boundary.
+
+This audit does **not** create a generic mod-detection framework. Each game keeps its own native truth boundary.
+
 ## What the matrix means
 
 ### Fifteen narrow adapters are already technically useful
@@ -124,6 +154,8 @@ find the supported native World
 That contract can be qualified without pretending that a game session occurred.
 
 A manual launch of each game would only become necessary when Steward wants to claim a deeper action such as Start, Host, Stop or Join.
+
+A narrow adapter can still have a **deterministic environment gap** without needing a gameplay test. Necesse #175 is the current example: the unresolved question is native activation metadata, not whether the game can be launched.
 
 ### Player-owned state is not missing World state
 
@@ -170,6 +202,7 @@ Before adding an empirical game test, classify the question:
 | Installation/app/tool present? | Determine from platform-native metadata/discovery. |
 | Which native files form the current World? | Determine from game-specific technical evidence and deterministic fixtures. |
 | Which nearby files are player/account/backup/config state? | Classify technically; test capture exclusion deterministically. |
+| Is a downloaded mod actually enabled? | Inspect the game's native activation authority when one exists; do not equate cache presence with activation. |
 | Exact game/mod/content version? | Inspect native manifests/content identity; fail closed if exactness is unavailable. |
 | Can this device Host when required server tooling is absent? | No. Negative installation evidence is enough. |
 | Does the real game replace/bootstrap processes? | Empirical only when session ownership depends on it. |
@@ -178,16 +211,20 @@ Before adding an empirical game test, classify the question:
 | Can another Internet connection reach the Host? | Empirical network boundary. |
 | Does real client Join enter the intended Host? | Empirical game/network boundary. |
 
-## Valheim candidate
+## Time-gated persistence candidates
 
-Valheim is intentionally **not** one of the current 19 registered adapters. The repository has already frozen implementation until the released 1.0 save representation can be rechecked rather than coding against a known transition.
+Some technical boundaries should be rechecked **after a released format transition**, not manually tested now.
 
-That is another example of useful technical negative evidence:
+- **Valheim:** not currently registered. Wait for released 1.0 persistence, then inspect the final native save/server representation (#164).
+- **ASTRONEER:** current adapter remains truthful for the current build; inspect the released Save Slots/autosave-history representation after the announced save-system overhaul ships (#169).
+- **Enshrouded:** current Early Access selector/generation boundary remains qualified; recheck released 1.0 persistence after October 15, 2026 (#170).
+
+The rule is:
 
 ```text
 native persistence contract is changing
 -> do not guess the future representation
--> freeze implementation
+-> freeze speculative implementation
 -> recheck the released representation later
 ```
 
@@ -197,7 +234,7 @@ V3 remains the current release-evidence stage. This matrix does not make an unob
 
 V4 used this map to add one small read-only selected-game summary derived directly from existing capability truth. V4 is complete at that small boundary; it did not add a second support taxonomy, prerequisite model, backend state, or game-specific lifecycle logic.
 
-The next active work therefore returns to V3-E/V3-F evidence rather than extending V4 merely because more readiness UI could be imagined.
+The active work therefore stays evidence-driven: close deterministic trust-boundary gaps when real technical evidence exposes them; otherwise return to V3-E/V3-F external evidence rather than inventing more V4 scope.
 
 ## Final rule
 

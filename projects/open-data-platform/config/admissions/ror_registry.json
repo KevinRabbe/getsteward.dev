@@ -1,0 +1,23 @@
+{
+  "admission_decision_id": "adm_ror_registry_cc0_filtered_locations_v1",
+  "source_dataset_id": "ds_ror_organizations",
+  "status": "ALLOW",
+  "reviewed_on": "2026-07-27",
+  "license_id": "CC0-1.0",
+  "license_uri": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "terms_url": "https://ror.org/about/terms/",
+  "basis": "ROR states that ROR IDs and metadata are provided under CC0 1.0. The first product projection excludes the locations field because ROR documentation also attributes location data to GeoNames and current ROR/Zenodo surfaces do not present one perfectly uniform GeoNames licence-version statement.",
+  "commercial_use_allowed": true,
+  "storage_allowed": true,
+  "modification_allowed": true,
+  "redistribution_allowed": true,
+  "product_field_exclusions": [
+    "locations"
+  ],
+  "excluded_field_reason": "Conservative field-level rights boundary; raw source is preserved, but location values are not normalized or redistributed in the first ROR product.",
+  "notes": [
+    "Archive the full publisher-provided ZIP unchanged.",
+    "Normalize and sell only the explicitly admitted non-location fields in Phase 23.",
+    "Revisit locations only with a separately versioned attribution manifest and confirmed GeoNames licence obligation."
+  ]
+}

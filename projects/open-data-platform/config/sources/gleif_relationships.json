@@ -1,0 +1,16 @@
+{
+  "source_id": "src_gleif",
+  "source_dataset_id": "ds_gleif_rr_level2_concat",
+  "publisher": "Global Legal Entity Identifier Foundation (GLEIF)",
+  "dataset_name": "Level 2 RR-CDF Concatenated File",
+  "metadata_url": "https://leidata.gleif.org/api/v1/concatenated-files/rr/latest",
+  "download_url_template": "https://leidata.gleif.org/api/v1/concatenated-files/rr/{yyyymmdd}/zip",
+  "allowed_hosts": [
+    "leidata.gleif.org"
+  ],
+  "expected_cdf_version": "RR_2_1",
+  "acquisition_method": "GLEIF Concatenated Files Download API",
+  "terms_url": "https://www.gleif.org/en/meta/lei-data-terms-of-use",
+  "download_page_url": "https://www.gleif.org/en/lei-data/gleif-concatenated-file/download-the-concatenated-file",
+  "format_documentation_url": "https://www.gleif.org/en/lei-data/access-and-use-lei-data/level-2-data-relationship-record-rr-cdf-2-1-format"
+}

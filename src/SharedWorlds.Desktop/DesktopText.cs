@@ -54,6 +54,7 @@ public static class DesktopText
     public static string Join => Get(nameof(Join));
     public static string CreateWorld => Get(nameof(CreateWorld));
     public static string ShareWorld => Get(nameof(ShareWorld));
+    public static string ShareCopy => Get(nameof(ShareCopy));
     public static string ManageAccess => Get(nameof(ManageAccess));
     public static string StopAndSave => Get(nameof(StopAndSave));
     public static string RetryConnection => Get(nameof(RetryConnection));

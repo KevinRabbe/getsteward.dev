@@ -49,6 +49,7 @@
   <data name="Join" xml:space="preserve"><value>Join</value></data>
   <data name="CreateWorld" xml:space="preserve"><value>Create World</value></data>
   <data name="ShareWorld" xml:space="preserve"><value>Share with Friends</value></data>
+  <data name="ShareCopy" xml:space="preserve"><value>Share a Copy</value></data>
   <data name="ManageAccess" xml:space="preserve"><value>Manage access</value></data>
   <data name="StopAndSave" xml:space="preserve"><value>Stop and Save</value></data>
   <data name="RetryConnection" xml:space="preserve"><value>Retry connection</value></data>

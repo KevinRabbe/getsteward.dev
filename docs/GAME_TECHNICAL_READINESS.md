@@ -1,6 +1,6 @@
 # Game Technical Readiness
 
-Status: **CURRENT TECHNICAL EVIDENCE MAP — 19 REGISTERED FIRST-PARTY ADAPTERS; CAPABILITY, STATE-OWNERSHIP AND ENVIRONMENT-EXACTNESS BOUNDARIES RECHECKED THROUGH #184**
+Status: **CURRENT TECHNICAL EVIDENCE MAP — 19 REGISTERED FIRST-PARTY ADAPTERS; CAPABILITY, STATE-OWNERSHIP AND ENVIRONMENT-EXACTNESS BOUNDARIES RECHECKED THROUGH #192**
 
 ## Purpose
 
@@ -48,7 +48,7 @@ Real game execution is needed only when the claim itself is about execution: pro
 | Game | Proven native World/state boundary | Proven environment boundary | Current action depth | Genuine empirical/future boundary still relevant |
 |---|---|---|---|---|
 | **Factorio** | Native ZIP save; isolated write-data/mod workspace; capture selects the newest valid non-autosave state. | Steam/standalone discovery, exact game environment and required mod/startup-settings reproduction. | Start, Host, automatic Join, native Create; no advertised user-triggered Host Stop. | Real Internet UDP 34197 reachability, actual remote Join, repeated real safe save/server-end/capture, cross-device handoff. |
-| **Palworld** | Dedicated-server World directory; canonical `WorldOption.sav` remains read-only; disposable runtime INI owns only management overrides. | Client + dedicated-server discovery, exact dedicated-server build, selected native World id and server configuration. | Host + Host Stop; native direct-connect presentation; no automatic client Join. | Real two-network native Join/handoff and remaining external firewall/settings-materialization observations. |
+| **Palworld** | Dedicated-server World directory; canonical `WorldOption.sav` remains read-only; disposable runtime INI owns only management overrides. | Client + dedicated-server discovery, exact dedicated-server build, selected native World id/server configuration, and managed Host forces Pocketpair's native `-NoMods` mode so official server mods are disabled by PalServer rather than modeled by Steward. | Host + Host Stop; native direct-connect presentation; no automatic client Join. | Real two-network native Join/handoff and remaining external firewall/settings-materialization observations. |
 | **7 Days to Die** | `Saves/<GameWorld>/<GameName>` plus matching `GeneratedWorlds/<GameWorld>`; exact opaque `SandboxCode` is a separate required World-specific reproduction input. | Client + dedicated-server discovery/build; isolated user-data workspace; bounded managed `serverconfig.xml`; game-native loopback-only empty-password Telnet mode with documented `shutdown`. | State/environment only; Host/Stop/Join frozen. | Restored-World readiness, real long-lived process exit after the documented Telnet stop path, final-save completion, capture/relaunch; Join separately. |
 | **Project Zomboid** | Canonical multiplayer server bundle restored into adapter-owned isolated user data. | Client + dedicated-server discovery/build plus exact configured Workshop content identity; console `save` -> `quit` is the known safe-stop command path. | State/environment only; Host/Stop/Join frozen. | Actual isolated dedicated-server process ownership, real `save`/`quit` completion, no writes to live profile, capture/relaunch. |
 | **Terraria** | Local vanilla top-level `.wld`; `.wld.bak`, Steam Cloud and tModLoader state excluded. | Exact Steam build; vanilla Terraria only. tModLoader is a separate product/state tree. | Import/state + exact game version. | None required for the current claimed slice. Runtime actions require separate evidence before promotion. |
@@ -175,6 +175,18 @@ The previous stock-Pak heuristic accepted arbitrary numeric `pakchunkN` names ev
 
 #184 narrows the existing generated regex from `[0-9]+` to `[0-5]` and directly proves `pakchunk6`/`pakchunk999` are rejected.
 
+#### Palworld — #192
+
+Palworld 1.0 added an official dedicated-server mod system. Steward's active managed Host path still launched `PalServer.exe` with no command-line arguments, so official server mods were not explicitly suppressed even though Palworld does not advertise a mod capability.
+
+Pocketpair's native dedicated-server contract already provides the smaller authority: `-NoMods` forcibly disables all mods. #192 therefore changes only the active managed Host launch contract to:
+
+```text
+PalServer.exe -NoMods
+```
+
+The launch arguments are regression-tested without starting PalServer. Steward does not add a Workshop inventory, `PalModSettings.ini` parser, mod deployment/synchronization path, Palworld mod capability, or manual mod gameplay test.
+
 ### Boundaries rechecked without code changes
 
 - **Stardew Valley:** current SMAPI installs `StardewModdingAPI.exe` in the game root even when Steam launches it or a custom `--mods-path` is used; Steward already checks that bootstrap executable before the ordinary Mods directory.
@@ -210,7 +222,7 @@ That contract can be qualified without pretending that a game session occurred.
 
 A manual launch becomes necessary only when Steward wants to claim a deeper runtime action such as Start, Host, Stop or Join.
 
-The environment-exactness audit itself demonstrates the intended process: four real deterministic gaps were found and closed from current technical evidence without turning them into gameplay tests.
+The environment-exactness audit itself demonstrates the intended process: five real deterministic gaps were found and closed from current technical evidence without turning them into gameplay tests.
 
 ### Player-owned state is not missing World state
 
@@ -247,6 +259,7 @@ Examples of questions already eliminated instead of tested include:
 - 7DTD uses the game-native empty-password loopback-only Telnet mode and documented `shutdown`; do not invent a management credential or a custom command-framing discovery task.
 - Project Zomboid's dedicated-server safe-stop command path is `save` -> `quit`; the real question is process/save completion in the managed isolated lifecycle, not command discovery.
 - Palworld `WorldOption.sav` is read-only canonical input; do not reopen encoder/compressor experiments.
+- Palworld managed Host delegates official server-mod suppression to native `-NoMods`; do not build a Steward Workshop/activation model or manual mod test for that boundary.
 - a missing required dedicated-server installation is sufficient negative evidence that a server-dependent path cannot run on that device.
 
 ## Test-value rule
@@ -293,16 +306,17 @@ V3 remains the current release-evidence stage. This matrix does not make an unob
 
 V4 used this map to add one small read-only selected-game summary derived directly from existing capability truth. V4 is complete at that small boundary; it did not add a second support taxonomy, prerequisite model, backend state, or game-specific lifecycle logic.
 
-The post-V4 technical audit did not reopen V4. It corrected four adapter-owned deterministic exactness boundaries exposed by current evidence:
+The post-V4 technical audit did not reopen V4. It corrected five adapter-owned deterministic exactness boundaries exposed by current evidence:
 
 ```text
 #171 Core Keeper official mod.io
 -> #178 Necesse pre-materialization Workshop state
 -> #181 ASTRONEER install-root UE4SS/direct PAKs
 -> #184 Smalland exact stock PAK names
+-> #192 Palworld native -NoMods managed Host
 ```
 
-The active release work therefore remains V3-E/V3-F evidence. Future deterministic writes should still require a concrete demonstrated truth gap like the four above.
+The active release work therefore remains V3-E/V3-F evidence. Future deterministic writes should still require a concrete demonstrated truth gap like the five above.
 
 ## Final rule
 

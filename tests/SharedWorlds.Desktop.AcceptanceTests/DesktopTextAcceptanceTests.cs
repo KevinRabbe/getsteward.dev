@@ -25,7 +25,7 @@ public sealed class DesktopTextAcceptanceTests
                     $"Desktop resource '{property.Name}' resolved to an empty value.");
             }
 
-            Assert.Equal("Import", DesktopText.Import);
+            Assert.Equal("Add World", DesktopText.Import);
             Assert.Equal("Join", DesktopText.Join);
             Assert.Equal("Stop and Save", DesktopText.StopAndSave);
             Assert.Equal("Retry recovery", DesktopText.RetryRecovery);
@@ -41,7 +41,7 @@ public sealed class DesktopTextAcceptanceTests
     {
         WithUiCulture(cultureName, () =>
         {
-            Assert.Equal("Import", DesktopText.Import);
+            Assert.Equal("Add World", DesktopText.Import);
             Assert.Equal("Retry recovery", DesktopText.RetryRecovery);
             Assert.Equal("Continue from last safe state", DesktopText.ContinueFromLastSafeState);
         });

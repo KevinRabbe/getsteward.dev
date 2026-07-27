@@ -19,7 +19,7 @@ public partial class MainWindow
         // while authentication is in progress.
         InitializeWorldSharingUi();
 
-        // Remote sharing is optional. With no production/development remote configuration Steward
+        // Remote sharing is optional. With no production/development remote configuration Safe World
         // stays local-only; with valid configuration it authenticates through Steam and refreshes the
         // same game-first library with canonical shared Worlds.
         await InitializeStewardRemoteSessionAsync();
@@ -28,6 +28,7 @@ public partial class MainWindow
 
         InitializeUnifiedImportBrowser();
         InitializeImportAccessibility();
+        await InitializeSafeWorldGamesHomeAsync();
         InitializeResponsibilityPresentation();
         InitializeGameAttentionProjection();
         await InitializeWorldInvitationsUiAsync();

@@ -2,19 +2,29 @@
 
 Status: **CURRENT DOCUMENTATION INDEX**
 
-Steward's active product/platform contracts have been reconciled against executable baseline #138 and the documentation-only reconciliation stack #139-#145.
+Steward's generic platform architecture, deterministic V3 release preparation, and deterministic first-release UI/product reconciliation are complete. Real V3-E/V3-F acceptance remains evidence-driven.
 
 Use [Documentation State Audit](DOCUMENTATION_AUDIT.md) when deciding whether an older checkpoint file is current guidance or historical evidence.
 
 ## Current project mode
 
-> **Generic platform architecture and deterministic V3 release-candidate preparation are complete. Real V3-E Windows acceptance has started. Current deterministic work should remove only concrete release blockers or reconcile the known Games Library UI drift; V3-F remains the real provider/Steam/game release gate.**
+> **Deterministic first-release product work is closed. V3-E real Windows evidence is active; V3-F remains the real provider/Steam/game release gate. Do not invent generic features merely because external evidence is pending.**
 
-Current executable/product baseline:
+Current non-documentation executable/UI baseline:
 
-> `e63c6f7d20d103cd2ea3d9a922b73de3c3ba1f5f` — PR #138
+> `01cb15927a9e056fb9a6784d037eabde66e7d819` — PR #151
 
-Documentation-only reconciliation does not redefine that executable ancestry.
+Current deterministic product-contract/documentation line is PR #153. Later documentation-only reconciliation does not redefine Core/backend/adapter authority.
+
+The next meaningful work is:
+
+```text
+real V3-E observation
+-> smallest evidence-driven correction if needed
+-> real V3-F Steam/provider/game gate
+```
+
+Independent deterministic work is allowed only when it creates concrete value without pretending to satisfy those empirical gates. [V4 Technical Readiness](V4_TECHNICAL_READINESS.md) is one such deliberately small future goal.
 
 ## Start here
 
@@ -25,9 +35,11 @@ For current work, read in this order:
 3. [Design Decisions](DECISIONS.md)
 4. [Architecture](ARCHITECTURE.md)
 5. [Master Roadmap](ROADMAP.md)
-6. [V3 Steam Release Candidate](V3_STEAM_RELEASE_CANDIDATE.md)
-7. [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md)
-8. [Documentation State Audit](DOCUMENTATION_AUDIT.md)
+6. [Product Completeness](PRODUCT_COMPLETENESS.md)
+7. [V3 Steam Release Candidate](V3_STEAM_RELEASE_CANDIDATE.md)
+8. [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md)
+9. [Game Technical Readiness](GAME_TECHNICAL_READINESS.md)
+10. [Documentation State Audit](DOCUMENTATION_AUDIT.md)
 
 For the final external release batch use [Steam Release Gate](STEAM_RELEASE_GATE.md).
 
@@ -41,7 +53,7 @@ When active documents disagree, use this order:
 4. `ARCHITECTURE.md`
 5. `ROADMAP.md` + current V3/platform status
 6. subsystem contracts
-7. adapter-specific contracts
+7. adapter-specific contracts/evidence maps
 8. empirical runbooks
 
 Historical checkpoint documents are evidence, not current design authority.
@@ -60,11 +72,14 @@ Production code/executable contracts still win over stale prose when a direct co
 
 ## Current planning/execution
 
-- [Master Roadmap](ROADMAP.md) — current sequence: documentation truth -> Games Library reconciliation -> V3-E evidence -> V3-F release gate -> measurement-driven performance.
+- [Master Roadmap](ROADMAP.md) — deterministic first-release reconciliation closed; V3-E then V3-F are the active evidence sequence.
+- [Product Completeness](PRODUCT_COMPLETENESS.md) — implemented vs empirical vs deliberately removed first-release requirements.
 - [V3 Steam Release Candidate](V3_STEAM_RELEASE_CANDIDATE.md) — deterministic V3 #133-#137 complete; V3-E started with #138.
 - [Platform Implementation Status](PLATFORM_IMPLEMENTATION_STATUS.md) — stable generic platform checkpoint + current 19-adapter/action-capability state.
+- [Game Technical Readiness](GAME_TECHNICAL_READINESS.md) — what each adapter already proves technically vs what genuinely needs a real game/network observation.
 - [Steam Release Gate](STEAM_RELEASE_GATE.md) — one-pass real Steam/provider/Windows/game acceptance.
 - [Deferred Empirical Tests](DEFERRED_EMPIRICAL_TESTS.md) — exact real-system questions that deterministic CI does not claim to answer.
+- [V4 Technical Readiness](V4_TECHNICAL_READINESS.md) — deliberately small future product goal that projects existing capability/install/environment truth instead of adding authority.
 
 V2 remains useful private acceptance evidence, not the active deterministic development stage:
 
@@ -77,23 +92,18 @@ V2 remains useful private acceptance evidence, not the active deterministic deve
 
 - [UI and UX Roadmap](UI_ROADMAP.md) — authoritative first-release navigation/information architecture, user journeys and product terminology.
 - [Cross-Workstream Contract](CROSS_WORKSTREAM_CONTRACT.md) — action/state meaning.
+- [Product Completeness](PRODUCT_COMPLETENESS.md) — deterministic Games Library/UI requirements are closed by #147-#153.
 
-Known current implementation drift:
+The approved hierarchy is implemented:
 
 ```text
-approved
 Games Library
 -> game workspace
 -> Worlds for selected game
 -> selected World details
-
-current WPF shell
-fixed World-list sidebar
-+ compact game selector
-+ permanent detail pane
 ```
 
-The UI contract wins. This is the next product reconciliation after documentation cleanup.
+Search, sort, global Settings, game attention, small World Lobby, localization-ready fixed vocabulary, and publish-first Share/access are also reconciled. There is no known current deterministic UI hierarchy discrepancy to implement merely to stay busy.
 
 ## Backend contracts
 
@@ -108,11 +118,14 @@ The UI contract wins. This is the next product reconciliation after documentatio
 
 - [Adapter and Background Runtime Roadmap](ADAPTER_RUNTIME_ROADMAP.md) — current writable lifecycle, automatic Join, manual direct-connect presentation distinction, recovery/background behavior.
 - [Game Adapter Guide](ADAPTER_GUIDE.md) — stable rules for safely adding/deepening an adapter; current detailed capability matrix lives in Platform Status.
+- [Game Technical Readiness](GAME_TECHNICAL_READINESS.md) — canonical technical/evidence view across the 19 registered adapters.
 - [Native World Creation](NATIVE_WORLD_CREATION.md) — game-native generator rule; Factorio is current reference implementation.
 - [Factorio Adapter](FACTORIO.md) — active dedicated-server/RCON Host path, UDP 34197, no advertised AutomaticHostStop, remaining empirical gates.
 - [Palworld Adapter](PALWORLD.md) — read-only `WorldOption.sav`, disposable management settings, REST/process-tree save-stop, identity limitations.
 
 Current Desktop catalog contains 19 first-party adapters. Catalog presence never implies every action capability.
+
+For the later fifteen state/import/environment adapters, real gameplay is not required merely to re-prove their current narrow advertised slice. Real execution becomes necessary only when promoting a runtime capability such as Start, Host, Stop or Join.
 
 ## Persistence/recovery/engineering
 
@@ -153,6 +166,7 @@ Important known stale historical statements are listed explicitly in `DOCUMENTAT
 - Factorio active `IGameAdapter` Host path uses dedicated server + RCON; managed game endpoint is UDP 34197; no `AutomaticHostStop` flag.
 - Palworld advertises Host + Host Stop + exact game version; no automatic Join; manual direct-connect guidance is presentation-only.
 - 7DTD/PZ managed runtime remains evidence-gated/frozen.
+- the other fifteen registered adapters intentionally expose narrower state/import/environment slices; absence of runtime actions is not an unimplemented promise.
 - shared backend/storage/authority already exists: Backend.Api + PostgreSQL + private S3-compatible object storage + remote Desktop composition.
 - production Steam release config is package-owned; ordinary `STEWARD_*` environment configuration is engineering/acceptance-only.
 - Steam owns installation/update; Steward has no self-updater requirement.
@@ -170,5 +184,6 @@ Before a meaningful product/architecture change ask:
 - Does Steam/Windows/the game already own the proposed mechanism?
 - Is the change backed by a concrete product requirement or real evidence?
 - Can the problem be removed instead of solved with another subsystem?
+- Is somebody proposing a manual test for a fact already knowable from native/platform/adapter evidence?
 
 When a boundary deliberately changes, update active documentation in the same slice.

@@ -30,7 +30,7 @@ public sealed class DesktopTextAcceptanceTests
             Assert.Equal("Stop and Save", DesktopText.StopAndSave);
             Assert.Equal("Retry recovery", DesktopText.RetryRecovery);
             Assert.Equal("Continue from last safe state", DesktopText.ContinueFromLastSafeState);
-            Assert.Equal("Quit Steward", DesktopText.QuitSteward);
+            Assert.Equal("Quit Safe World", DesktopText.QuitSteward);
         });
     }
 

@@ -1,6 +1,6 @@
 # Game Technical Readiness
 
-Status: **CURRENT TECHNICAL EVIDENCE MAP — 19 REGISTERED FIRST-PARTY ADAPTERS; CAPABILITY, STATE-OWNERSHIP AND ENVIRONMENT-EXACTNESS BOUNDARIES RECHECKED THROUGH #192**
+Status: **CURRENT TECHNICAL EVIDENCE MAP — 19 REGISTERED FIRST-PARTY ADAPTERS; CAPABILITY, STATE-OWNERSHIP AND ENVIRONMENT-EXACTNESS BOUNDARIES RECHECKED THROUGH #192; 7DTD LIFECYCLE ACCEPTANCE TOOLING QUALIFIED THROUGH #198**
 
 ## Purpose
 
@@ -49,7 +49,7 @@ Real game execution is needed only when the claim itself is about execution: pro
 |---|---|---|---|---|
 | **Factorio** | Native ZIP save; isolated write-data/mod workspace; capture selects the newest valid non-autosave state. | Steam/standalone discovery, exact game environment and required mod/startup-settings reproduction. | Start, Host, automatic Join, native Create; no advertised user-triggered Host Stop. | Real Internet UDP 34197 reachability, actual remote Join, repeated real safe save/server-end/capture, cross-device handoff. |
 | **Palworld** | Dedicated-server World directory; canonical `WorldOption.sav` remains read-only; disposable runtime INI owns only management overrides. | Client + dedicated-server discovery, exact dedicated-server build, selected native World id/server configuration, and managed Host forces Pocketpair's native `-NoMods` mode so official server mods are disabled by PalServer rather than modeled by Steward. | Host + Host Stop; native direct-connect presentation; no automatic client Join. | Real two-network native Join/handoff and remaining external firewall/settings-materialization observations. |
-| **7 Days to Die** | `Saves/<GameWorld>/<GameName>` plus matching `GeneratedWorlds/<GameWorld>`; exact opaque `SandboxCode` is a separate required World-specific reproduction input. | Client + dedicated-server discovery/build; isolated user-data workspace; bounded managed `serverconfig.xml`; game-native loopback-only empty-password Telnet mode with documented `shutdown`. | State/environment only; Host/Stop/Join frozen. | Restored-World readiness, real long-lived process exit after the documented Telnet stop path, final-save completion, capture/relaunch; Join separately. |
+| **7 Days to Die** | `Saves/<GameWorld>/<GameName>` plus matching `GeneratedWorlds/<GameWorld>`; exact opaque `SandboxCode` is a separate required World-specific reproduction input. | Client + dedicated-server discovery/build; isolated user-data workspace; bounded managed `serverconfig.xml`; game-native loopback-only empty-password Telnet mode with documented `shutdown`; #198 qualifies the disposable lifecycle acceptance tool. | State/environment only; Host/Stop/Join frozen. | Restored-World readiness, real loopback-listener confirmation, clean owned-process exit after documented Telnet shutdown, capture/relaunch; Join separately. |
 | **Project Zomboid** | Canonical multiplayer server bundle restored into adapter-owned isolated user data. | Client + dedicated-server discovery/build plus exact configured Workshop content identity; console `save` -> `quit` is the known safe-stop command path. | State/environment only; Host/Stop/Join frozen. | Actual isolated dedicated-server process ownership, real `save`/`quit` completion, no writes to live profile, capture/relaunch. |
 | **Terraria** | Local vanilla top-level `.wld`; `.wld.bak`, Steam Cloud and tModLoader state excluded. | Exact Steam build; vanilla Terraria only. tModLoader is a separate product/state tree. | Import/state + exact game version. | None required for the current claimed slice. Runtime actions require separate evidence before promotion. |
 | **Stardew Valley** | Host-owned save directory containing exactly the current same-named save + `SaveGameInfo`; `_old` recovery files excluded. | Exact Steam build; `StardewModdingAPI.exe`/SMAPI or active Mods cause refusal. | Import/state + exact game version. | None required for the current claimed slice. Multiplayer lifecycle is separate. |
@@ -152,7 +152,7 @@ Steam Workshop payload already installed
 -> old vanilla proof could still see an empty local mods root
 ```
 
-#178 derives `steamapps/workshop/content/1169040` from the already-known Steam appmanifest and refuses this pre-materialization ambiguity. Its error explicitly does **not** claim installed Workshop content is active.
+#178 derives `steamapps/workshop/content/1169040` from the already-known Steam appmanifest and refuses this pre-materialization ambiguity. Its error explicitly does **not** claim installed Workshop payload is active.
 
 No Necesse mod-list parser or Workshop manager was added.
 
@@ -257,6 +257,7 @@ Examples of questions already eliminated instead of tested include:
 
 - 7DTD `SandboxCode` is an explicit World-specific dedicated-server reproduction input; do not test whether save bytes magically make it unnecessary.
 - 7DTD uses the game-native empty-password loopback-only Telnet mode and documented `shutdown`; do not invent a management credential or a custom command-framing discovery task.
+- 7DTD capture follows documented graceful `shutdown` -> complete owned-process exit -> capture; do not invent a separate final-save log protocol after the process is gone.
 - Project Zomboid's dedicated-server safe-stop command path is `save` -> `quit`; the real question is process/save completion in the managed isolated lifecycle, not command discovery.
 - Palworld `WorldOption.sav` is read-only canonical input; do not reopen encoder/compressor experiments.
 - Palworld managed Host delegates official server-mod suppression to native `-NoMods`; do not build a Steward Workshop/activation model or manual mod test for that boundary.
@@ -279,7 +280,7 @@ Before adding an empirical game test, classify the question:
 | Can this device Host when required server tooling is absent? | No. Negative installation evidence is enough. |
 | Does the real game replace/bootstrap processes? | Empirical only when session ownership depends on it. |
 | What exact signal means the real server is ready? | Empirical unless a stable native protocol/documented signal already proves it. |
-| Did native safe shutdown finish the authoritative save? | Empirical when file/process semantics cannot prove it beforehand. |
+| Did native safe shutdown finish the authoritative save? | Empirical only when complete process/file semantics do not already provide a terminal mutation barrier; for current 7DTD, complete owned-process exit is sufficient before capture. |
 | Can another Internet connection reach the Host? | Empirical network boundary. |
 | Does real client Join enter the intended Host? | Empirical game/network boundary. |
 

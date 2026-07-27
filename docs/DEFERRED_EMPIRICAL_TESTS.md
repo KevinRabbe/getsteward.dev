@@ -66,33 +66,36 @@ The earlier V3 sandbox-authority experiment is retired. Current V3 game document
 - The managed-host transform therefore enables the built-in service interface on a bounded Steward-selected port and deliberately sets `TelnetPassword` to empty. There is no Steward management credential or authentication exchange to own.
 - Current server documentation exposes the built-in Telnet interface and documents `shutdown` as the supported server-stop command.
 - The control implementation should use ordinary Telnet/NVT command-line termination. There is no reason to run a separate experiment whose goal is to discover the smallest non-standard byte sequence the server happens to accept.
+- After documented graceful shutdown, complete owned dedicated-server process exit is the capture barrier. Do not invent a second final-save log protocol once the process can no longer mutate its World files.
+- Qualified #198 provides an acceptance-only executable that composes the existing capture/restore/configuration primitives, observes the loopback listener, sends documented `shutdown`, requires process exit before capture, and relaunches the captured result. It does not grant runtime capabilities or guess readiness.
 
 **Empirical questions:**
 
 1. What observable log/process/network boundary proves the restored named World is fully ready for players rather than merely that the process or local management socket exists?
-2. After the documented local Telnet `shutdown` command is sent through the bounded control path, does the actual long-lived server process exit reliably?
-3. What observable boundary proves the final authoritative save is complete before Steward capture begins?
+2. Does the actual listener match the documented empty-password loopback-only mode on the real release machine?
+3. After the documented local Telnet `shutdown` command is sent through the bounded control path, does the actual long-lived server process exit reliably without forced cleanup?
 4. Does the resulting isolated `Saves/...` + `GeneratedWorlds/...` bundle capture every authoritative change needed for a second launch of the same updated World?
 
 **Test setup:**
 
 - Windows machine with the current 7 Days to Die client and dedicated server installed.
 - One disposable known V3 World and one exact deliberately non-default `SandboxCode` supplied explicitly for that World.
-- An adapter-owned isolated user-data workspace; never use the live player World as the writable test target.
-- A managed `serverconfig.xml` with `TelnetEnabled=true`, one known test port, and an empty `TelnetPassword` so the game uses its documented loopback-only mode.
-- Record the dedicated-server PID/process tree, management-port listeners, server log, and isolated World file timestamps/sizes before and after stop.
+- Use the qualified `tools/SharedWorlds.SevenDaysToDieProbe` from #198 rather than hand-building a second lifecycle harness.
+- Preflight with `dotnet run --project tools/SharedWorlds.SevenDaysToDieProbe -- --list`.
+- Run one disposable lifecycle with `dotnet run --project tools/SharedWorlds.SevenDaysToDieProbe -- --lifecycle-acceptance "<exact World display name or ID>"`.
+- Retain the probe's server log/config evidence and post-first-run captured package.
 
 **Acceptance evidence:**
 
 - The server loads the intended restored `GameWorld`/`GameName` with the supplied non-default `SandboxCode` rather than silently substituting defaults.
 - The management listener is observed on loopback only, matching the current documented empty-password mode; any contradictory real behavior is recorded as a game-version finding before Steward relies on it.
-- A specific readiness signal is observed before the test client is considered able to join.
+- A specific readiness signal is observed before the test client is considered able to join; Telnet reachability alone is not readiness.
 - The actual long-lived dedicated-server process is identified and is not confused with a bootstrap/launcher process.
-- The documented Telnet `shutdown` path reaches a clean terminal state without Steward killing the process.
-- The final save/capture boundary is observable rather than inferred from a fixed sleep.
+- The documented Telnet `shutdown` path reaches complete owned-process exit without Steward killing the process.
+- Capture begins only after that process-exit barrier; no fixed sleep or separate final-save log protocol is required.
 - The captured result restores and launches as the same updated World in a second disposable run.
 
-**Promotion rule:** First turn the observed readiness/shutdown/final-save trace into the smallest bounded local control/lifecycle implementation with regression tests. Then repeat this real scenario through Steward. Only after that second proof may 7DTD promote automatic Host/Stop. Join remains a separate capability proof.
+**Promotion rule:** The #198 probe qualifies the acceptance procedure only. After one real lifecycle pass identifies a reliable readiness signal, implement the smallest bounded production Host/Stop lifecycle and regression-test that signal/control boundary, then repeat the scenario through normal Steward product flow. Only after that proof may 7DTD promote automatic Host/Stop. Join remains a separate capability proof.
 
 ## Palworld — native Join, REST exposure, and decoder-elimination boundary
 

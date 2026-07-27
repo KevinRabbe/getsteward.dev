@@ -166,9 +166,9 @@ class SellabilityTests(unittest.TestCase):
     def test_approval_rejects_path_traversal_reserved_files_and_unsafe_terms_id(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            for terms_id in ("..", ".", "../terms", "UpperCase", "bad space"):
+            for index, terms_id in enumerate(("..", ".", "../terms", "UpperCase", "bad space")):
                 approval_path = _write_approval(
-                    root / terms_id.replace("/", "_"),
+                    root / f"unsafe-{index}",
                     product_id=_ROR_PRODUCT,
                     terms_id=terms_id,
                 )

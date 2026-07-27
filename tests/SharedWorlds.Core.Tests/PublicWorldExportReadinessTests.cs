@@ -14,14 +14,20 @@ public sealed class PublicWorldExportReadinessTests
         Assert.Null(readiness.Reason);
     }
 
+    [Fact]
+    public void UnsupportedRejectsNullReason()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            PublicWorldExportReadiness.Unsupported(null!));
+    }
+
     [Theory]
-    [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    public void UnsupportedRequiresConcreteReason(string? reason)
+    public void UnsupportedRejectsBlankReason(string reason)
     {
         Assert.Throws<ArgumentException>(() =>
-            PublicWorldExportReadiness.Unsupported(reason!));
+            PublicWorldExportReadiness.Unsupported(reason));
     }
 
     [Fact]

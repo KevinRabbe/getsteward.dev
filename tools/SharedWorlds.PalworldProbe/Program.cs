@@ -309,6 +309,7 @@ static async Task<bool> RunRestAcceptanceAsync(
         {
             FileName = serverExecutable,
             WorkingDirectory = serverRoot,
+            Arguments = "-NoMods",
             UseShellExecute = false,
             CreateNoWindow = true
         });
@@ -903,3 +904,11 @@ static (int EntryCount, bool HasLevelSave, bool HasBackupData) InspectStatePacka
 
     return (archive.Entries.Count, hasLevelSave, hasBackupData);
 }
+
+readonly record struct WorldFileState(long Length, DateTime LastWriteTimeUtc);
+readonly record struct WorldObservation(
+    IReadOnlyList<string> ChangedFiles,
+    DateTimeOffset? FirstChangeAt,
+    DateTimeOffset? LastChangeAt,
+    DateTimeOffset StabilizedAt,
+    bool Stabilized);

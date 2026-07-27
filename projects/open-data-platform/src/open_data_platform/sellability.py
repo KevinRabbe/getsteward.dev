@@ -8,8 +8,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .commercial import _verify_checksum, commercial_path, verify_commercial_product
-from .errors import SellabilityError
+from .commercial import (
+    _verify_checksum as _commercial_verify_checksum,
+    commercial_path,
+    verify_commercial_product,
+)
+from .errors import ProductError, SellabilityError
 from .production import production_acceptance_report
 from .ror_commercial import verify_ror_commercial_product
 from .util import atomic_write_json, load_json, make_read_only, sha256_file, utc_now_iso
@@ -31,6 +35,13 @@ _RESERVED_ENVELOPE_FILES = {
     "operational.json.sha256",
     "sale.json.sha256",
 }
+
+
+def _verify_checksum(path: Path) -> str:
+    try:
+        return _commercial_verify_checksum(path)
+    except ProductError as exc:
+        raise SellabilityError(f"Sellability artifact checksum verification failed: {path}") from exc
 
 
 def _catalog_path(project_root: Path, product_id: str) -> Path:

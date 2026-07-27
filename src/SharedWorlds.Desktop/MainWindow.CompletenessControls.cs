@@ -8,130 +8,95 @@ namespace SharedWorlds.Desktop;
 
 public partial class MainWindow
 {
-    private TextBox? _worldSearchBox;
     private ComboBox? _worldSortComboBox;
+    private DependencyPropertyDescriptor? _worldSortItemsSourceDescriptor;
     private Button? _globalSettingsButton;
     private Border? _globalSettingsPanel;
     private bool _globalSettingsVisible;
 
     private void InitializeCompletenessControlsUi()
     {
-        InitializeWorldWorkspaceSearchAndSort();
+        // Search already has one owner in MainWindow.WorldSearch.cs. Reuse that implementation rather
+        // than creating another search box/filter lifecycle just to satisfy the game-workspace contract.
+        InitializeWorldSearchUi();
+        InitializeWorldWorkspaceSort();
         InitializeGlobalSettingsSurface();
     }
 
-    private void InitializeWorldWorkspaceSearchAndSort()
+    private void InitializeWorldWorkspaceSort()
     {
-        if (_worldSearchBox is not null || WorldSidebar.Child is not Grid sidebarGrid)
+        if (_worldSortComboBox is not null || WorldList.Parent is not Grid worldSidebarGrid)
         {
             return;
         }
-
-        var header = sidebarGrid.Children
-            .OfType<StackPanel>()
-            .FirstOrDefault(child => Grid.GetRow(child) == 0);
-        if (header is null)
-        {
-            return;
-        }
-
-        var search = new TextBox
-        {
-            MinHeight = 32,
-            Margin = new Thickness(0, 14, 0, 0),
-            Padding = new Thickness(8, 5, 8, 5),
-            ToolTip = "Filter Worlds in this game by name or visible summary."
-        };
-        AutomationProperties.SetName(search, "Search Worlds");
-        AutomationProperties.SetHelpText(
-            search,
-            "Filter Worlds in the selected game by name, sharing state, or visible version text.");
 
         var sort = new ComboBox
         {
-            MinHeight = 32,
-            Margin = new Thickness(0, 8, 0, 0),
+            MinHeight = 34,
+            Margin = new Thickness(2, 42, 2, 8),
+            VerticalContentAlignment = VerticalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top,
             ItemsSource = new[]
             {
                 "Name A–Z",
                 "Name Z–A"
             },
-            SelectedIndex = 0
+            SelectedIndex = 0,
+            ToolTip = "Sort managed Worlds in this game by name."
         };
         AutomationProperties.SetName(sort, "Sort Worlds");
-        AutomationProperties.SetHelpText(sort, "Choose the name order for Worlds in this game.");
+        AutomationProperties.SetHelpText(sort, "Choose ascending or descending World-name order.");
+        sort.SetResourceReference(Control.BackgroundProperty, "PanelAltBrush");
+        sort.SetResourceReference(Control.ForegroundProperty, "TextBrush");
+        sort.SetResourceReference(Control.BorderBrushProperty, "BorderBrush");
 
-        header.Children.Add(search);
-        header.Children.Add(sort);
+        Grid.SetRow(sort, Grid.GetRow(WorldList));
+        Panel.SetZIndex(sort, 1);
+        worldSidebarGrid.Children.Add(sort);
 
-        _worldSearchBox = search;
+        // Existing search already reserves the first 42 px above the list. Reserve exactly one more
+        // control row for sort instead of introducing a new sidebar layout/state model.
+        var margin = WorldList.Margin;
+        WorldList.Margin = new Thickness(
+            margin.Left,
+            margin.Top + 42,
+            margin.Right,
+            margin.Bottom);
+
         _worldSortComboBox = sort;
+        sort.SelectionChanged += (_, _) => ApplyWorldSort();
 
-        search.TextChanged += (_, _) => ApplyWorldWorkspaceSearchAndSort();
-        sort.SelectionChanged += (_, _) => ApplyWorldWorkspaceSearchAndSort();
-
-        var itemsSourceDescriptor = DependencyPropertyDescriptor.FromProperty(
+        _worldSortItemsSourceDescriptor = DependencyPropertyDescriptor.FromProperty(
             ItemsControl.ItemsSourceProperty,
             typeof(ListBox));
-        itemsSourceDescriptor?.AddValueChanged(
+        _worldSortItemsSourceDescriptor?.AddValueChanged(
             WorldList,
-            (_, _) => ApplyWorldWorkspaceSearchAndSort());
+            (_, _) => ApplyWorldSort());
+
+        ApplyWorldSort();
     }
 
-    private void ApplyWorldWorkspaceSearchAndSort()
+    private void ApplyWorldSort()
     {
-        if (_worldSearchBox is null ||
-            _worldSortComboBox is null ||
-            WorldList.ItemsSource is null)
+        if (_worldSortComboBox is null || WorldList.ItemsSource is null)
         {
             return;
         }
 
-        var query = _worldSearchBox.Text.Trim();
-        WorldList.Items.Filter = item =>
+        var view = CollectionViewSource.GetDefaultView(WorldList.ItemsSource);
+        if (view is null || !view.CanSort)
         {
-            if (item is not UnifiedWorldListItem world)
-            {
-                return false;
-            }
-
-            return query.Length == 0 ||
-                   world.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                   world.Subtitle.Contains(query, StringComparison.OrdinalIgnoreCase);
-        };
-
-        if (WorldList.Items.CanSort)
-        {
-            using (WorldList.Items.DeferRefresh())
-            {
-                WorldList.Items.SortDescriptions.Clear();
-                WorldList.Items.SortDescriptions.Add(new SortDescription(
-                    nameof(UnifiedWorldListItem.Name),
-                    _worldSortComboBox.SelectedIndex == 1
-                        ? ListSortDirection.Descending
-                        : ListSortDirection.Ascending));
-            }
+            return;
         }
 
-        if (_selectedWorld is { } selectedWorld &&
-            WorldList.Items
-                .OfType<UnifiedWorldListItem>()
-                .All(item => item.World.Id != selectedWorld.Id))
+        using (view.DeferRefresh())
         {
-            WorldList.SelectedItem = null;
-        }
-
-        if (WorldList.SelectedItem is null)
-        {
-            SetGameWorkspaceEmptyState();
-            if (WorldList.Items.Count == 0 &&
-                query.Length > 0 &&
-                _selectedGameAdapterId is { } adapterId &&
-                _allWorldItems.Any(item =>
-                    string.Equals(item.AdapterId, adapterId, StringComparison.Ordinal)))
-            {
-                EmptyStateText.Text = $"No Worlds match ‘{query}’.";
-            }
+            view.SortDescriptions.Clear();
+            view.SortDescriptions.Add(new SortDescription(
+                nameof(UnifiedWorldListItem.Name),
+                _worldSortComboBox.SelectedIndex == 1
+                    ? ListSortDirection.Descending
+                    : ListSortDirection.Ascending));
         }
     }
 
@@ -165,7 +130,8 @@ public partial class MainWindow
         var settingsPanel = new Border
         {
             Visibility = Visibility.Collapsed,
-            Padding = new Thickness(32, 28, 32, 32)
+            Padding = new Thickness(32, 28, 32, 32),
+            Focusable = true
         };
         settingsPanel.SetResourceReference(Border.BackgroundProperty, "AppBackgroundBrush");
         Grid.SetColumn(settingsPanel, 0);
@@ -211,7 +177,7 @@ public partial class MainWindow
 
         // Re-home the existing settings control instead of duplicating its persistence or state logic.
         // AllowHostingCheckBox and HostingPreferenceText remain the same named WPF instances used by
-        // device-settings load/save and busy/action-state code.
+        // device-settings load/save and hosting action-state code.
         if (WorldSidebar.Child is Grid sidebarGrid)
         {
             var existingSettings = sidebarGrid.Children

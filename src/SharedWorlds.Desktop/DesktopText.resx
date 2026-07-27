@@ -4,15 +4,15 @@
   <resheader name="version"><value>2.0</value></resheader>
   <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
   <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
-  <data name="Tagline" xml:space="preserve"><value>Click World. Play.</value></data>
+  <data name="Tagline" xml:space="preserve"><value>Your Worlds, anywhere.</value></data>
   <data name="Games" xml:space="preserve"><value>Games</value></data>
   <data name="GamesLibrary" xml:space="preserve"><value>Games Library</value></data>
-  <data name="GamesLibraryDescription" xml:space="preserve"><value>Choose a game to see its managed Worlds.</value></data>
+  <data name="GamesLibraryDescription" xml:space="preserve"><value>Choose a game.</value></data>
   <data name="BackToGames" xml:space="preserve"><value>← Games</value></data>
   <data name="Worlds" xml:space="preserve"><value>Worlds</value></data>
   <data name="Settings" xml:space="preserve"><value>Settings</value></data>
   <data name="Back" xml:space="preserve"><value>← Back</value></data>
-  <data name="SettingsDescription" xml:space="preserve"><value>Device-wide Steward preferences. World-specific rules remain with each World.</value></data>
+  <data name="SettingsDescription" xml:space="preserve"><value>Device-wide Safe World preferences. World-specific rules remain with each World.</value></data>
   <data name="DeviceSettings" xml:space="preserve"><value>Device settings</value></data>
   <data name="HostingOnThisDevice" xml:space="preserve"><value>Hosting on this device</value></data>
   <data name="AllowDeviceHosting" xml:space="preserve"><value>Allow this device to host</value></data>
@@ -44,11 +44,11 @@
   <data name="Invites" xml:space="preserve"><value>Invites</value></data>
   <data name="SharedWorldInvitations" xml:space="preserve"><value>Shared World invitations</value></data>
   <data name="BackToWorlds" xml:space="preserve"><value>Back to Worlds</value></data>
-  <data name="StartWorld" xml:space="preserve"><value>Start World</value></data>
+  <data name="StartWorld" xml:space="preserve"><value>Continue</value></data>
   <data name="HostWorld" xml:space="preserve"><value>Host World</value></data>
   <data name="Join" xml:space="preserve"><value>Join</value></data>
   <data name="CreateWorld" xml:space="preserve"><value>Create World</value></data>
-  <data name="ShareWorld" xml:space="preserve"><value>Share World</value></data>
+  <data name="ShareWorld" xml:space="preserve"><value>Share with Friends</value></data>
   <data name="ManageAccess" xml:space="preserve"><value>Manage access</value></data>
   <data name="StopAndSave" xml:space="preserve"><value>Stop and Save</value></data>
   <data name="RetryConnection" xml:space="preserve"><value>Retry connection</value></data>
@@ -66,8 +66,8 @@
   <data name="Close" xml:space="preserve"><value>Close</value></data>
   <data name="VerifyEnvironment" xml:space="preserve"><value>Verify Environment</value></data>
   <data name="Repair" xml:space="preserve"><value>Repair</value></data>
-  <data name="OpenSteward" xml:space="preserve"><value>Open Steward</value></data>
-  <data name="QuitSteward" xml:space="preserve"><value>Quit Steward</value></data>
+  <data name="OpenSteward" xml:space="preserve"><value>Open Safe World</value></data>
+  <data name="QuitSteward" xml:space="preserve"><value>Quit Safe World</value></data>
   <data name="WorldLobby" xml:space="preserve"><value>World Lobby</value></data>
   <data name="PlayingNow" xml:space="preserve"><value>Playing now</value></data>
   <data name="WorldGroup" xml:space="preserve"><value>World group</value></data>
@@ -82,8 +82,8 @@
   <data name="RecoveryNeeded" xml:space="preserve"><value>Recovery needed</value></data>
   <data name="ActionRequired" xml:space="preserve"><value>Action required</value></data>
   <data name="InterruptedSessionResolution" xml:space="preserve"><value>Interrupted session — choose Retry recovery or Continue from last safe state.</value></data>
-  <data name="NoManagedWorldsYet" xml:space="preserve"><value>No managed Worlds yet</value></data>
-  <data name="OneManagedWorld" xml:space="preserve"><value>1 managed World</value></data>
-  <data name="ManagedWorldsFormat" xml:space="preserve"><value>{0} managed Worlds</value></data>
-  <data name="NoWorldSearchMatches" xml:space="preserve"><value>No managed Worlds match this search.</value></data>
+  <data name="NoManagedWorldsYet" xml:space="preserve"><value>No Worlds yet</value></data>
+  <data name="OneManagedWorld" xml:space="preserve"><value>1 World</value></data>
+  <data name="ManagedWorldsFormat" xml:space="preserve"><value>{0} Worlds</value></data>
+  <data name="NoWorldSearchMatches" xml:space="preserve"><value>No Worlds match this search.</value></data>
 </root>

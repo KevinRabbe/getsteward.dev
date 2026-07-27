@@ -181,7 +181,10 @@ public partial class MainWindow : Window
     {
         _isBusy = isBusy;
         RefreshButton.IsEnabled = !isBusy;
+        RefreshGameButton.IsEnabled = !isBusy;
         OpenImportButton.IsEnabled = !isBusy;
+        GameLibraryList.IsEnabled = !isBusy;
+        BackToGamesButton.IsEnabled = !isBusy;
         AllowHostingCheckBox.IsEnabled = !isBusy;
         WorldList.IsEnabled = !isBusy;
         UpdateNativeWorldCreationActionState();

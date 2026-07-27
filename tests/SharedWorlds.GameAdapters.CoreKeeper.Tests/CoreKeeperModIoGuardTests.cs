@@ -113,7 +113,7 @@ public sealed class CoreKeeperModIoGuardTests
         var settingsRoot = temp.CreateDirectory("settings-modio");
         File.WriteAllBytes(
             Path.Combine(settingsRoot, "globalsettings.json"),
-            new byte[CoreKeeperModIoGuard.MaximumSettingsBytes + 1]);
+            new byte[checked((int)CoreKeeperModIoGuard.MaximumSettingsBytes + 1)]);
 
         var exception = Assert.Throws<InvalidOperationException>(
             () => CoreKeeperModIoGuard.RequireNoInstalledMods(defaultRoot, settingsRoot));

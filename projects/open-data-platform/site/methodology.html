@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="How reusable public data becomes verified, immutable commercial data products.">
+  <title>Methodology — Verified Data Products</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="index.html">Verified Data Products</a>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="products/global-research-organization-history.html">Databases</a>
+        <a href="methodology.html">Methodology</a>
+        <a href="index.html#about">About</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container">
+        <span class="eyebrow">Methodology</span>
+        <h1>Every release should be explainable from source bytes to customer file.</h1>
+        <p class="lead">The platform separates source acquisition, normalization, logical product state, immutable release identity, distribution formats, operational evidence, and commercial approval instead of hiding them behind one opaque export.</p>
+      </div>
+    </section>
+
+    <section class="section soft">
+      <div class="container">
+        <span class="eyebrow">Release model</span>
+        <h2>Database → Product → Release → Distribution</h2>
+        <div class="grid">
+          <article class="card">
+            <h3>1. Preserve the source</h3>
+            <p>Source payloads are archived immutably with source-native identifiers, hashes, provenance, and source-version evidence.</p>
+          </article>
+          <article class="card">
+            <h3>2. Build a logical product</h3>
+            <p>Normalization and product rules are deterministic. Product identity is not tied to whichever file format a customer happens to download.</p>
+          </article>
+          <article class="card">
+            <h3>3. Publish immutable releases</h3>
+            <p>A release binds the exact information state, manifests, schemas, configuration, quality evidence, provenance, licensing notices, changelog, and checksums.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <span class="eyebrow">Equivalent distributions</span>
+        <h2>One verified information state can travel in several formats.</h2>
+        <div class="grid two">
+          <div class="card">
+            <h3>SQLite</h3>
+            <p>Canonical local queryable state for products that benefit from indexes and immediate SQL access.</p>
+          </div>
+          <div class="card">
+            <h3>CSV and Parquet</h3>
+            <p>Convenient distributions for interoperability and analytical pipelines. A new file format does not create a new logical release by itself.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section soft">
+      <div class="container">
+        <span class="eyebrow">History</span>
+        <h2>Changes are evidence, not guesses.</h2>
+        <p class="lead">Historical products require verified source states and verified adjacent change artifacts. Missing history is not inferred from version numbers, changelog prose, or the latest source dump.</p>
+        <div class="callout" style="margin-top: 24px;">
+          A later source release never silently changes an already published commercial bundle. Corrections or new information create a new release identity.
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <span class="eyebrow">Commercial boundary</span>
+        <h2>Technical readiness and legal approval remain independent.</h2>
+        <div class="grid two">
+          <div class="card">
+            <h3>Software proves</h3>
+            <ul class="list-clean">
+              <li>candidate integrity</li>
+              <li>source/product/history evidence</li>
+              <li>exact file hashes</li>
+              <li>product-scoped approval references</li>
+              <li>immutable sale-envelope bindings</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Humans decide</h3>
+            <ul class="list-clean">
+              <li>customer-terms wording</li>
+              <li>legal sufficiency</li>
+              <li>license-plan boundaries</li>
+              <li>warranty/liability/governing-law language</li>
+              <li>whether redistribution requires different terms</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section soft">
+      <div class="container">
+        <span class="eyebrow">Identity</span>
+        <h2>Names and paths are not permanent identity.</h2>
+        <p class="lead">Long-lived platform objects use stable internal identities. Source-native IDs are preserved. Cross-database relationships belong in separate versioned mapping layers rather than destructively merging source records.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-row">
+      <span>Product methodology</span>
+      <span>Reproducibility before convenience.</span>
+    </div>
+  </footer>
+</body>
+</html>

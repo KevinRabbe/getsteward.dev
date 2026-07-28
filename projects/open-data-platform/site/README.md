@@ -1,8 +1,16 @@
-# Databasis commercial site
+# Commercial data-product site
 
 This directory is deliberately a **zero-build static launch surface** for the first database product.
 
 It is not an ecommerce application and must not grow customer accounts, payment processing, entitlement state, telemetry, or a hosted query service merely to sell a downloadable database.
+
+## Public brand
+
+The launch surface is intentionally **brand-neutral** for now.
+
+`Databasis` may remain an internal/project working name, but it must not be treated as a cleared public brand. Current external checks found active commercial use of the name and an already-registered `databasis.io` domain. A public company/product-family name should be selected and cleared before production deployment, checkout, invoices, SEO, or marketplace listings are tied to it.
+
+This naming decision does not block product-led buyer validation for `Global Research Organization History`.
 
 ## Current pages
 

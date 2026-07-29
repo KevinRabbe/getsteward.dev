@@ -28,6 +28,13 @@ public partial class MainWindow
             GameLibraryList,
             (_, _) => QueueSafeWorldGameLibraryFilter());
 
+        var selectedGameDescriptor = DependencyPropertyDescriptor.FromProperty(
+            TextBlock.TextProperty,
+            typeof(TextBlock));
+        selectedGameDescriptor?.AddValueChanged(
+            SelectedGameNameText,
+            (_, _) => UpdateNativeWorldCreationActionState());
+
         GameLibraryList.SelectionChanged += SafeWorldGameLibraryList_SelectionChanged;
 
         RehomeSafeWorldGameActions();

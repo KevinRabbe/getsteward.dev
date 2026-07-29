@@ -26,6 +26,8 @@ public partial class MainWindow
         AutomationProperties.SetName(_invitationsButton, DesktopText.SharedWorldInvitations);
         _invitationsButton.Click += InvitationsButton_Click;
 
+        // Initial attachment keeps one ownership path for the existing control. The polished product
+        // shell re-homes this same button into the global Lobby after all shell surfaces are initialized.
         if (RefreshButton.Parent is Grid header)
         {
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -42,7 +44,7 @@ public partial class MainWindow
         var remote = _remoteRuntime;
         if (remote is null)
         {
-            StatusText.Text = "Connect authenticated Steward to view shared World invitations.";
+            StatusText.Text = "Connect Safe World to view shared World invitations.";
             return;
         }
 
@@ -59,6 +61,10 @@ public partial class MainWindow
         }
 
         await RefreshPendingInvitationCountAsync();
+        if (_globalLobbyVisible)
+        {
+            await RefreshGlobalLobbyAsync();
+        }
     }
 
     private async Task RefreshPendingInvitationCountAsync(
@@ -75,7 +81,7 @@ public partial class MainWindow
             SetInvitationsActionState(
                 DesktopText.Invites,
                 false,
-                "Connect authenticated Steward to view invitations.");
+                "Connect Safe World to view invitations.");
             return;
         }
 
@@ -95,7 +101,7 @@ public partial class MainWindow
             SetInvitationsActionState(
                 DesktopText.Invites,
                 false,
-                "Steward could not load invitations. Reconnect the shared service and try again.");
+                "Safe World could not load invitations. Reconnect and try again.");
         }
     }
 

@@ -31,7 +31,7 @@ public partial class MainWindow
         };
         var heading = new TextBlock
         {
-            Text = DesktopText.DeleteWorld,
+            Text = DesktopText.DangerZone,
             FontWeight = FontWeights.SemiBold
         };
         var description = new TextBlock

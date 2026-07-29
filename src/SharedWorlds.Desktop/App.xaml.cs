@@ -18,6 +18,18 @@ public partial class App : Application
         {
             // A primary Safe World process already owns this user/session. The activation request was
             // handed off (or failed closed); never construct a second local storage/runtime writer.
+            // Normal duplicate launches get one explicit explanation so test/release builds cannot
+            // appear to launch while Windows actually brings an older already-running process forward.
+            if (startupPortableWorldPath is null)
+            {
+                MessageBox.Show(
+                    "Safe World is already running. The existing window was activated.\n\n" +
+                    "To switch to a different Safe World build, quit the running copy first.",
+                    "Safe World is already running",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+
             Shutdown();
             return;
         }
@@ -28,8 +40,9 @@ public partial class App : Application
 
         var window = new MainWindow
         {
-            Title = $"Safe World {StewardBuildVersion.Current}"
+            Title = "Safe World"
         };
+        window.InitializeProfessionalWindowChrome();
         MainWindow = window;
 
         // Start initialization before showing the window so the legacy Loaded handler is removed

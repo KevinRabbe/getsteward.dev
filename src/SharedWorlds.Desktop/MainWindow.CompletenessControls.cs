@@ -69,12 +69,13 @@ public partial class MainWindow
 
         var backButton = new Button
         {
-            Content = DesktopText.Back,
-            Padding = new Thickness(10, 5, 10, 5),
+            Content = DesktopText.BackToGames,
+            Width = 112,
+            Height = 40,
             HorizontalAlignment = HorizontalAlignment.Left,
-            Margin = new Thickness(0, 0, 0, 18)
+            Margin = new Thickness(0, 0, 0, 20)
         };
-        AutomationProperties.SetName(backButton, DesktopText.Back);
+        AutomationProperties.SetName(backButton, DesktopText.BackToGames);
         content.Children.Add(backButton);
         content.Children.Add(new TextBlock
         {
@@ -119,7 +120,7 @@ public partial class MainWindow
         _globalSettingsPanel = settingsPanel;
 
         settingsButton.Click += (_, _) => ShowGlobalSettings();
-        backButton.Click += (_, _) => HideGlobalSettings();
+        backButton.Click += (_, _) => HideGlobalSettings(showGames: true);
         RefreshButton.IsEnabledChanged += (_, _) => UpdateGlobalSettingsButtonState();
     }
 
@@ -128,6 +129,11 @@ public partial class MainWindow
         if (_globalSettingsPanel is null)
         {
             return;
+        }
+
+        if (_globalLobbyVisible)
+        {
+            HideGlobalLobby(showGames: false);
         }
 
         _globalSettingsVisible = true;
@@ -139,7 +145,7 @@ public partial class MainWindow
         _globalSettingsPanel.Focus();
     }
 
-    private void HideGlobalSettings()
+    private void HideGlobalSettings(bool showGames = false)
     {
         if (_globalSettingsPanel is null)
         {
@@ -152,8 +158,15 @@ public partial class MainWindow
         WorldSidebar.IsEnabled = true;
         WorldDetailsScroll.IsEnabled = true;
         UpdateGlobalSettingsButtonState();
-        ApplyGameNavigationLayout();
-        _globalSettingsButton?.Focus();
+
+        if (showGames)
+        {
+            ShowGamesLibrary(focusLibrary: true);
+        }
+        else
+        {
+            ApplyGameNavigationLayout();
+        }
     }
 
     private void UpdateGlobalSettingsButtonState()

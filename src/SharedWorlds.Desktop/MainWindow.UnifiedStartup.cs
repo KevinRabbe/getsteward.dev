@@ -34,8 +34,11 @@ public partial class MainWindow
         await InitializeSafeWorldGamesHomeAsync();
         InitializeResponsibilityPresentation();
         InitializeWorldDeletionUi();
-        InitializeGameAttentionProjection();
         await InitializeWorldInvitationsUiAsync();
+        InitializeProfessionalProductShell();
+        RehomeInvitationsToGlobalLobby();
+        InitializeQuietStatusPresentation();
+        InitializeGameAttentionProjection();
         InitializeResponsiveWorkspace();
     }
 }

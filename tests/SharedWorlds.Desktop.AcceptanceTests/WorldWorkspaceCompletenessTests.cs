@@ -69,8 +69,8 @@ public sealed class WorldWorkspaceCompletenessTests
         Assert.Contains("BackToWorldsButton.Visibility = Visibility.Collapsed;", gamesHomeLayout, StringComparison.Ordinal);
         Assert.DoesNotContain("Visibility.Visible", gamesHomeLayout, StringComparison.Ordinal);
 
-        Assert.Contains("Title = $\"Safe World {StewardBuildVersion.Current}\"", app, StringComparison.Ordinal);
-        Assert.DoesNotContain("Title = $\"Steward ", app, StringComparison.Ordinal);
+        Assert.Contains("Title = \"Safe World\"", app, StringComparison.Ordinal);
+        Assert.DoesNotContain("StewardBuildVersion.Current", app, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -90,6 +90,28 @@ public sealed class WorldWorkspaceCompletenessTests
         Assert.Contains("AllowHostingCheckBox.Click += UnifiedAllowHostingCheckBox_Click", hostingPreference, StringComparison.Ordinal);
         Assert.Contains("_deviceSettingsStore.SaveAsync(updated)", hostingPreference, StringComparison.Ordinal);
         Assert.Contains("HostingPreferenceExplicit = true", hostingPreference, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProductShellUsesCrossGameLobbyAndConsistentActionGroups()
+    {
+        var shell = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/MainWindow.ProductShell.cs"));
+        var startup = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/MainWindow.UnifiedStartup.cs"));
+
+        Assert.Contains("InitializeProfessionalProductShell();", startup, StringComparison.Ordinal);
+        Assert.Contains("Content = DesktopText.Lobby", shell, StringComparison.Ordinal);
+        Assert.Contains("_allWorldItems", shell, StringComparison.Ordinal);
+        Assert.Contains("_remoteWorldIds.Contains(item.World.Id)", shell, StringComparison.Ordinal);
+        Assert.Contains("runtime.PlayerPresence.GetSnapshotAsync(item.World.Id)", shell, StringComparison.Ordinal);
+        Assert.Contains("runtime.Access.ListMembersAsync(item.World.Id)", shell, StringComparison.Ordinal);
+        Assert.Contains("runtime.GetWorldMetadataAsync(item.World.Id)", shell, StringComparison.Ordinal);
+        Assert.Contains("NormalizeActionButton(ContinueButton, WorldActionButtonWidth, 42);", shell, StringComparison.Ordinal);
+        Assert.Contains("NormalizeActionButton(HostButton, WorldActionButtonWidth, 42);", shell, StringComparison.Ordinal);
+        Assert.Contains("NormalizeActionButton(ShareButton, WorldActionButtonWidth, 42);", shell, StringComparison.Ordinal);
+        Assert.Contains("_moreButton.Content = DesktopText.More", shell, StringComparison.Ordinal);
+        Assert.Contains("Version {StewardBuildVersion.Current}", shell, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryFile(string relativePath)

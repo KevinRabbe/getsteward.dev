@@ -43,7 +43,7 @@ public partial class MainWindow
             // settings click through gameplay commit authority or mutate a disconnected legacy copy.
             KeepExactGameVersionCheckBox.IsChecked = true;
             StatusText.Text =
-                "Shared Worlds stay on their current canonical environment until the explicit remote update flow is connected.";
+                "Shared Worlds stay on their current environment until an explicit shared update is available.";
             return;
         }
 
@@ -53,7 +53,7 @@ public partial class MainWindow
 
         await RunOperationAsync(
             nextPolicy == WorldGameVersionPolicy.KeepExact
-                ? $"Locking {world.Name} to its exact game version..."
+                ? $"Keeping {world.Name} on its current game version..."
                 : $"Allowing update candidates for {world.Name}...",
             async () =>
             {
@@ -62,8 +62,8 @@ public partial class MainWindow
                 _selectedWorld = updated;
 
                 StatusText.Text = nextPolicy == WorldGameVersionPolicy.KeepExact
-                    ? $"World '{updated.Name}' will stay on its exact known-good game version."
-                    : $"World '{updated.Name}' may consider future update candidates; updates remain explicit.";
+                    ? $"'{updated.Name}' will stay on its current game version."
+                    : $"'{updated.Name}' may consider future game updates.";
 
                 await RefreshUnifiedWorldsAsync(updated.Id, preserveStatus: true);
             });
@@ -87,8 +87,8 @@ public partial class MainWindow
             KeepExactGameVersionCheckBox.IsChecked = true;
             KeepExactGameVersionCheckBox.IsEnabled = false;
             GameVersionPolicyText.Text = HasAuthoritativeRuntimeForWorld(world)
-                ? "This shared World uses its canonical Safe World environment. Environment upgrades remain explicit and are not changed by a local checkbox."
-                : "This is a shared World record, but authenticated Safe World authority is not connected. Its environment policy cannot be changed locally.";
+                ? "This shared World stays on its shared game environment."
+                : "Reconnect Safe World to manage this shared World's environment.";
             return;
         }
 
@@ -96,7 +96,7 @@ public partial class MainWindow
         KeepExactGameVersionCheckBox.IsChecked = keepExact;
         KeepExactGameVersionCheckBox.IsEnabled = !_isBusy;
         GameVersionPolicyText.Text = keepExact
-            ? "Safe World treats the current exact environment as known-good and ignores newer game versions for this World."
-            : "Newer versions may be offered only as explicit update candidates. The current environment stays known-good until a tested candidate is accepted.";
+            ? "Safe World will keep this World on its current game environment."
+            : "Game updates can be considered when you choose to update this World.";
     }
 }

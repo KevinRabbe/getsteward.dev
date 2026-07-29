@@ -462,7 +462,8 @@
             </ScrollViewer>
         </Grid>
 
-        <Border Grid.Row="2"
+        <Border x:Name="StatusBar"
+                Grid.Row="2"
                 Padding="20,10"
                 BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="0,1,0,0"

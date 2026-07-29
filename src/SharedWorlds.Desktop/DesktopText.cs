@@ -15,6 +15,10 @@ public static class DesktopText
     public static string GamesLibraryDescription => Get(nameof(GamesLibraryDescription));
     public static string BackToGames => Get(nameof(BackToGames));
     public static string Worlds => Get(nameof(Worlds));
+    public static string Lobby => Get(nameof(Lobby));
+    public static string LobbyDescription => Get(nameof(LobbyDescription));
+    public static string OpenWorld => Get(nameof(OpenWorld));
+    public static string NoSharedWorlds => Get(nameof(NoSharedWorlds));
     public static string Settings => Get(nameof(Settings));
     public static string Back => Get(nameof(Back));
     public static string SettingsDescription => Get(nameof(SettingsDescription));
@@ -31,6 +35,7 @@ public static class DesktopText
     public static string Play => Get(nameof(Play));
     public static string WorldSettings => Get(nameof(WorldSettings));
     public static string KeepExactGameVersion => Get(nameof(KeepExactGameVersion));
+    public static string DangerZone => Get(nameof(DangerZone));
     public static string DeleteWorld => Get(nameof(DeleteWorld));
     public static string DeleteWorldDescription => Get(nameof(DeleteWorldDescription));
     public static string EnvironmentReadiness => Get(nameof(EnvironmentReadiness));

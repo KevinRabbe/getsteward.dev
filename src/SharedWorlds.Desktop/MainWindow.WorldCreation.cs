@@ -20,7 +20,7 @@ public partial class MainWindow
         if (OpenImportButton.Parent is not Grid header)
         {
             throw new InvalidOperationException(
-                "Steward could not attach Create World to the Games header.");
+                "Safe World could not attach Create World to the Games header.");
         }
 
         header.ColumnDefinitions.Insert(1, new ColumnDefinition { Width = GridLength.Auto });
@@ -29,15 +29,16 @@ public partial class MainWindow
 
         var createButton = new Button
         {
-            Content = "Create",
+            Content = DesktopText.CreateWorld,
             Padding = new Thickness(12, 6, 12, 6),
             MinHeight = 32,
-            Margin = new Thickness(0, 0, 8, 0)
+            Margin = new Thickness(0, 0, 8, 0),
+            Visibility = Visibility.Collapsed
         };
-        AutomationProperties.SetName(createButton, "Create new World");
+        AutomationProperties.SetName(createButton, DesktopText.CreateWorld);
         AutomationProperties.SetHelpText(
             createButton,
-            "Create a new native game World through Steward.");
+            "Create a new World for the selected game.");
         Grid.SetColumn(createButton, 1);
         createButton.Click += CreateWorldButton_Click;
         header.Children.Add(createButton);
@@ -47,36 +48,27 @@ public partial class MainWindow
 
     private async void CreateWorldButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_isBusy)
+        if (_isBusy ||
+            _selectedGameAdapterId is not { } adapterId ||
+            !TryGetAdapter(adapterId, out var adapter) ||
+            !adapter.Capabilities.HasFlag(GameAdapterCapabilities.NativeWorldCreation))
         {
             return;
         }
 
         await RunUnifiedOperationAsync(
-            "Checking installed games that can create Worlds...",
+            $"Checking {adapter.DisplayName}...",
             async () =>
             {
-                var options = new List<CreateWorldOption>();
-                foreach (var adapter in _registeredGameAdapters.Values
-                             .Where(adapter => adapter.Capabilities.HasFlag(
-                                 GameAdapterCapabilities.NativeWorldCreation))
-                             .OrderBy(adapter => adapter.DisplayName, StringComparer.OrdinalIgnoreCase))
+                var installation = (await adapter.DiscoverInstallationsAsync()).FirstOrDefault();
+                if (installation is null)
                 {
-                    var installation = (await adapter.DiscoverInstallationsAsync()).FirstOrDefault();
-                    if (installation is not null)
-                    {
-                        options.Add(new CreateWorldOption(adapter, installation));
-                    }
-                }
-
-                if (options.Count == 0)
-                {
-                    StatusText.Text =
-                        "No installed game currently has a Steward-validated Create World path.";
+                    StatusText.Text = $"{adapter.DisplayName} is not installed on this device.";
                     return;
                 }
 
-                var dialog = new CreateWorldDialog(options)
+                var option = new CreateWorldOption(adapter, installation);
+                var dialog = new CreateWorldDialog([option])
                 {
                     Owner = this
                 };
@@ -89,7 +81,7 @@ public partial class MainWindow
                 }
 
                 var worldName = await CreateUniqueWorldNameAsync(dialog.WorldName);
-                StatusText.Text = $"Creating {worldName} with {dialog.SelectedOption.Adapter.DisplayName}...";
+                StatusText.Text = $"Creating {worldName}...";
 
                 var creation = new WorldCreationService(_storage);
                 var world = await creation.CreateAsync(
@@ -111,6 +103,10 @@ public partial class MainWindow
             return;
         }
 
-        _createWorldButton.IsEnabled = !_isBusy;
+        var supported = _selectedGameAdapterId is { } adapterId &&
+                        TryGetAdapter(adapterId, out var adapter) &&
+                        adapter.Capabilities.HasFlag(GameAdapterCapabilities.NativeWorldCreation);
+        _createWorldButton.Visibility = supported ? Visibility.Visible : Visibility.Collapsed;
+        _createWorldButton.IsEnabled = !_isBusy && supported;
     }
 }

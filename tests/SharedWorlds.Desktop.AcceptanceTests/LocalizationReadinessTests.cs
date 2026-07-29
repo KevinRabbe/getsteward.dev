@@ -53,6 +53,7 @@ public sealed class LocalizationReadinessTests
         var xaml = File.ReadAllText(FindRepositoryFile("src/SharedWorlds.Desktop/MainWindow.xaml"));
         var search = File.ReadAllText(FindRepositoryFile("src/SharedWorlds.Desktop/MainWindow.WorldSearch.cs"));
         var controls = File.ReadAllText(FindRepositoryFile("src/SharedWorlds.Desktop/MainWindow.CompletenessControls.cs"));
+        var creation = File.ReadAllText(FindRepositoryFile("src/SharedWorlds.Desktop/MainWindow.WorldCreation.cs"));
         var lobby = File.ReadAllText(FindRepositoryFile("src/SharedWorlds.Desktop/MainWindow.WorldLobby.cs"));
         var attention = File.ReadAllText(FindRepositoryFile("src/SharedWorlds.Desktop/MainWindow.GameAttention.cs"));
         var responsibility = File.ReadAllText(FindRepositoryFile("src/SharedWorlds.Desktop/MainWindow.ResponsibilityPresentation.cs"));
@@ -69,10 +70,9 @@ public sealed class LocalizationReadinessTests
 
         Assert.Contains("DesktopText.SearchWorlds", search, StringComparison.Ordinal);
         Assert.Contains("DesktopText.NoWorldSearchMatches", search, StringComparison.Ordinal);
-        Assert.Contains("DesktopText.SortNameAscending", controls, StringComparison.Ordinal);
-        Assert.Contains("DesktopText.SortNameDescending", controls, StringComparison.Ordinal);
         Assert.Contains("DesktopText.Settings", controls, StringComparison.Ordinal);
         Assert.Contains("DesktopText.HostingOnThisDevice", controls, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.CreateWorld", creation, StringComparison.Ordinal);
         Assert.Contains("DesktopText.WorldLobby", lobby, StringComparison.Ordinal);
         Assert.Contains("DesktopText.PlayingNow", lobby, StringComparison.Ordinal);
         Assert.Contains("DesktopText.WorldGroup", lobby, StringComparison.Ordinal);

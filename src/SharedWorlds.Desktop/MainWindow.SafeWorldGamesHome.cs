@@ -28,6 +28,13 @@ public partial class MainWindow
             GameLibraryList,
             (_, _) => QueueSafeWorldGameLibraryFilter());
 
+        var selectedGameDescriptor = DependencyPropertyDescriptor.FromProperty(
+            TextBlock.TextProperty,
+            typeof(TextBlock));
+        selectedGameDescriptor?.AddValueChanged(
+            SelectedGameNameText,
+            (_, _) => UpdateNativeWorldCreationActionState());
+
         GameLibraryList.SelectionChanged += SafeWorldGameLibraryList_SelectionChanged;
 
         RehomeSafeWorldGameActions();
@@ -51,8 +58,23 @@ public partial class MainWindow
             return;
         }
 
+        // The games home is navigation, not a command bar. Actions belong to the selected game.
         gamesHeader.Children.Remove(OpenImportButton);
+        if (_createWorldButton?.Parent == gamesHeader)
+        {
+            gamesHeader.Children.Remove(_createWorldButton);
+        }
+
         gamesHeader.Visibility = Visibility.Collapsed;
+
+        // Refresh remains an internal operation and is available from More, but it should not occupy
+        // permanent selected-game chrome. The existing button object stays alive because busy-state
+        // and legacy event wiring still use it as one internal presentation signal.
+        if (RefreshGameButton.Parent == gameHeader)
+        {
+            gameHeader.Children.Remove(RefreshGameButton);
+        }
+        RefreshGameButton.Visibility = Visibility.Collapsed;
 
         Grid.SetColumn(OpenImportButton, 0);
         DockPanel.SetDock(OpenImportButton, Dock.Right);
@@ -62,6 +84,20 @@ public partial class MainWindow
             OpenImportButton,
             "Add a World already saved by this game to Safe World.");
         gameHeader.Children.Add(OpenImportButton);
+
+        if (_createWorldButton is not null)
+        {
+            _createWorldButton.Content = DesktopText.CreateWorld;
+            _createWorldButton.Margin = new Thickness(8, 0, 0, 0);
+            _createWorldButton.MinHeight = 32;
+            DockPanel.SetDock(_createWorldButton, Dock.Right);
+            AutomationProperties.SetHelpText(
+                _createWorldButton,
+                "Create a new World for this game.");
+            gameHeader.Children.Add(_createWorldButton);
+        }
+
+        UpdateNativeWorldCreationActionState();
     }
 
     private void SafeWorldGameLibraryList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -75,6 +111,7 @@ public partial class MainWindow
         // with the game-first shell instead of creating a second discovery model.
         _selectedManagedGameId = selected.AdapterId;
         _selectedImportGameId = selected.AdapterId;
+        UpdateNativeWorldCreationActionState();
     }
 
     private void QueueSafeWorldGameLibraryFilter()

@@ -1,61 +1,39 @@
 using System.ComponentModel;
-using System.Windows;
 using System.Windows.Automation;
-using System.Windows.Controls;
-using System.Windows.Media;
 using SharedWorlds.Core.Abstractions;
 
 namespace SharedWorlds.Desktop;
 
 public partial class MainWindow
 {
-    private TextBlock? _gameTechnicalReadinessText;
-
     private void InitializeGameTechnicalReadinessUi()
     {
-        if (SelectedGameNameText.Parent is not StackPanel gameHeader)
-        {
-            throw new InvalidOperationException(
-                "Selected game heading must remain inside the game-workspace header stack.");
-        }
-
-        _gameTechnicalReadinessText = new TextBlock
-        {
-            Margin = new Thickness(0, 5, 0, 0),
-            FontSize = 11,
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = (Brush)FindResource("MutedTextBrush")
-        };
-        AutomationProperties.SetName(
-            _gameTechnicalReadinessText,
-            DesktopText.TechnicalReadiness);
-
-        var headingIndex = gameHeader.Children.IndexOf(SelectedGameNameText);
-        gameHeader.Children.Insert(headingIndex + 1, _gameTechnicalReadinessText);
-
+        // Capability truth is useful as progressive-disclosure help, but it is not normal game-page
+        // content. Keep it on the existing heading's tooltip/UIA help instead of adding another
+        // permanent technical sentence underneath the game name.
         var headingDescriptor = DependencyPropertyDescriptor.FromProperty(
-            TextBlock.TextProperty,
-            typeof(TextBlock));
+            System.Windows.Controls.TextBlock.TextProperty,
+            typeof(System.Windows.Controls.TextBlock));
         headingDescriptor?.AddValueChanged(
             SelectedGameNameText,
             (_, _) => UpdateGameTechnicalReadinessSummary());
+
+        UpdateGameTechnicalReadinessSummary();
     }
 
     private void UpdateGameTechnicalReadinessSummary()
     {
-        if (_gameTechnicalReadinessText is null)
-        {
-            return;
-        }
-
         if (_selectedGameAdapterId is null ||
             !TryGetAdapter(_selectedGameAdapterId, out var adapter))
         {
-            _gameTechnicalReadinessText.Text = string.Empty;
+            SelectedGameNameText.ToolTip = null;
+            AutomationProperties.SetHelpText(SelectedGameNameText, string.Empty);
             return;
         }
 
-        _gameTechnicalReadinessText.Text = FormatGameTechnicalReadiness(adapter.Capabilities);
+        var summary = FormatGameTechnicalReadiness(adapter.Capabilities);
+        SelectedGameNameText.ToolTip = summary;
+        AutomationProperties.SetHelpText(SelectedGameNameText, summary);
     }
 
     private static string FormatGameTechnicalReadiness(GameAdapterCapabilities capabilities)

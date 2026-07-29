@@ -5,7 +5,7 @@ namespace SharedWorlds.Desktop.AcceptanceTests;
 public sealed class WorldWorkspaceCompletenessTests
 {
     [Fact]
-    public void ExistingWorldSearchRemainsSingleOwnerAndSortComposesOnItsView()
+    public void ExistingWorldSearchRemainsSingleOwnerWithoutPermanentSortChrome()
     {
         var startup = File.ReadAllText(FindRepositoryFile(
             "src/SharedWorlds.Desktop/MainWindow.UnifiedStartup.cs"));
@@ -17,15 +17,35 @@ public sealed class WorldWorkspaceCompletenessTests
         Assert.Contains("InitializeWorldSearchUi();", startup, StringComparison.Ordinal);
         Assert.Contains("private readonly TextBox _worldSearchBox", search, StringComparison.Ordinal);
         Assert.DoesNotContain("private TextBox? _worldSearchBox", completeness, StringComparison.Ordinal);
-
         Assert.Contains("InitializeWorldSearchUi();", completeness, StringComparison.Ordinal);
-        Assert.Contains("CollectionViewSource.GetDefaultView(WorldList.ItemsSource)", completeness, StringComparison.Ordinal);
-        Assert.Contains("view.SortDescriptions.Clear()", completeness, StringComparison.Ordinal);
-        Assert.Contains("nameof(UnifiedWorldListItem.Name)", completeness, StringComparison.Ordinal);
-        Assert.Contains("ListSortDirection.Descending", completeness, StringComparison.Ordinal);
-        Assert.Contains("ListSortDirection.Ascending", completeness, StringComparison.Ordinal);
-        Assert.Contains("DesktopText.SortNameAscending", completeness, StringComparison.Ordinal);
-        Assert.Contains("DesktopText.SortNameDescending", completeness, StringComparison.Ordinal);
+
+        Assert.DoesNotContain("InitializeWorldWorkspaceSort", completeness, StringComparison.Ordinal);
+        Assert.DoesNotContain("new ComboBox", completeness, StringComparison.Ordinal);
+        Assert.DoesNotContain("SortDescriptions", completeness, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SelectedGameKeepsOnlyContextualCreateAndAddWorldChrome()
+    {
+        var home = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/MainWindow.SafeWorldGamesHome.cs"));
+        var creation = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/MainWindow.WorldCreation.cs"));
+        var dialog = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/CreateWorldDialog.cs"));
+
+        Assert.Contains("gameHeader.Children.Remove(RefreshGameButton);", home, StringComparison.Ordinal);
+        Assert.Contains("gameHeader.Children.Add(OpenImportButton);", home, StringComparison.Ordinal);
+        Assert.Contains("gameHeader.Children.Add(_createWorldButton);", home, StringComparison.Ordinal);
+
+        Assert.Contains("_selectedGameAdapterId is { } adapterId", creation, StringComparison.Ordinal);
+        Assert.Contains("GameAdapterCapabilities.NativeWorldCreation", creation, StringComparison.Ordinal);
+        Assert.Contains("_createWorldButton.Visibility = supported ? Visibility.Visible : Visibility.Collapsed", creation, StringComparison.Ordinal);
+        Assert.DoesNotContain("foreach (var adapter in _registeredGameAdapters.Values", creation, StringComparison.Ordinal);
+
+        Assert.Contains("if (options.Count == 1)", dialog, StringComparison.Ordinal);
+        Assert.Contains("gamePresentation = new Border", dialog, StringComparison.Ordinal);
+        Assert.Contains("Safe World then keeps its own managed copy", dialog, StringComparison.Ordinal);
     }
 
     [Fact]

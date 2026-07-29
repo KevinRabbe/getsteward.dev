@@ -1,15 +1,11 @@
-using System.ComponentModel;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
-using System.Windows.Data;
 
 namespace SharedWorlds.Desktop;
 
 public partial class MainWindow
 {
-    private ComboBox? _worldSortComboBox;
-    private DependencyPropertyDescriptor? _worldSortItemsSourceDescriptor;
     private Button? _globalSettingsButton;
     private Border? _globalSettingsPanel;
     private bool _globalSettingsVisible;
@@ -19,85 +15,7 @@ public partial class MainWindow
         // Search already has one owner in MainWindow.WorldSearch.cs. Reuse that implementation rather
         // than creating another search box/filter lifecycle just to satisfy the game-workspace contract.
         InitializeWorldSearchUi();
-        InitializeWorldWorkspaceSort();
         InitializeGlobalSettingsSurface();
-    }
-
-    private void InitializeWorldWorkspaceSort()
-    {
-        if (_worldSortComboBox is not null || WorldList.Parent is not Grid worldSidebarGrid)
-        {
-            return;
-        }
-
-        var sort = new ComboBox
-        {
-            MinHeight = 34,
-            Margin = new Thickness(2, 42, 2, 8),
-            VerticalContentAlignment = VerticalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Top,
-            ItemsSource = new[]
-            {
-                DesktopText.SortNameAscending,
-                DesktopText.SortNameDescending
-            },
-            SelectedIndex = 0,
-            ToolTip = "Sort managed Worlds in this game by name."
-        };
-        AutomationProperties.SetName(sort, DesktopText.SortWorlds);
-        AutomationProperties.SetHelpText(sort, "Choose ascending or descending World-name order.");
-        sort.SetResourceReference(Control.BackgroundProperty, "PanelAltBrush");
-        sort.SetResourceReference(Control.ForegroundProperty, "TextBrush");
-        sort.SetResourceReference(Control.BorderBrushProperty, "BorderBrush");
-
-        Grid.SetRow(sort, Grid.GetRow(WorldList));
-        Panel.SetZIndex(sort, 1);
-        worldSidebarGrid.Children.Add(sort);
-
-        // Existing search already reserves the first 42 px above the list. Reserve exactly one more
-        // control row for sort instead of introducing a new sidebar layout/state model.
-        var margin = WorldList.Margin;
-        WorldList.Margin = new Thickness(
-            margin.Left,
-            margin.Top + 42,
-            margin.Right,
-            margin.Bottom);
-
-        _worldSortComboBox = sort;
-        sort.SelectionChanged += (_, _) => ApplyWorldSort();
-
-        _worldSortItemsSourceDescriptor = DependencyPropertyDescriptor.FromProperty(
-            ItemsControl.ItemsSourceProperty,
-            typeof(ListBox));
-        _worldSortItemsSourceDescriptor?.AddValueChanged(
-            WorldList,
-            (_, _) => ApplyWorldSort());
-
-        ApplyWorldSort();
-    }
-
-    private void ApplyWorldSort()
-    {
-        if (_worldSortComboBox is null || WorldList.ItemsSource is null)
-        {
-            return;
-        }
-
-        var view = CollectionViewSource.GetDefaultView(WorldList.ItemsSource);
-        if (view is null || !view.CanSort)
-        {
-            return;
-        }
-
-        using (view.DeferRefresh())
-        {
-            view.SortDescriptions.Clear();
-            view.SortDescriptions.Add(new SortDescription(
-                nameof(UnifiedWorldListItem.Name),
-                _worldSortComboBox.SelectedIndex == 1
-                    ? ListSortDirection.Descending
-                    : ListSortDirection.Ascending));
-        }
     }
 
     private void InitializeGlobalSettingsSurface()
@@ -124,7 +42,7 @@ public partial class MainWindow
         };
         DockPanel.SetDock(settingsButton, Dock.Right);
         AutomationProperties.SetName(settingsButton, DesktopText.Settings);
-        AutomationProperties.SetHelpText(settingsButton, "Open Steward settings for this device.");
+        AutomationProperties.SetHelpText(settingsButton, "Open Safe World settings for this device.");
         header.Children.Add(settingsButton);
 
         var settingsPanel = new Border

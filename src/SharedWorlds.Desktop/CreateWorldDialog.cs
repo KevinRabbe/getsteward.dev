@@ -34,7 +34,7 @@ internal sealed class CreateWorldDialog : Window
                 nameof(options));
         }
 
-        Title = "Create new World";
+        Title = "Create World";
         Width = 520;
         SizeToContent = SizeToContent.Height;
         MinWidth = 420;
@@ -87,13 +87,13 @@ internal sealed class CreateWorldDialog : Window
         var heading = new StackPanel();
         heading.Children.Add(new TextBlock
         {
-            Text = "Create new World",
+            Text = "Create World",
             FontSize = 22,
             FontWeight = FontWeights.SemiBold
         });
         heading.Children.Add(new TextBlock
         {
-            Text = "Steward will ask the game to create its own native World, then manage that World normally.",
+            Text = "The game creates the World normally. Safe World then keeps its own managed copy.",
             Margin = new Thickness(0, 6, 0, 16),
             TextWrapping = TextWrapping.Wrap,
             Opacity = 0.78
@@ -113,8 +113,32 @@ internal sealed class CreateWorldDialog : Window
         _game.DisplayMemberPath = nameof(CreateWorldOption.DisplayName);
         _game.Padding = new Thickness(8, 6, 8, 6);
         AutomationProperties.SetName(_game, "Game");
-        Grid.SetRow(_game, 2);
-        root.Children.Add(_game);
+
+        UIElement gamePresentation;
+        if (options.Count == 1)
+        {
+            gamePresentation = new Border
+            {
+                Padding = new Thickness(10, 8, 10, 8),
+                Background = (Brush)Application.Current.FindResource("PanelAltBrush"),
+                BorderBrush = (Brush)Application.Current.FindResource("BorderBrush"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Child = new TextBlock
+                {
+                    Text = options[0].DisplayName,
+                    FontWeight = FontWeights.SemiBold
+                }
+            };
+            AutomationProperties.SetName(gamePresentation, $"Game: {options[0].DisplayName}");
+        }
+        else
+        {
+            gamePresentation = _game;
+        }
+
+        Grid.SetRow(gamePresentation, 2);
+        root.Children.Add(gamePresentation);
 
         var nameLabel = new TextBlock
         {

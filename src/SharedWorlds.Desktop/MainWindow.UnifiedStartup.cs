@@ -33,6 +33,7 @@ public partial class MainWindow
         InitializeImportAccessibility();
         await InitializeSafeWorldGamesHomeAsync();
         InitializeResponsibilityPresentation();
+        InitializeWorldDeletionUi();
         InitializeGameAttentionProjection();
         await InitializeWorldInvitationsUiAsync();
         InitializeResponsiveWorkspace();

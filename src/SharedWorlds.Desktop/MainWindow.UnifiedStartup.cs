@@ -35,6 +35,7 @@ public partial class MainWindow
         InitializeResponsibilityPresentation();
         InitializeWorldDeletionUi();
         InitializeProfessionalProductShell();
+        InitializeQuietStatusPresentation();
         InitializeGameAttentionProjection();
         await InitializeWorldInvitationsUiAsync();
         InitializeResponsiveWorkspace();

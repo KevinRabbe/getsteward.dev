@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace SharedWorlds.Desktop;
 
@@ -59,18 +60,16 @@ public partial class MainWindow
             return;
         }
 
-        // The games home is navigation, not a command bar. Actions belong to the selected game.
+        // The Games home is product navigation, not a command bar. Keep its title/description visible,
+        // but move mutations into the selected-game workspace and keep refresh as an internal signal.
         gamesHeader.Children.Remove(OpenImportButton);
         if (_createWorldButton?.Parent == gamesHeader)
         {
             gamesHeader.Children.Remove(_createWorldButton);
         }
 
-        gamesHeader.Visibility = Visibility.Collapsed;
+        RefreshButton.Visibility = Visibility.Collapsed;
 
-        // Refresh remains an internal operation and is available from More, but it should not occupy
-        // permanent selected-game chrome. The existing button object stays alive because busy-state
-        // and legacy event wiring still use it as one internal presentation signal.
         if (RefreshGameButton.Parent == gameHeader)
         {
             gameHeader.Children.Remove(RefreshGameButton);
@@ -80,7 +79,7 @@ public partial class MainWindow
         Grid.SetColumn(OpenImportButton, 0);
         DockPanel.SetDock(OpenImportButton, Dock.Right);
         OpenImportButton.Margin = new Thickness(8, 0, 0, 0);
-        OpenImportButton.MinHeight = 32;
+        OpenImportButton.MinHeight = 40;
         AutomationProperties.SetHelpText(
             OpenImportButton,
             "Add a World already saved by this game to Safe World.");
@@ -90,7 +89,7 @@ public partial class MainWindow
         {
             _createWorldButton.Content = DesktopText.CreateWorld;
             _createWorldButton.Margin = new Thickness(8, 0, 0, 0);
-            _createWorldButton.MinHeight = 32;
+            _createWorldButton.MinHeight = 40;
             DockPanel.SetDock(_createWorldButton, Dock.Right);
             AutomationProperties.SetHelpText(
                 _createWorldButton,
@@ -103,10 +102,8 @@ public partial class MainWindow
 
     private void RebuildSafeWorldSelectedGameSidebar()
     {
-        // Earlier UI generations accumulated search, game-summary and World-list presentation in the
-        // same star-sized Grid row. Search was then kept above the list with Z-order + a synthetic top
-        // margin. Rebuild the selected-game navigation from the controls that still belong here so no
-        // retired game selector/summary surface can remain underneath or beside the current product UI.
+        // Rebuild the selected-game navigation from the controls that actually belong to this scope.
+        // Back is navigation; game identity is the hierarchy; Create/Add are contextual actions.
         DetachSafeWorldSidebarElement(BackToGamesButton);
         DetachSafeWorldSidebarElement(OpenImportButton);
         if (_createWorldButton is not null)
@@ -124,42 +121,66 @@ public partial class MainWindow
 
         var header = new StackPanel
         {
-            Margin = new Thickness(2, 0, 2, 14)
+            Margin = new Thickness(0, 0, 0, 18)
         };
+
+        BackToGamesButton.HorizontalAlignment = HorizontalAlignment.Left;
+        BackToGamesButton.Width = double.NaN;
+        BackToGamesButton.Height = 36;
+        BackToGamesButton.MinWidth = 0;
+        BackToGamesButton.MinHeight = 0;
+        BackToGamesButton.Padding = new Thickness(8, 5, 8, 5);
+        BackToGamesButton.Margin = new Thickness(-8, 0, 0, 14);
+        if (TryFindResource("GhostButtonStyle") is Style ghostButtonStyle)
+        {
+            BackToGamesButton.Style = ghostButtonStyle;
+        }
+        header.Children.Add(BackToGamesButton);
+
+        SelectedGameNameText.Margin = new Thickness(0);
+        SelectedGameNameText.FontSize = 26;
+        SelectedGameNameText.FontWeight = FontWeights.Bold;
+        SelectedGameNameText.TextWrapping = TextWrapping.Wrap;
+        header.Children.Add(SelectedGameNameText);
+
+        var sectionLabel = new TextBlock
+        {
+            Text = DesktopText.Worlds.ToUpperInvariant(),
+            Margin = new Thickness(0, 6, 0, 14),
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = (Brush)FindResource("MutedTextBrush")
+        };
+        header.Children.Add(sectionLabel);
+
         var actions = new WrapPanel();
-
-        BackToGamesButton.Margin = new Thickness(0, 0, 8, 8);
-        BackToGamesButton.MinHeight = 32;
-        actions.Children.Add(BackToGamesButton);
-
         if (_createWorldButton is not null)
         {
-            _createWorldButton.Margin = new Thickness(0, 0, 8, 8);
-            _createWorldButton.MinHeight = 32;
+            _createWorldButton.Width = 166;
+            _createWorldButton.Height = 40;
+            _createWorldButton.MinWidth = 0;
+            _createWorldButton.MinHeight = 0;
+            _createWorldButton.Margin = new Thickness(0, 0, 10, 8);
             actions.Children.Add(_createWorldButton);
         }
 
+        OpenImportButton.Width = 166;
+        OpenImportButton.Height = 40;
+        OpenImportButton.MinWidth = 0;
+        OpenImportButton.MinHeight = 0;
         OpenImportButton.Margin = new Thickness(0, 0, 0, 8);
-        OpenImportButton.MinHeight = 32;
+        if (TryFindResource("GhostButtonStyle") is Style addWorldStyle)
+        {
+            OpenImportButton.Style = addWorldStyle;
+        }
         actions.Children.Add(OpenImportButton);
         header.Children.Add(actions);
 
-        SelectedGameNameText.Margin = new Thickness(0, 8, 0, 0);
-        SelectedGameNameText.FontSize = 20;
-        SelectedGameNameText.FontWeight = FontWeights.SemiBold;
-        SelectedGameNameText.TextWrapping = TextWrapping.Wrap;
-        header.Children.Add(SelectedGameNameText);
-        header.Children.Add(new TextBlock
-        {
-            Text = DesktopText.Worlds,
-            Margin = new Thickness(0, 4, 0, 0),
-            FontSize = 12,
-            Foreground = (System.Windows.Media.Brush)FindResource("MutedTextBrush")
-        });
         Grid.SetRow(header, 0);
         layout.Children.Add(header);
 
-        _worldSearchBox.Margin = new Thickness(2, 0, 2, 12);
+        _worldSearchBox.Margin = new Thickness(0, 0, 0, 14);
+        _worldSearchBox.MinHeight = 42;
         _worldSearchBox.HorizontalAlignment = HorizontalAlignment.Stretch;
         _worldSearchBox.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetRow(_worldSearchBox, 1);
@@ -172,7 +193,7 @@ public partial class MainWindow
         Grid.SetRow(WorldList, 2);
         layout.Children.Add(WorldList);
 
-        WorldSidebar.Padding = new Thickness(18);
+        WorldSidebar.Padding = new Thickness(22, 20, 18, 20);
         WorldSidebar.Child = layout;
     }
 
@@ -278,31 +299,6 @@ public partial class MainWindow
         {
             _importBrowserImportButton.Content = "Add to Safe World";
             _importBrowserImportButton.MinWidth = 150;
-        }
-
-        if (_importWorkspace?.Child is not Grid layout)
-        {
-            return;
-        }
-
-        var header = layout.Children
-            .OfType<DockPanel>()
-            .FirstOrDefault(panel => Grid.GetRow(panel) == 0);
-        var heading = header?.Children.OfType<StackPanel>().FirstOrDefault();
-        if (heading?.Children.OfType<TextBlock>().ToArray() is { Length: >= 2 } headingText)
-        {
-            headingText[0].Text = "Add a World";
-            headingText[1].Text = "Choose a World already saved by this game.";
-        }
-
-        var footer = layout.Children
-            .OfType<DockPanel>()
-            .FirstOrDefault(panel => Grid.GetRow(panel) == 4);
-        var explanation = footer?.Children.OfType<TextBlock>().FirstOrDefault();
-        if (explanation is not null)
-        {
-            explanation.Text =
-                "Your original game save stays where it is. Safe World creates its own private copy.";
         }
     }
 }

@@ -173,7 +173,9 @@ public partial class MainWindow
     {
         if (_globalSettingsButton is not null)
         {
-            _globalSettingsButton.IsEnabled = !_globalSettingsVisible && RefreshButton.IsEnabled;
+            // Settings is now a top-level navigation tab. Keep the selected tab interactive/legible;
+            // busy state still disables navigation through the same existing RefreshButton signal.
+            _globalSettingsButton.IsEnabled = RefreshButton.IsEnabled;
         }
     }
 }

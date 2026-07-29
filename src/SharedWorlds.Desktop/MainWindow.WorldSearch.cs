@@ -12,10 +12,8 @@ public partial class MainWindow
     private readonly TextBox _worldSearchBox = new()
     {
         MinHeight = 34,
-        Margin = new Thickness(2, 0, 2, 8),
         Padding = new Thickness(10, 5, 10, 5),
         VerticalContentAlignment = VerticalAlignment.Center,
-        VerticalAlignment = VerticalAlignment.Top,
         ToolTip = "Search managed Worlds by World name or game. Ctrl+F focuses this search."
     };
     private DependencyPropertyDescriptor? _worldItemsSourceDescriptor;
@@ -38,20 +36,9 @@ public partial class MainWindow
         _worldSearchBox.SetResourceReference(Control.ForegroundProperty, "TextBrush");
         _worldSearchBox.SetResourceReference(Control.BorderBrushProperty, "BorderBrush");
 
-        if (WorldList.Parent is Grid worldSidebarGrid)
-        {
-            Grid.SetRow(_worldSearchBox, Grid.GetRow(WorldList));
-            Panel.SetZIndex(_worldSearchBox, 1);
-            worldSidebarGrid.Children.Add(_worldSearchBox);
-
-            var margin = WorldList.Margin;
-            WorldList.Margin = new Thickness(
-                margin.Left,
-                margin.Top + 42,
-                margin.Right,
-                margin.Bottom);
-        }
-
+        // SafeWorldGamesHome owns the selected-game sidebar composition. Search initializes its
+        // behavior here, but it is attached to a dedicated visual row when that sidebar is built.
+        // Do not overlay it on WorldList and compensate with Z-order/magic margins.
         _worldSearchBox.TextChanged += (_, _) => ApplyWorldSearchFilter();
         _worldSearchBox.GotKeyboardFocus += (_, _) => ClearWorldSearchPlaceholder();
         _worldSearchBox.LostKeyboardFocus += (_, _) => RestoreWorldSearchPlaceholder();

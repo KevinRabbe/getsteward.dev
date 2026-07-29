@@ -45,7 +45,7 @@ public partial class MainWindow
         };
         SetResponsibilityActionHelp(
             _pendingSyncRetryButton,
-            "Reconcile the journaled candidate with the canonical head. Steward never overwrites a different newer head automatically.");
+            "Reconcile the journaled candidate with the canonical head. Safe World never overwrites a different newer head automatically.");
         _pendingSyncRetryButton.Click += RetryPendingSyncButton_Click;
 
         _recoverInterruptedButton = new Button
@@ -81,7 +81,7 @@ public partial class MainWindow
         };
         SetResponsibilityActionHelp(
             _exportRecoveryCopyButton,
-            "Create a local ZIP copy of the preserved Steward workspace without changing the recovery journal or canonical World.");
+            "Create a local ZIP copy of the preserved Safe World workspace without changing the recovery journal or canonical World.");
         _exportRecoveryCopyButton.Click += ExportRecoveryCopyButton_Click;
 
         _cleanupRetryButton = new Button
@@ -157,6 +157,7 @@ public partial class MainWindow
             _exportRecoveryCopyButton.Visibility = Visibility.Collapsed;
             _cleanupRetryButton.Visibility = Visibility.Collapsed;
             EnforceResponsibilityActionGuard();
+            UpdateWorldDeletionActionState();
             return;
         }
 
@@ -164,7 +165,7 @@ public partial class MainWindow
         var hasAuthority = HasAuthoritativeRuntimeForWorld(selectedWorld);
         _worldResponsibilityText.Text = selectedOwnsResponsibility
             ? FormatResponsibility(snapshot)
-            : "Another World on this PC still has an active or unresolved Steward responsibility.";
+            : "Another World on this PC still has an active or unresolved Safe World responsibility.";
 
         _pendingSyncRetryButton.Visibility =
             selectedOwnsResponsibility &&
@@ -175,8 +176,8 @@ public partial class MainWindow
         SetResponsibilityActionHelp(
             _pendingSyncRetryButton,
             hasAuthority
-                ? "Reconcile the journaled candidate with the canonical head. Steward never overwrites a different newer head automatically."
-                : "Reconnect authenticated Steward authority before retrying this shared recovery.");
+                ? "Reconcile the journaled candidate with the canonical head. Safe World never overwrites a different newer head automatically."
+                : "Reconnect authenticated Safe World authority before retrying this shared recovery.");
 
         var interrupted = selectedOwnsResponsibility &&
                           snapshot.Kind == WorldLifecycleResponsibilityKind.InterruptedSession;
@@ -192,12 +193,12 @@ public partial class MainWindow
             _recoverInterruptedButton,
             hasAuthority
                 ? "Preserve the interrupted workspace, assign one stable candidate revision, and recover it only if the canonical head still matches its recorded base."
-                : "Reconnect authenticated Steward authority before resolving this interrupted shared World.");
+                : "Reconnect authenticated Safe World authority before resolving this interrupted shared World.");
         SetResponsibilityActionHelp(
             _discardInterruptedButton,
             hasAuthority
                 ? "Explicitly continue from the last canonical safe state and remove only the preserved interrupted workspace after confirmation."
-                : "Reconnect authenticated Steward authority before resolving this interrupted shared World.");
+                : "Reconnect authenticated Safe World authority before resolving this interrupted shared World.");
 
         var exportableRecovery = selectedOwnsResponsibility &&
                                  snapshot.Kind is (
@@ -222,10 +223,11 @@ public partial class MainWindow
             _cleanupRetryButton,
             hasAuthority
                 ? "Retry adapter-owned workspace cleanup only. This does not capture, upload, commit, or change the canonical World head."
-                : "Reconnect authenticated Steward authority before resolving cleanup for this shared World.");
+                : "Reconnect authenticated Safe World authority before resolving cleanup for this shared World.");
         _worldResponsibilityBanner.Visibility = Visibility.Visible;
 
         EnforceResponsibilityActionGuard();
+        UpdateWorldDeletionActionState();
     }
 
     private void EnforceResponsibilityActionGuard()
@@ -247,7 +249,7 @@ public partial class MainWindow
                                              snapshot.WorldId == _selectedWorld.Id;
             var message = selectedOwnsResponsibility
                 ? "Resolve this World's active or recovery responsibility before starting another writable session."
-                : "Another World on this PC has active or unresolved Steward responsibility.";
+                : "Another World on this PC has active or unresolved Safe World responsibility.";
             ContinueButton.ToolTip = message;
             HostButton.ToolTip = message;
             AutomationProperties.SetHelpText(ContinueButton, message);
@@ -273,7 +275,9 @@ public partial class MainWindow
             WorldLifecycleResponsibilityKind.CleanupPending => DesktopText.ActionRequired,
             WorldLifecycleResponsibilityKind.ActiveLifecycle => snapshot.Phase switch
             {
-                WorldLifecyclePhase.Running => DesktopText.Running,
+                WorldLifecyclePhase.Running => snapshot.Mode == ManagedWorldSessionMode.Hosted
+                    ? DesktopText.Hosting
+                    : DesktopText.Running,
                 WorldLifecyclePhase.WaitingForSafeCapture or
                 WorldLifecyclePhase.Capturing or
                 WorldLifecyclePhase.StoringCandidate or

@@ -38,6 +38,7 @@ public partial class MainWindow
         GameLibraryList.SelectionChanged += SafeWorldGameLibraryList_SelectionChanged;
 
         RehomeSafeWorldGameActions();
+        RebuildSafeWorldSelectedGameSidebar();
 
         // The import browser remains the existing authoritative discovery/capture flow, but once a
         // game is selected the game itself is already the scope. Do not ask the user to choose it twice.
@@ -98,6 +99,98 @@ public partial class MainWindow
         }
 
         UpdateNativeWorldCreationActionState();
+    }
+
+    private void RebuildSafeWorldSelectedGameSidebar()
+    {
+        // Earlier UI generations accumulated search, game-summary and World-list presentation in the
+        // same star-sized Grid row. Search was then kept above the list with Z-order + a synthetic top
+        // margin. Rebuild the selected-game navigation from the controls that still belong here so no
+        // retired game selector/summary surface can remain underneath or beside the current product UI.
+        DetachSafeWorldSidebarElement(BackToGamesButton);
+        DetachSafeWorldSidebarElement(OpenImportButton);
+        if (_createWorldButton is not null)
+        {
+            DetachSafeWorldSidebarElement(_createWorldButton);
+        }
+        DetachSafeWorldSidebarElement(SelectedGameNameText);
+        DetachSafeWorldSidebarElement(_worldSearchBox);
+        DetachSafeWorldSidebarElement(WorldList);
+
+        var layout = new Grid();
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+        var header = new StackPanel
+        {
+            Margin = new Thickness(2, 0, 2, 14)
+        };
+        var actions = new WrapPanel();
+
+        BackToGamesButton.Margin = new Thickness(0, 0, 8, 8);
+        BackToGamesButton.MinHeight = 32;
+        actions.Children.Add(BackToGamesButton);
+
+        if (_createWorldButton is not null)
+        {
+            _createWorldButton.Margin = new Thickness(0, 0, 8, 8);
+            _createWorldButton.MinHeight = 32;
+            actions.Children.Add(_createWorldButton);
+        }
+
+        OpenImportButton.Margin = new Thickness(0, 0, 0, 8);
+        OpenImportButton.MinHeight = 32;
+        actions.Children.Add(OpenImportButton);
+        header.Children.Add(actions);
+
+        SelectedGameNameText.Margin = new Thickness(0, 8, 0, 0);
+        SelectedGameNameText.FontSize = 20;
+        SelectedGameNameText.FontWeight = FontWeights.SemiBold;
+        SelectedGameNameText.TextWrapping = TextWrapping.Wrap;
+        header.Children.Add(SelectedGameNameText);
+        header.Children.Add(new TextBlock
+        {
+            Text = DesktopText.Worlds,
+            Margin = new Thickness(0, 4, 0, 0),
+            FontSize = 12,
+            Foreground = (System.Windows.Media.Brush)FindResource("MutedTextBrush")
+        });
+        Grid.SetRow(header, 0);
+        layout.Children.Add(header);
+
+        _worldSearchBox.Margin = new Thickness(2, 0, 2, 12);
+        _worldSearchBox.HorizontalAlignment = HorizontalAlignment.Stretch;
+        _worldSearchBox.VerticalAlignment = VerticalAlignment.Center;
+        Panel.SetZIndex(_worldSearchBox, 0);
+        Grid.SetRow(_worldSearchBox, 1);
+        layout.Children.Add(_worldSearchBox);
+
+        WorldList.Margin = new Thickness(0);
+        WorldList.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        ScrollViewer.SetHorizontalScrollBarVisibility(WorldList, ScrollBarVisibility.Disabled);
+        ScrollViewer.SetVerticalScrollBarVisibility(WorldList, ScrollBarVisibility.Auto);
+        Grid.SetRow(WorldList, 2);
+        layout.Children.Add(WorldList);
+
+        WorldSidebar.Padding = new Thickness(18);
+        WorldSidebar.Child = layout;
+    }
+
+    private static void DetachSafeWorldSidebarElement(UIElement element)
+    {
+        switch (element.Parent)
+        {
+            case Panel panel:
+                panel.Children.Remove(element);
+                break;
+            case Decorator decorator when ReferenceEquals(decorator.Child, element):
+                decorator.Child = null;
+                break;
+            case ContentControl contentControl when ReferenceEquals(contentControl.Content, element):
+                contentControl.Content = null;
+                break;
+        }
     }
 
     private void SafeWorldGameLibraryList_SelectionChanged(object sender, SelectionChangedEventArgs e)

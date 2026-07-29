@@ -29,6 +29,31 @@ public sealed class WorldWorkspaceCompletenessTests
     }
 
     [Fact]
+    public void GamesHomeCannotBeOverpaintedByResponsiveWorldWorkspace()
+    {
+        var responsive = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/MainWindow.ResponsiveWorkspace.cs"));
+        var app = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/App.xaml.cs"));
+
+        const string homeGuard = "if (_selectedGameAdapterId is null)";
+        var guardStart = responsive.IndexOf(homeGuard, StringComparison.Ordinal);
+        Assert.True(guardStart >= 0, "Responsive workspace must explicitly recognize the games-home state.");
+
+        var nextLayoutBranch = responsive.IndexOf("if (!narrow)", guardStart, StringComparison.Ordinal);
+        Assert.True(nextLayoutBranch > guardStart, "Games-home handling must happen before selected-game responsive layout.");
+
+        var gamesHomeLayout = responsive[guardStart..nextLayoutBranch];
+        Assert.Contains("WorldSidebar.Visibility = Visibility.Collapsed;", gamesHomeLayout, StringComparison.Ordinal);
+        Assert.Contains("WorldDetailsScroll.Visibility = Visibility.Collapsed;", gamesHomeLayout, StringComparison.Ordinal);
+        Assert.Contains("BackToWorldsButton.Visibility = Visibility.Collapsed;", gamesHomeLayout, StringComparison.Ordinal);
+        Assert.DoesNotContain("Visibility.Visible", gamesHomeLayout, StringComparison.Ordinal);
+
+        Assert.Contains("Title = $\"Safe World {StewardBuildVersion.Current}\"", app, StringComparison.Ordinal);
+        Assert.DoesNotContain("Title = $\"Steward ", app, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void GlobalSettingsRehomesExistingDevicePreferenceInsteadOfDuplicatingPersistence()
     {
         var completeness = File.ReadAllText(FindRepositoryFile(

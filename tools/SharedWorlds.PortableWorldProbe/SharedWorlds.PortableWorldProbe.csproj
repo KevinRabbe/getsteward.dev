@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>SharedWorlds.PortableWorldProbe</AssemblyName>
+    <RootNamespace>SharedWorlds.PortableWorldProbe</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/SharedWorlds.Core/SharedWorlds.Core.csproj" />
+    <ProjectReference Include="../../src/SharedWorlds.Infrastructure/SharedWorlds.Infrastructure.csproj" />
+    <ProjectReference Include="../../src/SharedWorlds.GameAdapters/Factorio/SharedWorlds.GameAdapters.Factorio.csproj" />
+  </ItemGroup>
+</Project>

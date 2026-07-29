@@ -38,6 +38,7 @@ public partial class MainWindow
         InitializeProfessionalProductShell();
         RehomeInvitationsToGlobalLobby();
         InitializeVisualDesignV2();
+        InitializeNavigationV2StateGuard();
         InitializeQuietStatusPresentation();
         InitializeGameAttentionProjection();
         InitializeResponsiveWorkspace();

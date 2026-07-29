@@ -3,13 +3,14 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:SharedWorlds.Desktop"
         Title="Safe World"
-        Width="1180"
-        Height="760"
-        MinWidth="680"
-        MinHeight="620"
+        Width="1280"
+        Height="820"
+        MinWidth="760"
+        MinHeight="640"
         WindowStartupLocation="CenterScreen"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
+        FontFamily="Segoe UI"
         Background="{StaticResource AppBackgroundBrush}">
     <Grid>
         <Grid.RowDefinitions>
@@ -18,37 +19,58 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
+        <!-- Product shell -->
         <Border Grid.Row="0"
-                Padding="24,18"
+                Padding="28,14"
+                Background="{StaticResource ShellSurfaceBrush}"
                 BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="0,0,0,1">
             <DockPanel LastChildFill="False">
-                <StackPanel DockPanel.Dock="Left">
-                    <TextBlock Text="Safe World"
-                               FontSize="24"
-                               FontWeight="SemiBold" />
-                    <TextBlock Text="{x:Static local:DesktopText.Tagline}"
-                               Margin="0,4,0,0"
-                               Foreground="{StaticResource MutedTextBrush}"
-                               FontSize="13" />
+                <StackPanel DockPanel.Dock="Left"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <Border Width="42"
+                            Height="42"
+                            CornerRadius="12"
+                            Background="{StaticResource BrandGradientBrush}">
+                        <TextBlock Text="SW"
+                                   Foreground="White"
+                                   FontSize="13"
+                                   FontWeight="Bold"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Margin="12,0,0,0"
+                                VerticalAlignment="Center">
+                        <TextBlock Text="Safe World"
+                                   FontSize="21"
+                                   FontWeight="SemiBold" />
+                        <TextBlock Text="{x:Static local:DesktopText.Tagline}"
+                                   Margin="0,2,0,0"
+                                   Foreground="{StaticResource MutedTextBrush}"
+                                   FontSize="12" />
+                    </StackPanel>
                 </StackPanel>
             </DockPanel>
         </Border>
 
         <Grid x:Name="WorkspaceGrid" Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition x:Name="WorldNavigationColumn" Width="330" />
+                <ColumnDefinition x:Name="WorldNavigationColumn" Width="390" />
                 <ColumnDefinition x:Name="WorldDetailsColumn" Width="*" />
             </Grid.ColumnDefinitions>
 
+            <!-- Games home -->
             <Border x:Name="GamesLibraryPanel"
                     Grid.Column="0"
                     Grid.ColumnSpan="2"
                     Background="{StaticResource AppBackgroundBrush}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled">
-                    <StackPanel Margin="32,28,32,32">
-                        <Grid Margin="0,0,0,22">
+                    <StackPanel Margin="40,36,40,44"
+                                MaxWidth="1160"
+                                HorizontalAlignment="Center">
+                        <Grid Margin="0,0,0,28">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
@@ -57,26 +79,22 @@
                             <StackPanel Grid.Column="0"
                                         Margin="0,0,24,0">
                                 <TextBlock Text="{x:Static local:DesktopText.Games}"
-                                           FontSize="30"
-                                           FontWeight="SemiBold" />
+                                           FontSize="34"
+                                           FontWeight="Bold" />
                                 <TextBlock Text="{x:Static local:DesktopText.GamesLibraryDescription}"
-                                           Margin="0,6,0,0"
+                                           Margin="0,7,0,0"
                                            Foreground="{StaticResource MutedTextBrush}"
-                                           FontSize="13" />
+                                           FontSize="14" />
                             </StackPanel>
                             <Button x:Name="OpenImportButton"
                                     Grid.Column="1"
                                     Content="{x:Static local:DesktopText.Import}"
                                     AutomationProperties.HelpText="Import a detected game World into Safe World on this PC."
-                                    Padding="12,6"
-                                    MinHeight="32"
                                     Margin="0,0,8,0" />
                             <Button x:Name="RefreshButton"
                                     Grid.Column="2"
                                     Content="{x:Static local:DesktopText.Refresh}"
-                                    AutomationProperties.HelpText="Refresh installed games, Worlds, and current Safe World state."
-                                    Padding="12,6"
-                                    MinHeight="32" />
+                                    AutomationProperties.HelpText="Refresh installed games, Worlds, and current Safe World state." />
                         </Grid>
 
                         <ListBox x:Name="GameLibraryList"
@@ -92,14 +110,15 @@
                             </ListBox.ItemsPanel>
                             <ListBox.ItemContainerStyle>
                                 <Style TargetType="ListBoxItem">
-                                    <Setter Property="Width" Value="280" />
-                                    <Setter Property="MinHeight" Value="170" />
+                                    <Setter Property="Width" Value="350" />
+                                    <Setter Property="MinHeight" Value="142" />
                                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                                     <Setter Property="VerticalContentAlignment" Value="Stretch" />
                                     <Setter Property="Padding" Value="0" />
-                                    <Setter Property="Margin" Value="0,0,16,16" />
+                                    <Setter Property="Margin" Value="0,0,18,18" />
                                     <Setter Property="Background" Value="Transparent" />
                                     <Setter Property="BorderThickness" Value="0" />
+                                    <Setter Property="Cursor" Value="Hand" />
                                     <Setter Property="AutomationProperties.Name" Value="{Binding GameName}" />
                                     <Setter Property="AutomationProperties.HelpText" Value="{Binding Summary}" />
                                     <Setter Property="FocusVisualStyle" Value="{StaticResource StewardFocusVisualStyle}" />
@@ -110,8 +129,8 @@
                                                         Background="{StaticResource PanelBrush}"
                                                         BorderBrush="{StaticResource BorderBrush}"
                                                         BorderThickness="1"
-                                                        CornerRadius="14"
-                                                        Padding="22">
+                                                        CornerRadius="16"
+                                                        Padding="20">
                                                     <ContentPresenter />
                                                 </Border>
                                                 <ControlTemplate.Triggers>
@@ -119,11 +138,14 @@
                                                         <Setter TargetName="GameTileBorder"
                                                                 Property="Background"
                                                                 Value="{StaticResource PanelAltBrush}" />
+                                                        <Setter TargetName="GameTileBorder"
+                                                                Property="BorderBrush"
+                                                                Value="#35465F" />
                                                     </Trigger>
                                                     <Trigger Property="IsSelected" Value="True">
                                                         <Setter TargetName="GameTileBorder"
                                                                 Property="Background"
-                                                                Value="#252C3B" />
+                                                                Value="{StaticResource AccentSoftBrush}" />
                                                         <Setter TargetName="GameTileBorder"
                                                                 Property="BorderBrush"
                                                                 Value="{StaticResource AccentBrush}" />
@@ -136,25 +158,44 @@
                             </ListBox.ItemContainerStyle>
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <StackPanel HorizontalAlignment="Center"
-                                                VerticalAlignment="Center">
-                                        <Border Width="84"
-                                                Height="84"
+                                    <Grid VerticalAlignment="Center">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="82" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0"
+                                                Width="72"
+                                                Height="72"
                                                 Background="{StaticResource PanelAltBrush}"
-                                                CornerRadius="14"
-                                                HorizontalAlignment="Center">
+                                                BorderBrush="{StaticResource BorderBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="16"
+                                                HorizontalAlignment="Left"
+                                                VerticalAlignment="Center">
                                             <Image Source="{Binding IconPath}"
-                                                   Width="72"
-                                                   Height="72"
+                                                   Width="60"
+                                                   Height="60"
                                                    Stretch="Uniform" />
                                         </Border>
-                                        <TextBlock Text="{Binding GameName}"
-                                                   Margin="0,14,0,0"
-                                                   FontSize="18"
-                                                   FontWeight="SemiBold"
-                                                   TextAlignment="Center"
-                                                   TextWrapping="Wrap" />
-                                    </StackPanel>
+                                        <StackPanel Grid.Column="1"
+                                                    Margin="14,0,0,0"
+                                                    VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding GameName}"
+                                                       FontSize="19"
+                                                       FontWeight="SemiBold"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Summary}"
+                                                       Margin="0,6,0,0"
+                                                       FontSize="13"
+                                                       Foreground="{StaticResource MutedTextBrush}"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="Open game →"
+                                                       Margin="0,12,0,0"
+                                                       FontSize="12"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{StaticResource AccentBrush}" />
+                                        </StackPanel>
+                                    </Grid>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
@@ -162,13 +203,14 @@
                 </ScrollViewer>
             </Border>
 
+            <!-- Selected-game navigation. SafeWorldGamesHome re-composes this from these authoritative controls. -->
             <Border x:Name="WorldSidebar"
                     Grid.Column="0"
                     Visibility="Collapsed"
-                    Background="{StaticResource PanelBrush}"
+                    Background="{StaticResource ShellSurfaceBrush}"
                     BorderBrush="{StaticResource BorderBrush}"
                     BorderThickness="0,0,1,0"
-                    Padding="18">
+                    Padding="20">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -177,27 +219,27 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0"
-                                Margin="2,0,2,14">
+                                Margin="2,0,2,16">
                         <DockPanel LastChildFill="True">
                             <Button x:Name="BackToGamesButton"
                                     DockPanel.Dock="Left"
                                     Content="{x:Static local:DesktopText.BackToGames}"
                                     AutomationProperties.HelpText="Return to the Games Library."
-                                    Padding="10,5"
+                                    Style="{StaticResource GhostButtonStyle}"
                                     Margin="0,0,8,0" />
                             <Button x:Name="RefreshGameButton"
                                     DockPanel.Dock="Right"
                                     Content="{x:Static local:DesktopText.Refresh}"
                                     AutomationProperties.HelpText="Refresh Worlds and current Safe World state."
-                                    Padding="10,5" />
+                                    Style="{StaticResource GhostButtonStyle}" />
                         </DockPanel>
                         <TextBlock x:Name="SelectedGameNameText"
-                                   Margin="0,14,0,0"
-                                   FontSize="20"
-                                   FontWeight="SemiBold"
+                                   Margin="0,16,0,0"
+                                   FontSize="23"
+                                   FontWeight="Bold"
                                    TextWrapping="Wrap" />
                         <TextBlock Text="{x:Static local:DesktopText.Worlds}"
-                                   Margin="0,4,0,0"
+                                   Margin="0,5,0,0"
                                    Foreground="{StaticResource MutedTextBrush}"
                                    FontSize="12" />
                     </StackPanel>
@@ -216,6 +258,7 @@
                                 <Setter Property="Margin" Value="0,0,0,8" />
                                 <Setter Property="Background" Value="Transparent" />
                                 <Setter Property="BorderThickness" Value="0" />
+                                <Setter Property="Cursor" Value="Hand" />
                                 <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
                                 <Setter Property="AutomationProperties.HelpText" Value="{Binding Subtitle}" />
                                 <Setter Property="FocusVisualStyle" Value="{StaticResource StewardFocusVisualStyle}" />
@@ -224,11 +267,20 @@
                                         <ControlTemplate TargetType="ListBoxItem">
                                             <Border x:Name="ItemBorder"
                                                     Background="{TemplateBinding Background}"
-                                                    BorderBrush="{StaticResource BorderBrush}"
+                                                    BorderBrush="Transparent"
                                                     BorderThickness="1"
-                                                    CornerRadius="10"
-                                                    Padding="14">
-                                                <ContentPresenter />
+                                                    CornerRadius="11"
+                                                    Padding="13,12">
+                                                <Grid>
+                                                    <Border x:Name="AccentRail"
+                                                            Width="3"
+                                                            Margin="-13,-4,0,-4"
+                                                            HorizontalAlignment="Left"
+                                                            Background="{StaticResource AccentBrush}"
+                                                            CornerRadius="2"
+                                                            Visibility="Collapsed" />
+                                                    <ContentPresenter Margin="3,0,0,0" />
+                                                </Grid>
                                             </Border>
                                             <ControlTemplate.Triggers>
                                                 <Trigger Property="IsMouseOver" Value="True">
@@ -239,10 +291,13 @@
                                                 <Trigger Property="IsSelected" Value="True">
                                                     <Setter TargetName="ItemBorder"
                                                             Property="Background"
-                                                            Value="#252C3B" />
+                                                            Value="{StaticResource AccentSoftBrush}" />
                                                     <Setter TargetName="ItemBorder"
                                                             Property="BorderBrush"
-                                                            Value="{StaticResource AccentBrush}" />
+                                                            Value="#30436D" />
+                                                    <Setter TargetName="AccentRail"
+                                                            Property="Visibility"
+                                                            Value="Visible" />
                                                 </Trigger>
                                             </ControlTemplate.Triggers>
                                         </ControlTemplate>
@@ -257,17 +312,14 @@
                               Foreground="{StaticResource TextBrush}"
                               Margin="2,14,2,0">
                         <Border Margin="0,8,0,0"
-                                Padding="12"
-                                Background="{StaticResource PanelAltBrush}"
-                                BorderBrush="{StaticResource BorderBrush}"
-                                BorderThickness="1"
-                                CornerRadius="8">
+                                Padding="14"
+                                Style="{StaticResource CardBorderStyle}">
                             <StackPanel>
                                 <CheckBox x:Name="AllowHostingCheckBox"
                                           Content="{x:Static local:DesktopText.AllowDeviceHosting}"
                                           AutomationProperties.HelpText="Allow Safe World to use this device for temporary World hosting when the selected game supports it." />
                                 <TextBlock x:Name="HostingPreferenceText"
-                                           Margin="22,6,0,0"
+                                           Margin="28,7,0,0"
                                            Foreground="{StaticResource MutedTextBrush}"
                                            FontSize="11"
                                            TextWrapping="Wrap"
@@ -278,19 +330,21 @@
                 </Grid>
             </Border>
 
+            <!-- World workspace -->
             <ScrollViewer x:Name="WorldDetailsScroll"
                           Grid.Column="1"
                           Visibility="Collapsed"
-                          VerticalScrollBarVisibility="Auto">
-                <StackPanel Margin="36,32,36,32"
-                            MaxWidth="760"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="46,38,46,48"
+                            MaxWidth="900"
                             HorizontalAlignment="Left">
                     <Button x:Name="BackToWorldsButton"
                             Content="{x:Static local:DesktopText.BackToWorlds}"
                             Visibility="Collapsed"
                             HorizontalAlignment="Left"
-                            Margin="0,0,0,18"
-                            Padding="12,6" />
+                            Margin="0,0,0,22"
+                            Style="{StaticResource GhostButtonStyle}" />
 
                     <TextBlock x:Name="EmptyStateText"
                                Text="{x:Static local:DesktopText.SelectWorld}"
@@ -298,123 +352,149 @@
                                FontSize="18" />
 
                     <StackPanel x:Name="WorldDetailsPanel" Visibility="Collapsed">
+                        <Border Width="48"
+                                Height="4"
+                                Margin="0,0,0,16"
+                                HorizontalAlignment="Left"
+                                Background="{StaticResource BrandGradientBrush}"
+                                CornerRadius="2" />
                         <TextBlock x:Name="WorldNameText"
-                                   FontSize="32"
-                                   FontWeight="SemiBold" />
+                                   FontSize="38"
+                                   FontWeight="Bold"
+                                   TextWrapping="Wrap" />
                         <TextBlock x:Name="GameText"
-                                   Margin="0,8,0,0"
+                                   Margin="0,7,0,0"
                                    Foreground="{StaticResource MutedTextBrush}"
                                    FontSize="15" />
 
-                        <WrapPanel Margin="0,20,0,0">
-                            <Border Background="{StaticResource PanelAltBrush}"
-                                    BorderBrush="{StaticResource BorderBrush}"
+                        <WrapPanel Margin="0,18,0,0">
+                            <Border Background="{StaticResource AccentSoftBrush}"
+                                    BorderBrush="#344777"
                                     BorderThickness="1"
                                     CornerRadius="8"
-                                    Padding="10,6"
+                                    Padding="10,5"
                                     Margin="0,0,8,8">
-                                <TextBlock x:Name="SharingText" FontSize="13" />
+                                <TextBlock x:Name="SharingText"
+                                           FontSize="12"
+                                           FontWeight="SemiBold" />
                             </Border>
                             <Border Background="{StaticResource PanelAltBrush}"
                                     BorderBrush="{StaticResource BorderBrush}"
                                     BorderThickness="1"
                                     CornerRadius="8"
-                                    Padding="10,6"
+                                    Padding="10,5"
                                     Margin="0,0,8,8">
-                                <TextBlock x:Name="VersionText" FontSize="13" />
+                                <TextBlock x:Name="VersionText"
+                                           FontSize="12"
+                                           Foreground="{StaticResource MutedTextBrush}" />
                             </Border>
                         </WrapPanel>
 
-                        <TextBlock Text="{x:Static local:DesktopText.Play}"
-                                   Margin="0,26,0,12"
-                                   FontSize="18"
-                                   FontWeight="SemiBold" />
-                        <WrapPanel>
-                            <Button x:Name="ContinueButton"
-                                    Content="{x:Static local:DesktopText.StartWorld}"
-                                    AutomationProperties.HelpText="Continue this World on this PC."
-                                    Style="{StaticResource PrimaryButtonStyle}"
-                                    Margin="0,0,10,10" />
-                            <Button x:Name="HostButton"
-                                    Content="{x:Static local:DesktopText.HostWorld}"
-                                    AutomationProperties.HelpText="Start temporary multiplayer hosting for this World when supported."
-                                    Margin="0,0,10,10" />
-                            <Button x:Name="StopHostingButton"
-                                    Content="{x:Static local:DesktopText.StopAndSave}"
-                                    AutomationProperties.HelpText="Safely stop the hosted session and save the updated World."
-                                    Visibility="Collapsed"
-                                    Margin="0,0,10,10"
-                                    Click="StopHostingButton_Click" />
-                            <Button x:Name="ShareButton"
-                                    Content="{x:Static local:DesktopText.ShareWorld}"
-                                    AutomationProperties.HelpText="Share this Safe World-managed World with other Steam identities."
-                                    Margin="0,0,10,10" />
-                        </WrapPanel>
-
-                        <TextBlock Text="{x:Static local:DesktopText.WorldSettings}"
-                                   Margin="0,26,0,12"
-                                   FontSize="18"
-                                   FontWeight="SemiBold" />
-                        <Border Background="{StaticResource PanelBrush}"
-                                BorderBrush="{StaticResource BorderBrush}"
-                                BorderThickness="1"
-                                CornerRadius="12"
-                                Padding="20">
+                        <Border Margin="0,22,0,0"
+                                Padding="22"
+                                Style="{StaticResource CardBorderStyle}">
                             <StackPanel>
-                                <CheckBox x:Name="KeepExactGameVersionCheckBox"
-                                          Content="{x:Static local:DesktopText.KeepExactGameVersion}"
-                                          AutomationProperties.HelpText="Require Safe World to verify this World against its recorded exact game environment before writable play."
-                                          IsEnabled="{Binding IsEnabled, ElementName=WorldList}"
-                                          Click="KeepExactGameVersionCheckBox_Click" />
-                                <TextBlock x:Name="GameVersionPolicyText"
-                                           Margin="22,6,0,0"
-                                           Foreground="{StaticResource MutedTextBrush}"
+                                <TextBlock Text="{x:Static local:DesktopText.Play}"
+                                           FontSize="17"
+                                           FontWeight="SemiBold" />
+                                <TextBlock Text="Start, host, or share this World."
+                                           Margin="0,5,0,0"
                                            FontSize="12"
-                                           TextWrapping="Wrap" />
-                            </StackPanel>
-                        </Border>
-
-                        <TextBlock Text="{x:Static local:DesktopText.EnvironmentReadiness}"
-                                   Margin="0,26,0,12"
-                                   FontSize="18"
-                                   FontWeight="SemiBold" />
-                        <Border Background="{StaticResource PanelBrush}"
-                                BorderBrush="{StaticResource BorderBrush}"
-                                BorderThickness="1"
-                                CornerRadius="12"
-                                Padding="20">
-                            <StackPanel>
-                                <TextBlock x:Name="EnvironmentReadinessText"
-                                           AutomationProperties.LiveSetting="Polite"
-                                           Foreground="{StaticResource MutedTextBrush}"
-                                           FontSize="12"
-                                           TextWrapping="Wrap"
-                                           Text="{x:Static local:DesktopText.NotCheckedYet}" />
-                                <WrapPanel Margin="0,14,0,0">
-                                    <Button x:Name="VerifyEnvironmentButton"
-                                            Content="{x:Static local:DesktopText.VerifyEnvironment}"
-                                            AutomationProperties.HelpText="Check whether this device exactly matches the World environment required for writable play."
+                                           Foreground="{StaticResource MutedTextBrush}" />
+                                <WrapPanel Margin="0,16,0,0">
+                                    <Button x:Name="ContinueButton"
+                                            Content="{x:Static local:DesktopText.StartWorld}"
+                                            AutomationProperties.HelpText="Continue this World on this PC."
+                                            Style="{StaticResource PrimaryButtonStyle}"
+                                            Margin="0,0,10,10" />
+                                    <Button x:Name="HostButton"
+                                            Content="{x:Static local:DesktopText.HostWorld}"
+                                            AutomationProperties.HelpText="Start temporary multiplayer hosting for this World when supported."
+                                            Margin="0,0,10,10" />
+                                    <Button x:Name="StopHostingButton"
+                                            Content="{x:Static local:DesktopText.StopAndSave}"
+                                            AutomationProperties.HelpText="Safely stop the hosted session and save the updated World."
+                                            Visibility="Collapsed"
                                             Margin="0,0,10,10"
-                                            Click="VerifyEnvironmentButton_Click" />
-                                    <Button x:Name="RepairEnvironmentButton"
-                                            Content="{x:Static local:DesktopText.Repair}"
-                                            AutomationProperties.HelpText="Repair the local game environment toward the exact World requirement when the adapter supports repair."
-                                            IsEnabled="False"
-                                            Margin="0,0,10,10"
-                                            Click="RepairEnvironmentButton_Click" />
+                                            Click="StopHostingButton_Click" />
+                                    <Button x:Name="ShareButton"
+                                            Content="{x:Static local:DesktopText.ShareWorld}"
+                                            AutomationProperties.HelpText="Share this Safe World-managed World with other Steam identities."
+                                            Style="{StaticResource GhostButtonStyle}"
+                                            Margin="0,0,10,10" />
                                 </WrapPanel>
                             </StackPanel>
                         </Border>
 
+                        <Grid Margin="0,18,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="18" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <Border Grid.Column="0"
+                                    Padding="20"
+                                    Style="{StaticResource CardBorderStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="{x:Static local:DesktopText.WorldSettings}"
+                                               FontSize="16"
+                                               FontWeight="SemiBold" />
+                                    <TextBlock Text="Version behavior for this World."
+                                               Margin="0,5,0,16"
+                                               FontSize="12"
+                                               Foreground="{StaticResource MutedTextBrush}" />
+                                    <CheckBox x:Name="KeepExactGameVersionCheckBox"
+                                              Content="{x:Static local:DesktopText.KeepExactGameVersion}"
+                                              AutomationProperties.HelpText="Require Safe World to verify this World against its recorded exact game environment before writable play."
+                                              IsEnabled="{Binding IsEnabled, ElementName=WorldList}"
+                                              Click="KeepExactGameVersionCheckBox_Click" />
+                                    <TextBlock x:Name="GameVersionPolicyText"
+                                               Margin="28,8,0,0"
+                                               Foreground="{StaticResource MutedTextBrush}"
+                                               FontSize="12"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Column="2"
+                                    Padding="20"
+                                    Style="{StaticResource CardBorderStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="{x:Static local:DesktopText.EnvironmentReadiness}"
+                                               FontSize="16"
+                                               FontWeight="SemiBold" />
+                                    <TextBlock x:Name="EnvironmentReadinessText"
+                                               AutomationProperties.LiveSetting="Polite"
+                                               Margin="0,7,0,0"
+                                               Foreground="{StaticResource MutedTextBrush}"
+                                               FontSize="12"
+                                               TextWrapping="Wrap"
+                                               Text="{x:Static local:DesktopText.NotCheckedYet}" />
+                                    <WrapPanel Margin="0,16,0,0">
+                                        <Button x:Name="VerifyEnvironmentButton"
+                                                Content="{x:Static local:DesktopText.VerifyEnvironment}"
+                                                AutomationProperties.HelpText="Check whether this device exactly matches the World environment required for writable play."
+                                                Margin="0,0,10,10"
+                                                Click="VerifyEnvironmentButton_Click" />
+                                        <Button x:Name="RepairEnvironmentButton"
+                                                Content="{x:Static local:DesktopText.Repair}"
+                                                AutomationProperties.HelpText="Repair the local game environment toward the exact World requirement when the adapter supports repair."
+                                                IsEnabled="False"
+                                                Style="{StaticResource GhostButtonStyle}"
+                                                Margin="0,0,10,10"
+                                                Click="RepairEnvironmentButton_Click" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
                         <Expander Header="{x:Static local:DesktopText.TechnicalDetails}"
-                                  Foreground="{StaticResource TextBrush}"
-                                  Margin="0,26,0,0">
+                                  Foreground="{StaticResource MutedTextBrush}"
+                                  Margin="0,22,0,0">
                             <Border Margin="0,10,0,0"
-                                    Background="{StaticResource PanelBrush}"
-                                    BorderBrush="{StaticResource BorderBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="12"
-                                    Padding="20">
+                                    Padding="20"
+                                    Style="{StaticResource CardBorderStyle}">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
@@ -464,10 +544,10 @@
 
         <Border x:Name="StatusBar"
                 Grid.Row="2"
-                Padding="20,10"
+                Padding="22,10"
                 BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="0,1,0,0"
-                Background="{StaticResource PanelBrush}">
+                Background="{StaticResource ShellSurfaceBrush}">
             <TextBlock x:Name="StatusText"
                        AutomationProperties.LiveSetting="Polite"
                        Text="{x:Static local:DesktopText.Ready}"

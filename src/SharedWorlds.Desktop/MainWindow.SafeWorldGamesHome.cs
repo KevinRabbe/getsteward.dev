@@ -162,7 +162,6 @@ public partial class MainWindow
         _worldSearchBox.Margin = new Thickness(2, 0, 2, 12);
         _worldSearchBox.HorizontalAlignment = HorizontalAlignment.Stretch;
         _worldSearchBox.VerticalAlignment = VerticalAlignment.Center;
-        Panel.SetZIndex(_worldSearchBox, 0);
         Grid.SetRow(_worldSearchBox, 1);
         layout.Children.Add(_worldSearchBox);
 
@@ -177,7 +176,7 @@ public partial class MainWindow
         WorldSidebar.Child = layout;
     }
 
-    private static void DetachSafeWorldSidebarElement(UIElement element)
+    private static void DetachSafeWorldSidebarElement(FrameworkElement element)
     {
         switch (element.Parent)
         {

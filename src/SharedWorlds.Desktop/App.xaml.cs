@@ -28,7 +28,7 @@ public partial class App : Application
 
         var window = new MainWindow
         {
-            Title = $"Safe World {StewardBuildVersion.Current}"
+            Title = "Safe World"
         };
         MainWindow = window;
 

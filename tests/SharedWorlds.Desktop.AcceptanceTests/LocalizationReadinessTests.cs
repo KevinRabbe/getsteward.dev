@@ -19,12 +19,13 @@ public sealed class LocalizationReadinessTests
                 DesktopText.GamesLibrary,
                 DesktopText.BackToGames,
                 DesktopText.Worlds,
+                DesktopText.Lobby,
                 DesktopText.Settings,
                 DesktopText.SearchWorlds,
-                DesktopText.SortWorlds,
                 DesktopText.WorldLobby,
                 DesktopText.PlayingNow,
                 DesktopText.WorldGroup,
+                DesktopText.DangerZone,
                 DesktopText.Preparing,
                 DesktopText.Running,
                 DesktopText.Hosting,
@@ -54,9 +55,10 @@ public sealed class LocalizationReadinessTests
         var search = File.ReadAllText(FindRepositoryFile("src/SharedWorlds.Desktop/MainWindow.WorldSearch.cs"));
         var controls = File.ReadAllText(FindRepositoryFile("src/SharedWorlds.Desktop/MainWindow.CompletenessControls.cs"));
         var creation = File.ReadAllText(FindRepositoryFile("src/SharedWorlds.Desktop/MainWindow.WorldCreation.cs"));
-        var lobby = File.ReadAllText(FindRepositoryFile("src/SharedWorlds.Desktop/MainWindow.WorldLobby.cs"));
+        var shell = File.ReadAllText(FindRepositoryFile("src/SharedWorlds.Desktop/MainWindow.ProductShell.cs"));
         var attention = File.ReadAllText(FindRepositoryFile("src/SharedWorlds.Desktop/MainWindow.GameAttention.cs"));
         var responsibility = File.ReadAllText(FindRepositoryFile("src/SharedWorlds.Desktop/MainWindow.ResponsibilityPresentation.cs"));
+        var deletion = File.ReadAllText(FindRepositoryFile("src/SharedWorlds.Desktop/MainWindow.WorldDeletion.cs"));
 
         Assert.Contains("{x:Static local:DesktopText.Tagline}", xaml, StringComparison.Ordinal);
         Assert.Contains("{x:Static local:DesktopText.Games}", xaml, StringComparison.Ordinal);
@@ -73,11 +75,12 @@ public sealed class LocalizationReadinessTests
         Assert.Contains("DesktopText.Settings", controls, StringComparison.Ordinal);
         Assert.Contains("DesktopText.HostingOnThisDevice", controls, StringComparison.Ordinal);
         Assert.Contains("DesktopText.CreateWorld", creation, StringComparison.Ordinal);
-        Assert.Contains("DesktopText.WorldLobby", lobby, StringComparison.Ordinal);
-        Assert.Contains("DesktopText.PlayingNow", lobby, StringComparison.Ordinal);
-        Assert.Contains("DesktopText.WorldGroup", lobby, StringComparison.Ordinal);
-        Assert.Contains("DesktopText.HostStartingSuffix", lobby, StringComparison.Ordinal);
-        Assert.Contains("DesktopText.AccessManagerSuffix", lobby, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.Lobby", shell, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.PlayingNow", shell, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.WorldGroup", shell, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.HostStartingSuffix", shell, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.AccessManagerSuffix", shell, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.DangerZone", deletion, StringComparison.Ordinal);
         Assert.Contains("DesktopText.Preparing", attention, StringComparison.Ordinal);
         Assert.Contains("DesktopText.Hosting", attention, StringComparison.Ordinal);
         Assert.Contains("DesktopText.SavingWorld", attention, StringComparison.Ordinal);

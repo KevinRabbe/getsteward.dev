@@ -5,19 +5,27 @@ namespace SharedWorlds.Desktop.AcceptanceTests;
 public sealed class WorldLobbyPresentationTests
 {
     [Fact]
-    public void WorldDetailsContainSmallOperationalLobbyProjection()
+    public void LobbyIsCrossGameWhileAuthorityRemainsWorldScoped()
     {
-        var source = File.ReadAllText(FindRepositoryFile(
+        var lobby = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/MainWindow.ProductShell.cs"));
+        var oldWorldLobby = File.ReadAllText(FindRepositoryFile(
             "src/SharedWorlds.Desktop/MainWindow.WorldLobby.cs"));
 
-        Assert.Contains("DesktopText.WorldLobby", source, StringComparison.Ordinal);
-        Assert.Contains("DesktopText.PlayingNow", source, StringComparison.Ordinal);
-        Assert.Contains("DesktopText.WorldGroup", source, StringComparison.Ordinal);
-        Assert.Contains("runtime.PlayerPresence.GetSnapshotAsync(world.Id)", source, StringComparison.Ordinal);
-        Assert.Contains("DesktopText.HostSuffix", source, StringComparison.Ordinal);
-        Assert.Contains("DesktopText.AccessManagerSuffix", source, StringComparison.Ordinal);
-        Assert.Contains("WorldDetailsPanel.Children.Insert", source, StringComparison.Ordinal);
-        Assert.Contains("Visibility.Collapsed", source, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.Lobby", lobby, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.PlayingNow", lobby, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.WorldGroup", lobby, StringComparison.Ordinal);
+        Assert.Contains("_allWorldItems", lobby, StringComparison.Ordinal);
+        Assert.Contains("_remoteWorldIds.Contains(item.World.Id)", lobby, StringComparison.Ordinal);
+        Assert.Contains("runtime.PlayerPresence.GetSnapshotAsync(item.World.Id)", lobby, StringComparison.Ordinal);
+        Assert.Contains("runtime.Access.ListMembersAsync(item.World.Id)", lobby, StringComparison.Ordinal);
+        Assert.Contains("runtime.GetWorldMetadataAsync(item.World.Id)", lobby, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.HostSuffix", lobby, StringComparison.Ordinal);
+        Assert.Contains("DesktopText.AccessManagerSuffix", lobby, StringComparison.Ordinal);
+        Assert.Contains("OpenGameWorkspace(item.AdapterId, item.GameName, item.World.Id)", lobby, StringComparison.Ordinal);
+
+        Assert.DoesNotContain("WorldDetailsPanel.Children.Insert", oldWorldLobby, StringComparison.Ordinal);
+        Assert.Contains("Lobby is a top-level cross-game destination", oldWorldLobby, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -25,7 +33,6 @@ public sealed class WorldLobbyPresentationTests
     {
         var source = File.ReadAllText(FindRepositoryFile(
             "src/SharedWorlds.Desktop/CoordinatedJoinGameAdapter.cs"));
-
         var launch = source.IndexOf("await _inner.LaunchClientAsync", StringComparison.Ordinal);
         var publish = source.IndexOf("await StartPresenceAsync()", StringComparison.Ordinal);
         var observedEnd = source.IndexOf("await _inner.WaitForSessionEndAsync", StringComparison.Ordinal);

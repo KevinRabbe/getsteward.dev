@@ -275,9 +275,7 @@ public partial class MainWindow
             WorldLifecycleResponsibilityKind.CleanupPending => DesktopText.ActionRequired,
             WorldLifecycleResponsibilityKind.ActiveLifecycle => snapshot.Phase switch
             {
-                WorldLifecyclePhase.Running => snapshot.Mode == ManagedWorldSessionMode.Hosted
-                    ? DesktopText.Hosting
-                    : DesktopText.Running,
+                WorldLifecyclePhase.Running => DesktopText.Running,
                 WorldLifecyclePhase.WaitingForSafeCapture or
                 WorldLifecyclePhase.Capturing or
                 WorldLifecyclePhase.StoringCandidate or

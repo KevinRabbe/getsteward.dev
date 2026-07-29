@@ -30,6 +30,7 @@ public partial class App : Application
         {
             Title = "Safe World"
         };
+        window.InitializeProfessionalWindowChrome();
         MainWindow = window;
 
         // Start initialization before showing the window so the legacy Loaded handler is removed

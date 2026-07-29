@@ -22,12 +22,12 @@ public partial class MainWindow
         if (world.SharingMode == WorldSharingMode.Shared && !HasAuthoritativeRuntimeForWorld(world))
         {
             StatusText.Text =
-                "Reconnect authenticated Steward authority before verifying a shared World's canonical environment.";
+                "Reconnect Safe World before verifying this shared World.";
             return;
         }
 
         await RunOperationAsync(
-            $"Verifying the exact environment for {world.Name}...",
+            $"Verifying {world.Name}...",
             async () =>
             {
                 var installation = await GetGameInstallationAsync(adapter);
@@ -40,8 +40,8 @@ public partial class MainWindow
 
                 UpdateEnvironmentReadinessUi();
                 StatusText.Text = !verification.IsReady
-                    ? $"The exact environment for '{world.Name}' is not ready on this device."
-                    : $"This device is ready to play '{world.Name}' with its exact environment.";
+                    ? $"'{world.Name}' is not ready on this PC."
+                    : $"'{world.Name}' is ready on this PC.";
             });
 
         UpdateEnvironmentReadinessUi();
@@ -61,12 +61,12 @@ public partial class MainWindow
         if (world.SharingMode == WorldSharingMode.Shared && !HasAuthoritativeRuntimeForWorld(world))
         {
             StatusText.Text =
-                "Reconnect authenticated Steward authority before repairing against a shared World's canonical environment.";
+                "Reconnect Safe World before repairing this shared World.";
             return;
         }
 
         await RunOperationAsync(
-            $"Repairing the local environment for {world.Name}...",
+            $"Repairing {world.Name}...",
             async () =>
             {
                 var installation = await GetGameInstallationAsync(adapter);
@@ -139,25 +139,23 @@ public partial class MainWindow
 
         if (world.SharingMode == WorldSharingMode.Shared && !HasAuthoritativeRuntimeForWorld(world))
         {
-            EnvironmentReadinessText.Text =
-                "Authenticated Steward authority is not connected. Verification and repair are blocked so this device cannot act on stale local shared-World metadata.";
+            EnvironmentReadinessText.Text = "Reconnect Safe World to verify this World.";
             VerifyEnvironmentButton.IsEnabled = false;
             RepairEnvironmentButton.IsEnabled = false;
             SetEnvironmentActionHelp(
-                "Reconnect Steward to load the canonical shared environment first.",
-                "Reconnect Steward before repair.");
+                "Reconnect Safe World first.",
+                "Reconnect Safe World first.");
             UpdateUnifiedActionState();
             return;
         }
 
         VerifyEnvironmentButton.IsEnabled = !_isBusy;
-        const string verifyHelp = "Verify this device against the World's canonical environment.";
+        const string verifyHelp = "Check this PC against the World's exact game environment.";
 
         var verification = GetEnvironmentVerificationFor(world);
         if (verification is null)
         {
-            EnvironmentReadinessText.Text =
-                "Not checked yet. Verify tests the same exact environment reproduction path used before play without launching the game or changing the World.";
+            EnvironmentReadinessText.Text = DesktopText.NotCheckedYet;
             RepairEnvironmentButton.IsEnabled = false;
             SetEnvironmentActionHelp(verifyHelp, "Run Verify first.");
             UpdateUnifiedActionState();
@@ -166,8 +164,7 @@ public partial class MainWindow
 
         if (verification.IsReady)
         {
-            EnvironmentReadinessText.Text =
-                "Ready. This device can reproduce the World's exact game version, mods and recorded environment requirements.";
+            EnvironmentReadinessText.Text = "Ready on this PC.";
             RepairEnvironmentButton.IsEnabled = false;
             SetEnvironmentActionHelp(verifyHelp, "No repair is needed.");
             UpdateUnifiedActionState();
@@ -182,8 +179,8 @@ public partial class MainWindow
         SetEnvironmentActionHelp(
             verifyHelp,
             verification.CanRepairAutomatically
-                ? "Apply only adapter-defined safe local repairs, then verify again."
-                : "Steward does not have a safe automatic repair for this problem yet.");
+                ? "Apply the safe repair and verify again."
+                : "Safe World does not have an automatic repair for this problem yet.");
         UpdateUnifiedActionState();
     }
 

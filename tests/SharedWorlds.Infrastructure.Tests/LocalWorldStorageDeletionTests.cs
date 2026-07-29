@@ -37,20 +37,11 @@ public sealed class LocalWorldStorageDeletionTests : IDisposable
     }
 
     [Fact]
-    public async Task DeleteWorld_RejectsManagedRootReparsePoint()
+    public async Task DeleteWorld_HasFailClosedManagedRootReparsePointGuard()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
-        var storage = new LocalWorldStorage(_root);
-        var world = CreateWorld();
-        await storage.SaveWorldAsync(world);
-
-        // The implementation explicitly checks the managed World directory before recursive deletion.
-        // Creating a junction/symlink requires privileges that are not guaranteed on CI, so lock the
-        // fail-closed guard structurally here and exercise the ordinary recursive deletion above.
+        // Creating a junction/symlink requires privileges that are not guaranteed on every CI runner.
+        // Lock the fail-closed implementation guard structurally on every platform, while the ordinary
+        // recursive deletion path is exercised end-to-end by the test above.
         var source = await File.ReadAllTextAsync(FindRepositoryFile(
             "src/SharedWorlds.Infrastructure/Storage/LocalWorldStorage.cs"));
         Assert.Contains("FileAttributes.ReparsePoint", source, StringComparison.Ordinal);

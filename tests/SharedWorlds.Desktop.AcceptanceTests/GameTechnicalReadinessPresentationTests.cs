@@ -37,6 +37,18 @@ public sealed class GameTechnicalReadinessPresentationTests
     }
 
     [Fact]
+    public void TechnicalReadinessIsProgressiveDisclosureNotPermanentText()
+    {
+        var source = File.ReadAllText(
+            FindRepositoryFile("src/SharedWorlds.Desktop/MainWindow.GameTechnicalReadiness.cs"));
+
+        Assert.Contains("SelectedGameNameText.ToolTip = summary", source, StringComparison.Ordinal);
+        Assert.Contains("AutomationProperties.SetHelpText(SelectedGameNameText, summary)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("new TextBlock", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("gameHeader.Children.Insert", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TechnicalReadinessVocabularyUsesNeutralResourceFallback()
     {
         var previous = CultureInfo.CurrentUICulture;

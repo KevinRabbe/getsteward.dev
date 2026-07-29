@@ -10,6 +10,7 @@
         <Color x:Key="MutedTextColor">#A9B0BC</Color>
         <Color x:Key="AccentColor">#7C9EFF</Color>
         <Color x:Key="SuccessColor">#72D6A2</Color>
+        <Color x:Key="DangerColor">#E7777F</Color>
 
         <SolidColorBrush x:Key="AppBackgroundBrush" Color="{StaticResource AppBackgroundColor}" />
         <SolidColorBrush x:Key="PanelBrush" Color="{StaticResource PanelColor}" />
@@ -19,6 +20,7 @@
         <SolidColorBrush x:Key="MutedTextBrush" Color="{StaticResource MutedTextColor}" />
         <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
         <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}" />
+        <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource DangerColor}" />
 
         <Style x:Key="StewardFocusVisualStyle">
             <Setter Property="Control.Template">
@@ -83,6 +85,12 @@
             <Setter Property="Background" Value="{StaticResource AccentBrush}" />
             <Setter Property="Foreground" Value="#0B1020" />
             <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+        </Style>
+
+        <Style x:Key="DangerButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="#24191C" />
+            <Setter Property="Foreground" Value="#FFD9DC" />
+            <Setter Property="BorderBrush" Value="{StaticResource DangerBrush}" />
         </Style>
 
         <Style TargetType="ComboBox">

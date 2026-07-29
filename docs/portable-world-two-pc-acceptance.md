@@ -30,10 +30,52 @@ Create one small evidence folder containing:
 - the transferred `.safeworld` SHA-256 from PC B;
 - the creator World ID from PC A;
 - the viewer World ID from PC B;
+- `pc-a-evidence.json` and `pc-b-evidence.json` from the read-only evidence probe when used;
 - screenshots or notes showing the creator marker and viewer-only marker results;
 - any Safe World incident ID or diagnostic log path if a step fails.
 
 Do not include private tokens, Steam credentials, or unrelated game configuration in the evidence bundle.
+
+## Read-only evidence probe
+
+`tools/SharedWorlds.PortableWorldProbe` reduces manual transcription during the physical run. It is acceptance tooling only: it never launches Factorio, changes a World, imports a file, or declares the physical milestone complete.
+
+Keep the `acceptance-build.json` produced by `tools/e4-build-desktop.ps1` beside the exact Safe World package used on each PC. The probe verifies every package file against that manifest and derives a stable package fingerprint, so PC A and PC B can prove that they used the same package bytes rather than merely the same displayed version.
+
+The probe also:
+
+- computes the whole `.safeworld` SHA-256;
+- reads only the bounded portable manifest for evidence/routing metadata;
+- requires the artifact to be Factorio V1 scope;
+- asks the real Factorio adapter to verify the exact recorded environment on the current machine;
+- fails this V1 run when any non-built-in Factorio mod is required;
+- identifies the creator World from the portable snapshot/state-revision identity on PC A;
+- identifies the independent viewer World from `StartedFrom` provenance on PC B;
+- requires the viewer World to be local/private, owned by the current local user, and to have fresh World/state identities;
+- requires exactly one persistent `SharedWorlds.Desktop` process when viewer evidence is collected.
+
+The probe does **not** inspect or parse `state.bin`. The normal Safe World import remains the authoritative hostile-input/hash boundary for the state payload. The probe also cannot prove which Windows shell gesture the human used, whether the creator marker is visible in the real game, whether the viewer-only marker persisted, or whether that viewer-only marker stayed absent on PC A. Those observations remain mandatory below.
+
+After PC A has completed A4, collect creator evidence:
+
+```powershell
+dotnet run --project tools/SharedWorlds.PortableWorldProbe -- --creator `
+  --file "C:\SafeWorldAcceptance\500h-Megabase.safeworld" `
+  --build-manifest "C:\SafeWorldAcceptance\package\acceptance-build.json" `
+  --output "C:\SafeWorldAcceptance\evidence\pc-a-evidence.json"
+```
+
+Transfer the exact `.safeworld` plus `pc-a-evidence.json` to PC B. After B3/B4 has imported the file while the original Safe World process remains running, collect viewer evidence:
+
+```powershell
+dotnet run --project tools/SharedWorlds.PortableWorldProbe -- --viewer `
+  --file "C:\SafeWorldAcceptance\500h-Megabase.safeworld" `
+  --build-manifest "C:\SafeWorldAcceptance\package\acceptance-build.json" `
+  --creator-evidence "C:\SafeWorldAcceptance\evidence\pc-a-evidence.json" `
+  --output "C:\SafeWorldAcceptance\evidence\pc-b-evidence.json"
+```
+
+The viewer probe fails closed when the Safe World package fingerprint, desktop executable hash, commit, portable file hash, snapshot identity, or required Factorio version differs from PC A. A successful probe run therefore removes those facts from manual comparison, but it does not replace the remaining real-game observations.
 
 ## Test data
 
@@ -81,7 +123,7 @@ In Safe World's technical details, record:
 - exact game version;
 - current state/revision identity if exposed by the build.
 
-The source World ID is required later to prove the viewer received an independent World rather than the same canonical identity.
+The source World ID is required later to prove the viewer received an independent World rather than the same canonical identity. The evidence probe records this identity automatically when used.
 
 ### A4. Export the portable World
 
@@ -91,7 +133,7 @@ The source World ID is required later to prove the viewer received an independen
    `500h-Megabase.safeworld`
 
 3. Confirm the operation completes successfully.
-4. Compute the whole-file SHA-256 in PowerShell:
+4. Compute the whole-file SHA-256 in PowerShell, or run the creator evidence probe above:
 
 ```powershell
 Get-FileHash .\500h-Megabase.safeworld -Algorithm SHA256
@@ -118,7 +160,7 @@ Get-FileHash .\500h-Megabase.safeworld -Algorithm SHA256
 
 ### B2. Verify transfer integrity
 
-In PowerShell, compute the downloaded file's SHA-256:
+In PowerShell, compute the downloaded file's SHA-256, or let the viewer evidence probe compare it directly with PC A:
 
 ```powershell
 Get-FileHash .\500h-Megabase.safeworld -Algorithm SHA256
@@ -145,7 +187,7 @@ Fallback path, if Windows shell selection is unavailable because of machine poli
 
 Record which path was used.
 
-**Pass:** the file is accepted by the already-running Safe World instance and no independent second writer remains.
+**Pass:** the file is accepted by the already-running Safe World instance and no independent second writer remains. The viewer evidence probe independently requires exactly one persistent Safe World desktop process at evidence-collection time.
 
 ### B4. Verify independent canonicalization
 
@@ -158,7 +200,7 @@ After import, verify:
 - the World is local/private rather than silently shared;
 - PC B's local user is the local owner/member, not the source creator identity.
 
-Record the viewer World ID.
+Record the viewer World ID. The viewer evidence probe checks the identity, privacy, ownership, and source-snapshot invariants automatically when used.
 
 **Pass:** source attribution is preserved, but canonical identity and local ownership are new and independent.
 

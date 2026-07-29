@@ -37,6 +37,9 @@ public partial class MainWindow
         await InitializeWorldInvitationsUiAsync();
         InitializeProfessionalProductShell();
         RehomeInvitationsToGlobalLobby();
+        InitializeVisualDesignV2();
+        InitializeVisualDesignV2Refinements();
+        InitializeNavigationV2StateGuard();
         InitializeQuietStatusPresentation();
         InitializeGameAttentionProjection();
         InitializeResponsiveWorkspace();

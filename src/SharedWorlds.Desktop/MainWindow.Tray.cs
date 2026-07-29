@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Worlds;
+using Drawing = System.Drawing;
 using Forms = System.Windows.Forms;
 
 namespace SharedWorlds.Desktop;
@@ -22,7 +23,7 @@ public partial class MainWindow
     {
         _trayIcon = new Forms.NotifyIcon
         {
-            Icon = System.Drawing.SystemIcons.Application,
+            Icon = ResolveSafeWorldTrayIcon(),
             Text = "Safe World",
             Visible = true,
             ContextMenuStrip = CreateTrayMenu()
@@ -32,6 +33,25 @@ public partial class MainWindow
         Closing += MainWindow_Closing;
         Closed += (_, _) => DisposeTray();
         UpdateTrayStatus();
+    }
+
+    private static Drawing.Icon ResolveSafeWorldTrayIcon()
+    {
+        try
+        {
+            var processPath = Environment.ProcessPath;
+            if (!string.IsNullOrWhiteSpace(processPath))
+            {
+                return Drawing.Icon.ExtractAssociatedIcon(processPath) ?? Drawing.SystemIcons.Application;
+            }
+        }
+        catch (Exception) when (OperatingSystem.IsWindows())
+        {
+            // Tray branding is presentation-only. Failure to read the executable icon must never
+            // block Safe World startup or change World lifecycle behavior.
+        }
+
+        return Drawing.SystemIcons.Application;
     }
 
     private Forms.ContextMenuStrip CreateTrayMenu()
@@ -149,9 +169,39 @@ public partial class MainWindow
         var responsibility = _responsibilityTracker.Current;
         if (!responsibility.CanQuitWithoutGuard)
         {
+            OpenStewardWindow();
+
+            var responsibleWorld = _allWorldItems.FirstOrDefault(item =>
+                item.World.Id == responsibility.WorldId);
+            if (responsibleWorld is not null)
+            {
+                if (_globalLobbyVisible)
+                {
+                    HideGlobalLobby(showGames: false);
+                }
+
+                if (_globalSettingsVisible)
+                {
+                    HideGlobalSettings();
+                }
+
+                OpenGameWorkspace(
+                    responsibleWorld.AdapterId,
+                    responsibleWorld.GameName,
+                    responsibleWorld.World.Id);
+                KeepTopLevelNavigationAvailable();
+            }
+
+            var target = responsibleWorld is null
+                ? "a World"
+                : $"'{responsibleWorld.Name}'";
             MessageBox.Show(
-                "Safe World still has an active or unresolved World responsibility. Resolve or safely finish it before quitting.",
-                "Safe World is still responsible for a World",
+                this,
+                $"Safe World is still protecting {target} because its writable session has not safely finished." +
+                $"{Environment.NewLine}{Environment.NewLine}" +
+                "Safe World opened the World that needs attention when it could identify it. " +
+                "Finish, stop and save, or recover that session before quitting.",
+                "Finish the World session before quitting",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
             return;

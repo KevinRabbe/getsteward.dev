@@ -6,6 +6,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets/SafeWorld.ico</ApplicationIcon>
     <NeutralLanguage>en</NeutralLanguage>
     <AssemblyName>SharedWorlds.Desktop</AssemblyName>
     <RootNamespace>SharedWorlds.Desktop</RootNamespace>

@@ -7,16 +7,16 @@
   <data name="Tagline" xml:space="preserve"><value>Your Worlds, anywhere.</value></data>
   <data name="Games" xml:space="preserve"><value>Games</value></data>
   <data name="GamesLibrary" xml:space="preserve"><value>Games Library</value></data>
-  <data name="GamesLibraryDescription" xml:space="preserve"><value>Choose a game.</value></data>
+  <data name="GamesLibraryDescription" xml:space="preserve"><value>Choose a game to continue or manage its Worlds.</value></data>
   <data name="BackToGames" xml:space="preserve"><value>← Games</value></data>
   <data name="Worlds" xml:space="preserve"><value>Worlds</value></data>
   <data name="Lobby" xml:space="preserve"><value>Lobby</value></data>
-  <data name="LobbyDescription" xml:space="preserve"><value>See your shared Worlds across every game.</value></data>
+  <data name="LobbyDescription" xml:space="preserve"><value>See who is playing and jump into shared Worlds across your games.</value></data>
   <data name="OpenWorld" xml:space="preserve"><value>Open World</value></data>
-  <data name="NoSharedWorlds" xml:space="preserve"><value>No shared Worlds yet.</value></data>
+  <data name="NoSharedWorlds" xml:space="preserve"><value>Shared Worlds will appear here once you share or join one.</value></data>
   <data name="Settings" xml:space="preserve"><value>Settings</value></data>
   <data name="Back" xml:space="preserve"><value>← Back</value></data>
-  <data name="SettingsDescription" xml:space="preserve"><value>Device-wide Safe World preferences.</value></data>
+  <data name="SettingsDescription" xml:space="preserve"><value>Preferences for how this PC participates in Safe World.</value></data>
   <data name="DeviceSettings" xml:space="preserve"><value>Device settings</value></data>
   <data name="HostingOnThisDevice" xml:space="preserve"><value>Hosting on this device</value></data>
   <data name="AllowDeviceHosting" xml:space="preserve"><value>Allow this device to host</value></data>
@@ -26,7 +26,7 @@
   <data name="SortWorlds" xml:space="preserve"><value>Sort Worlds</value></data>
   <data name="SortNameAscending" xml:space="preserve"><value>Name A–Z</value></data>
   <data name="SortNameDescending" xml:space="preserve"><value>Name Z–A</value></data>
-  <data name="SelectWorld" xml:space="preserve"><value>Select a World.</value></data>
+  <data name="SelectWorld" xml:space="preserve"><value>Select a World to see its details.</value></data>
   <data name="Play" xml:space="preserve"><value>Play</value></data>
   <data name="WorldSettings" xml:space="preserve"><value>World settings</value></data>
   <data name="KeepExactGameVersion" xml:space="preserve"><value>Keep this World on this exact game version</value></data>

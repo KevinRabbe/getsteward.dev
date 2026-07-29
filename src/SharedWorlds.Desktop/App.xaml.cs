@@ -28,7 +28,7 @@ public partial class App : Application
 
         var window = new MainWindow
         {
-            Title = $"Steward {StewardBuildVersion.Current}"
+            Title = $"Safe World {StewardBuildVersion.Current}"
         };
         MainWindow = window;
 
@@ -58,9 +58,9 @@ public partial class App : Application
             ? $"Incident ID: {incident.Id}"
             : $"Incident ID: {incident.Id}{Environment.NewLine}Diagnostic log: {incident.LogPath}";
         MessageBox.Show(
-            $"Steward encountered an unexpected failure and will stop rather than continue in an unknown state.{Environment.NewLine}{Environment.NewLine}" +
+            $"Safe World encountered an unexpected failure and will stop rather than continue in an unknown state.{Environment.NewLine}{Environment.NewLine}" +
             $"{DesktopErrorMessage.Safe(e.Exception)}{Environment.NewLine}{Environment.NewLine}{diagnosticReference}",
-            "Steward unexpected failure",
+            "Safe World unexpected failure",
             MessageBoxButton.OK,
             MessageBoxImage.Error);
 

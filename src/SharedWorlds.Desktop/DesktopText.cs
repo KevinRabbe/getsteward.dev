@@ -31,6 +31,8 @@ public static class DesktopText
     public static string Play => Get(nameof(Play));
     public static string WorldSettings => Get(nameof(WorldSettings));
     public static string KeepExactGameVersion => Get(nameof(KeepExactGameVersion));
+    public static string DeleteWorld => Get(nameof(DeleteWorld));
+    public static string DeleteWorldDescription => Get(nameof(DeleteWorldDescription));
     public static string EnvironmentReadiness => Get(nameof(EnvironmentReadiness));
     public static string NotCheckedYet => Get(nameof(NotCheckedYet));
     public static string TechnicalDetails => Get(nameof(TechnicalDetails));

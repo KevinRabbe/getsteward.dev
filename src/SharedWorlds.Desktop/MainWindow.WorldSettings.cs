@@ -87,8 +87,8 @@ public partial class MainWindow
             KeepExactGameVersionCheckBox.IsChecked = true;
             KeepExactGameVersionCheckBox.IsEnabled = false;
             GameVersionPolicyText.Text = HasAuthoritativeRuntimeForWorld(world)
-                ? "This shared World uses its canonical Steward environment. Environment upgrades remain explicit and are not changed by a local checkbox."
-                : "This is a shared World record, but authenticated Steward authority is not connected. Its environment policy cannot be changed locally.";
+                ? "This shared World uses its canonical Safe World environment. Environment upgrades remain explicit and are not changed by a local checkbox."
+                : "This is a shared World record, but authenticated Safe World authority is not connected. Its environment policy cannot be changed locally.";
             return;
         }
 
@@ -96,7 +96,7 @@ public partial class MainWindow
         KeepExactGameVersionCheckBox.IsChecked = keepExact;
         KeepExactGameVersionCheckBox.IsEnabled = !_isBusy;
         GameVersionPolicyText.Text = keepExact
-            ? "Steward treats the current exact environment as known-good and ignores newer game versions for this World."
+            ? "Safe World treats the current exact environment as known-good and ignores newer game versions for this World."
             : "Newer versions may be offered only as explicit update candidates. The current environment stays known-good until a tested candidate is accepted.";
     }
 }

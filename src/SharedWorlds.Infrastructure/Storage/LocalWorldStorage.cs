@@ -17,6 +17,7 @@ public sealed class LocalWorldStorage : IWorldStorage
         ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
         _rootPath = Path.GetFullPath(rootPath);
         Directory.CreateDirectory(_rootPath);
+        TryDeleteDirectory(Path.Combine(_rootPath, ".deleting-worlds"));
     }
 
     public Task SaveWorldAsync(World world, CancellationToken cancellationToken = default)
@@ -85,6 +86,39 @@ public sealed class LocalWorldStorage : IWorldStorage
             .OrderBy(world => world.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(world => world.Id.ToString(), StringComparer.Ordinal)
             .ToArray();
+    }
+
+    public Task<bool> DeleteWorldAsync(
+        WorldId worldId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var worldDirectory = GetWorldDirectory(worldId);
+        if (!Directory.Exists(worldDirectory))
+        {
+            return Task.FromResult(false);
+        }
+
+        var attributes = File.GetAttributes(worldDirectory);
+        if (attributes.HasFlag(FileAttributes.ReparsePoint))
+        {
+            throw new InvalidDataException(
+                $"Refusing to delete World '{worldId}' because its managed storage directory is a reparse point.");
+        }
+
+        // First remove the complete World directory from the live catalog with a same-volume rename.
+        // Physical recursive cleanup happens only after catalog removal. If cleanup is interrupted, the
+        // tombstone remains outside /worlds and is retried when LocalWorldStorage is constructed again.
+        var deletionRoot = Path.Combine(_rootPath, ".deleting-worlds");
+        Directory.CreateDirectory(deletionRoot);
+        var tombstone = Path.Combine(
+            deletionRoot,
+            $"{worldId}.{Guid.NewGuid():N}");
+        Directory.Move(worldDirectory, tombstone);
+        TryDeleteDirectory(tombstone);
+
+        return Task.FromResult(true);
     }
 
     public Task StoreEnvironmentRevisionAsync(

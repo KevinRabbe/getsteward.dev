@@ -4,7 +4,8 @@ namespace SharedWorlds.Desktop;
 
 public partial class MainWindow
 {
-    private const double NarrowWorkspaceWidth = 900;
+    private const double NarrowWorkspaceWidth = 1040;
+    private const double WideNavigationWidth = 390;
     private bool _responsiveWorkspaceInitialized;
 
     internal void InitializeResponsiveWorkspace()
@@ -44,7 +45,7 @@ public partial class MainWindow
         {
             WorldNavigationColumn.Width = narrow
                 ? new GridLength(1, GridUnitType.Star)
-                : new GridLength(330);
+                : new GridLength(WideNavigationWidth);
             WorldDetailsColumn.Width = narrow
                 ? new GridLength(0)
                 : new GridLength(1, GridUnitType.Star);
@@ -56,7 +57,7 @@ public partial class MainWindow
 
         if (!narrow)
         {
-            WorldNavigationColumn.Width = new GridLength(330);
+            WorldNavigationColumn.Width = new GridLength(WideNavigationWidth);
             WorldDetailsColumn.Width = new GridLength(1, GridUnitType.Star);
             WorldSidebar.Visibility = Visibility.Visible;
             WorldDetailsScroll.Visibility = Visibility.Visible;

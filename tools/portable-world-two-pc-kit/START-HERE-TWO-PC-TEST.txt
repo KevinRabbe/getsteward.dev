@@ -1,0 +1,98 @@
+SAFE WORLD — FACTORIO TWO-PC TEST
+=================================
+
+Purpose
+-------
+Prove that one real Factorio World can be exported from PC A, opened on PC B as an independent local World, changed on PC B, and remain independent from the original on PC A.
+
+This test requires
+------------------
+- Two separate Windows PCs.
+- This exact extracted Safe World package on both PCs.
+- The same exact Factorio version on both PCs.
+- Vanilla Factorio with no user mods for this first run.
+- One ordinary non-autosave Factorio World on PC A.
+
+Do not mix Safe World builds. Copy this exact ZIP/package to both PCs.
+The engineering build is unsigned, so Windows SmartScreen may show Unknown publisher. That is expected for this private test build.
+
+Choose two markers before starting
+----------------------------------
+Creator marker:
+SAFEWORLD-CREATOR-YYYYMMDD-HHMM
+
+Viewer marker:
+SAFEWORLD-VIEWER-YYYYMMDD-HHMM
+
+Use visible vanilla Factorio map tags or another unmistakable in-game marker.
+
+PC A — CREATOR
+--------------
+1. Start Safe World and open the Factorio World through Continue.
+2. Add the creator marker in Factorio.
+3. Save and exit Factorio normally.
+4. Wait for Safe World to finish capturing the World.
+5. Continue the World once more and confirm the creator marker survived.
+6. Back in Safe World, use Copy / Share a Copy and save the .safeworld file.
+7. Run:
+   acceptance-tools\PC-A-CREATOR-CHECK.cmd
+8. Paste the full path to the exported .safeworld file.
+9. The check writes this file to the Desktop:
+   SafeWorld-Two-PC-Evidence\pc-a-evidence.json
+10. Transfer BOTH files to PC B:
+    - the exact .safeworld file;
+    - pc-a-evidence.json.
+
+PC B — VIEWER
+-------------
+1. Extract this exact same Safe World package on PC B.
+2. Confirm the exact same vanilla Factorio version is installed.
+3. Start Safe World and leave it running.
+4. Double-click the transferred .safeworld file.
+   If Windows does not route it to Safe World, use Open with, or Safe World > More > Open World File.
+5. Confirm the imported World appears under Factorio.
+6. Run:
+   acceptance-tools\PC-B-VIEWER-CHECK.cmd
+7. Paste the paths to:
+   - the transferred .safeworld file;
+   - the transferred pc-a-evidence.json.
+8. The check writes this file to the Desktop:
+   SafeWorld-Two-PC-Evidence\pc-b-evidence.json
+9. Continue the imported World in Safe World.
+10. Confirm the creator marker exists in real Factorio.
+11. Add the viewer marker.
+12. Save and exit Factorio normally.
+13. Wait for Safe World to finish capturing the viewer World.
+14. Continue it again and confirm BOTH markers exist.
+
+RETURN TO PC A
+--------------
+1. Continue the original creator World.
+2. Confirm the creator marker still exists.
+3. Confirm the viewer marker does NOT exist.
+
+PASS only when
+--------------
+- Both evidence launchers report [OK].
+- The creator marker appears on PC B.
+- The viewer marker survives a second PC-B Continue cycle.
+- The viewer marker never appears in PC A's original World.
+- No second persistent Safe World desktop process remains after opening the file on PC B.
+
+STOP immediately when
+---------------------
+- Either evidence launcher reports [FAIL].
+- Factorio opens a blank or wrong World.
+- The creator marker is missing on PC B.
+- The viewer marker disappears after save/exit/Continue.
+- The viewer marker appears on PC A.
+
+Evidence to keep
+----------------
+- The exported .safeworld file.
+- pc-a-evidence.json.
+- pc-b-evidence.json.
+- Screenshots of the creator and viewer marker checks.
+- Any Safe World incident ID shown after a failure.
+
+The evidence launchers are read-only. They verify package bytes, file hash, exact Factorio environment, local World identities and single-process state. They do not inspect Factorio save contents and cannot declare the real physical test PASS by themselves.

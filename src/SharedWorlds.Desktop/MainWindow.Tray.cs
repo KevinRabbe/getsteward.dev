@@ -13,6 +13,7 @@ public partial class MainWindow
     private readonly IWorkspaceRecoveryStore _workspaceRecoveryStore;
     private Forms.NotifyIcon? _trayIcon;
     private bool _allowExplicitClose;
+    private bool _quitRequestInProgress;
 
     private IWorldLifecycleObserver CreateDesktopLifecycleObserver()
         => new DesktopLifecycleObserver(
@@ -59,7 +60,7 @@ public partial class MainWindow
         var menu = new Forms.ContextMenuStrip
         {
             AccessibleName = "Safe World tray menu",
-            AccessibleDescription = "Open Safe World or quit when Safe World has no active World responsibility."
+            AccessibleDescription = "Open or explicitly quit Safe World."
         };
         var open = new Forms.ToolStripMenuItem(DesktopText.OpenSteward)
         {
@@ -71,7 +72,7 @@ public partial class MainWindow
         var quit = new Forms.ToolStripMenuItem(DesktopText.QuitSteward)
         {
             AccessibleName = DesktopText.QuitSteward,
-            AccessibleDescription = "Quit Safe World when no active or unresolved World responsibility remains."
+            AccessibleDescription = "Quit Safe World. Unresolved World sessions require an explicit guarded decision."
         };
         quit.Click += (_, _) => RequestQuitSteward();
 
@@ -145,8 +146,11 @@ public partial class MainWindow
             return;
         }
 
+        // X is an explicit quit request. It must not silently hide Safe World in the tray and force
+        // users to discover a second shutdown path. The same guarded decision protects unresolved
+        // writable sessions whether Quit came from the window or the tray menu.
         e.Cancel = true;
-        Hide();
+        RequestQuitSteward();
     }
 
     private void OpenStewardWindow()
@@ -164,53 +168,29 @@ public partial class MainWindow
         Activate();
     }
 
-    private void RequestQuitSteward()
+    private async void RequestQuitSteward()
     {
-        var responsibility = _responsibilityTracker.Current;
-        if (!responsibility.CanQuitWithoutGuard)
+        if (_quitRequestInProgress)
         {
-            OpenStewardWindow();
-
-            var responsibleWorld = _allWorldItems.FirstOrDefault(item =>
-                item.World.Id == responsibility.WorldId);
-            if (responsibleWorld is not null)
-            {
-                if (_globalLobbyVisible)
-                {
-                    HideGlobalLobby(showGames: false);
-                }
-
-                if (_globalSettingsVisible)
-                {
-                    HideGlobalSettings();
-                }
-
-                OpenGameWorkspace(
-                    responsibleWorld.AdapterId,
-                    responsibleWorld.GameName,
-                    responsibleWorld.World.Id);
-                KeepTopLevelNavigationAvailable();
-            }
-
-            var target = responsibleWorld is null
-                ? "a World"
-                : $"'{responsibleWorld.Name}'";
-            MessageBox.Show(
-                this,
-                $"Safe World is still protecting {target} because its writable session has not safely finished." +
-                $"{Environment.NewLine}{Environment.NewLine}" +
-                "Safe World opened the World that needs attention when it could identify it. " +
-                "Finish, stop and save, or recover that session before quitting.",
-                "Finish the World session before quitting",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
             return;
         }
 
-        _allowExplicitClose = true;
-        DisposeTray();
-        Close();
-        Application.Current.Shutdown();
+        _quitRequestInProgress = true;
+        try
+        {
+            var responsibility = _responsibilityTracker.Current;
+            if (!responsibility.CanQuitWithoutGuard &&
+                !await ConfirmGuardedQuitAsync(responsibility))
+            {
+                return;
+            }
+
+            CompleteExplicitQuit();
+        }
+        finally
+        {
+            _quitRequestInProgress = false;
+        }
     }
 
     private void DisposeTray()

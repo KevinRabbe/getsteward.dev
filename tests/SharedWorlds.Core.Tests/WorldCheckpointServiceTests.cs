@@ -24,7 +24,7 @@ public sealed class WorldCheckpointServiceTests
         Assert.Equal(fixture.Owner, checkpoint.CreatedBy);
         Assert.Equal(fixture.World.CurrentStateRevisionId, updated.CurrentStateRevisionId);
         Assert.Equal(fixture.World.CurrentEnvironmentRevisionId, updated.CurrentEnvironmentRevisionId);
-        Assert.Equal(fixture.PayloadsBefore, fixture.Storage.Payloads);
+        AssertPayloadsEqual(fixture.PayloadsBefore, fixture.Storage.Payloads);
         Assert.Equal(updated, await fixture.Storage.LoadWorldAsync(updated.Id));
     }
 
@@ -113,7 +113,7 @@ public sealed class WorldCheckpointServiceTests
         Assert.NotNull(await fixture.Storage.LoadStateRevisionAsync(
             fixture.World.Id,
             fixture.Initial.Id));
-        Assert.Equal(fixture.PayloadsBefore, fixture.Storage.Payloads);
+        AssertPayloadsEqual(fixture.PayloadsBefore, fixture.Storage.Payloads);
         Assert.Equal(fixture.World.CurrentStateRevisionId, updated.CurrentStateRevisionId);
     }
 
@@ -185,6 +185,18 @@ public sealed class WorldCheckpointServiceTests
 
         Assert.Contains("at most 64", exception.Message, StringComparison.Ordinal);
         Assert.Equal(WorldCheckpointService.MaximumCheckpointsPerWorld, updated.Checkpoints.Count);
+    }
+
+    private static void AssertPayloadsEqual(
+        IReadOnlyDictionary<RevisionId, byte[]> expected,
+        IReadOnlyDictionary<RevisionId, byte[]> actual)
+    {
+        Assert.Equal(expected.Count, actual.Count);
+        foreach (var (revisionId, expectedBytes) in expected)
+        {
+            Assert.True(actual.TryGetValue(revisionId, out var actualBytes));
+            Assert.Equal(expectedBytes, actualBytes);
+        }
     }
 
     private static Fixture CreateFixture()

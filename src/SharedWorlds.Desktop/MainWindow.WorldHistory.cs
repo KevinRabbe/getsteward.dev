@@ -94,7 +94,11 @@ public partial class MainWindow
                 return;
             }
 
-            var dialog = new WorldHistoryDialog(world.Name, history, currentRevisionId)
+            var dialog = new WorldHistoryDialog(
+                world.Name,
+                history,
+                currentRevisionId,
+                world.Checkpoints ?? [])
             {
                 Owner = this
             };
@@ -111,6 +115,23 @@ public partial class MainWindow
 
                 case WorldHistoryDialogAction.MakeMyCopy:
                     await MakeWorldHistoryCopyAsync(world, selectedRevision);
+                    break;
+
+                case WorldHistoryDialogAction.NameCheckpoint:
+                    await NameWorldHistoryCheckpointAsync(
+                        world,
+                        selectedRevision,
+                        dialog.SelectedCheckpoint);
+                    break;
+
+                case WorldHistoryDialogAction.RemoveCheckpoint:
+                    if (dialog.SelectedCheckpoint is { } checkpoint)
+                    {
+                        await RemoveWorldHistoryCheckpointAsync(
+                            world,
+                            selectedRevision,
+                            checkpoint);
+                    }
                     break;
             }
         }
@@ -184,6 +205,67 @@ public partial class MainWindow
                     GetLocalUser());
                 StatusText.Text = $"Created independent World '{copy.Name}' from History.";
                 await RefreshUnifiedWorldsAsync(copy.Id, preserveStatus: true);
+            });
+    }
+
+    private async Task NameWorldHistoryCheckpointAsync(
+        World world,
+        StateRevision selectedRevision,
+        WorldCheckpoint? existingCheckpoint)
+    {
+        var dialog = new CheckpointNameDialog(world.Name, existingCheckpoint?.Name)
+        {
+            Owner = this
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        var checkpointName = dialog.CheckpointName;
+        await RunOperationAsync(
+            $"Saving checkpoint {checkpointName}...",
+            async () =>
+            {
+                var service = new WorldCheckpointService(_storage);
+                var updated = await service.SetAsync(
+                    world,
+                    selectedRevision.Id,
+                    checkpointName,
+                    GetLocalUser());
+                _selectedWorld = updated;
+                StatusText.Text = $"Saved checkpoint '{checkpointName}' in '{world.Name}'.";
+                await RefreshUnifiedWorldsAsync(updated.Id, preserveStatus: true);
+            });
+    }
+
+    private async Task RemoveWorldHistoryCheckpointAsync(
+        World world,
+        StateRevision selectedRevision,
+        WorldCheckpoint checkpoint)
+    {
+        var confirmation = MessageBox.Show(
+            this,
+            $"Remove checkpoint '{checkpoint.Name}'?{Environment.NewLine}{Environment.NewLine}" +
+            "Only the label will be removed. The saved state remains in World History.",
+            DesktopText.RemoveCheckpoint,
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question,
+            MessageBoxResult.No);
+        if (confirmation != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        await RunOperationAsync(
+            $"Removing checkpoint {checkpoint.Name}...",
+            async () =>
+            {
+                var service = new WorldCheckpointService(_storage);
+                var updated = await service.RemoveAsync(world, selectedRevision.Id);
+                _selectedWorld = updated;
+                StatusText.Text = $"Removed checkpoint '{checkpoint.Name}'. The saved state remains in History.";
+                await RefreshUnifiedWorldsAsync(updated.Id, preserveStatus: true);
             });
     }
 }

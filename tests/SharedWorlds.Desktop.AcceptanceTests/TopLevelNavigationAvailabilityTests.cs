@@ -18,19 +18,38 @@ public sealed class TopLevelNavigationAvailabilityTests
     }
 
     [Fact]
-    public void GuardedQuitReturnsUserToResponsibleWorldInsteadOfDeadEndWarning()
+    public void GuardedQuitCanExitOnlyAfterDurableRecoveryIsVerifiedAndPreserved()
     {
         var tray = File.ReadAllText(FindRepositoryFile(
             "src/SharedWorlds.Desktop/MainWindow.Tray.cs"));
+        var guardedQuit = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/MainWindow.GuardedQuit.cs"));
+        var dialog = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/GuardedQuitDialog.cs"));
+        var tracker = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Core/Worlds/WorldLifecycleResponsibilityTracker.cs"));
 
-        Assert.Contains("OpenStewardWindow();", tray, StringComparison.Ordinal);
-        Assert.Contains("item.World.Id == responsibility.WorldId", tray, StringComparison.Ordinal);
-        Assert.Contains("OpenGameWorkspace(", tray, StringComparison.Ordinal);
-        Assert.Contains("Finish, stop and save, or recover that session before quitting.", tray, StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "Resolve or safely finish it before quitting.",
-            tray,
-            StringComparison.Ordinal);
+        Assert.Contains("private async void RequestQuitSteward()", tray, StringComparison.Ordinal);
+        Assert.Contains("ConfirmRecoveryPreservingQuitAsync(responsibility)", tray, StringComparison.Ordinal);
+        Assert.Contains("CompleteExplicitQuit();", tray, StringComparison.Ordinal);
+        Assert.DoesNotContain("MessageBox.Show(", tray, StringComparison.Ordinal);
+
+        Assert.Contains("await _workspaceRecoveryStore.ListAsync()", guardedQuit, StringComparison.Ordinal);
+        Assert.Contains("records.Any(record => record.WorldId == responsibility.WorldId)", guardedQuit, StringComparison.Ordinal);
+        Assert.Contains("OpenGameWorkspace(", guardedQuit, StringComparison.Ordinal);
+        Assert.Contains("WorldDetailsScroll.ScrollToTop();", guardedQuit, StringComparison.Ordinal);
+        Assert.Contains("new GuardedQuitDialog(", guardedQuit, StringComparison.Ordinal);
+        Assert.DoesNotContain("_workspaceRecoveryStore.RemoveAsync", guardedQuit, StringComparison.Ordinal);
+        Assert.DoesNotContain("_responsibilityTracker.InitializeFromRecoveryRecords", guardedQuit, StringComparison.Ordinal);
+
+        Assert.Contains("Recovery evidence is safely stored", dialog, StringComparison.Ordinal);
+        Assert.Contains("I have closed the game", dialog, StringComparison.Ordinal);
+        Assert.Contains("Quit and recover next time", dialog, StringComparison.Ordinal);
+        Assert.Contains("IsEnabled = false", dialog, StringComparison.Ordinal);
+        Assert.Contains("gameClosed.Checked +=", dialog, StringComparison.Ordinal);
+
+        Assert.Contains("case WorkspaceRecoveryStatus.Active:", tracker, StringComparison.Ordinal);
+        Assert.Contains("_kind = WorldLifecycleResponsibilityKind.InterruptedSession;", tracker, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryFile(string relativePath)

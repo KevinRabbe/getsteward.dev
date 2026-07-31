@@ -15,7 +15,7 @@ public sealed class InterruptedWorkspaceRecoveryDecisionException : InvalidOpera
 }
 
 /// <summary>
-/// Records the user's explicit decision for an Active workspace found after a Steward restart.
+/// Records the user's explicit decision for an Active workspace found after a Safe World restart.
 /// It does not capture, publish, commit, or delete state itself. Recovery and cleanup then proceed
 /// through their existing status-specific services so a crash between the decision and the work
 /// remains deterministic and retryable.
@@ -45,7 +45,7 @@ public sealed class InterruptedWorkspaceRecoveryDecisionService
         {
             throw new InterruptedWorkspaceRecoveryDecisionException(
                 "WorkspaceMissing",
-                "The interrupted workspace is missing, so Steward cannot recover uncommitted changes from it.");
+                "The interrupted workspace is missing, so Safe World cannot recover uncommitted changes from it.");
         }
 
         var updated = record with
@@ -54,8 +54,8 @@ public sealed class InterruptedWorkspaceRecoveryDecisionService
             CandidateStateRevisionId = record.CandidateStateRevisionId ?? RevisionId.New(),
             UpdatedAt = DateTimeOffset.UtcNow,
             Reason =
-                "The user explicitly chose to recover changes from an interrupted Steward session. " +
-                "The canonical World remains unchanged until candidate recovery commits successfully."
+                "The user explicitly chose to recover changes from an interrupted Safe World session. " +
+                "The committed World remains unchanged until candidate recovery commits successfully."
         };
         await _recovery.SaveAsync(updated, cancellationToken);
         return updated;
@@ -70,15 +70,23 @@ public sealed class InterruptedWorkspaceRecoveryDecisionService
 
         var record = await LoadActiveAsync(worldId, cancellationToken);
         EnsureAdapter(record, adapterId);
-        EnsureExactEnvironmentWhenWorkspaceExists(record);
 
+        var legacyWorkspaceCannotBeCleanedExactly =
+            Directory.Exists(record.WorkingDirectory) &&
+            record.EnvironmentRevisionId is null;
         var updated = record with
         {
-            Status = WorkspaceRecoveryStatus.CleanupPending,
+            Status = legacyWorkspaceCannotBeCleanedExactly
+                ? WorkspaceRecoveryStatus.Abandoned
+                : WorkspaceRecoveryStatus.CleanupPending,
             UpdatedAt = DateTimeOffset.UtcNow,
-            Reason =
-                "The user explicitly chose to discard the interrupted workspace. " +
-                "The previous canonical World state remains authoritative; only controlled workspace cleanup is allowed."
+            Reason = legacyWorkspaceCannotBeCleanedExactly
+                ? "The user explicitly chose to continue from the last safe state. The legacy workspace " +
+                  "does not identify its exact environment, so Safe World preserved it as abandoned evidence " +
+                  "instead of guessing how to clean it. The committed World remains unchanged and this record " +
+                  "no longer owns runtime responsibility."
+                : "The user explicitly chose to discard the interrupted workspace. " +
+                  "The previous committed World remains authoritative; only controlled workspace cleanup is allowed."
         };
         await _recovery.SaveAsync(updated, cancellationToken);
         return updated;
@@ -117,7 +125,7 @@ public sealed class InterruptedWorkspaceRecoveryDecisionService
         {
             throw new InterruptedWorkspaceRecoveryDecisionException(
                 "EnvironmentUnknown",
-                "This interrupted workspace predates exact environment journaling. Steward will preserve it rather than guessing which environment owns the workspace.");
+                "This interrupted workspace predates exact environment journaling. Safe World will preserve it rather than guessing which environment owns the workspace.");
         }
     }
 }

@@ -70,9 +70,10 @@ public partial class MainWindow
         var confirmation = MessageBox.Show(
             this,
             $"Continue '{world.Name}' from its last safe state?\n\n" +
-            "Safe World will remove the preserved interrupted workspace from this PC. " +
-            "Gameplay changes that were never committed will be permanently discarded. " +
-            "The last committed World revision remains unchanged.",
+            "Gameplay changes that were never committed will be permanently abandoned. " +
+            "The last committed World revision remains unchanged.\n\n" +
+            "If this is an older workspace without exact environment evidence, Safe World will preserve " +
+            "its files as abandoned evidence instead of guessing how to delete them.",
             "Continue from last safe state?",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning,
@@ -83,30 +84,39 @@ public partial class MainWindow
         }
 
         await RunOperationAsync(
-            $"Removing interrupted workspace for {world.Name}...",
+            $"Resolving interrupted session for {world.Name}...",
             async () =>
             {
                 try
                 {
                     _ = await GetInterruptedWorkspaceRecordAsync(world.Id);
 
-                    // Unlike recovery, discard never launches the game, interprets workspace bytes,
-                    // or commits a canonical revision. Adapter-owned cleanup accepts no installation
-                    // for this case, so legacy records without exact environment identity must not be
-                    // blocked before their preserved local workspace can be removed.
                     var decision = new InterruptedWorkspaceRecoveryDecisionService(
                         _workspaceRecoveryStore);
-                    await decision.PrepareDiscardAsync(world.Id, adapter.Id);
+                    var discard = await decision.PrepareDiscardAsync(world.Id, adapter.Id);
 
-                    var cleanup = new WorkspaceCleanupRecoveryService(
-                        GetStorageForWorld(world),
-                        _workspaceRecoveryStore);
-                    await cleanup.RetryAsync(
-                        world.Id,
-                        adapter,
-                        installation: null);
-                    StatusText.Text =
-                        $"'{world.Name}' is back on its last safe state. Uncommitted interrupted-session changes were discarded.";
+                    if (discard.Status == WorkspaceRecoveryStatus.CleanupPending)
+                    {
+                        var cleanup = new WorkspaceCleanupRecoveryService(
+                            GetStorageForWorld(world),
+                            _workspaceRecoveryStore);
+                        await cleanup.RetryAsync(
+                            world.Id,
+                            adapter,
+                            installation: null);
+                        StatusText.Text =
+                            $"'{world.Name}' is back on its last safe state. Its interrupted workspace was removed.";
+                    }
+                    else if (discard.Status == WorkspaceRecoveryStatus.Abandoned)
+                    {
+                        StatusText.Text =
+                            $"'{world.Name}' is back on its last safe state. Its legacy workspace was preserved as abandoned evidence and no longer blocks other Worlds.";
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException(
+                            $"Unexpected interrupted-discard state '{discard.Status}'.");
+                    }
                 }
                 finally
                 {

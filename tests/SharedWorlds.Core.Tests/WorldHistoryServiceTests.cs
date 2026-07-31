@@ -166,7 +166,12 @@ public sealed class WorldHistoryServiceTests
             ParentRevisionId: null,
             DateTimeOffset.UtcNow.AddHours(-1),
             owner,
-            new EnvironmentManifest("test-adapter", "1.0", []));
+            new EnvironmentManifest(
+                SchemaVersion: 1,
+                AdapterId: "test-adapter",
+                GameVersion: "1.0",
+                Components: [],
+                Configuration: new Dictionary<string, string>()));
         var initial = new StateRevision(
             RevisionId.New(),
             worldId,

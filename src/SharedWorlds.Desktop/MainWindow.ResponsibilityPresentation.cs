@@ -69,7 +69,7 @@ public partial class MainWindow
         };
         SetResponsibilityActionHelp(
             _discardInterruptedButton,
-            "Explicitly keep the last canonical World unchanged and remove only the preserved interrupted workspace after confirmation.");
+            "Keep the last committed World unchanged and remove only the preserved local interrupted workspace.");
         _discardInterruptedButton.Click += DiscardInterruptedSessionButton_Click;
 
         _exportRecoveryCopyButton = new Button
@@ -120,7 +120,13 @@ public partial class MainWindow
         // before the ordinary sharing/version badges.
         WorldDetailsPanel.Children.Insert(2, _worldResponsibilityBanner);
 
-        WorldList.SelectionChanged += (_, _) => UpdateResponsibilityPresentation();
+        WorldList.SelectionChanged += (_, _) =>
+        {
+            // A newly selected World must never inherit the previous World's scroll position. Recovery
+            // controls are at the top and must be immediately visible when this World owns responsibility.
+            WorldDetailsScroll.ScrollToTop();
+            UpdateResponsibilityPresentation();
+        };
         AllowHostingCheckBox.Click += (_, _) => UpdateResponsibilityPresentation();
 
         // Base action-state code may run for many unrelated reasons. These guards make it
@@ -177,7 +183,7 @@ public partial class MainWindow
             _pendingSyncRetryButton,
             hasAuthority
                 ? "Reconcile the journaled candidate with the canonical head. Safe World never overwrites a different newer head automatically."
-                : "Reconnect authenticated Safe World authority before retrying this shared recovery.");
+                : "Reconnect Safe World before retrying this shared recovery.");
 
         var interrupted = selectedOwnsResponsibility &&
                           snapshot.Kind == WorldLifecycleResponsibilityKind.InterruptedSession;
@@ -188,17 +194,20 @@ public partial class MainWindow
             ? Visibility.Visible
             : Visibility.Collapsed;
         _recoverInterruptedButton.IsEnabled = !_isBusy && hasAuthority;
-        _discardInterruptedButton.IsEnabled = !_isBusy && hasAuthority;
+
+        // Recovering gameplay changes can mutate the canonical shared World and therefore requires
+        // authoritative backend access. Continuing from the last safe state is different: it only
+        // discards this PC's preserved workspace and leaves the canonical World unchanged, so it must
+        // remain available offline even when the incomplete shared publication cannot reconnect.
+        _discardInterruptedButton.IsEnabled = !_isBusy;
         SetResponsibilityActionHelp(
             _recoverInterruptedButton,
             hasAuthority
-                ? "Preserve the interrupted workspace, assign one stable candidate revision, and recover it only if the canonical head still matches its recorded base."
-                : "Reconnect authenticated Safe World authority before resolving this interrupted shared World.");
+                ? "Recover the preserved gameplay changes into the canonical World."
+                : "Reconnect Safe World before recovering changes into this shared World.");
         SetResponsibilityActionHelp(
             _discardInterruptedButton,
-            hasAuthority
-                ? "Explicitly continue from the last canonical safe state and remove only the preserved interrupted workspace after confirmation."
-                : "Reconnect authenticated Safe World authority before resolving this interrupted shared World.");
+            "Keep the last committed World unchanged and remove only this PC's preserved interrupted workspace. No backend connection is required.");
 
         var exportableRecovery = selectedOwnsResponsibility &&
                                  snapshot.Kind is (
@@ -223,7 +232,7 @@ public partial class MainWindow
             _cleanupRetryButton,
             hasAuthority
                 ? "Retry adapter-owned workspace cleanup only. This does not capture, upload, commit, or change the canonical World head."
-                : "Reconnect authenticated Safe World authority before resolving cleanup for this shared World.");
+                : "Reconnect Safe World before resolving cleanup for this shared World.");
         _worldResponsibilityBanner.Visibility = Visibility.Visible;
 
         EnforceResponsibilityActionGuard();

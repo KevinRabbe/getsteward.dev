@@ -24,7 +24,7 @@ public sealed class WorldHistoryPresentationTests
     }
 
     [Fact]
-    public void RestorePreservesLaterHistoryAndCopyCreatesIndependentWorld()
+    public void RestorePreservesBothHistoriesAndCopyCreatesIndependentWorld()
     {
         var history = File.ReadAllText(FindRepositoryFile(
             "src/SharedWorlds.Desktop/MainWindow.WorldHistory.cs"));
@@ -46,9 +46,15 @@ public sealed class WorldHistoryPresentationTests
         Assert.DoesNotContain("Revision ID", dialog, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("StateRevisionId", dialog, StringComparison.Ordinal);
 
-        Assert.Contains("ParentRevisionId: currentRevisionId", service, StringComparison.Ordinal);
-        Assert.Contains("await _storage.StoreRevisionAsync(restoredRevision", service, StringComparison.Ordinal);
+        Assert.Contains("ResolveEnvironmentForStateAsync", service, StringComparison.Ordinal);
+        Assert.Contains("ParentRevisionId: currentEnvironmentRevisionId", service, StringComparison.Ordinal);
+        Assert.Contains("ParentRevisionId: currentStateRevisionId", service, StringComparison.Ordinal);
+        Assert.Contains("EnvironmentRevisionId: restoredEnvironmentRevisionId", service, StringComparison.Ordinal);
+        Assert.Contains("await _storage.StoreEnvironmentRevisionAsync(restoredEnvironment", service, StringComparison.Ordinal);
+        Assert.Contains("await _storage.StoreRevisionAsync(restoredState", service, StringComparison.Ordinal);
+        Assert.Contains("CurrentEnvironmentRevisionId = restoredEnvironmentRevisionId", service, StringComparison.Ordinal);
         Assert.Contains("await _storage.SaveWorldAsync(updated", service, StringComparison.Ordinal);
+        Assert.Contains("EnvironmentRevisionId: environmentId", service, StringComparison.Ordinal);
         Assert.Contains("WorldId.New()", service, StringComparison.Ordinal);
         Assert.Contains("SharingMode = WorldSharingMode.LocalOnly", service, StringComparison.Ordinal);
         Assert.Contains("Visibility = WorldVisibility.Private", service, StringComparison.Ordinal);
@@ -56,7 +62,7 @@ public sealed class WorldHistoryPresentationTests
     }
 
     [Fact]
-    public void HistoryViewIsBoundedAndFailsClosedOnBrokenOrUnlinkedAuthority()
+    public void HistoryViewIsBoundedAndFailsClosedOnBrokenOrLegacyUnlinkedAuthority()
     {
         var service = File.ReadAllText(FindRepositoryFile(
             "src/SharedWorlds.Core/Worlds/WorldHistoryService.cs"));
@@ -67,9 +73,12 @@ public sealed class WorldHistoryPresentationTests
         Assert.Contains("has a cycle in its state history", service, StringComparison.Ordinal);
         Assert.Contains("points to missing state-history revision", service, StringComparison.Ordinal);
         Assert.Contains("HasOlderRevisions: nextRevisionId is not null", service, StringComparison.Ordinal);
-        Assert.Contains("StateRevision does not yet journal the EnvironmentRevision", service, StringComparison.Ordinal);
-        Assert.Contains("if (environment.ParentRevisionId is not null)", service, StringComparison.Ordinal);
-        Assert.Contains("environment changed and older saved states do not record", service, StringComparison.Ordinal);
+        Assert.Contains("state.EnvironmentRevisionId is", service, StringComparison.Ordinal);
+        Assert.Contains("points to missing environment revision", service, StringComparison.Ordinal);
+        Assert.Contains("Compatibility for Worlds created before state/environment association existed", service, StringComparison.Ordinal);
+        Assert.Contains("if (current.ParentRevisionId is not null)", service, StringComparison.Ordinal);
+        Assert.Contains("legacy History entry", service, StringComparison.Ordinal);
+        Assert.Contains("environment changed", service, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryFile(string relativePath)

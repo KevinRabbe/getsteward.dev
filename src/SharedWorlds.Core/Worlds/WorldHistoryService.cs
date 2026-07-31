@@ -96,6 +96,8 @@ public sealed class WorldHistoryService
             world,
             sourceRevisionId,
             cancellationToken);
+        _ = await LoadStableEnvironmentAsync(world, cancellationToken);
+
         var restoredRevisionId = RevisionId.New();
         var restoredRevision = new StateRevision(
             Id: restoredRevisionId,
@@ -136,25 +138,9 @@ public sealed class WorldHistoryService
             sourceWorld,
             sourceRevisionId,
             cancellationToken);
-        var sourceEnvironmentId = sourceWorld.CurrentEnvironmentRevisionId
-            ?? throw new InvalidOperationException(
-                $"World '{sourceWorld.Name}' has no current environment for an independent copy.");
-        var sourceEnvironment = await _storage.LoadEnvironmentRevisionAsync(
-            sourceWorld.Id,
-            sourceEnvironmentId,
-            cancellationToken)
-            ?? throw new InvalidDataException(
-                $"World '{sourceWorld.Name}' points to missing environment revision '{sourceEnvironmentId}'.");
-
-        if (!string.Equals(
-                sourceEnvironment.Manifest.AdapterId,
-                sourceWorld.GameAdapterId,
-                StringComparison.Ordinal))
-        {
-            throw new InvalidDataException(
-                $"World '{sourceWorld.Name}' has an environment for adapter " +
-                $"'{sourceEnvironment.Manifest.AdapterId}', not '{sourceWorld.GameAdapterId}'.");
-        }
+        var sourceEnvironment = await LoadStableEnvironmentAsync(
+            sourceWorld,
+            cancellationToken);
 
         var worldId = WorldId.New();
         var environmentId = RevisionId.New();
@@ -223,6 +209,49 @@ public sealed class WorldHistoryService
         return history.Revisions.FirstOrDefault(candidate => candidate.Id == revisionId)
                ?? throw new InvalidOperationException(
                    "The selected revision is not in the bounded current World History view.");
+    }
+
+    private async Task<EnvironmentRevision> LoadStableEnvironmentAsync(
+        World world,
+        CancellationToken cancellationToken)
+    {
+        var environmentRevisionId = world.CurrentEnvironmentRevisionId
+            ?? throw new InvalidOperationException(
+                $"World '{world.Name}' has no current environment for History.");
+        var environment = await _storage.LoadEnvironmentRevisionAsync(
+            world.Id,
+            environmentRevisionId,
+            cancellationToken)
+            ?? throw new InvalidDataException(
+                $"World '{world.Name}' points to missing environment revision '{environmentRevisionId}'.");
+
+        if (environment.WorldId != world.Id)
+        {
+            throw new InvalidDataException(
+                $"World '{world.Name}' points to an environment belonging to a different World.");
+        }
+
+        if (!string.Equals(
+                environment.Manifest.AdapterId,
+                world.GameAdapterId,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                $"World '{world.Name}' has an environment for adapter " +
+                $"'{environment.Manifest.AdapterId}', not '{world.GameAdapterId}'.");
+        }
+
+        // StateRevision does not yet journal the EnvironmentRevision that produced it. Once a World
+        // has changed environment, pairing an old state with the current environment would be a guess.
+        // Keep History readable, but refuse mutation until that association is made explicit.
+        if (environment.ParentRevisionId is not null)
+        {
+            throw new InvalidOperationException(
+                "Safe World cannot Restore or Make My Copy from this History yet because the World's " +
+                "environment changed and older saved states do not record which environment created them.");
+        }
+
+        return environment;
     }
 
     private static void EnsureRevisionMatchesWorld(World world, StateRevision revision)

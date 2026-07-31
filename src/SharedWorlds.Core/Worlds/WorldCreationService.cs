@@ -73,7 +73,8 @@ public sealed class WorldCreationService
                 CreatedAt: created.State.CapturedAt,
                 CreatedBy: owner,
                 AdapterId: adapter.Id,
-                StatePackageId: created.State.Package.Id);
+                StatePackageId: created.State.Package.Id,
+                EnvironmentRevisionId: environmentId);
 
             var world = new World(
                 Id: worldId,

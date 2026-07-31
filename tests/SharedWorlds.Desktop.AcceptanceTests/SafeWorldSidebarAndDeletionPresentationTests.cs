@@ -54,7 +54,7 @@ public sealed class SafeWorldSidebarAndDeletionPresentationTests
     }
 
     [Fact]
-    public void InterruptedSharedWorldCanDiscardLocalWorkspaceOfflineBeforeRemoval()
+    public void InterruptedSharedWorldCanDiscardLocalWorkspaceWithoutAuthorityOrEnvironment()
     {
         var presentation = File.ReadAllText(FindRepositoryFile(
             "src/SharedWorlds.Desktop/MainWindow.ResponsibilityPresentation.cs"));
@@ -76,8 +76,11 @@ public sealed class SafeWorldSidebarAndDeletionPresentationTests
         var discardBody = recovery[discardStart..nextMethod];
 
         Assert.DoesNotContain("HasAuthoritativeRuntimeForWorld", discardBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetReadyInstallationForRecoveryRecordAsync", discardBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("Directory.Exists", discardBody, StringComparison.Ordinal);
         Assert.Contains("PrepareDiscardAsync(world.Id, adapter.Id)", discardBody, StringComparison.Ordinal);
         Assert.Contains("GetStorageForWorld(world)", discardBody, StringComparison.Ordinal);
+        Assert.Contains("installation: null", discardBody, StringComparison.Ordinal);
         Assert.Contains("The last committed World revision remains unchanged", discardBody, StringComparison.Ordinal);
     }
 

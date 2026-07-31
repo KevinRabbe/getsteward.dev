@@ -1,3 +1,4 @@
+using System.Windows;
 using SharedWorlds.Core.Worlds;
 
 namespace SharedWorlds.Desktop;

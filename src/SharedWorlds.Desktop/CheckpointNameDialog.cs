@@ -71,14 +71,6 @@ internal sealed class CheckpointNameDialog : Window
         };
         AutomationProperties.SetName(_nameBox, DesktopText.CheckpointName);
         _nameBox.TextChanged += (_, _) => UpdateState();
-        _nameBox.KeyDown += (_, args) =>
-        {
-            if (args.Key == System.Windows.Input.Key.Enter && _saveButton.IsEnabled)
-            {
-                Complete();
-                args.Handled = true;
-            }
-        };
         Grid.SetRow(_nameBox, 2);
         root.Children.Add(_nameBox);
 
@@ -123,6 +115,15 @@ internal sealed class CheckpointNameDialog : Window
         actions.Children.Add(_saveButton);
         Grid.SetRow(actions, 4);
         root.Children.Add(actions);
+
+        _nameBox.KeyDown += (_, args) =>
+        {
+            if (args.Key == System.Windows.Input.Key.Enter && _saveButton.IsEnabled)
+            {
+                Complete();
+                args.Handled = true;
+            }
+        };
 
         base.Content = root;
         Loaded += (_, _) =>

@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace SharedWorlds.Core.Tests;
 
 public sealed class StateRevisionEnvironmentLinkSourceTests
@@ -112,7 +110,7 @@ public sealed class StateRevisionEnvironmentLinkSourceTests
 
     private static string FindRepositoryDirectory(string relativePath)
     {
-        var workspace = Environment.GetEnvironmentVariable("GITHUB_WORKSPACE");
+        var workspace = System.Environment.GetEnvironmentVariable("GITHUB_WORKSPACE");
         if (!string.IsNullOrWhiteSpace(workspace))
         {
             var candidate = Path.Combine(workspace, relativePath);

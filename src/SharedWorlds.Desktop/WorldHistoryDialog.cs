@@ -124,7 +124,6 @@ internal sealed class WorldHistoryDialog : Window
 
         var actions = new StackPanel
         {
-            Grid.Column = 1,
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right
         };

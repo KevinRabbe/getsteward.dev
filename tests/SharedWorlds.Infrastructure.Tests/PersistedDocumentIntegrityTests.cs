@@ -32,7 +32,7 @@ public sealed class PersistedDocumentIntegrityTests : IDisposable
         using var document = await JsonDocument.ParseAsync(stream);
         var root = document.RootElement;
 
-        Assert.Equal(2, root.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(3, root.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(1, root.GetProperty("integrityVersion").GetInt32());
         var digest = root.GetProperty("contentSha256").GetString();
         Assert.NotNull(digest);

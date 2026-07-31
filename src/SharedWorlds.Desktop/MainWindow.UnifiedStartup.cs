@@ -39,6 +39,7 @@ public partial class MainWindow
         RehomeInvitationsToGlobalLobby();
         InitializeVisualDesignV2();
         InitializeVisualDesignV2Refinements();
+        InitializeWorldHistoryUi();
         InitializeNavigationV2StateGuard();
         InitializeQuietStatusPresentation();
         InitializeGameAttentionProjection();

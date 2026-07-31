@@ -33,6 +33,13 @@ public static class DesktopText
     public static string SortNameDescending => Get(nameof(SortNameDescending));
     public static string SelectWorld => Get(nameof(SelectWorld));
     public static string Play => Get(nameof(Play));
+    public static string History => Get(nameof(History));
+    public static string WorldHistoryDescription => Get(nameof(WorldHistoryDescription));
+    public static string CurrentState => Get(nameof(CurrentState));
+    public static string EarlierSave => Get(nameof(EarlierSave));
+    public static string Restore => Get(nameof(Restore));
+    public static string MakeMyCopy => Get(nameof(MakeMyCopy));
+    public static string OlderHistoryNotShown => Get(nameof(OlderHistoryNotShown));
     public static string WorldSettings => Get(nameof(WorldSettings));
     public static string KeepExactGameVersion => Get(nameof(KeepExactGameVersion));
     public static string DangerZone => Get(nameof(DangerZone));

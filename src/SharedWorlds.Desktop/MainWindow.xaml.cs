@@ -196,6 +196,7 @@ public partial class MainWindow : Window
         UpdateEnvironmentReadinessUi();
         UpdateResponsibilityPresentation();
         UpdatePortableWorldExportBusyState();
+        UpdateWorldHistoryActionState();
     }
 
     private void UpdateHostingPreferenceText()

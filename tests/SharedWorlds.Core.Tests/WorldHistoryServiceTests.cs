@@ -116,6 +116,40 @@ public sealed class WorldHistoryServiceTests
     }
 
     [Fact]
+    public async Task MutationRefusesToGuessEnvironmentAfterEnvironmentHistoryChanged()
+    {
+        var fixture = CreateFixture();
+        var changedEnvironment = new EnvironmentRevision(
+            RevisionId.New(),
+            fixture.World.Id,
+            fixture.Environment.Id,
+            DateTimeOffset.UtcNow,
+            fixture.Owner,
+            fixture.Environment.Manifest with { GameVersion = "2.0" });
+        await fixture.Storage.StoreEnvironmentRevisionAsync(changedEnvironment);
+        var changedWorld = fixture.World with
+        {
+            CurrentEnvironmentRevisionId = changedEnvironment.Id
+        };
+        await fixture.Storage.SaveWorldAsync(changedWorld);
+        var service = new WorldHistoryService(fixture.Storage);
+
+        var restore = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RestoreAsync(changedWorld, fixture.Initial.Id, fixture.Owner));
+        var copy = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.MakeIndependentCopyAsync(
+                changedWorld,
+                fixture.Initial.Id,
+                "Unsafe Copy",
+                fixture.Owner));
+
+        Assert.Contains("environment changed", restore.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("environment changed", copy.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(fixture.Current.Id, changedWorld.CurrentStateRevisionId);
+        Assert.Null(await fixture.Storage.LoadWorldAsync(WorldId.New()));
+    }
+
+    [Fact]
     public async Task HistoryFailsClosedOnParentCycle()
     {
         var owner = new UserIdentity("local", "owner", "Owner");

@@ -222,7 +222,7 @@ public partial class MainWindow
             return;
         }
 
-        var checkpointName = dialog.CheckpointName;
+        var checkpointName = dialog.ResultName;
         await RunOperationAsync(
             $"Saving checkpoint {checkpointName}...",
             async () =>

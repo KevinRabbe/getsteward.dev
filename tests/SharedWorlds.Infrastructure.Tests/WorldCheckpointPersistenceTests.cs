@@ -45,7 +45,9 @@ public sealed class WorldCheckpointPersistenceTests : IDisposable
         Assert.Equal(3, document.RootElement.GetProperty("schemaVersion").GetInt32());
         var persistedCheckpoint = document.RootElement
             .GetProperty("payload")
-            .GetProperty("checkpoints")[0];
+            .GetProperty("checkpoints")
+            .EnumerateArray()
+            .Single();
         Assert.Equal("Before the boss", persistedCheckpoint.GetProperty("name").GetString());
         Assert.Equal(
             revisionId.Value,

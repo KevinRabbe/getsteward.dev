@@ -39,6 +39,12 @@ public static class DesktopText
     public static string EarlierSave => Get(nameof(EarlierSave));
     public static string Restore => Get(nameof(Restore));
     public static string MakeMyCopy => Get(nameof(MakeMyCopy));
+    public static string Checkpoint => Get(nameof(Checkpoint));
+    public static string NameCheckpoint => Get(nameof(NameCheckpoint));
+    public static string RenameCheckpoint => Get(nameof(RenameCheckpoint));
+    public static string RemoveCheckpoint => Get(nameof(RemoveCheckpoint));
+    public static string CheckpointName => Get(nameof(CheckpointName));
+    public static string Save => Get(nameof(Save));
     public static string OlderHistoryNotShown => Get(nameof(OlderHistoryNotShown));
     public static string WorldSettings => Get(nameof(WorldSettings));
     public static string KeepExactGameVersion => Get(nameof(KeepExactGameVersion));

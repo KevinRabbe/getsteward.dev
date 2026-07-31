@@ -236,6 +236,7 @@ public sealed class StewardPendingSyncRecoveryService
         try
         {
             captured = await adapter.CaptureStateAsync(prepared, cancellationToken);
+            var environmentRevisionId = RequireRecordedEnvironmentId(recovery);
             var revision = new StateRevision(
                 candidateId,
                 world.Id,
@@ -243,7 +244,8 @@ public sealed class StewardPendingSyncRecoveryService
                 captured.CapturedAt,
                 user,
                 adapter.Id,
-                captured.Package.Id);
+                captured.Package.Id,
+                EnvironmentRevisionId: environmentRevisionId);
             await using var package = File.OpenRead(captured.Package.Path);
             await _storage.StoreRevisionAsync(revision, package, cancellationToken);
         }
@@ -418,6 +420,13 @@ public sealed class StewardPendingSyncRecoveryService
             throw new StewardPendingSyncRecoveryException(
                 "CandidateParentMismatch",
                 "The journaled candidate revision does not descend from the recorded starting revision.");
+        }
+
+        if (candidate.EnvironmentRevisionId != recovery.EnvironmentRevisionId)
+        {
+            throw new StewardPendingSyncRecoveryException(
+                "CandidateEnvironmentMismatch",
+                "The journaled candidate revision does not belong to the exact environment recorded for its workspace.");
         }
     }
 

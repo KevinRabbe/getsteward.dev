@@ -37,7 +37,12 @@ public sealed class TopLevelNavigationAvailabilityTests
 
         Assert.Contains("private void MainWindow_Closing", tray, StringComparison.Ordinal);
         Assert.Contains("e.Cancel = true;", tray, StringComparison.Ordinal);
+        Assert.Contains("private bool _quitRequestScheduledAfterClosing;", tray, StringComparison.Ordinal);
+        Assert.Contains("_quitRequestScheduledAfterClosing = true;", tray, StringComparison.Ordinal);
+        Assert.Contains("Dispatcher.BeginInvoke(new Action(() =>", tray, StringComparison.Ordinal);
+        Assert.Contains("_quitRequestScheduledAfterClosing = false;", tray, StringComparison.Ordinal);
         Assert.Contains("RequestQuitSteward();", tray, StringComparison.Ordinal);
+        Assert.DoesNotContain("e.Cancel = true;\n        RequestQuitSteward();", tray, StringComparison.Ordinal);
         Assert.DoesNotContain("e.Cancel = true;\n        Hide();", tray, StringComparison.Ordinal);
 
         Assert.Contains("await _workspaceRecoveryStore.ListAsync()", guardedQuit, StringComparison.Ordinal);

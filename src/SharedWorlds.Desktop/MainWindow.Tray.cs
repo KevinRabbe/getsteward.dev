@@ -14,6 +14,7 @@ public partial class MainWindow
     private Forms.NotifyIcon? _trayIcon;
     private bool _allowExplicitClose;
     private bool _quitRequestInProgress;
+    private bool _quitRequestScheduledAfterClosing;
 
     private IWorldLifecycleObserver CreateDesktopLifecycleObserver()
         => new DesktopLifecycleObserver(
@@ -146,11 +147,23 @@ public partial class MainWindow
             return;
         }
 
-        // X is an explicit quit request. It must not silently hide Safe World in the tray and force
-        // users to discover a second shutdown path. The same guarded decision protects unresolved
-        // writable sessions whether Quit came from the window or the tray menu.
+        // X is an explicit quit request. Cancel this close attempt first and return control to WPF.
+        // A modal dialog cannot safely use this window as Owner while WPF still considers it to be
+        // inside the Closing transition. Dispatch the guarded decision only after that transition has
+        // fully unwound; otherwise ShowDialog/Owner assignment throws and turns a normal Quit into an
+        // unexpected fatal presentation failure.
         e.Cancel = true;
-        RequestQuitSteward();
+        if (_quitRequestScheduledAfterClosing)
+        {
+            return;
+        }
+
+        _quitRequestScheduledAfterClosing = true;
+        _ = Dispatcher.BeginInvoke(new Action(() =>
+        {
+            _quitRequestScheduledAfterClosing = false;
+            RequestQuitSteward();
+        }));
     }
 
     private void OpenStewardWindow()

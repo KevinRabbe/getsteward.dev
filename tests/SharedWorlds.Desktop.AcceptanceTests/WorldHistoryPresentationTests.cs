@@ -44,7 +44,9 @@ public sealed class WorldHistoryPresentationTests
         Assert.Contains("DesktopText.Restore", dialog, StringComparison.Ordinal);
         Assert.Contains("DesktopText.MakeMyCopy", dialog, StringComparison.Ordinal);
         Assert.DoesNotContain("Revision ID", dialog, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("StateRevisionId", dialog, StringComparison.Ordinal);
+        Assert.DoesNotContain("entry.Revision.Id", dialog, StringComparison.Ordinal);
+        Assert.DoesNotContain("Revision.Id.ToString", dialog, StringComparison.Ordinal);
+        Assert.DoesNotContain("StateRevisionId.ToString", dialog, StringComparison.Ordinal);
 
         Assert.Contains("ResolveEnvironmentForStateAsync", service, StringComparison.Ordinal);
         Assert.Contains("ParentRevisionId: currentEnvironmentRevisionId", service, StringComparison.Ordinal);

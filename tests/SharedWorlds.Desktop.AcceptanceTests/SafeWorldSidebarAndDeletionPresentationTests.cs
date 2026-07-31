@@ -26,7 +26,7 @@ public sealed class SafeWorldSidebarAndDeletionPresentationTests
     }
 
     [Fact]
-    public void DeleteWorldIsLocalOnlyConfirmedAndUsesStorageBoundary()
+    public void LocalCatalogRecordsIncludeIncompleteSharedWorldsButNeverClaimRemoteDeletion()
     {
         var deletion = File.ReadAllText(FindRepositoryFile(
             "src/SharedWorlds.Desktop/MainWindow.WorldDeletion.cs"));
@@ -38,18 +38,47 @@ public sealed class SafeWorldSidebarAndDeletionPresentationTests
             "src/SharedWorlds.Infrastructure/Storage/LocalWorldStorage.cs"));
 
         Assert.Contains("InitializeWorldDeletionUi();", startup, StringComparison.Ordinal);
-        Assert.Contains("DesktopText.DeleteWorld", deletion, StringComparison.Ordinal);
-        Assert.Contains("WorldSharingMode.LocalOnly", deletion, StringComparison.Ordinal);
-        Assert.Contains("!_remoteWorldIds.Contains(world.Id)", deletion, StringComparison.Ordinal);
-        Assert.Contains("MessageBoxButton.YesNo", deletion, StringComparison.Ordinal);
-        Assert.Contains("MessageBoxImage.Warning", deletion, StringComparison.Ordinal);
+        Assert.Contains("var isLocalCatalogRecord = world is not null && !_remoteWorldIds.Contains(world.Id);", deletion, StringComparison.Ordinal);
+        Assert.Contains("var incompleteSharedRecord = world.SharingMode == WorldSharingMode.Shared;", deletion, StringComparison.Ordinal);
+        Assert.Contains("Remove from Safe World", deletion, StringComparison.Ordinal);
+        Assert.Contains("This does not delete a shared World for other people", deletion, StringComparison.Ordinal);
+        Assert.Contains("if (world is null || _remoteWorldIds.Contains(world.Id))", deletion, StringComparison.Ordinal);
         Assert.Contains("_storage.DeleteWorldAsync(worldId)", deletion, StringComparison.Ordinal);
+        Assert.Contains("_remoteIncompleteWorldIds.Remove(worldId);", deletion, StringComparison.Ordinal);
         Assert.Contains("game's own save folder", deletion, StringComparison.Ordinal);
 
         Assert.Contains("Task<bool> DeleteWorldAsync", storageContract, StringComparison.Ordinal);
         Assert.Contains("Directory.Move(worldDirectory, tombstone);", localStorage, StringComparison.Ordinal);
         Assert.Contains(".deleting-worlds", localStorage, StringComparison.Ordinal);
         Assert.Contains("FileAttributes.ReparsePoint", localStorage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InterruptedSharedWorldCanDiscardLocalWorkspaceOfflineBeforeRemoval()
+    {
+        var presentation = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/MainWindow.ResponsibilityPresentation.cs"));
+        var recovery = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/MainWindow.InterruptedRecovery.cs"));
+
+        Assert.Contains("WorldDetailsScroll.ScrollToTop();", presentation, StringComparison.Ordinal);
+        Assert.Contains("_discardInterruptedButton.IsEnabled = !_isBusy;", presentation, StringComparison.Ordinal);
+        Assert.Contains("No backend connection is required", presentation, StringComparison.Ordinal);
+
+        var discardStart = recovery.IndexOf(
+            "private async void DiscardInterruptedSessionButton_Click",
+            StringComparison.Ordinal);
+        var nextMethod = recovery.IndexOf(
+            "private async Task<WorkspaceRecoveryRecord>",
+            discardStart,
+            StringComparison.Ordinal);
+        Assert.True(discardStart >= 0 && nextMethod > discardStart);
+        var discardBody = recovery[discardStart..nextMethod];
+
+        Assert.DoesNotContain("HasAuthoritativeRuntimeForWorld", discardBody, StringComparison.Ordinal);
+        Assert.Contains("PrepareDiscardAsync(world.Id, adapter.Id)", discardBody, StringComparison.Ordinal);
+        Assert.Contains("GetStorageForWorld(world)", discardBody, StringComparison.Ordinal);
+        Assert.Contains("The last committed World revision remains unchanged", discardBody, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -1,4 +1,3 @@
-using System.IO;
 using System.Windows;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
@@ -89,16 +88,12 @@ public partial class MainWindow
             {
                 try
                 {
-                    var active = await GetInterruptedWorkspaceRecordAsync(world.Id);
-                    GameInstallation? installation = null;
-                    if (Directory.Exists(active.WorkingDirectory))
-                    {
-                        installation = await GetReadyInstallationForRecoveryRecordAsync(
-                            world,
-                            adapter,
-                            active);
-                    }
+                    _ = await GetInterruptedWorkspaceRecordAsync(world.Id);
 
+                    // Unlike recovery, discard never launches the game, interprets workspace bytes,
+                    // or commits a canonical revision. Adapter-owned cleanup accepts no installation
+                    // for this case, so legacy records without exact environment identity must not be
+                    // blocked before their preserved local workspace can be removed.
                     var decision = new InterruptedWorkspaceRecoveryDecisionService(
                         _workspaceRecoveryStore);
                     await decision.PrepareDiscardAsync(world.Id, adapter.Id);
@@ -109,7 +104,7 @@ public partial class MainWindow
                     await cleanup.RetryAsync(
                         world.Id,
                         adapter,
-                        installation);
+                        installation: null);
                     StatusText.Text =
                         $"'{world.Name}' is back on its last safe state. Uncommitted interrupted-session changes were discarded.";
                 }

@@ -66,6 +66,16 @@ public sealed record WorldProvenance(
     string? Description = null,
     string? SourceUrl = null);
 
+/// <summary>
+/// A human label attached to one immutable state revision. Checkpoints contain no state bytes and do
+/// not create a second history chain; they only mark revisions that already belong to the World.
+/// </summary>
+public sealed record WorldCheckpoint(
+    RevisionId StateRevisionId,
+    string Name,
+    DateTimeOffset CreatedAt,
+    UserIdentity? CreatedBy = null);
+
 public sealed record World(
     WorldId Id,
     string Name,
@@ -107,4 +117,10 @@ public sealed record World(
     /// the local World has its own identity and immutable revision history.
     /// </summary>
     public WorldProvenance? StartedFrom { get; init; }
+
+    /// <summary>
+    /// Bounded human labels for immutable state revisions. Older persisted Worlds default to no
+    /// checkpoints when this property is absent.
+    /// </summary>
+    public IReadOnlyList<WorldCheckpoint> Checkpoints { get; init; } = [];
 }

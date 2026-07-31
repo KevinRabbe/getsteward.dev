@@ -13,6 +13,7 @@ public partial class MainWindow
     private readonly IWorkspaceRecoveryStore _workspaceRecoveryStore;
     private Forms.NotifyIcon? _trayIcon;
     private bool _allowExplicitClose;
+    private bool _quitRequestInProgress;
 
     private IWorldLifecycleObserver CreateDesktopLifecycleObserver()
         => new DesktopLifecycleObserver(
@@ -145,8 +146,11 @@ public partial class MainWindow
             return;
         }
 
+        // X is an explicit quit request. It must not silently hide Safe World in the tray and force
+        // users to discover a second shutdown path. The same guarded decision protects unresolved
+        // writable sessions whether Quit came from the window or the tray menu.
         e.Cancel = true;
-        Hide();
+        RequestQuitSteward();
     }
 
     private void OpenStewardWindow()
@@ -166,14 +170,27 @@ public partial class MainWindow
 
     private async void RequestQuitSteward()
     {
-        var responsibility = _responsibilityTracker.Current;
-        if (!responsibility.CanQuitWithoutGuard &&
-            !await ConfirmGuardedQuitAsync(responsibility))
+        if (_quitRequestInProgress)
         {
             return;
         }
 
-        CompleteExplicitQuit();
+        _quitRequestInProgress = true;
+        try
+        {
+            var responsibility = _responsibilityTracker.Current;
+            if (!responsibility.CanQuitWithoutGuard &&
+                !await ConfirmGuardedQuitAsync(responsibility))
+            {
+                return;
+            }
+
+            CompleteExplicitQuit();
+        }
+        finally
+        {
+            _quitRequestInProgress = false;
+        }
     }
 
     private void DisposeTray()

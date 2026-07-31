@@ -56,7 +56,7 @@ public sealed class WorldHistoryPresentationTests
     }
 
     [Fact]
-    public void HistoryViewIsBoundedAndFailsClosedOnBrokenChains()
+    public void HistoryViewIsBoundedAndFailsClosedOnBrokenOrUnlinkedAuthority()
     {
         var service = File.ReadAllText(FindRepositoryFile(
             "src/SharedWorlds.Core/Worlds/WorldHistoryService.cs"));
@@ -67,6 +67,9 @@ public sealed class WorldHistoryPresentationTests
         Assert.Contains("has a cycle in its state history", service, StringComparison.Ordinal);
         Assert.Contains("points to missing state-history revision", service, StringComparison.Ordinal);
         Assert.Contains("HasOlderRevisions: nextRevisionId is not null", service, StringComparison.Ordinal);
+        Assert.Contains("StateRevision does not yet journal the EnvironmentRevision", service, StringComparison.Ordinal);
+        Assert.Contains("if (environment.ParentRevisionId is not null)", service, StringComparison.Ordinal);
+        Assert.Contains("environment changed and older saved states do not record", service, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryFile(string relativePath)

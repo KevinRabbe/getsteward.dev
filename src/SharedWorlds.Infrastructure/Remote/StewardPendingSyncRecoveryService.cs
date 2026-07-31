@@ -422,7 +422,11 @@ public sealed class StewardPendingSyncRecoveryService
                 "The journaled candidate revision does not descend from the recorded starting revision.");
         }
 
-        if (candidate.EnvironmentRevisionId != recovery.EnvironmentRevisionId)
+        // Candidates written by current Safe World builds always carry their environment directly.
+        // A pre-link immutable candidate may omit it, but only the matching durable recovery journal
+        // may supply that exact association. Any explicit disagreement still fails closed.
+        if (candidate.EnvironmentRevisionId is { } candidateEnvironmentId &&
+            candidateEnvironmentId != recovery.EnvironmentRevisionId)
         {
             throw new StewardPendingSyncRecoveryException(
                 "CandidateEnvironmentMismatch",

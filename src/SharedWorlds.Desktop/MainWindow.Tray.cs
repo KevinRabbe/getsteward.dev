@@ -59,7 +59,7 @@ public partial class MainWindow
         var menu = new Forms.ContextMenuStrip
         {
             AccessibleName = "Safe World tray menu",
-            AccessibleDescription = "Open Safe World or quit when Safe World has no active World responsibility."
+            AccessibleDescription = "Open or explicitly quit Safe World."
         };
         var open = new Forms.ToolStripMenuItem(DesktopText.OpenSteward)
         {
@@ -71,7 +71,7 @@ public partial class MainWindow
         var quit = new Forms.ToolStripMenuItem(DesktopText.QuitSteward)
         {
             AccessibleName = DesktopText.QuitSteward,
-            AccessibleDescription = "Quit Safe World, preserving durable recovery evidence when a World session remains unresolved."
+            AccessibleDescription = "Quit Safe World. Unresolved World sessions require an explicit guarded decision."
         };
         quit.Click += (_, _) => RequestQuitSteward();
 
@@ -168,7 +168,7 @@ public partial class MainWindow
     {
         var responsibility = _responsibilityTracker.Current;
         if (!responsibility.CanQuitWithoutGuard &&
-            !await ConfirmRecoveryPreservingQuitAsync(responsibility))
+            !await ConfirmGuardedQuitAsync(responsibility))
         {
             return;
         }

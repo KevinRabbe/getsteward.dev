@@ -11,14 +11,19 @@ public sealed class WorldCheckpointPresentationTests
             "src/SharedWorlds.Desktop/WorldHistoryDialog.cs"));
 
         Assert.Contains("entry.Checkpoint?.Name", dialog, StringComparison.Ordinal);
+        Assert.Contains("Text = titleText", dialog, StringComparison.Ordinal);
+        Assert.Contains("Text = detailText", dialog, StringComparison.Ordinal);
+        Assert.Contains("AutomationProperties.SetName(item, $\"{titleText}, {detailText}\")", dialog, StringComparison.Ordinal);
         Assert.Contains("DesktopText.Checkpoint", dialog, StringComparison.Ordinal);
         Assert.Contains("DesktopText.CurrentState", dialog, StringComparison.Ordinal);
         Assert.Contains("DesktopText.EarlierSave", dialog, StringComparison.Ordinal);
         Assert.Contains("DesktopText.NameCheckpoint", dialog, StringComparison.Ordinal);
         Assert.Contains("DesktopText.RenameCheckpoint", dialog, StringComparison.Ordinal);
         Assert.Contains("DesktopText.RemoveCheckpoint", dialog, StringComparison.Ordinal);
-        Assert.DoesNotContain("StateRevisionId", dialog, StringComparison.Ordinal);
         Assert.DoesNotContain("Revision ID", dialog, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("entry.Revision.Id", dialog, StringComparison.Ordinal);
+        Assert.DoesNotContain("entry.Checkpoint?.StateRevisionId", dialog, StringComparison.Ordinal);
+        Assert.DoesNotContain("StateRevisionId.ToString", dialog, StringComparison.Ordinal);
     }
 
     [Fact]

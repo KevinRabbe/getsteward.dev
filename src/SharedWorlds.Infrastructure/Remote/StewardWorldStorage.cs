@@ -249,6 +249,13 @@ public sealed class StewardWorldStorage : IWorldStorage
         ArgumentNullException.ThrowIfNull(package);
 
         var lease = RequireLease(revision.WorldId);
+        if (revision.EnvironmentRevisionId != lease.StartingHead.EnvironmentRevisionId)
+        {
+            throw new StewardWorldStorageException(
+                "CandidateEnvironmentMismatch",
+                "A shared candidate state must identify the exact environment reserved for this writable session.");
+        }
+
         await JournalCandidateAsync(revision, lease, cancellationToken);
 
         var accessToken = await _accessTokens.GetAccessTokenAsync(cancellationToken);
@@ -300,7 +307,8 @@ public sealed class StewardWorldStorage : IWorldStorage
             remote.PublishedAt,
             CreatedBy: null,
             world.AdapterId,
-            remote.RevisionId.ToString());
+            remote.RevisionId.ToString(),
+            EnvironmentRevisionId: world.CurrentEnvironmentRevisionId);
     }
 
     public async Task<Stream> OpenRevisionAsync(
@@ -443,6 +451,13 @@ public sealed class StewardWorldStorage : IWorldStorage
             throw new StewardWorldStorageException(
                 "RecoveryJournalMissing",
                 "Candidate publication was blocked because no matching writable workspace recovery journal exists.");
+        }
+
+        if (record.EnvironmentRevisionId != revision.EnvironmentRevisionId)
+        {
+            throw new StewardWorldStorageException(
+                "RecoveryEnvironmentMismatch",
+                "The candidate state does not identify the environment recorded for its writable recovery workspace.");
         }
 
         if (record.CandidateStateRevisionId is { } existingCandidate)

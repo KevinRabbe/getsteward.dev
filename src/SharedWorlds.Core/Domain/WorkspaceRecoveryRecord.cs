@@ -4,7 +4,8 @@ public enum WorkspaceRecoveryStatus
 {
     Active,
     RecoveryPending,
-    CleanupPending
+    CleanupPending,
+    Abandoned
 }
 
 public sealed record WorkspaceRecoveryRecord(

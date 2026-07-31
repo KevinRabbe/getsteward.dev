@@ -32,7 +32,13 @@ public sealed class TopLevelNavigationAvailabilityTests
         Assert.Contains("private async void RequestQuitSteward()", tray, StringComparison.Ordinal);
         Assert.Contains("ConfirmGuardedQuitAsync(responsibility)", tray, StringComparison.Ordinal);
         Assert.Contains("CompleteExplicitQuit();", tray, StringComparison.Ordinal);
+        Assert.Contains("private bool _quitRequestInProgress;", tray, StringComparison.Ordinal);
         Assert.DoesNotContain("MessageBox.Show(", tray, StringComparison.Ordinal);
+
+        Assert.Contains("private void MainWindow_Closing", tray, StringComparison.Ordinal);
+        Assert.Contains("e.Cancel = true;", tray, StringComparison.Ordinal);
+        Assert.Contains("RequestQuitSteward();", tray, StringComparison.Ordinal);
+        Assert.DoesNotContain("e.Cancel = true;\n        Hide();", tray, StringComparison.Ordinal);
 
         Assert.Contains("await _workspaceRecoveryStore.ListAsync()", guardedQuit, StringComparison.Ordinal);
         Assert.Contains("records.Any(record => record.WorldId == responsibility.WorldId)", guardedQuit, StringComparison.Ordinal);

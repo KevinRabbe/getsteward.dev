@@ -9,8 +9,26 @@ internal sealed record PersistedStateRevision(
 
 internal static class StorageDocumentSchemas
 {
-    public static readonly PersistedDocumentSchema<World> World = CreateProtected<World>(
-        "sharedworlds.world");
+    public static readonly PersistedDocumentSchema<World> World = new(
+        "sharedworlds.world",
+        CurrentVersion: 3,
+        IntegrityRequiredFromVersion: 2,
+        new Dictionary<int, Func<JsonElement, World>>
+        {
+            // Schema 0 is the pre-envelope format used by the initial foundation.
+            [0] = payload => PersistedDocumentCodec.DeserializePayload<World>(
+                payload,
+                "sharedworlds.world"),
+            // Schema 1 is the first versioned envelope and predates in-envelope integrity.
+            [1] = payload => PersistedDocumentCodec.DeserializePayload<World>(
+                payload,
+                "sharedworlds.world"),
+            // Schema 2 is integrity-protected but predates bounded named History checkpoints.
+            // The World property's empty default keeps those Worlds compatible.
+            [2] = payload => PersistedDocumentCodec.DeserializePayload<World>(
+                payload,
+                "sharedworlds.world")
+        });
 
     public static readonly PersistedDocumentSchema<EnvironmentRevision> EnvironmentRevision =
         CreateProtected<EnvironmentRevision>("sharedworlds.environment-revision");

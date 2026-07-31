@@ -12,7 +12,9 @@ internal enum WorldHistoryDialogAction
 {
     None,
     Restore,
-    MakeMyCopy
+    MakeMyCopy,
+    NameCheckpoint,
+    RemoveCheckpoint
 }
 
 internal sealed class WorldHistoryDialog : Window
@@ -20,25 +22,31 @@ internal sealed class WorldHistoryDialog : Window
     private readonly ListBox _historyList;
     private readonly Button _restoreButton;
     private readonly Button _copyButton;
+    private readonly Button _checkpointButton;
+    private readonly Button _removeCheckpointButton;
 
     public WorldHistoryDialog(
         string worldName,
         WorldHistorySnapshot history,
-        RevisionId currentRevisionId)
+        RevisionId currentRevisionId,
+        IReadOnlyList<WorldCheckpoint> checkpoints)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(worldName);
         ArgumentNullException.ThrowIfNull(history);
+        ArgumentNullException.ThrowIfNull(checkpoints);
 
         Title = $"{DesktopText.History} — {worldName}";
-        Width = 720;
-        Height = 640;
-        MinWidth = 620;
-        MinHeight = 520;
+        Width = 800;
+        Height = 660;
+        MinWidth = 720;
+        MinHeight = 540;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = false;
         Background = (Brush)Application.Current.FindResource("AppBackgroundBrush");
         Foreground = (Brush)Application.Current.FindResource("TextBrush");
 
+        var checkpointsByRevision = checkpoints.ToDictionary(
+            checkpoint => checkpoint.StateRevisionId);
         var root = new Grid
         {
             Margin = new Thickness(30)
@@ -77,9 +85,11 @@ internal sealed class WorldHistoryDialog : Window
 
         foreach (var revision in history.Revisions)
         {
+            checkpointsByRevision.TryGetValue(revision.Id, out var checkpoint);
             var entry = new WorldHistoryDialogEntry(
                 revision,
-                IsCurrent: revision.Id == currentRevisionId);
+                IsCurrent: revision.Id == currentRevisionId,
+                checkpoint);
             _historyList.Items.Add(CreateHistoryItem(entry));
         }
 
@@ -104,30 +114,69 @@ internal sealed class WorldHistoryDialog : Window
         {
             Margin = new Thickness(0, 20, 0, 0)
         };
-        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        footer.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        footer.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var metadataRow = new Grid();
+        metadataRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        metadataRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         if (history.HasOlderRevisions)
         {
             var boundedNotice = new TextBlock
             {
                 Text = DesktopText.OlderHistoryNotShown,
-                MaxWidth = 340,
+                MaxWidth = 350,
                 VerticalAlignment = VerticalAlignment.Center,
                 FontSize = 12,
                 TextWrapping = TextWrapping.Wrap
             };
             boundedNotice.SetResourceReference(TextBlock.ForegroundProperty, "MutedTextBrush");
             Grid.SetColumn(boundedNotice, 0);
-            footer.Children.Add(boundedNotice);
+            metadataRow.Children.Add(boundedNotice);
         }
 
-        var actions = new StackPanel
+        var checkpointActions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right
         };
+        _removeCheckpointButton = new Button
+        {
+            Content = DesktopText.RemoveCheckpoint,
+            MinWidth = 146,
+            Height = 38,
+            Visibility = Visibility.Collapsed
+        };
+        AutomationProperties.SetHelpText(
+            _removeCheckpointButton,
+            "Remove only the human label. The saved state remains in World History.");
+        _removeCheckpointButton.Click += (_, _) => Complete(WorldHistoryDialogAction.RemoveCheckpoint);
+        checkpointActions.Children.Add(_removeCheckpointButton);
 
+        _checkpointButton = new Button
+        {
+            Content = DesktopText.NameCheckpoint,
+            MinWidth = 146,
+            Height = 38,
+            Margin = new Thickness(10, 0, 0, 0)
+        };
+        AutomationProperties.SetHelpText(
+            _checkpointButton,
+            "Give the selected saved state a memorable label without creating another copy.");
+        _checkpointButton.Click += (_, _) => Complete(WorldHistoryDialogAction.NameCheckpoint);
+        checkpointActions.Children.Add(_checkpointButton);
+        Grid.SetColumn(checkpointActions, 1);
+        metadataRow.Children.Add(checkpointActions);
+        Grid.SetRow(metadataRow, 0);
+        footer.Children.Add(metadataRow);
+
+        var mainActions = new StackPanel
+        {
+            Margin = new Thickness(0, 14, 0, 0),
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
         var closeButton = new Button
         {
             Content = DesktopText.Close,
@@ -136,7 +185,7 @@ internal sealed class WorldHistoryDialog : Window
             IsCancel = true
         };
         closeButton.Click += (_, _) => Close();
-        actions.Children.Add(closeButton);
+        mainActions.Children.Add(closeButton);
 
         _copyButton = new Button
         {
@@ -149,7 +198,7 @@ internal sealed class WorldHistoryDialog : Window
             _copyButton,
             "Create a separate local World from the selected saved state. The original World and its History remain unchanged.");
         _copyButton.Click += (_, _) => Complete(WorldHistoryDialogAction.MakeMyCopy);
-        actions.Children.Add(_copyButton);
+        mainActions.Children.Add(_copyButton);
 
         _restoreButton = new Button
         {
@@ -167,10 +216,10 @@ internal sealed class WorldHistoryDialog : Window
             _restoreButton,
             "Create a new current saved state from the selected earlier save. Later History is preserved.");
         _restoreButton.Click += (_, _) => Complete(WorldHistoryDialogAction.Restore);
-        actions.Children.Add(_restoreButton);
+        mainActions.Children.Add(_restoreButton);
+        Grid.SetRow(mainActions, 1);
+        footer.Children.Add(mainActions);
 
-        Grid.SetColumn(actions, 1);
-        footer.Children.Add(actions);
         Grid.SetRow(footer, 2);
         root.Children.Add(footer);
 
@@ -181,26 +230,40 @@ internal sealed class WorldHistoryDialog : Window
     public WorldHistoryDialogAction RequestedAction { get; private set; }
 
     public StateRevision? SelectedRevision
-        => (_historyList.SelectedItem as ListBoxItem)?.Tag is WorldHistoryDialogEntry entry
-            ? entry.Revision
-            : null;
+        => SelectedEntry?.Revision;
+
+    public WorldCheckpoint? SelectedCheckpoint
+        => SelectedEntry?.Checkpoint;
+
+    private WorldHistoryDialogEntry? SelectedEntry
+        => (_historyList.SelectedItem as ListBoxItem)?.Tag as WorldHistoryDialogEntry;
 
     private ListBoxItem CreateHistoryItem(WorldHistoryDialogEntry entry)
     {
+        var titleText = entry.Checkpoint?.Name ??
+                        (entry.IsCurrent ? DesktopText.CurrentState : DesktopText.EarlierSave);
         var title = new TextBlock
         {
-            Text = entry.IsCurrent ? DesktopText.CurrentState : DesktopText.EarlierSave,
+            Text = titleText,
             FontSize = 15,
             FontWeight = FontWeights.SemiBold
         };
 
         var localTime = entry.Revision.CreatedAt.ToLocalTime();
-        var detailText = localTime.ToString("f", CultureInfo.CurrentCulture);
-        if (!string.IsNullOrWhiteSpace(entry.Revision.CreatedBy?.DisplayName))
+        var detailParts = new List<string>();
+        if (entry.Checkpoint is not null)
         {
-            detailText += $" · {entry.Revision.CreatedBy.DisplayName}";
+            detailParts.Add(DesktopText.Checkpoint);
         }
 
+        detailParts.Add(entry.IsCurrent ? DesktopText.CurrentState : DesktopText.EarlierSave);
+        detailParts.Add(localTime.ToString("f", CultureInfo.CurrentCulture));
+        if (!string.IsNullOrWhiteSpace(entry.Revision.CreatedBy?.DisplayName))
+        {
+            detailParts.Add(entry.Revision.CreatedBy.DisplayName);
+        }
+
+        var detailText = string.Join(" · ", detailParts);
         var detail = new TextBlock
         {
             Text = detailText,
@@ -222,15 +285,23 @@ internal sealed class WorldHistoryDialog : Window
             Margin = new Thickness(0, 0, 0, 4),
             HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
-        AutomationProperties.SetName(item, $"{title.Text}, {detailText}");
+        AutomationProperties.SetName(item, $"{titleText}, {detailText}");
         return item;
     }
 
     private void UpdateActionState()
     {
-        var selected = (_historyList.SelectedItem as ListBoxItem)?.Tag as WorldHistoryDialogEntry;
+        var selected = SelectedEntry;
         _copyButton.IsEnabled = selected is not null;
         _restoreButton.IsEnabled = selected is { IsCurrent: false };
+        _checkpointButton.IsEnabled = selected is not null;
+        _checkpointButton.Content = selected?.Checkpoint is null
+            ? DesktopText.NameCheckpoint
+            : DesktopText.RenameCheckpoint;
+        _removeCheckpointButton.Visibility = selected?.Checkpoint is null
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        _removeCheckpointButton.IsEnabled = selected?.Checkpoint is not null;
     }
 
     private void Complete(WorldHistoryDialogAction action)
@@ -244,5 +315,8 @@ internal sealed class WorldHistoryDialog : Window
         DialogResult = true;
     }
 
-    private sealed record WorldHistoryDialogEntry(StateRevision Revision, bool IsCurrent);
+    private sealed record WorldHistoryDialogEntry(
+        StateRevision Revision,
+        bool IsCurrent,
+        WorldCheckpoint? Checkpoint);
 }

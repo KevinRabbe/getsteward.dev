@@ -34,6 +34,12 @@
   <data name="EarlierSave" xml:space="preserve"><value>Earlier save</value></data>
   <data name="Restore" xml:space="preserve"><value>Restore</value></data>
   <data name="MakeMyCopy" xml:space="preserve"><value>Make My Copy</value></data>
+  <data name="Checkpoint" xml:space="preserve"><value>Checkpoint</value></data>
+  <data name="NameCheckpoint" xml:space="preserve"><value>Name checkpoint</value></data>
+  <data name="RenameCheckpoint" xml:space="preserve"><value>Rename checkpoint</value></data>
+  <data name="RemoveCheckpoint" xml:space="preserve"><value>Remove checkpoint</value></data>
+  <data name="CheckpointName" xml:space="preserve"><value>Checkpoint name</value></data>
+  <data name="Save" xml:space="preserve"><value>Save</value></data>
   <data name="OlderHistoryNotShown" xml:space="preserve"><value>Older History exists but is not shown in this bounded view.</value></data>
   <data name="WorldSettings" xml:space="preserve"><value>World settings</value></data>
   <data name="KeepExactGameVersion" xml:space="preserve"><value>Keep this World on this exact game version</value></data>

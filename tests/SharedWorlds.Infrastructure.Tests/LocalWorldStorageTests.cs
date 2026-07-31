@@ -111,7 +111,8 @@ public sealed class LocalWorldStorageTests : IDisposable
     {
         var storage = new LocalWorldStorage(_root);
         var worldId = WorldId.New();
-        var revision = CreateStateRevision(worldId);
+        var environmentRevisionId = RevisionId.New();
+        var revision = CreateStateRevision(worldId, environmentRevisionId);
 
         var expected = Encoding.UTF8.GetBytes("state-payload");
         await using var input = new MemoryStream(expected);
@@ -120,6 +121,7 @@ public sealed class LocalWorldStorageTests : IDisposable
 
         var loadedRevision = await storage.LoadStateRevisionAsync(worldId, revision.Id);
         Assert.Equal(revision, loadedRevision);
+        Assert.Equal(environmentRevisionId, loadedRevision?.EnvironmentRevisionId);
 
         var revisionDirectory = GetStateRevisionDirectory(worldId, revision.Id);
         var revisionMetadataPath = Path.Combine(revisionDirectory, "revision.json");
@@ -128,13 +130,20 @@ public sealed class LocalWorldStorageTests : IDisposable
         {
             var root = document.RootElement;
             Assert.Equal("sharedworlds.state-revision", root.GetProperty("documentType").GetString());
-            Assert.Equal(4, root.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(5, root.GetProperty("schemaVersion").GetInt32());
             Assert.Equal(
                 Convert.ToHexString(SHA256.HashData(expected)),
                 root.GetProperty("payload").GetProperty("payloadSha256").GetString());
+            var persistedRevision = root.GetProperty("payload").GetProperty("revision");
             Assert.Equal(
                 revision.Id.Value,
-                root.GetProperty("payload").GetProperty("revision").GetProperty("id").GetProperty("value").GetGuid());
+                persistedRevision.GetProperty("id").GetProperty("value").GetGuid());
+            Assert.Equal(
+                environmentRevisionId.Value,
+                persistedRevision
+                    .GetProperty("environmentRevisionId")
+                    .GetProperty("value")
+                    .GetGuid());
         }
 
         Assert.False(File.Exists(Path.Combine(revisionDirectory, "payload.sha256")));
@@ -235,7 +244,7 @@ public sealed class LocalWorldStorageTests : IDisposable
     {
         var storage = new LocalWorldStorage(_root);
         var worldId = WorldId.New();
-        var revision = CreateStateRevision(worldId);
+        var revision = CreateStateRevision(worldId) with { EnvironmentRevisionId = null };
         var revisionDirectory = GetStateRevisionDirectory(worldId, revision.Id);
         Directory.CreateDirectory(revisionDirectory);
         await WriteLegacyStateRevisionAsync(revisionDirectory, revision, schemaVersion: 2);
@@ -254,7 +263,7 @@ public sealed class LocalWorldStorageTests : IDisposable
     {
         var storage = new LocalWorldStorage(_root);
         var worldId = WorldId.New();
-        var revision = CreateStateRevision(worldId);
+        var revision = CreateStateRevision(worldId) with { EnvironmentRevisionId = null };
         var revisionDirectory = GetStateRevisionDirectory(worldId, revision.Id);
         Directory.CreateDirectory(revisionDirectory);
         await WriteLegacyStateRevisionAsync(revisionDirectory, revision, schemaVersion: 2);
@@ -272,11 +281,11 @@ public sealed class LocalWorldStorageTests : IDisposable
     }
 
     [Fact]
-    public async Task Schema1StateRevisionWithoutChecksum_RemainsReadable()
+    public async Task Schema1StateRevisionWithoutEnvironmentLink_RemainsReadableAsLegacy()
     {
         var storage = new LocalWorldStorage(_root);
         var worldId = WorldId.New();
-        var revision = CreateStateRevision(worldId);
+        var revision = CreateStateRevision(worldId) with { EnvironmentRevisionId = null };
         var revisionDirectory = GetStateRevisionDirectory(worldId, revision.Id);
         Directory.CreateDirectory(revisionDirectory);
         var expected = Encoding.UTF8.GetBytes("legacy-state");
@@ -286,7 +295,9 @@ public sealed class LocalWorldStorageTests : IDisposable
             Path.Combine(revisionDirectory, "payload.bin"),
             expected);
 
-        Assert.Equal(revision, await storage.LoadStateRevisionAsync(worldId, revision.Id));
+        var loaded = await storage.LoadStateRevisionAsync(worldId, revision.Id);
+        Assert.Equal(revision, loaded);
+        Assert.Null(loaded?.EnvironmentRevisionId);
 
         await using var reopened = await storage.OpenRevisionAsync(worldId, revision.Id);
         using var output = new MemoryStream();
@@ -374,7 +385,9 @@ public sealed class LocalWorldStorageTests : IDisposable
             null,
             null);
 
-    private static StateRevision CreateStateRevision(WorldId worldId)
+    private static StateRevision CreateStateRevision(
+        WorldId worldId,
+        RevisionId? environmentRevisionId = null)
         => new(
             RevisionId.New(),
             worldId,
@@ -382,7 +395,8 @@ public sealed class LocalWorldStorageTests : IDisposable
             DateTimeOffset.UtcNow,
             new UserIdentity("local", "tester"),
             "factorio",
-            "package-1");
+            "package-1",
+            EnvironmentRevisionId: environmentRevisionId ?? RevisionId.New());
 
     private static EnvironmentManifest CreateManifest(string gameVersion)
         => new(

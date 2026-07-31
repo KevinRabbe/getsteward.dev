@@ -112,7 +112,8 @@ public sealed class WorldLifecycleService
                 CreatedAt: captured.CapturedAt,
                 CreatedBy: owner,
                 AdapterId: adapter.Id,
-                StatePackageId: captured.Package.Id);
+                StatePackageId: captured.Package.Id,
+                EnvironmentRevisionId: environmentId);
 
             var world = new World(
                 Id: worldId,
@@ -488,6 +489,10 @@ public sealed class WorldLifecycleService
                 };
                 await _workspaceRecoveryStore.SaveAsync(workspaceRecord, cancellationToken);
 
+                var capturedEnvironmentRevisionId = workspaceRecord.EnvironmentRevisionId
+                    ?? throw new WorldIntegrityException(
+                        worldId,
+                        "The writable workspace lost its exact environment identity before capture.");
                 var revision = new StateRevision(
                     Id: nextRevisionId,
                     WorldId: context.World.Id,
@@ -495,7 +500,8 @@ public sealed class WorldLifecycleService
                     CreatedAt: captured.CapturedAt,
                     CreatedBy: user,
                     AdapterId: adapter.Id,
-                    StatePackageId: captured.Package.Id);
+                    StatePackageId: captured.Package.Id,
+                    EnvironmentRevisionId: capturedEnvironmentRevisionId);
 
                 Notify(worldId, mode, WorldLifecyclePhase.StoringCandidate);
                 await using (var package = File.OpenRead(captured.Package.Path))
@@ -898,5 +904,3 @@ public sealed class WorldLifecycleService
         }
     }
 }
-
-public sealed record PreparedWorldContext(World World, PreparedWorld PreparedWorld);

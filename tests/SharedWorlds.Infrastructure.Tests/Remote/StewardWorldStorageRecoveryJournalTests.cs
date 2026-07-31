@@ -15,17 +15,18 @@ public sealed class StewardWorldStorageRecoveryJournalTests
         var environmentId = RevisionId.New();
         var candidateId = RevisionId.New();
         var recovery = new RecoveryStore();
-        recovery.Records.Add(RecoveryRecord(worldId, baseState));
+        recovery.Records.Add(RecoveryRecord(worldId, baseState, environmentId));
         var uploadApi = new RecordingHandler(_ => throw new HttpRequestException("network down"));
         using var harness = new Harness(uploadApi, recovery);
         RegisterLease(harness.Registry, worldId, baseState, environmentId);
 
         await Assert.ThrowsAsync<HttpRequestException>(() => harness.Storage.StoreRevisionAsync(
-            Candidate(worldId, candidateId, baseState),
+            Candidate(worldId, candidateId, baseState, environmentId),
             new MemoryStream([1, 2, 3], writable: false)));
 
         var record = Assert.Single(recovery.Records);
         Assert.Equal(candidateId, record.CandidateStateRevisionId);
+        Assert.Equal(environmentId, record.EnvironmentRevisionId);
         Assert.Single(uploadApi.Requests);
     }
 
@@ -41,7 +42,7 @@ public sealed class StewardWorldStorageRecoveryJournalTests
 
         var exception = await Assert.ThrowsAsync<StewardWorldStorageException>(() =>
             harness.Storage.StoreRevisionAsync(
-                Candidate(worldId, RevisionId.New(), baseState),
+                Candidate(worldId, RevisionId.New(), baseState, environmentId),
                 new MemoryStream([1], writable: false)));
 
         Assert.Equal("RecoveryJournalMissing", exception.Code);
@@ -56,7 +57,7 @@ public sealed class StewardWorldStorageRecoveryJournalTests
         var environmentId = RevisionId.New();
         var existingCandidate = RevisionId.New();
         var recovery = new RecoveryStore();
-        recovery.Records.Add(RecoveryRecord(worldId, baseState) with
+        recovery.Records.Add(RecoveryRecord(worldId, baseState, environmentId) with
         {
             CandidateStateRevisionId = existingCandidate
         });
@@ -66,7 +67,7 @@ public sealed class StewardWorldStorageRecoveryJournalTests
 
         var exception = await Assert.ThrowsAsync<StewardWorldStorageException>(() =>
             harness.Storage.StoreRevisionAsync(
-                Candidate(worldId, RevisionId.New(), baseState),
+                Candidate(worldId, RevisionId.New(), baseState, environmentId),
                 new MemoryStream([1], writable: false)));
 
         Assert.Equal("RecoveryCandidateConflict", exception.Code);
@@ -77,7 +78,8 @@ public sealed class StewardWorldStorageRecoveryJournalTests
     private static StateRevision Candidate(
         WorldId worldId,
         RevisionId candidateId,
-        RevisionId baseState)
+        RevisionId baseState,
+        RevisionId environmentId)
         => new(
             candidateId,
             worldId,
@@ -85,11 +87,13 @@ public sealed class StewardWorldStorageRecoveryJournalTests
             DateTimeOffset.UtcNow,
             new UserIdentity("steam", "76561198000000001", "Tester"),
             "factorio",
-            "candidate");
+            "candidate",
+            EnvironmentRevisionId: environmentId);
 
     private static WorkspaceRecoveryRecord RecoveryRecord(
         WorldId worldId,
-        RevisionId baseState)
+        RevisionId baseState,
+        RevisionId environmentId)
         => new(
             WorkspaceId.New(),
             worldId,
@@ -99,7 +103,8 @@ public sealed class StewardWorldStorageRecoveryJournalTests
             new UserIdentity("steam", "76561198000000001", "Tester"),
             DateTimeOffset.UtcNow,
             DateTimeOffset.UtcNow,
-            WorkspaceRecoveryStatus.Active);
+            WorkspaceRecoveryStatus.Active,
+            EnvironmentRevisionId: environmentId);
 
     private static void RegisterLease(
         StewardWritableReservationRegistry registry,

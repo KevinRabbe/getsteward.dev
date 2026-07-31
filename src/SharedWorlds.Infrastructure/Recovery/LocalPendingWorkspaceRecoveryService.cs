@@ -184,6 +184,10 @@ public sealed class LocalPendingWorkspaceRecoveryService
         try
         {
             captured = await adapter.CaptureStateAsync(prepared, cancellationToken);
+            var environmentRevisionId = recovery.EnvironmentRevisionId
+                ?? throw new LocalPendingWorkspaceRecoveryException(
+                    "EnvironmentUnknown",
+                    "This recovery record predates exact environment journaling. Steward will preserve the workspace rather than create an unlinked candidate.");
             var revision = new StateRevision(
                 candidateId,
                 world.Id,
@@ -191,7 +195,8 @@ public sealed class LocalPendingWorkspaceRecoveryService
                 captured.CapturedAt,
                 user,
                 adapter.Id,
-                captured.Package.Id);
+                captured.Package.Id,
+                EnvironmentRevisionId: environmentRevisionId);
             await using var package = File.OpenRead(captured.Package.Path);
             await _storage.StoreRevisionAsync(revision, package, cancellationToken);
         }
@@ -410,6 +415,17 @@ public sealed class LocalPendingWorkspaceRecoveryService
             throw new LocalPendingWorkspaceRecoveryException(
                 "CandidateParentMismatch",
                 "The journaled recovery candidate does not descend from the recorded starting revision.");
+        }
+
+        // Candidates written by current Safe World builds always carry their environment directly.
+        // A pre-link immutable candidate may omit it, but only the matching durable recovery journal
+        // may supply that exact association. Any explicit disagreement still fails closed.
+        if (candidate.EnvironmentRevisionId is { } candidateEnvironmentId &&
+            candidateEnvironmentId != recovery.EnvironmentRevisionId)
+        {
+            throw new LocalPendingWorkspaceRecoveryException(
+                "CandidateEnvironmentMismatch",
+                "The journaled recovery candidate does not belong to the exact environment recorded for its workspace.");
         }
     }
 

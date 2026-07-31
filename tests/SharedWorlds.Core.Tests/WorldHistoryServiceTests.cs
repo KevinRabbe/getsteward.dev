@@ -34,6 +34,7 @@ public sealed class WorldHistoryServiceTests
             actor);
 
         Assert.NotEqual(fixture.Current.Id, restored.CurrentStateRevisionId);
+        Assert.Equal(fixture.Environment.Id, restored.CurrentEnvironmentRevisionId);
         var restoredRevision = await fixture.Storage.LoadStateRevisionAsync(
             fixture.World.Id,
             restored.CurrentStateRevisionId!.Value);
@@ -41,6 +42,7 @@ public sealed class WorldHistoryServiceTests
         Assert.Equal(fixture.Current.Id, restoredRevision.ParentRevisionId);
         Assert.Equal(actor, restoredRevision.CreatedBy);
         Assert.Equal(fixture.Initial.StatePackageId, restoredRevision.StatePackageId);
+        Assert.Equal(fixture.Environment.Id, restoredRevision.EnvironmentRevisionId);
         Assert.Equal(
             fixture.Storage.Payloads[fixture.Initial.Id],
             fixture.Storage.Payloads[restoredRevision.Id]);
@@ -79,6 +81,7 @@ public sealed class WorldHistoryServiceTests
             copy.CurrentStateRevisionId!.Value);
         Assert.NotNull(copiedState);
         Assert.Null(copiedState.ParentRevisionId);
+        Assert.Equal(copy.CurrentEnvironmentRevisionId, copiedState.EnvironmentRevisionId);
         Assert.Equal(
             fixture.Storage.Payloads[fixture.Middle.Id],
             fixture.Storage.Payloads[copiedState.Id]);
@@ -92,6 +95,136 @@ public sealed class WorldHistoryServiceTests
     }
 
     [Fact]
+    public async Task LinkedHistoryRestoresAndCopiesExactOlderEnvironmentAfterUpgrade()
+    {
+        var fixture = CreateFixture();
+        var upgradedEnvironment = new EnvironmentRevision(
+            RevisionId.New(),
+            fixture.World.Id,
+            fixture.Environment.Id,
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            fixture.Owner,
+            fixture.Environment.Manifest with { GameVersion = "2.0" });
+        var upgradedState = new StateRevision(
+            RevisionId.New(),
+            fixture.World.Id,
+            fixture.Current.Id,
+            DateTimeOffset.UtcNow.AddMinutes(-4),
+            fixture.Owner,
+            fixture.World.GameAdapterId,
+            "upgraded-package",
+            EnvironmentRevisionId: upgradedEnvironment.Id);
+        await fixture.Storage.StoreEnvironmentRevisionAsync(upgradedEnvironment);
+        await fixture.Storage.StoreRevisionAsync(
+            upgradedState,
+            new MemoryStream([10, 11, 12], writable: false));
+        var upgradedWorld = fixture.World with
+        {
+            CurrentEnvironmentRevisionId = upgradedEnvironment.Id,
+            CurrentStateRevisionId = upgradedState.Id
+        };
+        await fixture.Storage.SaveWorldAsync(upgradedWorld);
+        var service = new WorldHistoryService(fixture.Storage);
+
+        var restored = await service.RestoreAsync(
+            upgradedWorld,
+            fixture.Initial.Id,
+            fixture.Owner);
+
+        Assert.NotEqual(upgradedEnvironment.Id, restored.CurrentEnvironmentRevisionId);
+        var restoredEnvironment = await fixture.Storage.LoadEnvironmentRevisionAsync(
+            restored.Id,
+            restored.CurrentEnvironmentRevisionId!.Value);
+        Assert.NotNull(restoredEnvironment);
+        Assert.Equal(upgradedEnvironment.Id, restoredEnvironment.ParentRevisionId);
+        Assert.Equal(fixture.Environment.Manifest, restoredEnvironment.Manifest);
+        var restoredState = await fixture.Storage.LoadStateRevisionAsync(
+            restored.Id,
+            restored.CurrentStateRevisionId!.Value);
+        Assert.NotNull(restoredState);
+        Assert.Equal(upgradedState.Id, restoredState.ParentRevisionId);
+        Assert.Equal(restoredEnvironment.Id, restoredState.EnvironmentRevisionId);
+        Assert.Equal(
+            fixture.Storage.Payloads[fixture.Initial.Id],
+            fixture.Storage.Payloads[restoredState.Id]);
+
+        var copy = await service.MakeIndependentCopyAsync(
+            upgradedWorld,
+            fixture.Middle.Id,
+            "Pre-upgrade Copy",
+            fixture.Owner);
+        var copiedEnvironment = await fixture.Storage.LoadEnvironmentRevisionAsync(
+            copy.Id,
+            copy.CurrentEnvironmentRevisionId!.Value);
+        var copiedState = await fixture.Storage.LoadStateRevisionAsync(
+            copy.Id,
+            copy.CurrentStateRevisionId!.Value);
+        Assert.NotNull(copiedEnvironment);
+        Assert.NotNull(copiedState);
+        Assert.Equal(fixture.Environment.Manifest, copiedEnvironment.Manifest);
+        Assert.Equal(copiedEnvironment.Id, copiedState.EnvironmentRevisionId);
+        Assert.Equal(
+            fixture.Storage.Payloads[fixture.Middle.Id],
+            fixture.Storage.Payloads[copiedState.Id]);
+
+        Assert.NotNull(await fixture.Storage.LoadEnvironmentRevisionAsync(
+            fixture.World.Id,
+            upgradedEnvironment.Id));
+        Assert.NotNull(await fixture.Storage.LoadStateRevisionAsync(
+            fixture.World.Id,
+            upgradedState.Id));
+    }
+
+    [Fact]
+    public async Task LegacyUnlinkedHistoryRefusesToGuessAfterEnvironmentChanged()
+    {
+        var fixture = CreateFixture();
+        var legacyInitial = fixture.Initial with { EnvironmentRevisionId = null };
+        fixture.Storage.ReplaceRevisionMetadata(legacyInitial);
+        var changedEnvironment = new EnvironmentRevision(
+            RevisionId.New(),
+            fixture.World.Id,
+            fixture.Environment.Id,
+            DateTimeOffset.UtcNow,
+            fixture.Owner,
+            fixture.Environment.Manifest with { GameVersion = "2.0" });
+        var changedCurrent = new StateRevision(
+            RevisionId.New(),
+            fixture.World.Id,
+            fixture.Current.Id,
+            DateTimeOffset.UtcNow,
+            fixture.Owner,
+            fixture.World.GameAdapterId,
+            "changed-package",
+            EnvironmentRevisionId: changedEnvironment.Id);
+        await fixture.Storage.StoreEnvironmentRevisionAsync(changedEnvironment);
+        await fixture.Storage.StoreRevisionAsync(
+            changedCurrent,
+            new MemoryStream([13, 14, 15], writable: false));
+        var changedWorld = fixture.World with
+        {
+            CurrentEnvironmentRevisionId = changedEnvironment.Id,
+            CurrentStateRevisionId = changedCurrent.Id
+        };
+        await fixture.Storage.SaveWorldAsync(changedWorld);
+        var service = new WorldHistoryService(fixture.Storage);
+
+        var restore = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RestoreAsync(changedWorld, legacyInitial.Id, fixture.Owner));
+        var copy = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.MakeIndependentCopyAsync(
+                changedWorld,
+                legacyInitial.Id,
+                "Unsafe Copy",
+                fixture.Owner));
+
+        Assert.Contains("legacy History entry", restore.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("environment changed", restore.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("legacy History entry", copy.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(changedCurrent.Id, changedWorld.CurrentStateRevisionId);
+    }
+
+    [Fact]
     public async Task RestoreRejectsRevisionOutsideBoundedCanonicalHistory()
     {
         var fixture = CreateFixture();
@@ -102,7 +235,8 @@ public sealed class WorldHistoryServiceTests
             DateTimeOffset.UtcNow,
             fixture.Owner,
             fixture.World.GameAdapterId,
-            "orphan-package");
+            "orphan-package",
+            EnvironmentRevisionId: fixture.Environment.Id);
         await fixture.Storage.StoreRevisionAsync(
             orphan,
             new MemoryStream([9, 9, 9], writable: false));
@@ -116,44 +250,11 @@ public sealed class WorldHistoryServiceTests
     }
 
     [Fact]
-    public async Task MutationRefusesToGuessEnvironmentAfterEnvironmentHistoryChanged()
-    {
-        var fixture = CreateFixture();
-        var changedEnvironment = new EnvironmentRevision(
-            RevisionId.New(),
-            fixture.World.Id,
-            fixture.Environment.Id,
-            DateTimeOffset.UtcNow,
-            fixture.Owner,
-            fixture.Environment.Manifest with { GameVersion = "2.0" });
-        await fixture.Storage.StoreEnvironmentRevisionAsync(changedEnvironment);
-        var changedWorld = fixture.World with
-        {
-            CurrentEnvironmentRevisionId = changedEnvironment.Id
-        };
-        await fixture.Storage.SaveWorldAsync(changedWorld);
-        var service = new WorldHistoryService(fixture.Storage);
-
-        var restore = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.RestoreAsync(changedWorld, fixture.Initial.Id, fixture.Owner));
-        var copy = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.MakeIndependentCopyAsync(
-                changedWorld,
-                fixture.Initial.Id,
-                "Unsafe Copy",
-                fixture.Owner));
-
-        Assert.Contains("environment changed", restore.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("environment changed", copy.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(fixture.Current.Id, changedWorld.CurrentStateRevisionId);
-        Assert.Null(await fixture.Storage.LoadWorldAsync(WorldId.New()));
-    }
-
-    [Fact]
     public async Task HistoryFailsClosedOnParentCycle()
     {
         var owner = new UserIdentity("local", "owner", "Owner");
         var worldId = WorldId.New();
+        var environmentId = RevisionId.New();
         var firstId = RevisionId.New();
         var secondId = RevisionId.New();
         var first = new StateRevision(
@@ -163,7 +264,8 @@ public sealed class WorldHistoryServiceTests
             DateTimeOffset.UtcNow.AddMinutes(-1),
             owner,
             "test-adapter",
-            "first");
+            "first",
+            EnvironmentRevisionId: environmentId);
         var second = new StateRevision(
             secondId,
             worldId,
@@ -171,7 +273,8 @@ public sealed class WorldHistoryServiceTests
             DateTimeOffset.UtcNow,
             owner,
             "test-adapter",
-            "second");
+            "second",
+            EnvironmentRevisionId: environmentId);
         var storage = new MemoryWorldStorage();
         await storage.StoreRevisionAsync(first, new MemoryStream([1], writable: false));
         await storage.StoreRevisionAsync(second, new MemoryStream([2], writable: false));
@@ -180,7 +283,7 @@ public sealed class WorldHistoryServiceTests
             "Cyclic",
             "test-adapter",
             [owner],
-            CurrentEnvironmentRevisionId: null,
+            CurrentEnvironmentRevisionId: environmentId,
             CurrentStateRevisionId: secondId);
 
         var service = new WorldHistoryService(storage);
@@ -213,7 +316,8 @@ public sealed class WorldHistoryServiceTests
             DateTimeOffset.UtcNow.AddMinutes(-30),
             owner,
             "test-adapter",
-            "initial-package");
+            "initial-package",
+            EnvironmentRevisionId: environment.Id);
         var middle = new StateRevision(
             RevisionId.New(),
             worldId,
@@ -221,7 +325,8 @@ public sealed class WorldHistoryServiceTests
             DateTimeOffset.UtcNow.AddMinutes(-20),
             owner,
             "test-adapter",
-            "middle-package");
+            "middle-package",
+            EnvironmentRevisionId: environment.Id);
         var current = new StateRevision(
             RevisionId.New(),
             worldId,
@@ -229,7 +334,8 @@ public sealed class WorldHistoryServiceTests
             DateTimeOffset.UtcNow.AddMinutes(-10),
             owner,
             "test-adapter",
-            "current-package");
+            "current-package",
+            EnvironmentRevisionId: environment.Id);
         var world = new World(
             worldId,
             "Source World",
@@ -263,6 +369,9 @@ public sealed class WorldHistoryServiceTests
         private readonly Dictionary<(WorldId WorldId, RevisionId RevisionId), StateRevision> _revisions = [];
 
         public Dictionary<RevisionId, byte[]> Payloads { get; } = [];
+
+        public void ReplaceRevisionMetadata(StateRevision revision)
+            => _revisions[(revision.WorldId, revision.Id)] = revision;
 
         public Task SaveWorldAsync(World world, CancellationToken cancellationToken = default)
         {

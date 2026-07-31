@@ -7,4 +7,5 @@ public sealed record StateRevision(
     DateTimeOffset CreatedAt,
     UserIdentity? CreatedBy,
     string AdapterId,
-    string StatePackageId);
+    string StatePackageId,
+    RevisionId? EnvironmentRevisionId = null);

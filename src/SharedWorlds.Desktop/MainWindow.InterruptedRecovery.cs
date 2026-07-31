@@ -19,7 +19,7 @@ public partial class MainWindow
         if (world.SharingMode == WorldSharingMode.Shared && !HasAuthoritativeRuntimeForWorld(world))
         {
             StatusText.Text =
-                "Reconnect authenticated Steward authority before recovering this interrupted shared World.";
+                "Reconnect Safe World before recovering changes into this interrupted shared World.";
             return;
         }
 
@@ -66,19 +66,15 @@ public partial class MainWindow
             return;
         }
 
-        if (world.SharingMode == WorldSharingMode.Shared && !HasAuthoritativeRuntimeForWorld(world))
-        {
-            StatusText.Text =
-                "Reconnect authenticated Steward authority before resolving this interrupted shared World.";
-            return;
-        }
-
+        // Discard is intentionally local. It never writes a canonical World revision and therefore
+        // must remain available when an incomplete/disconnected shared World has no backend authority.
         var confirmation = MessageBox.Show(
             this,
-            $"Discard the interrupted Steward workspace for '{world.Name}'?\n\n" +
-            "This can permanently discard gameplay changes that were never committed. " +
-            "The last canonical World revision will remain unchanged.",
-            "Discard interrupted session?",
+            $"Continue '{world.Name}' from its last safe state?\n\n" +
+            "Safe World will remove the preserved interrupted workspace from this PC. " +
+            "Gameplay changes that were never committed will be permanently discarded. " +
+            "The last committed World revision remains unchanged.",
+            "Continue from last safe state?",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning,
             MessageBoxResult.No);
@@ -88,7 +84,7 @@ public partial class MainWindow
         }
 
         await RunOperationAsync(
-            $"Discarding interrupted workspace for {world.Name}...",
+            $"Removing interrupted workspace for {world.Name}...",
             async () =>
             {
                 try
@@ -115,7 +111,7 @@ public partial class MainWindow
                         adapter,
                         installation);
                     StatusText.Text =
-                        $"Interrupted workspace for '{world.Name}' was discarded. The canonical World was not changed.";
+                        $"'{world.Name}' is back on its last safe state. Uncommitted interrupted-session changes were discarded.";
                 }
                 finally
                 {

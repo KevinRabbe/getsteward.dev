@@ -124,7 +124,7 @@ internal sealed class CheckpointNameDialog : Window
         Grid.SetRow(actions, 4);
         root.Children.Add(actions);
 
-        Content = root;
+        base.Content = root;
         Loaded += (_, _) =>
         {
             _nameBox.Focus();
@@ -133,7 +133,7 @@ internal sealed class CheckpointNameDialog : Window
         UpdateState();
     }
 
-    public string CheckpointName => _nameBox.Text.Trim();
+    public string ResultName => _nameBox.Text.Trim();
 
     private void UpdateState()
     {

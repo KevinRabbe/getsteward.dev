@@ -5,7 +5,7 @@ namespace SharedWorlds.Desktop;
 
 public partial class MainWindow
 {
-    private async Task<bool> ConfirmRecoveryPreservingQuitAsync(
+    private async Task<bool> ConfirmGuardedQuitAsync(
         WorldLifecycleResponsibilitySnapshot responsibility)
     {
         OpenStewardWindow();
@@ -60,9 +60,9 @@ public partial class MainWindow
 
     private void CompleteExplicitQuit()
     {
-        // A recovery-preserving quit deliberately does not clear the lifecycle tracker or remove the
-        // durable workspace record. On next startup an Active record becomes InterruptedSession and
-        // the existing Recover / Continue from last safe state actions own resolution.
+        // Never clear the lifecycle tracker or remove recovery evidence merely to make Quit succeed.
+        // With a durable Active record, next startup deliberately becomes InterruptedSession. Without
+        // verified evidence, the dialog has already required an explicit possible-data-loss decision.
         _allowExplicitClose = true;
         DisposeTray();
         Close();

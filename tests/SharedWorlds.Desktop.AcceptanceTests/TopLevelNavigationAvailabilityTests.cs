@@ -18,7 +18,7 @@ public sealed class TopLevelNavigationAvailabilityTests
     }
 
     [Fact]
-    public void GuardedQuitCanExitOnlyAfterDurableRecoveryIsVerifiedAndPreserved()
+    public void GuardedQuitAlwaysHasAnExplicitExitAndPreservesRecoveryWhenAvailable()
     {
         var tray = File.ReadAllText(FindRepositoryFile(
             "src/SharedWorlds.Desktop/MainWindow.Tray.cs"));
@@ -30,7 +30,7 @@ public sealed class TopLevelNavigationAvailabilityTests
             "src/SharedWorlds.Core/Worlds/WorldLifecycleResponsibilityTracker.cs"));
 
         Assert.Contains("private async void RequestQuitSteward()", tray, StringComparison.Ordinal);
-        Assert.Contains("ConfirmRecoveryPreservingQuitAsync(responsibility)", tray, StringComparison.Ordinal);
+        Assert.Contains("ConfirmGuardedQuitAsync(responsibility)", tray, StringComparison.Ordinal);
         Assert.Contains("CompleteExplicitQuit();", tray, StringComparison.Ordinal);
         Assert.DoesNotContain("MessageBox.Show(", tray, StringComparison.Ordinal);
 
@@ -45,8 +45,9 @@ public sealed class TopLevelNavigationAvailabilityTests
         Assert.Contains("Recovery evidence is safely stored", dialog, StringComparison.Ordinal);
         Assert.Contains("I have closed the game", dialog, StringComparison.Ordinal);
         Assert.Contains("Quit and recover next time", dialog, StringComparison.Ordinal);
-        Assert.Contains("IsEnabled = false", dialog, StringComparison.Ordinal);
-        Assert.Contains("gameClosed.Checked +=", dialog, StringComparison.Ordinal);
+        Assert.Contains("Force quit without recovery", dialog, StringComparison.Ordinal);
+        Assert.Contains("changes from this unresolved session may be lost", dialog, StringComparison.Ordinal);
+        Assert.Contains("_quitButton.IsEnabled = _gameClosed && _lossAcknowledged", dialog, StringComparison.Ordinal);
 
         Assert.Contains("case WorkspaceRecoveryStatus.Active:", tracker, StringComparison.Ordinal);
         Assert.Contains("_kind = WorldLifecycleResponsibilityKind.InterruptedSession;", tracker, StringComparison.Ordinal);

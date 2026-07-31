@@ -71,7 +71,7 @@ public partial class MainWindow
         var quit = new Forms.ToolStripMenuItem(DesktopText.QuitSteward)
         {
             AccessibleName = DesktopText.QuitSteward,
-            AccessibleDescription = "Quit Safe World when no active or unresolved World responsibility remains."
+            AccessibleDescription = "Quit Safe World, preserving durable recovery evidence when a World session remains unresolved."
         };
         quit.Click += (_, _) => RequestQuitSteward();
 
@@ -164,53 +164,16 @@ public partial class MainWindow
         Activate();
     }
 
-    private void RequestQuitSteward()
+    private async void RequestQuitSteward()
     {
         var responsibility = _responsibilityTracker.Current;
-        if (!responsibility.CanQuitWithoutGuard)
+        if (!responsibility.CanQuitWithoutGuard &&
+            !await ConfirmRecoveryPreservingQuitAsync(responsibility))
         {
-            OpenStewardWindow();
-
-            var responsibleWorld = _allWorldItems.FirstOrDefault(item =>
-                item.World.Id == responsibility.WorldId);
-            if (responsibleWorld is not null)
-            {
-                if (_globalLobbyVisible)
-                {
-                    HideGlobalLobby(showGames: false);
-                }
-
-                if (_globalSettingsVisible)
-                {
-                    HideGlobalSettings();
-                }
-
-                OpenGameWorkspace(
-                    responsibleWorld.AdapterId,
-                    responsibleWorld.GameName,
-                    responsibleWorld.World.Id);
-                KeepTopLevelNavigationAvailable();
-            }
-
-            var target = responsibleWorld is null
-                ? "a World"
-                : $"'{responsibleWorld.Name}'";
-            MessageBox.Show(
-                this,
-                $"Safe World is still protecting {target} because its writable session has not safely finished." +
-                $"{Environment.NewLine}{Environment.NewLine}" +
-                "Safe World opened the World that needs attention when it could identify it. " +
-                "Finish, stop and save, or recover that session before quitting.",
-                "Finish the World session before quitting",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
             return;
         }
 
-        _allowExplicitClose = true;
-        DisposeTray();
-        Close();
-        Application.Current.Shutdown();
+        CompleteExplicitQuit();
     }
 
     private void DisposeTray()

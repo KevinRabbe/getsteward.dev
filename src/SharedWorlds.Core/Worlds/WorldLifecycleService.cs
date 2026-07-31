@@ -273,6 +273,7 @@ public sealed class WorldLifecycleService
                 "State");
 
         EnsureAdapterMatches(adapter.Id, stateRevision.AdapterId, "state revision");
+        EnsureCurrentStateEnvironmentMatches(world, environmentRevision, stateRevision);
 
         Notify(worldId, mode, WorldLifecyclePhase.PreparingEnvironment);
         var prepared = (await adapter.PrepareEnvironmentAsync(
@@ -862,6 +863,52 @@ public sealed class WorldLifecycleService
             phase,
             DateTimeOffset.UtcNow,
             detail));
+
+    private static void EnsureCurrentStateEnvironmentMatches(
+        World world,
+        EnvironmentRevision environmentRevision,
+        StateRevision stateRevision)
+    {
+        if (environmentRevision.WorldId != world.Id)
+        {
+            throw new WorldIntegrityException(
+                world.Id,
+                $"The canonical environment revision belongs to a different World '{environmentRevision.WorldId}'.");
+        }
+
+        if (stateRevision.WorldId != world.Id)
+        {
+            throw new WorldIntegrityException(
+                world.Id,
+                $"The canonical state revision belongs to a different World '{stateRevision.WorldId}'.");
+        }
+
+        if (stateRevision.EnvironmentRevisionId is { } stateEnvironmentRevisionId)
+        {
+            if (stateEnvironmentRevisionId != environmentRevision.Id)
+            {
+                throw new WorldIntegrityException(
+                    world.Id,
+                    $"The canonical state revision belongs to environment '{stateEnvironmentRevisionId}', " +
+                    $"but the World points to environment '{environmentRevision.Id}'.");
+            }
+
+            return;
+        }
+
+        // Compatibility for Worlds created before state/environment association existed. A legacy
+        // current state may use the current environment only while it is still the original root.
+        // Once environment history exists, launch would require guessing which environment created
+        // the state, so preparation remains fail-closed before any adapter workspace is created.
+        if (environmentRevision.ParentRevisionId is not null)
+        {
+            throw new WorldIntegrityException(
+                world.Id,
+                "The canonical state revision predates exact environment linking, but the World " +
+                "has changed environments. Safe World will not guess which environment should " +
+                "launch this state.");
+        }
+    }
 
     private static void EnsureAdapterMatches(
         string expectedAdapterId,

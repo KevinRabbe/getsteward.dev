@@ -44,7 +44,7 @@ public sealed class InterruptedWorkspaceRecoveryDecisionServiceTests : IDisposab
     }
 
     [Fact]
-    public async Task DiscardDecisionOnlyTransitionsToCleanupPending()
+    public async Task DiscardDecisionOnlyTransitionsExactWorkspaceToCleanupPending()
     {
         var record = CreateRecord(workspaceExists: true);
         var store = new RecoveryStore(record);
@@ -72,17 +72,17 @@ public sealed class InterruptedWorkspaceRecoveryDecisionServiceTests : IDisposab
     }
 
     [Fact]
-    public async Task ExistingLegacyWorkspaceWithoutEnvironmentIsPreserved()
+    public async Task LegacyWorkspaceWithoutEnvironmentBecomesAbandonedEvidence()
     {
         var record = CreateRecord(workspaceExists: true) with { EnvironmentRevisionId = null };
         var store = new RecoveryStore(record);
         var service = new InterruptedWorkspaceRecoveryDecisionService(store);
 
-        var exception = await Assert.ThrowsAsync<InterruptedWorkspaceRecoveryDecisionException>(() =>
-            service.PrepareDiscardAsync(record.WorldId, record.AdapterId));
+        var updated = await service.PrepareDiscardAsync(record.WorldId, record.AdapterId);
 
-        Assert.Equal("EnvironmentUnknown", exception.Code);
-        Assert.Equal(WorkspaceRecoveryStatus.Active, Assert.Single(store.Records).Status);
+        Assert.Equal(WorkspaceRecoveryStatus.Abandoned, updated.Status);
+        Assert.Contains("abandoned evidence", updated.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(updated, Assert.Single(store.Records));
         Assert.True(Directory.Exists(record.WorkingDirectory));
     }
 

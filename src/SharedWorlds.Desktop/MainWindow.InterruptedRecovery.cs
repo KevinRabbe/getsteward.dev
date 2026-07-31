@@ -1,4 +1,3 @@
-using System.IO;
 using System.Windows;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
@@ -19,7 +18,7 @@ public partial class MainWindow
         if (world.SharingMode == WorldSharingMode.Shared && !HasAuthoritativeRuntimeForWorld(world))
         {
             StatusText.Text =
-                "Reconnect authenticated Steward authority before recovering this interrupted shared World.";
+                "Reconnect Safe World before recovering changes into this interrupted shared World.";
             return;
         }
 
@@ -66,19 +65,16 @@ public partial class MainWindow
             return;
         }
 
-        if (world.SharingMode == WorldSharingMode.Shared && !HasAuthoritativeRuntimeForWorld(world))
-        {
-            StatusText.Text =
-                "Reconnect authenticated Steward authority before resolving this interrupted shared World.";
-            return;
-        }
-
+        // Discard is intentionally local. It never writes a canonical World revision and therefore
+        // must remain available when an incomplete/disconnected shared World has no backend authority.
         var confirmation = MessageBox.Show(
             this,
-            $"Discard the interrupted Steward workspace for '{world.Name}'?\n\n" +
-            "This can permanently discard gameplay changes that were never committed. " +
-            "The last canonical World revision will remain unchanged.",
-            "Discard interrupted session?",
+            $"Continue '{world.Name}' from its last safe state?\n\n" +
+            "Gameplay changes that were never committed will be permanently abandoned. " +
+            "The last committed World revision remains unchanged.\n\n" +
+            "If this is an older workspace without exact environment evidence, Safe World will preserve " +
+            "its files as abandoned evidence instead of guessing how to delete them.",
+            "Continue from last safe state?",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning,
             MessageBoxResult.No);
@@ -88,34 +84,39 @@ public partial class MainWindow
         }
 
         await RunOperationAsync(
-            $"Discarding interrupted workspace for {world.Name}...",
+            $"Resolving interrupted session for {world.Name}...",
             async () =>
             {
                 try
                 {
-                    var active = await GetInterruptedWorkspaceRecordAsync(world.Id);
-                    GameInstallation? installation = null;
-                    if (Directory.Exists(active.WorkingDirectory))
-                    {
-                        installation = await GetReadyInstallationForRecoveryRecordAsync(
-                            world,
-                            adapter,
-                            active);
-                    }
+                    _ = await GetInterruptedWorkspaceRecordAsync(world.Id);
 
                     var decision = new InterruptedWorkspaceRecoveryDecisionService(
                         _workspaceRecoveryStore);
-                    await decision.PrepareDiscardAsync(world.Id, adapter.Id);
+                    var discard = await decision.PrepareDiscardAsync(world.Id, adapter.Id);
 
-                    var cleanup = new WorkspaceCleanupRecoveryService(
-                        GetStorageForWorld(world),
-                        _workspaceRecoveryStore);
-                    await cleanup.RetryAsync(
-                        world.Id,
-                        adapter,
-                        installation);
-                    StatusText.Text =
-                        $"Interrupted workspace for '{world.Name}' was discarded. The canonical World was not changed.";
+                    if (discard.Status == WorkspaceRecoveryStatus.CleanupPending)
+                    {
+                        var cleanup = new WorkspaceCleanupRecoveryService(
+                            GetStorageForWorld(world),
+                            _workspaceRecoveryStore);
+                        await cleanup.RetryAsync(
+                            world.Id,
+                            adapter,
+                            installation: null);
+                        StatusText.Text =
+                            $"'{world.Name}' is back on its last safe state. Its interrupted workspace was removed.";
+                    }
+                    else if (discard.Status == WorkspaceRecoveryStatus.Abandoned)
+                    {
+                        StatusText.Text =
+                            $"'{world.Name}' is back on its last safe state. Its legacy workspace was preserved as abandoned evidence and no longer blocks other Worlds.";
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException(
+                            $"Unexpected interrupted-discard state '{discard.Status}'.");
+                    }
                 }
                 finally
                 {

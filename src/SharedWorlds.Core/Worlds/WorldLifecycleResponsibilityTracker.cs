@@ -92,7 +92,10 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
 
         lock (_gate)
         {
+            // Abandoned records preserve evidence for diagnostics/manual cleanup but deliberately no
+            // longer own writable-session responsibility or block unrelated Worlds.
             var selected = records
+                .Where(record => record.Status != WorkspaceRecoveryStatus.Abandoned)
                 .OrderByDescending(record => Priority(record.Status))
                 .ThenByDescending(record => record.UpdatedAt)
                 .FirstOrDefault();
@@ -118,12 +121,16 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
                     break;
 
                 case WorkspaceRecoveryStatus.Active:
-                default:
                     // An Active record found after process restart is not the same as a known
-                    // pending-sync candidate: Steward cannot prove whether gameplay started. Keep it
+                    // pending-sync candidate: Safe World cannot prove whether gameplay started. Keep it
                     // separately guarded so the UI can require an explicit recover-or-discard decision.
                     _kind = WorldLifecycleResponsibilityKind.InterruptedSession;
                     _phase = WorldLifecyclePhase.RecoveryNeeded;
+                    break;
+
+                case WorkspaceRecoveryStatus.Abandoned:
+                default:
+                    Clear();
                     break;
             }
         }
@@ -155,6 +162,7 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
             WorkspaceRecoveryStatus.RecoveryPending => 3,
             WorkspaceRecoveryStatus.Active => 2,
             WorkspaceRecoveryStatus.CleanupPending => 1,
+            WorkspaceRecoveryStatus.Abandoned => 0,
             _ => 0
         };
 }

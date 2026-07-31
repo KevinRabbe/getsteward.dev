@@ -17,7 +17,7 @@ internal static class StorageDocumentSchemas
 
     public static readonly PersistedDocumentSchema<PersistedStateRevision> StateRevision = new(
         "sharedworlds.state-revision",
-        CurrentVersion: 4,
+        CurrentVersion: 5,
         IntegrityRequiredFromVersion: 3,
         new Dictionary<int, Func<JsonElement, PersistedStateRevision>>
         {
@@ -31,7 +31,13 @@ internal static class StorageDocumentSchemas
             [2] = payload => LegacyStateRevision(payload),
             // Schema 3 protects revision.json itself but still stores payload integrity in the
             // separate payload.sha256 companion file.
-            [3] = payload => LegacyStateRevision(payload)
+            [3] = payload => LegacyStateRevision(payload),
+            // Schema 4 binds payload integrity inside protected revision metadata but predates the
+            // explicit state -> environment revision association. The nullable domain property keeps
+            // those revisions readable as legacy History entries.
+            [4] = payload => PersistedDocumentCodec.DeserializePayload<PersistedStateRevision>(
+                payload,
+                "sharedworlds.state-revision")
         });
 
     public static readonly PersistedDocumentSchema<WorkspaceRecoveryRecord> WorkspaceRecovery =

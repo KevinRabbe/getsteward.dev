@@ -9,6 +9,8 @@ namespace SharedWorlds.Desktop;
 internal sealed class GuardedQuitDialog : Window
 {
     private readonly Button _quitButton;
+    private bool _gameClosed;
+    private bool _lossAcknowledged;
 
     public GuardedQuitDialog(
         string worldName,
@@ -24,6 +26,7 @@ internal sealed class GuardedQuitDialog : Window
         ShowInTaskbar = false;
         Background = (Brush)Application.Current.FindResource("AppBackgroundBrush");
         Foreground = (Brush)Application.Current.FindResource("TextBrush");
+        _lossAcknowledged = durableRecoveryExists;
 
         var root = new Grid
         {
@@ -76,15 +79,15 @@ internal sealed class GuardedQuitDialog : Window
         {
             Text = durableRecoveryExists
                 ? "Recovery evidence is safely stored"
-                : "Recovery evidence is not safely stored yet",
+                : "Recovery evidence could not be verified",
             FontSize = 15,
             FontWeight = FontWeights.SemiBold
         });
         var recoveryExplanation = new TextBlock
         {
             Text = durableRecoveryExists
-                ? "After a recovery-preserving quit, the next Safe World launch will show this as an interrupted session. The current canonical World is not overwritten or discarded."
-                : "Safe World cannot offer a controlled quit until the matching durable recovery record exists. Keep Safe World open and let the current operation finish or retry shortly.",
+                ? "After quitting, the next Safe World launch will show this as an interrupted session. The current canonical World is not overwritten or discarded."
+                : "You can still force Safe World to close, but changes from this unresolved session may be lost. The last safely committed World remains unchanged.",
             Margin = new Thickness(0, 7, 0, 0),
             FontSize = 12,
             LineHeight = 19,
@@ -105,15 +108,51 @@ internal sealed class GuardedQuitDialog : Window
         {
             Content = new TextBlock
             {
-                Text = "I have closed the game and understand that Safe World will recover this session next time.",
+                Text = "I have closed the game.",
                 TextWrapping = TextWrapping.Wrap
-            },
-            IsEnabled = durableRecoveryExists
+            }
         };
         AutomationProperties.SetHelpText(
             gameClosed,
             "Confirm that the game process is closed before Safe World stops supervising the writable session.");
+        gameClosed.Checked += (_, _) =>
+        {
+            _gameClosed = true;
+            UpdateQuitButtonState();
+        };
+        gameClosed.Unchecked += (_, _) =>
+        {
+            _gameClosed = false;
+            UpdateQuitButtonState();
+        };
         controls.Children.Add(gameClosed);
+
+        if (!durableRecoveryExists)
+        {
+            var acceptLoss = new CheckBox
+            {
+                Margin = new Thickness(0, 12, 0, 0),
+                Content = new TextBlock
+                {
+                    Text = "I understand that changes from this unresolved session may be lost.",
+                    TextWrapping = TextWrapping.Wrap
+                }
+            };
+            AutomationProperties.SetHelpText(
+                acceptLoss,
+                "Acknowledge the additional risk when Safe World cannot verify a durable recovery record.");
+            acceptLoss.Checked += (_, _) =>
+            {
+                _lossAcknowledged = true;
+                UpdateQuitButtonState();
+            };
+            acceptLoss.Unchecked += (_, _) =>
+            {
+                _lossAcknowledged = false;
+                UpdateQuitButtonState();
+            };
+            controls.Children.Add(acceptLoss);
+        }
 
         var actions = new DockPanel
         {
@@ -126,19 +165,18 @@ internal sealed class GuardedQuitDialog : Window
             Content = "Return to World",
             MinWidth = 136,
             Height = 42,
-            IsDefault = true
+            IsDefault = true,
+            IsCancel = true
         };
-        returnButton.Click += (_, _) =>
-        {
-            DialogResult = false;
-            Close();
-        };
+        returnButton.Click += (_, _) => DialogResult = false;
         DockPanel.SetDock(returnButton, Dock.Right);
         actions.Children.Add(returnButton);
 
         _quitButton = new Button
         {
-            Content = "Quit and recover next time",
+            Content = durableRecoveryExists
+                ? "Quit and recover next time"
+                : "Force quit without recovery",
             MinWidth = 190,
             Height = 42,
             Margin = new Thickness(0, 0, 10, 0),
@@ -150,17 +188,12 @@ internal sealed class GuardedQuitDialog : Window
         }
         AutomationProperties.SetHelpText(
             _quitButton,
-            "Quit Safe World without deleting the durable recovery record. The session must be resolved after the next launch.");
-        _quitButton.Click += (_, _) =>
-        {
-            DialogResult = true;
-            Close();
-        };
+            durableRecoveryExists
+                ? "Quit Safe World without deleting the durable recovery record. Resolve the interrupted session after the next launch."
+                : "Force Safe World to close even though durable recovery evidence could not be verified.");
+        _quitButton.Click += (_, _) => DialogResult = true;
         DockPanel.SetDock(_quitButton, Dock.Right);
         actions.Children.Add(_quitButton);
-
-        gameClosed.Checked += (_, _) => _quitButton.IsEnabled = durableRecoveryExists;
-        gameClosed.Unchecked += (_, _) => _quitButton.IsEnabled = false;
 
         controls.Children.Add(actions);
         Grid.SetRow(controls, 3);
@@ -168,6 +201,9 @@ internal sealed class GuardedQuitDialog : Window
 
         Content = root;
     }
+
+    private void UpdateQuitButtonState()
+        => _quitButton.IsEnabled = _gameClosed && _lossAcknowledged;
 
     private static string DescribeResponsibility(WorldLifecycleResponsibilitySnapshot snapshot)
         => snapshot.Kind switch

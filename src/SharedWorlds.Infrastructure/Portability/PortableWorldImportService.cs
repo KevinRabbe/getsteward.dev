@@ -95,7 +95,8 @@ public sealed class PortableWorldImportService
                 CreatedAt: importedAt,
                 CreatedBy: owner,
                 AdapterId: manifest.GameAdapterId,
-                StatePackageId: stateRevisionId.ToString());
+                StatePackageId: stateRevisionId.ToString(),
+                EnvironmentRevisionId: environmentRevisionId);
 
             var world = new World(
                 worldId,

@@ -107,9 +107,6 @@ public sealed class LocalWorldStorage : IWorldStorage
                 $"Refusing to delete World '{worldId}' because its managed storage directory is a reparse point.");
         }
 
-        // First remove the complete World directory from the live catalog with a same-volume rename.
-        // Physical recursive cleanup happens only after catalog removal. If cleanup is interrupted, the
-        // tombstone remains outside /worlds and is retried when LocalWorldStorage is constructed again.
         var deletionRoot = Path.Combine(_rootPath, ".deleting-worlds");
         Directory.CreateDirectory(deletionRoot);
         var tombstone = Path.Combine(
@@ -193,9 +190,6 @@ public sealed class LocalWorldStorage : IWorldStorage
                 new PersistedStateRevision(revision, payloadSha256),
                 cancellationToken);
 
-            // The expected payload digest is inside the integrity-protected revision metadata.
-            // Publishing the staged directory therefore binds revision identity and payload bytes
-            // without a separately mutable checksum sidecar for new revisions.
             Directory.Move(temporaryDirectory, finalDirectory);
         }
         finally
@@ -213,6 +207,53 @@ public sealed class LocalWorldStorage : IWorldStorage
             revisionId,
             cancellationToken))?.Revision;
 
+    public Task<bool> IsRevisionPayloadAvailableAsync(
+        WorldId worldId,
+        RevisionId revisionId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(File.Exists(GetStateRevisionPayloadPath(worldId, revisionId)));
+    }
+
+    public async Task<bool> EvictRevisionPayloadAsync(
+        WorldId worldId,
+        RevisionId revisionId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var revisionDirectory = GetStateRevisionDirectory(worldId, revisionId);
+        var persisted = await LoadStateRevisionRecordAsync(worldId, revisionId, cancellationToken)
+            ?? throw new InvalidDataException(
+                $"Cannot evict state revision '{revisionId}' for World '{worldId}' because its immutable metadata does not exist.");
+
+        EnsureRevisionStorageIdentity(
+            persisted.Revision.WorldId,
+            persisted.Revision.Id,
+            worldId,
+            revisionId,
+            "state revision",
+            Path.Combine(revisionDirectory, "revision.json"));
+
+        var payloadPath = GetStateRevisionPayloadPath(worldId, revisionId);
+        if (!File.Exists(payloadPath))
+        {
+            return false;
+        }
+
+        var attributes = File.GetAttributes(revisionDirectory);
+        if (attributes.HasFlag(FileAttributes.ReparsePoint))
+        {
+            throw new InvalidDataException(
+                $"Refusing to evict state revision '{revisionId}' for World '{worldId}' because its managed storage directory is a reparse point.");
+        }
+
+        File.Delete(payloadPath);
+        TryDelete(Path.Combine(revisionDirectory, PayloadSha256FileName));
+        return true;
+    }
+
     public async Task<Stream> OpenRevisionAsync(
         WorldId worldId,
         RevisionId revisionId,
@@ -221,11 +262,11 @@ public sealed class LocalWorldStorage : IWorldStorage
         cancellationToken.ThrowIfCancellationRequested();
 
         var revisionDirectory = GetStateRevisionDirectory(worldId, revisionId);
-        var path = Path.Combine(revisionDirectory, PayloadFileName);
+        var path = GetStateRevisionPayloadPath(worldId, revisionId);
         if (!File.Exists(path))
         {
             throw new FileNotFoundException(
-                $"State revision '{revisionId}' for World '{worldId}' does not exist.",
+                $"State revision '{revisionId}' for World '{worldId}' does not have locally available payload bytes.",
                 path);
         }
 
@@ -250,8 +291,6 @@ public sealed class LocalWorldStorage : IWorldStorage
                 $"State revision '{revisionId}' for World '{worldId}' payload");
         }
 
-        // Schemas 2 and 3 predate metadata-bound payload integrity and use the legacy sidecar.
-        // Schemas 0 and 1 predate local payload checksums entirely and remain readable.
         var persistedSchemaVersion = await ReadStateRevisionSchemaVersionAsync(
             revisionDirectory,
             cancellationToken);
@@ -509,6 +548,9 @@ public sealed class LocalWorldStorage : IWorldStorage
             "states",
             revisionId.ToString());
 
+    private string GetStateRevisionPayloadPath(WorldId worldId, RevisionId revisionId)
+        => Path.Combine(GetStateRevisionDirectory(worldId, revisionId), PayloadFileName);
+
     private static FileStream OpenRead(string path)
         => new(
             path,
@@ -529,11 +571,9 @@ public sealed class LocalWorldStorage : IWorldStorage
         }
         catch (IOException)
         {
-            // Best-effort cleanup only.
         }
         catch (UnauthorizedAccessException)
         {
-            // Best-effort cleanup only.
         }
     }
 
@@ -548,11 +588,9 @@ public sealed class LocalWorldStorage : IWorldStorage
         }
         catch (IOException)
         {
-            // Best-effort cleanup only.
         }
         catch (UnauthorizedAccessException)
         {
-            // Best-effort cleanup only.
         }
     }
 }

@@ -40,4 +40,27 @@ public interface IWorldStorage
         WorldId worldId,
         RevisionId revisionId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reports whether the large restorable payload for an immutable state revision is locally
+    /// available. Revision metadata and parent links may remain available after payload eviction.
+    /// </summary>
+    Task<bool> IsRevisionPayloadAvailableAsync(
+        WorldId worldId,
+        RevisionId revisionId,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException(
+            "This World storage backend does not expose state-payload availability.");
+
+    /// <summary>
+    /// Removes only the large restorable payload for an immutable state revision. Implementations
+    /// must preserve revision metadata and parent links. Returns false when the payload was already
+    /// absent. Core is responsible for proving that the revision is not current or checkpointed.
+    /// </summary>
+    Task<bool> EvictRevisionPayloadAsync(
+        WorldId worldId,
+        RevisionId revisionId,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException(
+            "This World storage backend does not support state-payload eviction.");
 }

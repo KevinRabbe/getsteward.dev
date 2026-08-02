@@ -53,15 +53,29 @@ public interface IWorldStorage
             "This World storage backend does not expose state-payload availability.");
 
     /// <summary>
-    /// Returns the exact stored payload length without opening or materializing the payload. Null
-    /// means the payload is absent. Implementations must not count immutable revision metadata.
+    /// Returns the exact verified payload length. Null means the payload is absent. The default
+    /// implementation uses the storage backend's seekable revision stream and never buffers the
+    /// payload in memory. Non-seekable backends must override this capability or fail closed.
     /// </summary>
-    Task<long?> GetRevisionPayloadSizeAsync(
+    async Task<long?> GetRevisionPayloadSizeAsync(
         WorldId worldId,
         RevisionId revisionId,
         CancellationToken cancellationToken = default)
-        => throw new NotSupportedException(
-            "This World storage backend does not expose state-payload sizes.");
+    {
+        if (!await IsRevisionPayloadAvailableAsync(worldId, revisionId, cancellationToken))
+        {
+            return null;
+        }
+
+        await using var stream = await OpenRevisionAsync(worldId, revisionId, cancellationToken);
+        if (!stream.CanSeek)
+        {
+            throw new NotSupportedException(
+                "This World storage backend does not expose a seekable state-payload stream.");
+        }
+
+        return stream.Length;
+    }
 
     /// <summary>
     /// Removes only the large restorable payload for an immutable state revision. Implementations

@@ -99,13 +99,25 @@ public sealed class WorldHistoryRetentionServiceTests
         var seeded = SeedHistory(storage, revisionCount: 3);
         var service = new WorldHistoryRetentionService(storage);
         var plan = await service.PlanAsync(seeded.World, keepNewestPayloads: 1);
+
+        var replacementHead = new StateRevision(
+            RevisionId.New(),
+            seeded.World.Id,
+            ParentRevisionId: null,
+            DateTimeOffset.UtcNow.AddMinutes(10),
+            new UserIdentity("local", "replacement", "Replacement"),
+            seeded.World.GameAdapterId,
+            "replacement-package",
+            seeded.World.CurrentEnvironmentRevisionId);
+        storage.Revisions[(seeded.World.Id, replacementHead.Id)] = replacementHead;
+        storage.AvailablePayloads.Add(replacementHead.Id);
         storage.World = seeded.World with
         {
-            CurrentStateRevisionId = seeded.Revisions[0].Id
+            CurrentStateRevisionId = replacementHead.Id
         };
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApplyAsync(plan));
-        Assert.Equal(3, storage.AvailablePayloads.Count);
+        Assert.Equal(4, storage.AvailablePayloads.Count);
     }
 
     [Fact]

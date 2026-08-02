@@ -53,6 +53,17 @@ public interface IWorldStorage
             "This World storage backend does not expose state-payload availability.");
 
     /// <summary>
+    /// Returns the exact stored payload length without opening or materializing the payload. Null
+    /// means the payload is absent. Implementations must not count immutable revision metadata.
+    /// </summary>
+    Task<long?> GetRevisionPayloadSizeAsync(
+        WorldId worldId,
+        RevisionId revisionId,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException(
+            "This World storage backend does not expose state-payload sizes.");
+
+    /// <summary>
     /// Removes only the large restorable payload for an immutable state revision. Implementations
     /// must preserve revision metadata and parent links. Returns false when the payload was already
     /// absent. Core is responsible for proving that the revision is not current or checkpointed.

@@ -14,7 +14,8 @@ internal enum WorldHistoryDialogAction
     Restore,
     MakeMyCopy,
     NameCheckpoint,
-    RemoveCheckpoint
+    RemoveCheckpoint,
+    ManageStorage
 }
 
 internal sealed class WorldHistoryDialog : Window
@@ -29,11 +30,13 @@ internal sealed class WorldHistoryDialog : Window
         string worldName,
         WorldHistorySnapshot history,
         RevisionId currentRevisionId,
-        IReadOnlyList<WorldCheckpoint> checkpoints)
+        IReadOnlyList<WorldCheckpoint> checkpoints,
+        IReadOnlyDictionary<RevisionId, bool> payloadAvailability)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(worldName);
         ArgumentNullException.ThrowIfNull(history);
         ArgumentNullException.ThrowIfNull(checkpoints);
+        ArgumentNullException.ThrowIfNull(payloadAvailability);
 
         Title = $"{DesktopText.History} — {worldName}";
         Width = 800;
@@ -89,7 +92,8 @@ internal sealed class WorldHistoryDialog : Window
             var entry = new WorldHistoryDialogEntry(
                 revision,
                 IsCurrent: revision.Id == currentRevisionId,
-                checkpoint);
+                checkpoint,
+                IsPayloadAvailable: payloadAvailability.TryGetValue(revision.Id, out var available) && available);
             _historyList.Items.Add(CreateHistoryItem(entry));
         }
 
@@ -121,20 +125,40 @@ internal sealed class WorldHistoryDialog : Window
         metadataRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         metadataRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
+        var storageActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var manageStorageButton = new Button
+        {
+            Content = DesktopText.ManageHistoryStorage,
+            MinWidth = 136,
+            Height = 38
+        };
+        AutomationProperties.SetHelpText(
+            manageStorageButton,
+            "Reclaim space from older uncheckpointed saves while preserving their History entries.");
+        manageStorageButton.Click += (_, _) => Complete(WorldHistoryDialogAction.ManageStorage);
+        storageActions.Children.Add(manageStorageButton);
+
         if (history.HasOlderRevisions)
         {
             var boundedNotice = new TextBlock
             {
                 Text = DesktopText.OlderHistoryNotShown,
-                MaxWidth = 350,
+                MaxWidth = 310,
+                Margin = new Thickness(12, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
                 FontSize = 12,
                 TextWrapping = TextWrapping.Wrap
             };
             boundedNotice.SetResourceReference(TextBlock.ForegroundProperty, "MutedTextBrush");
-            Grid.SetColumn(boundedNotice, 0);
-            metadataRow.Children.Add(boundedNotice);
+            storageActions.Children.Add(boundedNotice);
         }
+
+        Grid.SetColumn(storageActions, 0);
+        metadataRow.Children.Add(storageActions);
 
         var checkpointActions = new StackPanel
         {
@@ -257,6 +281,9 @@ internal sealed class WorldHistoryDialog : Window
         }
 
         detailParts.Add(entry.IsCurrent ? DesktopText.CurrentState : DesktopText.EarlierSave);
+        detailParts.Add(entry.IsPayloadAvailable
+            ? DesktopText.AvailableSavedState
+            : DesktopText.SpaceSavingOnly);
         detailParts.Add(localTime.ToString("f", CultureInfo.CurrentCulture));
         if (!string.IsNullOrWhiteSpace(entry.Revision.CreatedBy?.DisplayName))
         {
@@ -292,8 +319,8 @@ internal sealed class WorldHistoryDialog : Window
     private void UpdateActionState()
     {
         var selected = SelectedEntry;
-        _copyButton.IsEnabled = selected is not null;
-        _restoreButton.IsEnabled = selected is { IsCurrent: false };
+        _copyButton.IsEnabled = selected is { IsPayloadAvailable: true };
+        _restoreButton.IsEnabled = selected is { IsCurrent: false, IsPayloadAvailable: true };
         _checkpointButton.IsEnabled = selected is not null;
         _checkpointButton.Content = selected?.Checkpoint is null
             ? DesktopText.NameCheckpoint
@@ -302,11 +329,20 @@ internal sealed class WorldHistoryDialog : Window
             ? Visibility.Collapsed
             : Visibility.Visible;
         _removeCheckpointButton.IsEnabled = selected?.Checkpoint is not null;
+
+        var unavailableHelp =
+            "This History entry is preserved as metadata, but its saved-state bytes were removed to reclaim space.";
+        _copyButton.ToolTip = selected is { IsPayloadAvailable: false }
+            ? unavailableHelp
+            : null;
+        _restoreButton.ToolTip = selected is { IsPayloadAvailable: false }
+            ? unavailableHelp
+            : null;
     }
 
     private void Complete(WorldHistoryDialogAction action)
     {
-        if (SelectedRevision is null)
+        if (action != WorldHistoryDialogAction.ManageStorage && SelectedRevision is null)
         {
             return;
         }
@@ -318,5 +354,6 @@ internal sealed class WorldHistoryDialog : Window
     private sealed record WorldHistoryDialogEntry(
         StateRevision Revision,
         bool IsCurrent,
-        WorldCheckpoint? Checkpoint);
+        WorldCheckpoint? Checkpoint,
+        bool IsPayloadAvailable);
 }

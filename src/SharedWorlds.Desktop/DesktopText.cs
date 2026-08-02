@@ -46,6 +46,9 @@ public static class DesktopText
     public static string CheckpointName => Get(nameof(CheckpointName));
     public static string Save => Get(nameof(Save));
     public static string OlderHistoryNotShown => Get(nameof(OlderHistoryNotShown));
+    public static string AvailableSavedState => Get(nameof(AvailableSavedState));
+    public static string SpaceSavingOnly => Get(nameof(SpaceSavingOnly));
+    public static string ManageHistoryStorage => Get(nameof(ManageHistoryStorage));
     public static string WorldSettings => Get(nameof(WorldSettings));
     public static string KeepExactGameVersion => Get(nameof(KeepExactGameVersion));
     public static string DangerZone => Get(nameof(DangerZone));

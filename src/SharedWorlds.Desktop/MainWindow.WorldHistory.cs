@@ -94,15 +94,35 @@ public partial class MainWindow
                 return;
             }
 
+            var payloadAvailability = new Dictionary<RevisionId, bool>();
+            foreach (var revision in history.Revisions)
+            {
+                payloadAvailability[revision.Id] = await _storage.IsRevisionPayloadAvailableAsync(
+                    world.Id,
+                    revision.Id);
+            }
+
             var dialog = new WorldHistoryDialog(
                 world.Name,
                 history,
                 currentRevisionId,
-                world.Checkpoints ?? [])
+                world.Checkpoints ?? [],
+                payloadAvailability)
             {
                 Owner = this
             };
-            if (dialog.ShowDialog() != true || dialog.SelectedRevision is not { } selectedRevision)
+            if (dialog.ShowDialog() != true)
+            {
+                return;
+            }
+
+            if (dialog.RequestedAction == WorldHistoryDialogAction.ManageStorage)
+            {
+                await ManageWorldHistoryStorageAsync(world);
+                return;
+            }
+
+            if (dialog.SelectedRevision is not { } selectedRevision)
             {
                 return;
             }
@@ -139,6 +159,51 @@ public partial class MainWindow
         {
             ShowError("Could not open World History", exception);
         }
+    }
+
+    private async Task ManageWorldHistoryStorageAsync(World world)
+    {
+        var retention = new WorldHistoryRetentionService(_storage);
+        var plan = await retention.PlanAsync(world);
+        if (plan.EvictionCandidates.Count == 0)
+        {
+            MessageBox.Show(
+                this,
+                "There are no older uncheckpointed saved-state payloads to remove. The current state, newest saves, and checkpoints are already protected.",
+                DesktopText.ManageHistoryStorage,
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        var olderNotice = plan.HasOlderUnscannedHistory
+            ? $"{Environment.NewLine}{Environment.NewLine}Additional older History exists outside this bounded scan and will not be changed."
+            : string.Empty;
+        var confirmation = MessageBox.Show(
+            this,
+            $"Reclaim space from {plan.EvictionCandidates.Count} older saved states in '{world.Name}'?" +
+            $"{Environment.NewLine}{Environment.NewLine}" +
+            $"Safe World will keep the current state, the newest {plan.KeepNewestPayloads} saved states, and every named checkpoint. " +
+            "The older History entries remain visible, but Restore and Make My Copy will no longer be available for them." +
+            olderNotice,
+            DesktopText.ManageHistoryStorage,
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No);
+        if (confirmation != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        await RunOperationAsync(
+            $"Reclaiming History storage for {world.Name}...",
+            async () =>
+            {
+                var result = await retention.ApplyAsync(plan);
+                StatusText.Text =
+                    $"Reclaimed {result.EvictedPayloads} older saved-state payloads from '{world.Name}'. History labels and checkpoints were preserved.";
+                await RefreshUnifiedWorldsAsync(world.Id, preserveStatus: true);
+            });
     }
 
     private async Task RestoreWorldHistoryAsync(World world, StateRevision selectedRevision)

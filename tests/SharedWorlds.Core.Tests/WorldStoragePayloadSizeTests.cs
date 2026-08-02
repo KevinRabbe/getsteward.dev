@@ -8,23 +8,26 @@ public sealed class WorldStoragePayloadSizeTests
     [Fact]
     public async Task DefaultSizeCapabilityUsesLengthWithoutReadingOrSeeking()
     {
-        var storage = new LengthOnlyStorage(payloadLength: 987_654_321);
+        var concrete = new LengthOnlyStorage(payloadLength: 987_654_321);
+        IWorldStorage storage = concrete;
 
         var size = await storage.GetRevisionPayloadSizeAsync(WorldId.New(), RevisionId.New());
 
         Assert.Equal(987_654_321, size);
-        Assert.Equal(0, storage.Stream.ReadCalls);
+        var opened = Assert.IsType<LengthOnlyStream>(concrete.Stream);
+        Assert.Equal(0, opened.ReadCalls);
     }
 
     [Fact]
     public async Task DefaultSizeCapabilityReturnsNullWhenPayloadIsAbsent()
     {
-        var storage = new LengthOnlyStorage(payloadLength: null);
+        var concrete = new LengthOnlyStorage(payloadLength: null);
+        IWorldStorage storage = concrete;
 
         var size = await storage.GetRevisionPayloadSizeAsync(WorldId.New(), RevisionId.New());
 
         Assert.Null(size);
-        Assert.Null(storage.Stream);
+        Assert.Null(concrete.Stream);
     }
 
     private sealed class LengthOnlyStorage(long? payloadLength) : IWorldStorage

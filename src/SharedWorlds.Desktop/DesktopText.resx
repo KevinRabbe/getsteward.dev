@@ -41,6 +41,9 @@
   <data name="CheckpointName" xml:space="preserve"><value>Checkpoint name</value></data>
   <data name="Save" xml:space="preserve"><value>Save</value></data>
   <data name="OlderHistoryNotShown" xml:space="preserve"><value>Older History exists but is not shown in this bounded view.</value></data>
+  <data name="AvailableSavedState" xml:space="preserve"><value>Available</value></data>
+  <data name="SpaceSavingOnly" xml:space="preserve"><value>Space-saving only</value></data>
+  <data name="ManageHistoryStorage" xml:space="preserve"><value>Manage storage</value></data>
   <data name="WorldSettings" xml:space="preserve"><value>World settings</value></data>
   <data name="KeepExactGameVersion" xml:space="preserve"><value>Keep this World on this exact game version</value></data>
   <data name="DangerZone" xml:space="preserve"><value>Danger zone</value></data>

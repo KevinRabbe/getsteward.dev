@@ -8,12 +8,14 @@ public sealed record WorldHistoryRetentionPlan(
     int KeepNewestPayloads,
     IReadOnlyList<RevisionId> EvictionCandidates,
     int AlreadyUnavailableCount,
+    long PlannedReclaimableBytes,
     bool HasOlderUnscannedHistory);
 
 public sealed record WorldHistoryRetentionResult(
     int EvictedPayloads,
     int AlreadyUnavailablePayloads,
     int NewlyProtectedPayloads,
+    long ReclaimedBytes,
     bool HasOlderUnscannedHistory);
 
 /// <summary>
@@ -52,19 +54,26 @@ public sealed class WorldHistoryRetentionService
             .ToHashSet();
         var candidates = new List<RevisionId>();
         var alreadyUnavailable = 0;
+        long plannedReclaimableBytes = 0;
 
         for (var index = 0; index < history.Revisions.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var revision = history.Revisions[index];
-            var available = await _storage.IsRevisionPayloadAvailableAsync(
+            var payloadSize = await _storage.GetRevisionPayloadSizeAsync(
                 world.Id,
                 revision.Id,
                 cancellationToken);
-            if (!available)
+            if (payloadSize is null)
             {
                 alreadyUnavailable++;
                 continue;
+            }
+
+            if (payloadSize < 0)
+            {
+                throw new InvalidDataException(
+                    $"Storage reported a negative payload size for state revision '{revision.Id}'.");
             }
 
             if (index < keepNewestPayloads ||
@@ -75,6 +84,7 @@ public sealed class WorldHistoryRetentionService
             }
 
             candidates.Add(revision.Id);
+            plannedReclaimableBytes = checked(plannedReclaimableBytes + payloadSize.Value);
         }
 
         return new WorldHistoryRetentionPlan(
@@ -82,6 +92,7 @@ public sealed class WorldHistoryRetentionService
             keepNewestPayloads,
             candidates,
             alreadyUnavailable,
+            plannedReclaimableBytes,
             history.HasOlderRevisions);
     }
 
@@ -95,6 +106,7 @@ public sealed class WorldHistoryRetentionService
         var evicted = 0;
         var alreadyUnavailable = 0;
         var newlyProtected = 0;
+        long reclaimedBytes = 0;
 
         foreach (var candidateId in plan.EvictionCandidates.Distinct())
         {
@@ -123,13 +135,20 @@ public sealed class WorldHistoryRetentionService
                 continue;
             }
 
-            if (!await _storage.IsRevisionPayloadAvailableAsync(
-                    plan.WorldId,
-                    candidateId,
-                    cancellationToken))
+            var livePayloadSize = await _storage.GetRevisionPayloadSizeAsync(
+                plan.WorldId,
+                candidateId,
+                cancellationToken);
+            if (livePayloadSize is null)
             {
                 alreadyUnavailable++;
                 continue;
+            }
+
+            if (livePayloadSize < 0)
+            {
+                throw new InvalidDataException(
+                    $"Storage reported a negative payload size for state revision '{candidateId}'.");
             }
 
             if (await _storage.EvictRevisionPayloadAsync(
@@ -138,6 +157,7 @@ public sealed class WorldHistoryRetentionService
                     cancellationToken))
             {
                 evicted++;
+                reclaimedBytes = checked(reclaimedBytes + livePayloadSize.Value);
             }
             else
             {
@@ -149,6 +169,7 @@ public sealed class WorldHistoryRetentionService
             evicted,
             plan.AlreadyUnavailableCount + alreadyUnavailable,
             newlyProtected,
+            reclaimedBytes,
             plan.HasOlderUnscannedHistory);
     }
 

@@ -53,6 +53,34 @@ public interface IWorldStorage
             "This World storage backend does not expose state-payload availability.");
 
     /// <summary>
+    /// Returns the exact stored payload length. Null means the payload is absent. The default
+    /// implementation reads only the stream's immutable Length property and never consumes or
+    /// buffers payload bytes. Backends whose streams do not expose Length must override or fail closed.
+    /// </summary>
+    async Task<long?> GetRevisionPayloadSizeAsync(
+        WorldId worldId,
+        RevisionId revisionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!await IsRevisionPayloadAvailableAsync(worldId, revisionId, cancellationToken))
+        {
+            return null;
+        }
+
+        await using var stream = await OpenRevisionAsync(worldId, revisionId, cancellationToken);
+        try
+        {
+            return stream.Length;
+        }
+        catch (NotSupportedException exception)
+        {
+            throw new NotSupportedException(
+                "This World storage backend does not expose state-payload lengths.",
+                exception);
+        }
+    }
+
+    /// <summary>
     /// Removes only the large restorable payload for an immutable state revision. Implementations
     /// must preserve revision metadata and parent links. Returns false when the payload was already
     /// absent. Core is responsible for proving that the revision is not current or checkpointed.

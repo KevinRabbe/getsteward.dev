@@ -176,12 +176,13 @@ public partial class MainWindow
             return;
         }
 
+        var plannedSize = FormatStorageSize(plan.PlannedReclaimableBytes);
         var olderNotice = plan.HasOlderUnscannedHistory
             ? $"{Environment.NewLine}{Environment.NewLine}Additional older History exists outside this bounded scan and will not be changed."
             : string.Empty;
         var confirmation = MessageBox.Show(
             this,
-            $"Reclaim space from {plan.EvictionCandidates.Count} older saved states in '{world.Name}'?" +
+            $"Reclaim {plannedSize} from {plan.EvictionCandidates.Count} older saved states in '{world.Name}'?" +
             $"{Environment.NewLine}{Environment.NewLine}" +
             $"Safe World will keep the current state, the newest {plan.KeepNewestPayloads} saved states, and every named checkpoint. " +
             "The older History entries remain visible, but Restore and Make My Copy will no longer be available for them." +
@@ -200,8 +201,9 @@ public partial class MainWindow
             async () =>
             {
                 var result = await retention.ApplyAsync(plan);
+                var reclaimedSize = FormatStorageSize(result.ReclaimedBytes);
                 StatusText.Text =
-                    $"Reclaimed {result.EvictedPayloads} older saved-state payloads from '{world.Name}'. History labels and checkpoints were preserved.";
+                    $"Reclaimed {reclaimedSize} from {result.EvictedPayloads} older saved states in '{world.Name}'. History labels and checkpoints were preserved.";
                 await RefreshUnifiedWorldsAsync(world.Id, preserveStatus: true);
             });
     }
@@ -332,5 +334,25 @@ public partial class MainWindow
                 StatusText.Text = $"Removed checkpoint '{checkpoint.Name}'. The saved state remains in History.";
                 await RefreshUnifiedWorldsAsync(updated.Id, preserveStatus: true);
             });
+    }
+
+    private static string FormatStorageSize(long bytes)
+    {
+        if (bytes < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(bytes));
+        }
+
+        string[] units = ["B", "KiB", "MiB", "GiB", "TiB"];
+        var value = (double)bytes;
+        var unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.Length - 1)
+        {
+            value /= 1024;
+            unitIndex++;
+        }
+
+        var format = unitIndex == 0 ? "0" : value >= 100 ? "0" : value >= 10 ? "0.0" : "0.00";
+        return $"{value.ToString(format, CultureInfo.CurrentCulture)} {units[unitIndex]}";
     }
 }

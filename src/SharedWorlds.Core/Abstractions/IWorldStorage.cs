@@ -53,9 +53,9 @@ public interface IWorldStorage
             "This World storage backend does not expose state-payload availability.");
 
     /// <summary>
-    /// Returns the exact verified payload length. Null means the payload is absent. The default
-    /// implementation uses the storage backend's seekable revision stream and never buffers the
-    /// payload in memory. Non-seekable backends must override this capability or fail closed.
+    /// Returns the exact stored payload length. Null means the payload is absent. The default
+    /// implementation reads only the stream's immutable Length property and never consumes or
+    /// buffers payload bytes. Backends whose streams do not expose Length must override or fail closed.
     /// </summary>
     async Task<long?> GetRevisionPayloadSizeAsync(
         WorldId worldId,
@@ -68,13 +68,16 @@ public interface IWorldStorage
         }
 
         await using var stream = await OpenRevisionAsync(worldId, revisionId, cancellationToken);
-        if (!stream.CanSeek)
+        try
+        {
+            return stream.Length;
+        }
+        catch (NotSupportedException exception)
         {
             throw new NotSupportedException(
-                "This World storage backend does not expose a seekable state-payload stream.");
+                "This World storage backend does not expose state-payload lengths.",
+                exception);
         }
-
-        return stream.Length;
     }
 
     /// <summary>

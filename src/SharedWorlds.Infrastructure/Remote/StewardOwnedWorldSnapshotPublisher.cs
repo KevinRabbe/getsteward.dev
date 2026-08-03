@@ -1,6 +1,7 @@
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
+using SharedWorlds.Core.Worlds;
 
 namespace SharedWorlds.Infrastructure.Remote;
 
@@ -28,9 +29,8 @@ public sealed class StewardOwnedWorldSnapshotPublisher
     public StewardOwnedWorldSnapshotPublisher(
         IWorldStorage storage,
         StewardPrivateSnapshotTransferClient transfers)
-        : this(storage, transfers.UploadAsync)
+        : this(storage, Bind(transfers))
     {
-        ArgumentNullException.ThrowIfNull(transfers);
     }
 
     public StewardOwnedWorldSnapshotPublisher(
@@ -54,7 +54,7 @@ public sealed class StewardOwnedWorldSnapshotPublisher
                 $"Local World storage returned more than {MaximumWorldsPerPass} Worlds for one private snapshot publication pass.");
         }
 
-        var worldsById = new Dictionary<WorldId, Core.Worlds.World>();
+        var worldsById = new Dictionary<WorldId, World>();
         foreach (var world in worlds)
         {
             if (!worldsById.TryAdd(world.Id, world))
@@ -90,7 +90,7 @@ public sealed class StewardOwnedWorldSnapshotPublisher
     }
 
     private async Task PublishWorldAsync(
-        Core.Worlds.World world,
+        World world,
         CancellationToken cancellationToken)
     {
         var snapshot = await _resolver.ResolveAsync(world, cancellationToken);
@@ -118,5 +118,12 @@ public sealed class StewardOwnedWorldSnapshotPublisher
             throw new IOException(
                 $"Steward private snapshot publication ended with status '{result.Status}'.");
         }
+    }
+
+    private static OwnedWorldSnapshotUploadAsync Bind(
+        StewardPrivateSnapshotTransferClient transfers)
+    {
+        ArgumentNullException.ThrowIfNull(transfers);
+        return transfers.UploadAsync;
     }
 }

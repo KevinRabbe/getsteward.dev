@@ -5,7 +5,7 @@ namespace SharedWorlds.Desktop.AcceptanceTests;
 public sealed class OwnedWorldLocationDesktopCompositionTests
 {
     [Fact]
-    public void RuntimeReusesItsSingleAccessSessionForOwnedLocationTransport()
+    public void RuntimeReusesItsSingleAccessSessionForOwnedLocationTransportAndReplay()
     {
         var runtime = File.ReadAllText(FindRepositoryFile(
             "src/SharedWorlds.Desktop/StewardDesktopRemoteRuntime.cs"));
@@ -24,6 +24,14 @@ public sealed class OwnedWorldLocationDesktopCompositionTests
             runtime,
             StringComparison.Ordinal);
         Assert.Contains(
+            "new StewardOwnedWorldLocationPublicationService(\n                    ownedWorldLocationPublicationJournal,\n                    ownedWorldLocations,\n                    installationId);",
+            runtime,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new StewardOwnedWorldLocationCatalogReconciler(\n                    localStorage,\n                    ownedWorldLocationPublicationJournal,\n                    ownedWorldLocationPublication);",
+            runtime,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "public StewardOwnedWorldLocationClient OwnedWorldLocations { get; }",
             runtime,
             StringComparison.Ordinal);
@@ -34,10 +42,43 @@ public sealed class OwnedWorldLocationDesktopCompositionTests
     }
 
     [Fact]
-    public void InstallationRegistrationCompletesBeforeRuntimeReplacement()
+    public void DesktopOwnsOneDurableJournalOutsideCandidateRuntimeLifetime()
+    {
+        var window = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/MainWindow.xaml.cs"));
+        var composition = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/MainWindow.RemoteRuntime.cs"));
+
+        Assert.Equal(
+            1,
+            CountOccurrences(
+                window,
+                "new LocalOwnedWorldLocationPublicationJournal("));
+        Assert.Contains(
+            "private readonly IOwnedWorldLocationPublicationJournal _ownedWorldLocationPublicationJournal;",
+            window,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_ownedWorldLocationPublicationJournal =\n            new LocalOwnedWorldLocationPublicationJournal(storageRoot);",
+            window,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_storage,\n            _ownedWorldLocationPublicationJournal,\n            _workspaceRecoveryStore,",
+            composition,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "_ownedWorldLocationPublicationJournal.Dispose",
+            window,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RegistrationReconciliationAndReplayCompleteBeforeRuntimeReplacement()
     {
         var composition = File.ReadAllText(FindRepositoryFile(
             "src/SharedWorlds.Desktop/MainWindow.RemoteRuntime.cs"));
+        var runtime = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/StewardDesktopRemoteRuntime.cs"));
 
         var create = RequiredIndex(
             composition,
@@ -49,10 +90,14 @@ public sealed class OwnedWorldLocationDesktopCompositionTests
             registrationTry);
         var machineName = RequiredIndex(composition, "Environment.MachineName", register);
         var protocolCheck = RequiredIndex(composition, "registration.IsConflict", register);
+        var reconcileAndReplay = RequiredIndex(
+            composition,
+            "await next.ReconcileAndReplayOwnedWorldLocationsAsync(cancellationToken);",
+            protocolCheck);
         var cancellationFence = RequiredIndex(
             composition,
             "cancellationToken.ThrowIfCancellationRequested();",
-            protocolCheck);
+            reconcileAndReplay);
         var registrationCatch = RequiredIndex(composition, "        catch\n", cancellationFence);
         var disposeCandidate = RequiredIndex(composition, "next.Dispose();", registrationCatch);
         var previous = RequiredIndex(composition, "var previous = _remoteRuntime;", disposeCandidate);
@@ -63,7 +108,8 @@ public sealed class OwnedWorldLocationDesktopCompositionTests
         Assert.True(registrationTry < register);
         Assert.True(register < machineName);
         Assert.True(machineName < protocolCheck);
-        Assert.True(protocolCheck < cancellationFence);
+        Assert.True(protocolCheck < reconcileAndReplay);
+        Assert.True(reconcileAndReplay < cancellationFence);
         Assert.True(cancellationFence < registrationCatch);
         Assert.True(registrationCatch < disposeCandidate);
         Assert.True(disposeCandidate < previous);
@@ -74,6 +120,15 @@ public sealed class OwnedWorldLocationDesktopCompositionTests
             "Steward did not confirm this Safe World installation registration.",
             composition,
             StringComparison.Ordinal);
+
+        var reconcile = RequiredIndex(
+            runtime,
+            "await _ownedWorldLocationCatalogReconciler.ReconcileAsync(cancellationToken);");
+        var replay = RequiredIndex(
+            runtime,
+            "await _ownedWorldLocationPublication.ReplayAllAsync(cancellationToken);",
+            reconcile);
+        Assert.True(reconcile < replay);
     }
 
     private static int RequiredIndex(string source, string value, int startIndex = 0)

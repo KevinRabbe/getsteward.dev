@@ -1,4 +1,6 @@
+using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Worlds;
 using SharedWorlds.Infrastructure.Storage;
@@ -7,6 +9,8 @@ namespace SharedWorlds.Infrastructure.Tests;
 
 public sealed class LocalOwnedWorldLocationPublicationJournalTests : IDisposable
 {
+    private const string InstallationId = "desktop-installation-a";
+
     private readonly string _root = Path.Combine(
         Path.GetTempPath(),
         $"sharedworlds-owned-location-journal-tests-{Guid.NewGuid():N}");
@@ -28,7 +32,7 @@ public sealed class LocalOwnedWorldLocationPublicationJournalTests : IDisposable
     }
 
     [Fact]
-    public async Task PublicationState_IsStoredInProtectedEnvelope()
+    public async Task PublicationState_IsStoredInProtectedInstallationBoundEnvelope()
     {
         var journal = new LocalOwnedWorldLocationPublicationJournal(_root);
         var state = CreatePendingPublish();
@@ -41,9 +45,41 @@ public sealed class LocalOwnedWorldLocationPublicationJournalTests : IDisposable
         Assert.Equal(
             "sharedworlds.owned-world-location-publication",
             root.GetProperty("documentType").GetString());
-        Assert.Equal(2, root.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(3, root.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(1, root.GetProperty("integrityVersion").GetInt32());
         Assert.Equal(64, root.GetProperty("contentSha256").GetString()!.Length);
+        Assert.Equal(
+            InstallationId,
+            root.GetProperty("payload").GetProperty("installationId").GetString());
+    }
+
+    [Fact]
+    public async Task UnboundSchemaTwoJournalFailsClosed()
+    {
+        var journal = new LocalOwnedWorldLocationPublicationJournal(_root);
+        var state = CreatePendingPublish();
+        await journal.SaveAsync(state);
+
+        var path = GetPath(state.WorldId);
+        var envelope = JsonNode.Parse(await File.ReadAllTextAsync(path))!.AsObject();
+        const string documentType = "sharedworlds.owned-world-location-publication";
+        const int schemaVersion = 2;
+        var payload = envelope["payload"]!.AsObject();
+        payload.Remove("installationId");
+        envelope["schemaVersion"] = schemaVersion;
+        envelope["contentSha256"] = ComputeContentSha256(
+            documentType,
+            schemaVersion,
+            payload);
+        await File.WriteAllTextAsync(path, envelope.ToJsonString());
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(
+            () => journal.LoadAsync(state.WorldId));
+
+        Assert.Contains(
+            "predates exact installation-ID binding",
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -60,6 +96,7 @@ public sealed class LocalOwnedWorldLocationPublicationJournalTests : IDisposable
             firstEnvironment);
         var state = new OwnedWorldLocationPublicationState(
             worldId,
+            InstallationId,
             newestState,
             newestEnvironment,
             ConfirmedStateRevisionId: null,
@@ -71,6 +108,7 @@ public sealed class LocalOwnedWorldLocationPublicationJournalTests : IDisposable
         var loaded = Assert.IsType<OwnedWorldLocationPublicationState>(
             await journal.LoadAsync(worldId));
 
+        Assert.Equal(InstallationId, loaded.InstallationId);
         Assert.Equal(newestState, loaded.DesiredStateRevisionId);
         Assert.Equal(newestEnvironment, loaded.DesiredEnvironmentRevisionId);
         Assert.Equal(inFlight, loaded.InFlight);
@@ -86,6 +124,7 @@ public sealed class LocalOwnedWorldLocationPublicationJournalTests : IDisposable
         var headEnvironment = RevisionId.New();
         var state = new OwnedWorldLocationPublicationState(
             worldId,
+            InstallationId,
             DesiredStateRevisionId: null,
             DesiredEnvironmentRevisionId: null,
             ConfirmedStateRevisionId: null,
@@ -112,6 +151,7 @@ public sealed class LocalOwnedWorldLocationPublicationJournalTests : IDisposable
     {
         var state = new OwnedWorldLocationPublicationState(
             WorldId.New(),
+            InstallationId,
             RevisionId.New(),
             DesiredEnvironmentRevisionId: null,
             ConfirmedStateRevisionId: null,
@@ -128,12 +168,47 @@ public sealed class LocalOwnedWorldLocationPublicationJournalTests : IDisposable
     }
 
     [Fact]
+    public void InvalidInstallationIdsFailClosedBeforePersistence()
+    {
+        var desiredState = RevisionId.New();
+        var desiredEnvironment = RevisionId.New();
+
+        InvalidDataException Validate(string installationId)
+        {
+            var state = new OwnedWorldLocationPublicationState(
+                WorldId.New(),
+                installationId,
+                desiredState,
+                desiredEnvironment,
+                ConfirmedStateRevisionId: null,
+                ConfirmedEnvironmentRevisionId: null,
+                InFlight: null,
+                DateTimeOffset.UtcNow);
+            return Assert.Throws<InvalidDataException>(state.Validate);
+        }
+
+        Assert.Contains(
+            "durable installation ID",
+            Validate(" ").Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "must not exceed 128",
+            Validate(new string('a', 129)).Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "control characters",
+            Validate("desktop\ninstallation").Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void InFlightExpectationMustMatchConfirmedHead()
     {
         var confirmedState = RevisionId.New();
         var confirmedEnvironment = RevisionId.New();
         var state = new OwnedWorldLocationPublicationState(
             WorldId.New(),
+            InstallationId,
             RevisionId.New(),
             RevisionId.New(),
             confirmedState,
@@ -174,6 +249,7 @@ public sealed class LocalOwnedWorldLocationPublicationJournalTests : IDisposable
     {
         var state = new OwnedWorldLocationPublicationState(
             WorldId.New(),
+            InstallationId,
             DesiredStateRevisionId: null,
             DesiredEnvironmentRevisionId: null,
             ConfirmedStateRevisionId: null,
@@ -192,6 +268,7 @@ public sealed class LocalOwnedWorldLocationPublicationJournalTests : IDisposable
         var confirmedEnvironment = RevisionId.New();
         return new(
             WorldId.New(),
+            InstallationId,
             DesiredStateRevisionId: RevisionId.New(),
             DesiredEnvironmentRevisionId: confirmedEnvironment,
             confirmedState,
@@ -202,6 +279,26 @@ public sealed class LocalOwnedWorldLocationPublicationJournalTests : IDisposable
                 confirmedState,
                 confirmedEnvironment),
             DateTimeOffset.UtcNow);
+    }
+
+    private static string ComputeContentSha256(
+        string documentType,
+        int schemaVersion,
+        JsonNode payload)
+    {
+        using var buffer = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("documentType", documentType);
+            writer.WriteNumber("schemaVersion", schemaVersion);
+            writer.WritePropertyName("payload");
+            payload.WriteTo(writer);
+            writer.WriteEndObject();
+            writer.Flush();
+        }
+
+        return Convert.ToHexString(SHA256.HashData(buffer.ToArray()));
     }
 
     private string GetPath(WorldId worldId)

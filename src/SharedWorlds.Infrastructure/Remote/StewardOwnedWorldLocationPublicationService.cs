@@ -47,7 +47,7 @@ public sealed class StewardOwnedWorldLocationPublicationService
         ArgumentNullException.ThrowIfNull(client);
         _journal = journal;
         _client = client;
-        _utcNow = utcNow ?? static () => DateTimeOffset.UtcNow;
+        _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
     }
 
     public async Task RecordDesiredAsync(

@@ -121,7 +121,7 @@ public sealed class StewardOwnedWorldLocationClientTests
     public async Task UnexpectedAvailabilityCodeFailsClosed()
     {
         using var http = CreateHttp(
-            "{\"code\":\"WorldLocationUpdated\",\"retryable\":false,\"data\":{}}" );
+            "{\"code\":\"WorldLocationUpdated\",\"retryable\":false,\"data\":{}}");
         var client = CreateClient(http);
 
         var exception = await Assert.ThrowsAsync<InvalidDataException>(() =>

@@ -66,10 +66,10 @@ public sealed record RemoteVerifiedPrivateSnapshot(
     VerifiedCachedPackage Package);
 
 /// <summary>
-/// Typed authenticated client for owner-private snapshot transfer. API responses are treated only as
-/// untrusted protocol input: every World/head/adapter/size/hash/manifest/part field is independently
-/// checked before direct object transfer or verified-cache publication. Signed object URLs authorize
-/// bytes but never define snapshot identity.
+/// Typed authenticated client for owner-private snapshot transfer. API responses are untrusted
+/// protocol input: every World/head/adapter/size/hash/manifest/part field is independently checked
+/// before direct transfer or verified-cache publication. Signed URLs authorize bytes but never define
+/// snapshot identity.
 /// </summary>
 public sealed class StewardPrivateSnapshotTransferClient
 {
@@ -127,6 +127,7 @@ public sealed class StewardPrivateSnapshotTransferClient
         Stream statePackage,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(environmentManifest);
         ValidateSnapshotIdentity(
             worldId,
             stateRevisionId,
@@ -154,96 +155,118 @@ public sealed class StewardPrivateSnapshotTransferClient
             statePackage,
             originalPosition,
             cancellationToken);
-        statePackage.Position = originalPosition;
-        var begin = await BeginUploadAsync(
-            worldId,
-            stateRevisionId,
-            environmentRevisionId,
-            gameAdapterId,
-            byteSize,
-            sha256,
-            environmentManifest,
-            cancellationToken);
-        if (begin.TerminalStatus is { } terminal)
+        try
         {
-            return new(
-                terminal,
+            var begin = await BeginUploadAsync(
                 worldId,
                 stateRevisionId,
                 environmentRevisionId,
+                gameAdapterId,
+                byteSize,
+                sha256,
+                environmentManifest,
+                cancellationToken);
+            if (begin.TerminalStatus is { } terminal)
+            {
+                return Result(
+                    terminal,
+                    worldId,
+                    stateRevisionId,
+                    environmentRevisionId,
+                    byteSize,
+                    sha256);
+            }
+
+            var transfer = begin.Transfer
+                ?? throw new InvalidDataException(
+                    "PrivateSnapshotUploadStarted omitted required transfer metadata.");
+            ValidateTransfer(
+                transfer,
+                worldId,
+                stateRevisionId,
+                environmentRevisionId,
+                gameAdapterId,
                 byteSize,
                 sha256);
-        }
 
-        var transfer = begin.Transfer
-            ?? throw new InvalidDataException(
-                "PrivateSnapshotUploadStarted omitted required transfer metadata.");
-        ValidateTransfer(
-            transfer,
-            worldId,
-            stateRevisionId,
-            environmentRevisionId,
-            gameAdapterId,
-            byteSize,
-            sha256);
-
-        var progress = await GetProgressAsync(transfer.TransferId, cancellationToken);
-        ValidateTransfer(
-            progress,
-            worldId,
-            stateRevisionId,
-            environmentRevisionId,
-            gameAdapterId,
-            byteSize,
-            sha256);
-        ValidateCompletedParts(progress);
-
-        if (!progress.ProviderUploadCompleted)
-        {
-            var completed = progress.CompletedParts.ToDictionary(part => part.PartNumber);
-            for (var partNumber = 1; partNumber <= progress.PartCount; partNumber++)
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var expectedPartBytes = ExpectedPartBytes(progress, partNumber);
-                if (completed.ContainsKey(partNumber))
+                var progress = await GetProgressAsync(
+                    transfer.TransferId,
+                    cancellationToken);
+                ValidateTransfer(
+                    progress,
+                    worldId,
+                    stateRevisionId,
+                    environmentRevisionId,
+                    gameAdapterId,
+                    byteSize,
+                    sha256);
+                ValidateCompletedParts(progress);
+
+                if (!progress.ProviderUploadCompleted)
                 {
-                    continue;
+                    var completed = progress.CompletedParts.ToDictionary(part => part.PartNumber);
+                    for (var partNumber = 1; partNumber <= progress.PartCount; partNumber++)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var expectedPartBytes = ExpectedPartBytes(progress, partNumber);
+                        if (completed.ContainsKey(partNumber))
+                        {
+                            continue;
+                        }
+
+                        var authorization = await AuthorizePartAsync(
+                            progress.TransferId,
+                            partNumber,
+                            cancellationToken);
+                        ValidatePartAuthorization(authorization, expectedPartBytes);
+                        statePackage.Position = originalPosition +
+                                                ((long)(partNumber - 1) *
+                                                 progress.PartSizeBytes);
+                        await UploadPartAsync(
+                            statePackage,
+                            expectedPartBytes,
+                            authorization,
+                            cancellationToken);
+                    }
                 }
 
-                var authorization = await AuthorizePartAsync(
+                var finalized = await FinalizeAsync(
                     progress.TransferId,
-                    partNumber,
+                    worldId,
+                    stateRevisionId,
+                    environmentRevisionId,
+                    gameAdapterId,
+                    byteSize,
+                    sha256,
+                    environmentManifest,
                     cancellationToken);
-                ValidatePartAuthorization(authorization, expectedPartBytes);
-                var offset = originalPosition +
-                             ((long)(partNumber - 1) * progress.PartSizeBytes);
-                statePackage.Position = offset;
-                await UploadPartAsync(
-                    statePackage,
-                    expectedPartBytes,
-                    authorization,
-                    cancellationToken);
+                return Result(
+                    finalized,
+                    worldId,
+                    stateRevisionId,
+                    environmentRevisionId,
+                    byteSize,
+                    sha256,
+                    progress.TransferId);
+            }
+            catch (StewardPrivateSnapshotTransferStateException exception)
+            {
+                return Result(
+                    exception.Status,
+                    worldId,
+                    stateRevisionId,
+                    environmentRevisionId,
+                    byteSize,
+                    sha256,
+                    transfer.TransferId);
             }
         }
-
-        var finalized = await FinalizeAsync(
-            progress.TransferId,
-            worldId,
-            stateRevisionId,
-            environmentRevisionId,
-            gameAdapterId,
-            byteSize,
-            sha256,
-            environmentManifest,
-            cancellationToken);
-        return new(
-            finalized,
-            worldId,
-            stateRevisionId,
-            environmentRevisionId,
-            byteSize,
-            sha256,
-            progress.TransferId);
+        finally
+        {
+            statePackage.Position = originalPosition;
+        }
     }
 
     public async Task<RemotePrivateSnapshotDownloadResult> AuthorizeDownloadAsync(
@@ -255,36 +278,41 @@ public sealed class StewardPrivateSnapshotTransferClient
             HttpMethod.Get,
             $"api/v1/private-worlds/{worldId.Value:D}/snapshot-download",
             cancellationToken);
-        var response = await SendApiAsync(request, "private-snapshot-download", cancellationToken);
+        var response = await SendApiAsync(
+            request,
+            "private-snapshot-download",
+            cancellationToken);
         switch (response.Code)
         {
             case "PrivateSnapshotDownloadAuthorized":
-            {
-                var dto = DeserializeRequiredData<DownloadPlanDto>(response);
-                var plan = dto.ToDomain(worldId);
+                RequireStatus(response, HttpStatusCode.OK);
                 return new(
                     RemotePrivateSnapshotDownloadStatus.Authorized,
-                    plan,
+                    DeserializeRequiredData<DownloadPlanDto>(response).ToDomain(worldId),
                     Reason: null);
-            }
             case "PrivateSnapshotNotFound":
+                RequireStatus(response, HttpStatusCode.NotFound);
                 return new(
                     RemotePrivateSnapshotDownloadStatus.NotFoundOrUnauthorized,
                     Plan: null,
                     Reason: null);
             case "PrivateSnapshotUnavailable":
+                RequireStatus(response, HttpStatusCode.Conflict);
                 return ReasonResult(
                     RemotePrivateSnapshotDownloadStatus.Unavailable,
                     response);
             case "PrivateSnapshotAlreadyHere":
+                RequireStatus(response, HttpStatusCode.Conflict);
                 return ReasonResult(
                     RemotePrivateSnapshotDownloadStatus.AlreadyHere,
                     response);
             case "PrivateSnapshotHeadConflict":
+                RequireStatus(response, HttpStatusCode.Conflict);
                 return ReasonResult(
                     RemotePrivateSnapshotDownloadStatus.Conflict,
                     response);
             case "PrivateSnapshotStorageIntegrityFailure":
+                RequireStatus(response, HttpStatusCode.Conflict);
                 return ReasonResult(
                     RemotePrivateSnapshotDownloadStatus.StorageIntegrityFailure,
                     response);
@@ -361,29 +389,45 @@ public sealed class StewardPrivateSnapshotTransferClient
             byteSize,
             sha256,
             environmentManifest));
-        var response = await SendApiAsync(request, "private-snapshot-upload", cancellationToken);
-        return response.Code switch
+        var response = await SendApiAsync(
+            request,
+            "private-snapshot-upload",
+            cancellationToken);
+        switch (response.Code)
         {
-            "PrivateSnapshotUploadStarted" => new(
-                DeserializeRequiredData<TransferDto>(response).ToDomain(),
-                TerminalStatus: null),
-            "PrivateSnapshotAlreadyPublished" => new(
-                Transfer: null,
-                RemotePrivateSnapshotUploadStatus.AlreadyPublished),
-            "PrivateSnapshotNotFound" => new(
-                Transfer: null,
-                RemotePrivateSnapshotUploadStatus.NotFoundOrUnauthorized),
-            "PrivateSnapshotInvalidRequest" => new(
-                Transfer: null,
-                RemotePrivateSnapshotUploadStatus.InvalidRequest),
-            "PrivateSnapshotConflict" => new(
-                Transfer: null,
-                RemotePrivateSnapshotUploadStatus.Conflict),
-            "PrivateSnapshotStorageIntegrityFailure" => new(
-                Transfer: null,
-                RemotePrivateSnapshotUploadStatus.StorageIntegrityFailure),
-            _ => throw CreateUnexpectedResponse(response)
-        };
+            case "PrivateSnapshotUploadStarted":
+                RequireStatus(response, HttpStatusCode.OK);
+                return new(
+                    DeserializeRequiredData<TransferDto>(response).ToDomain(),
+                    TerminalStatus: null);
+            case "PrivateSnapshotAlreadyPublished":
+                RequireStatus(response, HttpStatusCode.OK);
+                return new(
+                    Transfer: null,
+                    RemotePrivateSnapshotUploadStatus.AlreadyPublished);
+            case "PrivateSnapshotNotFound":
+                RequireStatus(response, HttpStatusCode.NotFound);
+                return new(
+                    Transfer: null,
+                    RemotePrivateSnapshotUploadStatus.NotFoundOrUnauthorized);
+            case "PrivateSnapshotInvalidRequest":
+                RequireStatus(response, HttpStatusCode.BadRequest);
+                return new(
+                    Transfer: null,
+                    RemotePrivateSnapshotUploadStatus.InvalidRequest);
+            case "PrivateSnapshotConflict":
+                RequireStatus(response, HttpStatusCode.Conflict);
+                return new(
+                    Transfer: null,
+                    RemotePrivateSnapshotUploadStatus.Conflict);
+            case "PrivateSnapshotStorageIntegrityFailure":
+                RequireStatus(response, HttpStatusCode.Conflict);
+                return new(
+                    Transfer: null,
+                    RemotePrivateSnapshotUploadStatus.StorageIntegrityFailure);
+            default:
+                throw CreateUnexpectedResponse(response);
+        }
     }
 
     private async Task<TransferMetadata> GetProgressAsync(
@@ -395,17 +439,23 @@ public sealed class StewardPrivateSnapshotTransferClient
             HttpMethod.Get,
             $"api/v1/private-snapshot-transfers/{transferId:D}",
             cancellationToken);
-        var response = await SendApiAsync(request, "private-snapshot-progress", cancellationToken);
-        return response.Code switch
+        var response = await SendApiAsync(
+            request,
+            "private-snapshot-progress",
+            cancellationToken);
+        switch (response.Code)
         {
-            "PrivateSnapshotTransferProgress" =>
-                DeserializeRequiredData<TransferDto>(response).ToDomain(),
-            "PrivateSnapshotTransferNotFound" =>
+            case "PrivateSnapshotTransferProgress":
+                RequireStatus(response, HttpStatusCode.OK);
+                return DeserializeRequiredData<TransferDto>(response).ToDomain();
+            case "PrivateSnapshotTransferNotFound":
+                RequireStatus(response, HttpStatusCode.NotFound);
                 throw new StewardPrivateSnapshotTransferStateException(
                     RemotePrivateSnapshotUploadStatus.TransferNotFound,
-                    "Private snapshot transfer disappeared before resume."),
-            _ => throw CreateUnexpectedResponse(response)
-        };
+                    "Private snapshot transfer disappeared before resume.");
+            default:
+                throw CreateUnexpectedResponse(response);
+        }
     }
 
     private async Task<PartAuthorization> AuthorizePartAsync(
@@ -423,30 +473,43 @@ public sealed class StewardPrivateSnapshotTransferClient
             HttpMethod.Post,
             $"api/v1/private-snapshot-transfers/{transferId:D}/parts/{partNumber}/authorization",
             cancellationToken);
-        var response = await SendApiAsync(request, "private-snapshot-part", cancellationToken);
-        return response.Code switch
+        var response = await SendApiAsync(
+            request,
+            "private-snapshot-part",
+            cancellationToken);
+        switch (response.Code)
         {
-            "PrivateSnapshotPartAuthorized" =>
-                DeserializeRequiredData<PartAuthorizationEnvelopeDto>(response)
-                    .Authorization
-                    .ToDomain(),
-            "PrivateSnapshotTransferNotFound" =>
+            case "PrivateSnapshotPartAuthorized":
+            {
+                RequireStatus(response, HttpStatusCode.OK);
+                var envelope = DeserializeRequiredData<PartAuthorizationEnvelopeDto>(response);
+                return (envelope.Authorization
+                        ?? throw new InvalidDataException(
+                            "PrivateSnapshotPartAuthorized omitted required authorization."))
+                    .ToDomain();
+            }
+            case "PrivateSnapshotTransferNotFound":
+                RequireStatus(response, HttpStatusCode.NotFound);
                 throw new StewardPrivateSnapshotTransferStateException(
                     RemotePrivateSnapshotUploadStatus.TransferNotFound,
-                    "Private snapshot transfer disappeared before part authorization."),
-            "PrivateSnapshotTransferNotActive" =>
+                    "Private snapshot transfer disappeared before part authorization.");
+            case "PrivateSnapshotTransferNotActive":
+                RequireStatus(response, HttpStatusCode.Conflict);
                 throw new StewardPrivateSnapshotTransferStateException(
                     RemotePrivateSnapshotUploadStatus.TransferNotActive,
-                    "Private snapshot transfer is no longer active."),
-            "PrivateSnapshotTransferExpired" =>
+                    "Private snapshot transfer is no longer active.");
+            case "PrivateSnapshotTransferExpired":
+                RequireStatus(response, HttpStatusCode.Conflict);
                 throw new StewardPrivateSnapshotTransferStateException(
                     RemotePrivateSnapshotUploadStatus.TransferExpired,
-                    "Private snapshot transfer expired before part authorization."),
-            "PrivateSnapshotPartInvalid" =>
+                    "Private snapshot transfer expired before part authorization.");
+            case "PrivateSnapshotPartInvalid":
+                RequireStatus(response, HttpStatusCode.BadRequest);
                 throw new InvalidDataException(
-                    "Backend rejected a part number derived from its own private transfer metadata."),
-            _ => throw CreateUnexpectedResponse(response)
-        };
+                    "Backend rejected a part number derived from its own private transfer metadata.");
+            default:
+                throw CreateUnexpectedResponse(response);
+        }
     }
 
     private async Task<RemotePrivateSnapshotUploadStatus> FinalizeAsync(
@@ -465,14 +528,16 @@ public sealed class StewardPrivateSnapshotTransferClient
             HttpMethod.Post,
             $"api/v1/private-snapshot-transfers/{transferId:D}/finalize",
             cancellationToken);
-        var response = await SendApiAsync(request, "private-snapshot-finalize", cancellationToken);
+        var response = await SendApiAsync(
+            request,
+            "private-snapshot-finalize",
+            cancellationToken);
         switch (response.Code)
         {
             case "PrivateSnapshotFinalized":
             case "PrivateSnapshotAlreadyFinalized":
-            {
-                var snapshot = DeserializeRequiredData<SnapshotDto>(response);
-                snapshot.ValidateExact(
+                RequireStatus(response, HttpStatusCode.OK);
+                DeserializeRequiredData<SnapshotDto>(response).ValidateExact(
                     worldId,
                     stateRevisionId,
                     environmentRevisionId,
@@ -481,18 +546,23 @@ public sealed class StewardPrivateSnapshotTransferClient
                     sha256,
                     environmentManifest);
                 return RemotePrivateSnapshotUploadStatus.Published;
-            }
             case "PrivateSnapshotTransferNotFound":
+                RequireStatus(response, HttpStatusCode.NotFound);
                 return RemotePrivateSnapshotUploadStatus.TransferNotFound;
             case "PrivateSnapshotTransferNotActive":
+                RequireStatus(response, HttpStatusCode.Conflict);
                 return RemotePrivateSnapshotUploadStatus.TransferNotActive;
             case "PrivateSnapshotTransferExpired":
+                RequireStatus(response, HttpStatusCode.Conflict);
                 return RemotePrivateSnapshotUploadStatus.TransferExpired;
             case "PrivateSnapshotIntegrityMismatch":
+                RequireStatus(response, HttpStatusCode.Conflict);
                 return RemotePrivateSnapshotUploadStatus.IntegrityMismatch;
             case "PrivateSnapshotPublicationBlocked":
+                RequireStatus(response, HttpStatusCode.Conflict);
                 return RemotePrivateSnapshotUploadStatus.PublicationBlocked;
             case "PrivateSnapshotConflict":
+                RequireStatus(response, HttpStatusCode.Conflict);
                 return RemotePrivateSnapshotUploadStatus.SnapshotConflict;
             default:
                 throw CreateUnexpectedResponse(response);
@@ -620,8 +690,21 @@ public sealed class StewardPrivateSnapshotTransferClient
         ApiResponse response)
     {
         var reason = DeserializeRequiredData<ReasonDto>(response).Reason;
-        ValidateText(reason, "Private snapshot reason", 1024);
+        ValidateText(
+            reason,
+            "Private snapshot reason",
+            1024,
+            allowWhitespace: true);
         return new(status, Plan: null, reason);
+    }
+
+    private static void RequireStatus(ApiResponse response, HttpStatusCode expected)
+    {
+        if (response.StatusCode != expected)
+        {
+            throw new InvalidDataException(
+                $"Steward response '{response.Code}' used HTTP {(int)response.StatusCode} instead of expected {(int)expected}.");
+        }
     }
 
     private static void ValidateTransfer(
@@ -776,15 +859,14 @@ public sealed class StewardPrivateSnapshotTransferClient
     }
 
     private static void ValidateText(
-        string value,
+        string? value,
         string name,
         int maximumLength,
         bool allowWhitespace = false)
     {
         if (string.IsNullOrWhiteSpace(value) ||
             value.Length > maximumLength ||
-            value.Any(character => char.IsControl(character) &&
-                                   character is not '\t') ||
+            value.Any(char.IsControl) ||
             !allowWhitespace && value.Any(char.IsWhiteSpace))
         {
             throw new InvalidDataException(
@@ -793,11 +875,12 @@ public sealed class StewardPrivateSnapshotTransferClient
     }
 
     private static bool ManifestEquals(
-        EnvironmentManifest left,
+        EnvironmentManifest? left,
         EnvironmentManifest right)
-        => JsonNode.DeepEquals(
-            JsonSerializer.SerializeToNode(left, JsonOptions),
-            JsonSerializer.SerializeToNode(right, JsonOptions));
+        => left is not null &&
+           JsonNode.DeepEquals(
+               JsonSerializer.SerializeToNode(left, JsonOptions),
+               JsonSerializer.SerializeToNode(right, JsonOptions));
 
     private static async Task<string> ComputeSha256Async(
         Stream package,
@@ -805,21 +888,45 @@ public sealed class StewardPrivateSnapshotTransferClient
         CancellationToken cancellationToken)
     {
         package.Position = originalPosition;
-        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        var buffer = new byte[HashBufferBytes];
-        while (true)
+        try
         {
-            var read = await package.ReadAsync(buffer.AsMemory(), cancellationToken);
-            if (read == 0)
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            var buffer = new byte[HashBufferBytes];
+            while (true)
             {
-                break;
+                var read = await package.ReadAsync(buffer.AsMemory(), cancellationToken);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                hash.AppendData(buffer, 0, read);
             }
 
-            hash.AppendData(buffer, 0, read);
+            return Convert.ToHexString(hash.GetHashAndReset());
         }
-
-        return Convert.ToHexString(hash.GetHashAndReset());
+        finally
+        {
+            package.Position = originalPosition;
+        }
     }
+
+    private static RemotePrivateSnapshotUploadResult Result(
+        RemotePrivateSnapshotUploadStatus status,
+        WorldId worldId,
+        RevisionId stateRevisionId,
+        RevisionId environmentRevisionId,
+        long byteSize,
+        string sha256,
+        Guid? transferId = null)
+        => new(
+            status,
+            worldId,
+            stateRevisionId,
+            environmentRevisionId,
+            byteSize,
+            sha256,
+            transferId);
 
     private static StewardRemoteApiException CreateUnexpectedResponse(ApiResponse response)
         => new(
@@ -927,11 +1034,11 @@ public sealed class StewardPrivateSnapshotTransferClient
     }
 
     private sealed record PartAuthorizationEnvelopeDto(
-        PartAuthorizationDto Authorization);
+        PartAuthorizationDto? Authorization);
 
     private sealed record PartAuthorizationDto(
-        string Uri,
-        string Method,
+        string? Uri,
+        string? Method,
         IReadOnlyDictionary<string, string>? RequiredHeaders,
         DateTimeOffset ExpiresAt,
         long ExpectedByteSize)
@@ -947,19 +1054,24 @@ public sealed class StewardPrivateSnapshotTransferClient
 
             var headers = RequiredHeaders ?? new Dictionary<string, string>();
             ValidateHeaders(headers);
-            return new(parsed, Method, headers, ExpiresAt, ExpectedByteSize);
+            return new(
+                parsed,
+                Method ?? string.Empty,
+                headers,
+                ExpiresAt,
+                ExpectedByteSize);
         }
     }
 
     private sealed record SnapshotDto(
         Guid WorldId,
-        string SourceInstallationId,
+        string? SourceInstallationId,
         Guid StateRevisionId,
         Guid EnvironmentRevisionId,
-        string GameAdapterId,
+        string? GameAdapterId,
         long ExpectedByteSize,
-        string ExpectedSha256,
-        EnvironmentManifest EnvironmentManifest,
+        string? ExpectedSha256,
+        EnvironmentManifest? EnvironmentManifest,
         DateTimeOffset PublishedAt)
     {
         public void ValidateExact(
@@ -974,7 +1086,8 @@ public sealed class StewardPrivateSnapshotTransferClient
             ValidateText(
                 SourceInstallationId,
                 "Source installation ID",
-                OwnedWorldSnapshot.MaximumInstallationIdLength);
+                OwnedWorldSnapshot.MaximumInstallationIdLength,
+                allowWhitespace: true);
             if (WorldId != expectedWorldId.Value ||
                 StateRevisionId != expectedStateRevisionId.Value ||
                 EnvironmentRevisionId != expectedEnvironmentRevisionId.Value ||
@@ -999,53 +1112,56 @@ public sealed class StewardPrivateSnapshotTransferClient
                 expectedStateRevisionId,
                 expectedEnvironmentRevisionId,
                 expectedGameAdapterId,
-                EnvironmentManifest);
+                EnvironmentManifest!);
         }
     }
 
     private sealed record DownloadPlanDto(
         Guid WorldId,
-        string SourceInstallationId,
+        string? SourceInstallationId,
         Guid StateRevisionId,
         Guid EnvironmentRevisionId,
-        string GameAdapterId,
+        string? GameAdapterId,
         long ExpectedByteSize,
-        string ExpectedSha256,
-        EnvironmentManifest EnvironmentManifest,
-        DownloadAuthorizationDto Authorization)
+        string? ExpectedSha256,
+        EnvironmentManifest? EnvironmentManifest,
+        DownloadAuthorizationDto? Authorization)
     {
         public RemotePrivateSnapshotDownloadPlan ToDomain(WorldId requestedWorldId)
         {
             ValidateText(
                 SourceInstallationId,
                 "Source installation ID",
-                OwnedWorldSnapshot.MaximumInstallationIdLength);
-            var stateId = new RevisionId(StateRevisionId);
-            var environmentId = new RevisionId(EnvironmentRevisionId);
+                OwnedWorldSnapshot.MaximumInstallationIdLength,
+                allowWhitespace: true);
             if (WorldId != requestedWorldId.Value ||
                 StateRevisionId == Guid.Empty ||
                 EnvironmentRevisionId == Guid.Empty ||
-                ExpectedByteSize is < 1 or > OwnedWorldSnapshot.MaximumStatePackageByteSize)
+                ExpectedByteSize is < 1 or > OwnedWorldSnapshot.MaximumStatePackageByteSize ||
+                EnvironmentManifest is null ||
+                Authorization is null)
             {
                 throw new InvalidDataException(
                     "Steward returned a private snapshot plan for the wrong or invalid exact identity.");
             }
 
+            var stateId = new RevisionId(StateRevisionId);
+            var environmentId = new RevisionId(EnvironmentRevisionId);
             ValidateSnapshotIdentity(
                 requestedWorldId,
                 stateId,
                 environmentId,
-                GameAdapterId,
+                GameAdapterId ?? string.Empty,
                 EnvironmentManifest);
             var authorization = Authorization.ToDomain(
                 ExpectedByteSize,
-                ExpectedSha256);
+                ExpectedSha256 ?? string.Empty);
             return new(
                 requestedWorldId,
-                SourceInstallationId,
+                SourceInstallationId!,
                 stateId,
                 environmentId,
-                GameAdapterId,
+                GameAdapterId!,
                 ExpectedByteSize,
                 authorization.ExpectedSha256,
                 EnvironmentManifest,
@@ -1054,8 +1170,8 @@ public sealed class StewardPrivateSnapshotTransferClient
     }
 
     private sealed record DownloadAuthorizationDto(
-        string Uri,
-        string Method,
+        string? Uri,
+        string? Method,
         IReadOnlyDictionary<string, string>? RequiredHeaders,
         DateTimeOffset ExpiresAt,
         long ExpectedByteSize)
@@ -1092,7 +1208,7 @@ public sealed class StewardPrivateSnapshotTransferClient
         }
     }
 
-    private sealed record ReasonDto(string Reason);
+    private sealed record ReasonDto(string? Reason);
 
     private sealed class NonOwningReadSegmentStream : Stream
     {
@@ -1154,6 +1270,7 @@ public sealed class StewardPrivateSnapshotTransferClient
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
         protected override void Dispose(bool disposing)
         {
             base.Dispose(disposing);

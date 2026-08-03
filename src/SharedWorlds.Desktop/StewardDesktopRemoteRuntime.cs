@@ -39,6 +39,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         StewardInitialWorldPublisher initialWorldPublisher,
         StewardWorldAccessClient access,
         StewardWorldPlayerPresenceClient playerPresence,
+        StewardOwnedWorldLocationClient ownedWorldLocations,
         UserIdentity user)
     {
         _apiClient = apiClient;
@@ -55,6 +56,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         InitialWorldPublisher = initialWorldPublisher;
         Access = access;
         PlayerPresence = playerPresence;
+        OwnedWorldLocations = ownedWorldLocations;
         User = user;
     }
 
@@ -65,6 +67,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
     public StewardInitialWorldPublisher InitialWorldPublisher { get; }
     public StewardWorldAccessClient Access { get; }
     public StewardWorldPlayerPresenceClient PlayerPresence { get; }
+    public StewardOwnedWorldLocationClient OwnedWorldLocations { get; }
     public UserIdentity User { get; }
 
     public async Task<StewardRemoteWorldMetadata?> GetWorldMetadataAsync(
@@ -127,16 +130,21 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         try
         {
             var sessionClient = new StewardSessionClient(apiClient);
-            accessSession = new StewardAccessSession(
+            var createdAccessSession = new StewardAccessSession(
                 sessionClient,
                 installationId,
                 initialTokens);
+            accessSession = createdAccessSession;
 
             var metadata = new StewardWorldMetadataClient(apiClient);
             var hostPresence = new StewardHostPresenceClient(apiClient);
             var worldCreation = new StewardWorldCreationClient(apiClient);
-            var access = new StewardWorldAccessClient(apiClient, accessSession);
-            var playerPresence = new StewardWorldPlayerPresenceClient(apiClient, accessSession);
+            var access = new StewardWorldAccessClient(apiClient, createdAccessSession);
+            var playerPresence = new StewardWorldPlayerPresenceClient(apiClient, createdAccessSession);
+            var ownedWorldLocations = new StewardOwnedWorldLocationClient(
+                apiClient,
+                async cancellationToken =>
+                    await createdAccessSession.GetAccessTokenAsync(cancellationToken));
             var authority = new StewardAuthorityClient(apiClient);
             var abandon = new StewardReservationAbandonClient(apiClient);
             var packageDownloads = new StewardPackageDownloadClient(apiClient);
@@ -149,7 +157,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 worldCreation,
                 metadata,
                 uploads,
-                accessSession);
+                createdAccessSession);
 
             reservations = new StewardWritableReservationRegistry();
             var managedSessionGate = new ManagedWritableSessionGate();
@@ -157,7 +165,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 metadata,
                 authority,
                 abandon,
-                accessSession,
+                createdAccessSession,
                 recoveryStore,
                 reservations,
                 installationId,
@@ -167,7 +175,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 packages,
                 uploads,
                 authority,
-                accessSession,
+                createdAccessSession,
                 reservations,
                 recoveryStore);
             var lifecycle = new WorldLifecycleService(
@@ -182,7 +190,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 storage,
                 coordinator,
                 abandon,
-                accessSession,
+                createdAccessSession,
                 reservations,
                 recoveryStore,
                 managedSessionGate);
@@ -191,7 +199,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 apiClient,
                 transferClient,
                 reservations,
-                accessSession,
+                createdAccessSession,
                 metadata,
                 hostPresence,
                 coordinator,
@@ -202,6 +210,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 initialWorldPublisher,
                 access,
                 playerPresence,
+                ownedWorldLocations,
                 authenticatedUser);
         }
         catch

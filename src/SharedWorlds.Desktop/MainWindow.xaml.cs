@@ -8,6 +8,7 @@ using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Worlds;
 using SharedWorlds.Infrastructure.Diagnostics;
+using SharedWorlds.Infrastructure.Remote;
 using SharedWorlds.Infrastructure.Sessions;
 using SharedWorlds.Infrastructure.Storage;
 
@@ -17,6 +18,8 @@ public partial class MainWindow : Window
 {
     private readonly IWorldStorage _storage;
     private readonly IOwnedWorldLocationPublicationJournal _ownedWorldLocationPublicationJournal;
+    private readonly StewardOwnedWorldLocationPublicationTrigger _ownedWorldLocationPublicationTrigger;
+    private readonly SemaphoreSlim _ownedWorldLocationPublicationGate = new(1, 1);
     private readonly LocalWorldSessionCoordinator _localSessionCoordinator;
     private readonly ManagedWritableSessionGate _localManagedSessionGate;
     private readonly WorldLifecycleService _lifecycle;
@@ -39,9 +42,16 @@ public partial class MainWindow : Window
         // moves to the Safe World name.
         var sharedWorldsRoot = Path.Combine(GetLocalDataRoot(), "SharedWorlds");
         var storageRoot = Path.Combine(sharedWorldsRoot, "data");
-        _storage = new LocalWorldStorage(storageRoot);
+        var localStorage = new LocalWorldStorage(storageRoot);
         _ownedWorldLocationPublicationJournal =
             new LocalOwnedWorldLocationPublicationJournal(storageRoot);
+        _ownedWorldLocationPublicationTrigger =
+            new StewardOwnedWorldLocationPublicationTrigger(
+                PublishCurrentOwnedWorldLocationsAsync,
+                RecordOwnedWorldLocationPublicationFailure);
+        _storage = new OwnedWorldLocationObservedWorldStorage(
+            localStorage,
+            _ownedWorldLocationPublicationTrigger.Request);
         _workspaceRecoveryStore = new LocalWorkspaceRecoveryStore(storageRoot);
         _localSessionCoordinator = new LocalWorldSessionCoordinator();
         _localManagedSessionGate = new ManagedWritableSessionGate();
@@ -54,7 +64,11 @@ public partial class MainWindow : Window
         _deviceSettingsStore = new DeviceSettingsStore(
             Path.Combine(sharedWorldsRoot, "settings", "device.json"));
 
-        Closed += (_, _) => DisposeRemoteRuntime();
+        Closed += (_, _) =>
+        {
+            _ownedWorldLocationPublicationTrigger.Dispose();
+            DisposeRemoteRuntime();
+        };
         InitializeTray();
     }
 

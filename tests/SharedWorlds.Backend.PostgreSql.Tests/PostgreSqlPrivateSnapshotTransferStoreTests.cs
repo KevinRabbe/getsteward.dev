@@ -55,7 +55,7 @@ public sealed class PostgreSqlPrivateSnapshotTransferStoreTests
                 transferStore.TryCreateAsync(first),
                 transferStore.TryCreateAsync(second));
 
-            Assert.Single(results.Where(result => result));
+            Assert.Single(results, result => result);
             var loaded = Assert.IsType<PrivateSnapshotTransferRecord>(
                 await transferStore.LoadInFlightByObjectKeyAsync(first.ObjectKey));
             Assert.Contains(loaded.Id, new[] { first.Id, second.Id });

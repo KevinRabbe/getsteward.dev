@@ -78,6 +78,19 @@ public sealed class StewardPrivateSnapshotTransferClient
     private const int MaximumHeaderTextLength = 4096;
     private static readonly TimeSpan DefaultPartUploadTimeout = TimeSpan.FromMinutes(30);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly HashSet<string> ForbiddenTransferHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Authorization",
+        "Connection",
+        "Content-Length",
+        "Host",
+        "Proxy-Authorization",
+        "Range",
+        "TE",
+        "Trailer",
+        "Transfer-Encoding",
+        "Upgrade"
+    };
 
     private readonly HttpClient _apiClient;
     private readonly HttpClient _transferClient;
@@ -480,14 +493,14 @@ public sealed class StewardPrivateSnapshotTransferClient
         switch (response.Code)
         {
             case "PrivateSnapshotPartAuthorized":
-            {
-                RequireStatus(response, HttpStatusCode.OK);
-                var envelope = DeserializeRequiredData<PartAuthorizationEnvelopeDto>(response);
-                return (envelope.Authorization
-                        ?? throw new InvalidDataException(
-                            "PrivateSnapshotPartAuthorized omitted required authorization."))
-                    .ToDomain();
-            }
+                {
+                    RequireStatus(response, HttpStatusCode.OK);
+                    var envelope = DeserializeRequiredData<PartAuthorizationEnvelopeDto>(response);
+                    return (envelope.Authorization
+                            ?? throw new InvalidDataException(
+                                "PrivateSnapshotPartAuthorized omitted required authorization."))
+                        .ToDomain();
+                }
             case "PrivateSnapshotTransferNotFound":
                 RequireStatus(response, HttpStatusCode.NotFound);
                 throw new StewardPrivateSnapshotTransferStateException(
@@ -850,6 +863,12 @@ public sealed class StewardPrivateSnapshotTransferClient
         foreach (var header in headers)
         {
             ValidateText(header.Key, "Transfer header name", 256);
+            if (ForbiddenTransferHeaders.Contains(header.Key))
+            {
+                throw new InvalidDataException(
+                    $"Private snapshot authorization attempted to control forbidden header '{header.Key}'.");
+            }
+
             ValidateText(
                 header.Value,
                 "Transfer header value",

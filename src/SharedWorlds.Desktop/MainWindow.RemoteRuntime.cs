@@ -45,6 +45,8 @@ public partial class MainWindow
             _workspaceRecoveryStore,
             CreateDesktopLifecycleObserver());
 
+        StewardDesktopRemoteRuntime? previous = null;
+        var publicationGateHeld = false;
         try
         {
             var registration = await next.OwnedWorldLocations.RegisterCurrentInstallationAsync(
@@ -60,19 +62,34 @@ public partial class MainWindow
                     "Steward did not confirm this Safe World installation registration.");
             }
 
+            // Candidate replay and active-runtime replay share this one gate. Once acquired, no old
+            // runtime can touch the publication journal again before the candidate becomes active.
+            await _ownedWorldLocationPublicationGate.WaitAsync(cancellationToken);
+            publicationGateHeld = true;
             await next.ReconcileAndReplayOwnedWorldLocationsAsync(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
+
+            previous = Interlocked.Exchange(ref _remoteRuntime, next);
+            _lastRemoteWorldLoadError = null;
         }
         catch
         {
             next.Dispose();
             throw;
         }
+        finally
+        {
+            if (publicationGateHeld)
+            {
+                _ownedWorldLocationPublicationGate.Release();
+            }
+        }
 
-        var previous = _remoteRuntime;
-        _remoteRuntime = next;
-        _lastRemoteWorldLoadError = null;
         previous?.Dispose();
+
+        // A local mutation may have completed while the candidate was reconciling. Queue one bounded
+        // pass after the swap so that mutation is observed through the newly active session.
+        _ownedWorldLocationPublicationTrigger.Request();
 
         await RefreshUnifiedWorldsAsync(
             _selectedWorld?.Id,
@@ -264,8 +281,7 @@ public partial class MainWindow
         _remoteWorldIds.Clear();
         _remoteIncompleteWorldIds.Clear();
         _lastRemoteWorldLoadError = null;
-        _remoteRuntime?.Dispose();
-        _remoteRuntime = null;
+        Interlocked.Exchange(ref _remoteRuntime, null)?.Dispose();
     }
 
     private static bool IsRemoteAvailabilityFailure(Exception exception)

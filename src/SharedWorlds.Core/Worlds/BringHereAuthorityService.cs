@@ -2,6 +2,14 @@ using SharedWorlds.Core.Domain;
 
 namespace SharedWorlds.Core.Worlds;
 
+/// <summary>
+/// Bounded private presentation metadata carried with a location claim so another installation can
+/// identify the World before materialization. It is not canonical World state or content authority.
+/// </summary>
+public sealed record OwnedWorldPresentation(
+    string Name,
+    string GameAdapterId);
+
 public sealed record OwnedWorldLocationClaim(
     WorldId WorldId,
     string OwnerProvider,
@@ -9,7 +17,14 @@ public sealed record OwnedWorldLocationClaim(
     string InstallationId,
     RevisionId StateRevisionId,
     RevisionId EnvironmentRevisionId,
-    DateTimeOffset ObservedAt);
+    DateTimeOffset ObservedAt)
+{
+    /// <summary>
+    /// Older persisted claims may not have presentation metadata. Such claims remain valid for exact
+    /// known-World availability checks but are not sufficient for owner-private catalog discovery.
+    /// </summary>
+    public OwnedWorldPresentation? Presentation { get; init; }
+}
 
 public enum BringHereAvailability
 {

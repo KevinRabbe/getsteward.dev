@@ -43,6 +43,29 @@ public partial class MainWindow
             _workspaceRecoveryStore,
             CreateDesktopLifecycleObserver());
 
+        try
+        {
+            var registration = await next.OwnedWorldLocations.RegisterCurrentInstallationAsync(
+                Environment.MachineName,
+                cancellationToken);
+            if (registration.IsConflict ||
+                !string.Equals(
+                    registration.Code,
+                    "InstallationRegistered",
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    "Steward did not confirm this Safe World installation registration.");
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        catch
+        {
+            next.Dispose();
+            throw;
+        }
+
         var previous = _remoteRuntime;
         _remoteRuntime = next;
         _lastRemoteWorldLoadError = null;

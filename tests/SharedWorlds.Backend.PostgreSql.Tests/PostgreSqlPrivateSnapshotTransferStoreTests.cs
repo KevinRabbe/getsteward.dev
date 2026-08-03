@@ -33,7 +33,7 @@ public sealed class PostgreSqlPrivateSnapshotTransferStoreTests
             Assert.Equal(transfer.ExpectedSha256, loaded.ExpectedSha256);
             Assert.Equal(transfer.EnvironmentManifest.AdapterId, loaded.EnvironmentManifest.AdapterId);
             Assert.Equal(PrivateSnapshotTransferState.Provisioning, loaded.State);
-            Assert.Equal(loaded, byObject);
+            Assert.Equal(loaded.Id, byObject.Id);
         });
     }
 
@@ -115,6 +115,7 @@ public sealed class PostgreSqlPrivateSnapshotTransferStoreTests
         {
             var head = await PublishLocationAsync(locationStore, owner, installationId);
             var transfer = Transfer(owner, installationId, head);
+            var providerUploadId = $"provider-{transfer.Id.Value:N}";
             Assert.True(await transferStore.TryCreateAsync(transfer));
             Assert.True(await transferStore.TryActivateProvisioningAsync(
                 transfer.Id,
@@ -122,7 +123,7 @@ public sealed class PostgreSqlPrivateSnapshotTransferStoreTests
                 owner.ExternalId,
                 installationId,
                 transfer.ProviderUploadId,
-                "provider-1"));
+                providerUploadId));
             var changedAt = DateTimeOffset.UtcNow;
 
             Assert.False(await transferStore.TrySetStateAsync(

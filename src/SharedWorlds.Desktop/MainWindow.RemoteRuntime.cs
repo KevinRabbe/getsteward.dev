@@ -94,6 +94,7 @@ public partial class MainWindow
         await RefreshUnifiedWorldsAsync(
             _selectedWorld?.Id,
             preserveStatus: false);
+        await RefreshOwnedPrivateWorldCatalogAsync(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
     }
 

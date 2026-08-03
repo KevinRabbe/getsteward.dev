@@ -11,6 +11,7 @@ public partial class MainWindow
         InitializeUnifiedHostingPreference();
         await LoadDeviceSettingsAsync();
         await InitializeUnifiedGameUiAsync();
+        InitializeOwnedPrivateWorldCatalogRefreshHooks();
         InitializeInstallationAwareWorldActions();
         InitializeWorldSearchUi();
 

@@ -37,6 +37,7 @@ public partial class MainWindow : Window
         InitializeWorldLobbyUi();
         InitializeNativeWorldCreationUi();
         InitializeGameTechnicalReadinessUi();
+        InitializeOwnedPrivateWorldCatalogUi();
 
         // Keep the existing local data root for persistence compatibility while the visible product
         // moves to the Safe World name.
@@ -206,6 +207,7 @@ public partial class MainWindow : Window
         BackToGamesButton.IsEnabled = !isBusy;
         AllowHostingCheckBox.IsEnabled = !isBusy;
         WorldList.IsEnabled = !isBusy;
+        SetOwnedPrivateWorldCatalogBusyState(isBusy);
         UpdateNativeWorldCreationActionState();
         UpdateUnifiedActionState();
         UpdateUnifiedImportActionState();

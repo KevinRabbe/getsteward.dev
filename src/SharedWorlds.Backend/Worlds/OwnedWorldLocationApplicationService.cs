@@ -102,6 +102,9 @@ public sealed class OwnedWorldLocationApplicationService
     private static UserIdentity ToUserIdentity(VerifiedExternalIdentity identity)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        return new UserIdentity(identity.Provider, identity.ExternalId, identity.DisplayName);
+        return new UserIdentity(
+            identity.Subject.Provider,
+            identity.Subject.ExternalId,
+            identity.DisplayName);
     }
 }

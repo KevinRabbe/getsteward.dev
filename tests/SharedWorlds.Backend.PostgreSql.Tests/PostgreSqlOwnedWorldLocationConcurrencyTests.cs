@@ -58,8 +58,12 @@ public sealed class PostgreSqlOwnedWorldLocationConcurrencyTests
                 $"Concurrent publication leaked PostgreSQL error {exception.SqlState}: {exception.MessageText}");
         }
 
-        Assert.Single(results.Where(result => result.Result == OwnedWorldLocationWriteResult.Created));
-        Assert.Single(results.Where(result => result.Result == OwnedWorldLocationWriteResult.Conflict));
+        Assert.Single(
+            results,
+            result => result.Result == OwnedWorldLocationWriteResult.Created);
+        Assert.Single(
+            results,
+            result => result.Result == OwnedWorldLocationWriteResult.Conflict);
         Assert.Single(await store.ListWorldLocationsAsync(
             worldId,
             owner.Provider,

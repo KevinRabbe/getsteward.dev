@@ -7,6 +7,7 @@ using SharedWorlds.Backend.ObjectStorage.S3;
 using SharedWorlds.Backend.PostgreSql;
 using SharedWorlds.Backend.Transfers;
 using SharedWorlds.Backend.Worlds;
+using SharedWorlds.Core.Worlds;
 
 var builder = WebApplication.CreateBuilder(args);
 ConfigureListenPort(builder);
@@ -95,6 +96,9 @@ builder.Services.AddSingleton<ISharedWorldPlayerPresenceStore>(services =>
 builder.Services.AddSingleton<PostgreSqlStewardSessionStore>();
 builder.Services.AddSingleton<IStewardSessionStore>(services =>
     services.GetRequiredService<PostgreSqlStewardSessionStore>());
+builder.Services.AddSingleton<PostgreSqlOwnedWorldLocationStore>();
+builder.Services.AddSingleton<IOwnedWorldLocationStore>(services =>
+    services.GetRequiredService<PostgreSqlOwnedWorldLocationStore>());
 
 builder.Services.AddSingleton<PostgreSqlSharedPackageTransferStore>();
 builder.Services.AddSingleton<ISharedPackageTransferStore>(services =>
@@ -123,6 +127,9 @@ builder.Services.AddSingleton(services =>
 builder.Services.AddSingleton(friendsBuildVerifier);
 builder.Services.AddSingleton(services => new StewardSessionService(
     services.GetRequiredService<IStewardSessionStore>(),
+    () => DateTimeOffset.UtcNow));
+builder.Services.AddSingleton(services => new OwnedWorldLocationApplicationService(
+    services.GetRequiredService<IOwnedWorldLocationStore>(),
     () => DateTimeOffset.UtcNow));
 builder.Services.AddSingleton(services => new SharedWorldMetadataService(
     services.GetRequiredService<ISharedWorldMetadataStore>(),
@@ -186,6 +193,7 @@ var dataSource = app.Services.GetRequiredService<NpgsqlDataSource>();
 await PostgreSqlBackendSchema.InitializeAsync(dataSource);
 await PostgreSqlSharedWorldHostPresenceSchema.InitializeAsync(dataSource);
 await PostgreSqlSharedWorldPlayerPresenceSchema.InitializeAsync(dataSource);
+await app.Services.GetRequiredService<PostgreSqlOwnedWorldLocationStore>().InitializeAsync();
 
 app.UseStewardApiProblemHandling();
 app.MapGet("/health/live", () => Results.Ok(new { status = "live" }));
@@ -198,6 +206,7 @@ app.MapStewardAuthorityApiV1();
 app.MapStewardReservationAbandonApiV1();
 app.MapStewardHostPresenceApiV1();
 app.MapStewardWorldPlayerPresenceApiV1();
+app.MapStewardOwnedWorldLocationApiV1();
 
 await app.RunAsync();
 

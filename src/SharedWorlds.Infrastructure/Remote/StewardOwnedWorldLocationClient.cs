@@ -10,6 +10,11 @@ namespace SharedWorlds.Infrastructure.Remote;
 public sealed class StewardOwnedWorldLocationClient
 {
     private const int MaxResponseBytes = 1024 * 1024;
+    private const int MaxReasonLength = 4096;
+
+    private static readonly JsonSerializerOptions ResponseJsonOptions =
+        new(JsonSerializerDefaults.Web);
+
     private readonly HttpClient _httpClient;
     private readonly Func<CancellationToken, Task<string?>> _accessTokenProvider;
 
@@ -81,6 +86,71 @@ public sealed class StewardOwnedWorldLocationClient
             $"api/v1/private-worlds/{worldId.Value:D}/bring-here",
             body: null,
             cancellationToken);
+
+    public async Task<StewardBringHereResolution> ResolveBringHereAvailabilityAsync(
+        WorldId worldId,
+        CancellationToken cancellationToken = default)
+    {
+        if (worldId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("World ID must not be empty.", nameof(worldId));
+        }
+
+        var response = await ResolveBringHereAsync(worldId, cancellationToken);
+        if (response.IsConflict ||
+            !string.Equals(
+                response.Code,
+                "BringHereAvailability",
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                $"Steward returned unexpected Bring Here response '{response.Code}'.");
+        }
+
+        if (response.Data is not { } data || data.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidDataException(
+                "The Bring Here availability response data is missing or malformed.");
+        }
+
+        BringHereDataWire wire;
+        try
+        {
+            wire = data.Deserialize<BringHereDataWire>(ResponseJsonOptions)
+                ?? throw new InvalidDataException(
+                    "The Bring Here availability response data is missing.");
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException(
+                "The Bring Here availability response data could not be parsed.",
+                exception);
+        }
+
+        if (!Enum.IsDefined(wire.Availability))
+        {
+            throw new InvalidDataException(
+                $"The Bring Here availability value '{wire.Availability}' is unsupported.");
+        }
+
+        var reason = ValidateReason(wire.Reason);
+        var source = wire.Source is null
+            ? null
+            : ValidateLocation(worldId, wire.Source, "source");
+        var conflicts = (wire.ConflictingClaims ?? [])
+            .Select((claim, index) =>
+                ValidateLocation(worldId, claim, $"conflictingClaims[{index}]"))
+            .ToArray();
+
+        ValidateDistinctInstallations(source, conflicts);
+        ValidateAvailabilityShape(wire.Availability, source, conflicts);
+
+        return new StewardBringHereResolution(
+            wire.Availability,
+            source,
+            conflicts,
+            reason);
+    }
 
     private async Task<OwnedWorldLocationTransportResponse> SendAsync(
         HttpMethod method,
@@ -159,6 +229,126 @@ public sealed class StewardOwnedWorldLocationClient
         return await JsonDocument.ParseAsync(buffer, cancellationToken: cancellationToken);
     }
 
+    private static StewardOwnedWorldLocation ValidateLocation(
+        WorldId requestedWorldId,
+        OwnedWorldLocationWire wire,
+        string path)
+    {
+        if (wire.WorldId == Guid.Empty || wire.WorldId != requestedWorldId.Value)
+        {
+            throw new InvalidDataException(
+                $"Bring Here {path} does not reference the requested World.");
+        }
+
+        OwnedWorldLocationPublicationState.ValidateInstallationId(wire.InstallationId);
+        if (wire.StateRevisionId == Guid.Empty || wire.EnvironmentRevisionId == Guid.Empty)
+        {
+            throw new InvalidDataException(
+                $"Bring Here {path} requires non-empty state and environment revision IDs.");
+        }
+
+        if (wire.ObservedAt == default)
+        {
+            throw new InvalidDataException(
+                $"Bring Here {path} requires an observation timestamp.");
+        }
+
+        return new StewardOwnedWorldLocation(
+            requestedWorldId,
+            wire.InstallationId,
+            new RevisionId(wire.StateRevisionId),
+            new RevisionId(wire.EnvironmentRevisionId),
+            wire.ObservedAt);
+    }
+
+    private static string ValidateReason(string? reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new InvalidDataException(
+                "The Bring Here availability response requires a reason.");
+        }
+
+        if (reason.Length > MaxReasonLength || reason.Any(char.IsControl))
+        {
+            throw new InvalidDataException(
+                $"The Bring Here availability reason must be printable and at most {MaxReasonLength} characters.");
+        }
+
+        return reason;
+    }
+
+    private static void ValidateDistinctInstallations(
+        StewardOwnedWorldLocation? source,
+        IReadOnlyList<StewardOwnedWorldLocation> conflicts)
+    {
+        var installationIds = source is null
+            ? conflicts.Select(claim => claim.InstallationId)
+            : conflicts.Select(claim => claim.InstallationId)
+                .Prepend(source.InstallationId);
+        if (installationIds.Distinct(StringComparer.Ordinal).Count() !=
+            installationIds.Count())
+        {
+            throw new InvalidDataException(
+                "The Bring Here availability response contains duplicate installation claims.");
+        }
+    }
+
+    private static void ValidateAvailabilityShape(
+        BringHereAvailability availability,
+        StewardOwnedWorldLocation? source,
+        IReadOnlyList<StewardOwnedWorldLocation> conflicts)
+    {
+        switch (availability)
+        {
+            case BringHereAvailability.Unavailable:
+                if (source is not null || conflicts.Count != 0)
+                {
+                    throw new InvalidDataException(
+                        "Unavailable Bring Here responses cannot contain location claims.");
+                }
+
+                break;
+
+            case BringHereAvailability.Available:
+            case BringHereAvailability.AlreadyHere:
+                if (source is null || conflicts.Count != 0)
+                {
+                    throw new InvalidDataException(
+                        $"{availability} Bring Here responses require one source and no conflicting claims.");
+                }
+
+                break;
+
+            case BringHereAvailability.Conflict:
+                if (source is not null || conflicts.Count < 2)
+                {
+                    throw new InvalidDataException(
+                        "Conflict Bring Here responses require at least two conflicting claims and no selected source.");
+                }
+
+                var distinctHeads = conflicts
+                    .Select(claim => new
+                    {
+                        claim.StateRevisionId,
+                        claim.EnvironmentRevisionId
+                    })
+                    .Distinct()
+                    .Count();
+                if (distinctHeads < 2)
+                {
+                    throw new InvalidDataException(
+                        "Conflict Bring Here responses must contain divergent state/environment heads.");
+                }
+
+                break;
+
+            default:
+                throw new InvalidDataException(
+                    $"Unsupported Bring Here availability '{availability}'.");
+        }
+    }
+
     private static void EnsureExpectedPair(
         RevisionId? expectedStateRevisionId,
         RevisionId? expectedEnvironmentRevisionId)
@@ -169,6 +359,19 @@ public sealed class StewardOwnedWorldLocationClient
                 "Expected state and environment revisions must both be supplied or both be absent.");
         }
     }
+
+    private sealed record BringHereDataWire(
+        BringHereAvailability Availability,
+        OwnedWorldLocationWire? Source,
+        OwnedWorldLocationWire[]? ConflictingClaims,
+        string? Reason);
+
+    private sealed record OwnedWorldLocationWire(
+        Guid WorldId,
+        string InstallationId,
+        Guid StateRevisionId,
+        Guid EnvironmentRevisionId,
+        DateTimeOffset ObservedAt);
 }
 
 public sealed record OwnedWorldLocationTransportResponse(
@@ -179,3 +382,16 @@ public sealed record OwnedWorldLocationTransportResponse(
 {
     public bool IsConflict => StatusCode == HttpStatusCode.Conflict;
 }
+
+public sealed record StewardOwnedWorldLocation(
+    WorldId WorldId,
+    string InstallationId,
+    RevisionId StateRevisionId,
+    RevisionId EnvironmentRevisionId,
+    DateTimeOffset ObservedAt);
+
+public sealed record StewardBringHereResolution(
+    BringHereAvailability Availability,
+    StewardOwnedWorldLocation? Source,
+    IReadOnlyList<StewardOwnedWorldLocation> ConflictingClaims,
+    string Reason);

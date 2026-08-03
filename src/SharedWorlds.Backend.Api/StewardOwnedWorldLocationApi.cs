@@ -70,10 +70,10 @@ public static class StewardOwnedWorldLocationApi
         EnsureExpectedPair(body.ExpectedStateRevisionId, body.ExpectedEnvironmentRevisionId);
         EnsurePresentationPair(body.WorldName, body.GameAdapterId);
 
-        var expectedState = body.ExpectedStateRevisionId is null
+        RevisionId? expectedState = body.ExpectedStateRevisionId is null
             ? null
             : new RevisionId(body.ExpectedStateRevisionId.Value);
-        var expectedEnvironment = body.ExpectedEnvironmentRevisionId is null
+        RevisionId? expectedEnvironment = body.ExpectedEnvironmentRevisionId is null
             ? null
             : new RevisionId(body.ExpectedEnvironmentRevisionId.Value);
         var decision = body.WorldName is null
@@ -242,8 +242,8 @@ public static class StewardOwnedWorldLocationApi
         Guid StateRevisionId,
         Guid EnvironmentRevisionId,
         DateTimeOffset ObservedAt,
-        string? WorldName,
-        string? GameAdapterId);
+        string? WorldName = null,
+        string? GameAdapterId = null);
 
     public sealed record WorldLocationWriteData(
         OwnedWorldLocationWriteResult Result,

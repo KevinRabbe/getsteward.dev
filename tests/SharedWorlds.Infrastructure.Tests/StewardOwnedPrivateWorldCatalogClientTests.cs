@@ -180,7 +180,7 @@ public sealed class StewardOwnedPrivateWorldCatalogClientTests
     private static HttpResponseMessage CatalogResponse(string entries)
         => Json(
             "{\"code\":\"OwnedPrivateWorldCatalog\",\"retryable\":false," +
-            $"\"data\":{{\"worlds\":[{entries}]}}}}" );
+            $"\"data\":{{\"worlds\":[{entries}]}}}}");
 
     private static string Entry(
         WorldId worldId,

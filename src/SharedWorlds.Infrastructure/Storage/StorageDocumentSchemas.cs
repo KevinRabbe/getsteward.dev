@@ -1,5 +1,6 @@
 using System.Text.Json;
 using SharedWorlds.Core.Domain;
+using SharedWorlds.Core.Worlds;
 
 namespace SharedWorlds.Infrastructure.Storage;
 
@@ -60,6 +61,11 @@ internal static class StorageDocumentSchemas
 
     public static readonly PersistedDocumentSchema<WorkspaceRecoveryRecord> WorkspaceRecovery =
         CreateProtected<WorkspaceRecoveryRecord>("sharedworlds.workspace-recovery");
+
+    public static readonly PersistedDocumentSchema<OwnedWorldLocationPublicationState>
+        OwnedWorldLocationPublication =
+            CreateProtected<OwnedWorldLocationPublicationState>(
+                "sharedworlds.owned-world-location-publication");
 
     private static PersistedStateRevision LegacyStateRevision(JsonElement payload)
         => new(

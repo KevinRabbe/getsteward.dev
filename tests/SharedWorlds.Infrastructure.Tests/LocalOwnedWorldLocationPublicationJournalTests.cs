@@ -45,7 +45,7 @@ public sealed class LocalOwnedWorldLocationPublicationJournalTests : IDisposable
         Assert.Equal(
             "sharedworlds.owned-world-location-publication",
             root.GetProperty("documentType").GetString());
-        Assert.Equal(3, root.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(4, root.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(1, root.GetProperty("integrityVersion").GetInt32());
         Assert.Equal(64, root.GetProperty("contentSha256").GetString()!.Length);
         Assert.Equal(

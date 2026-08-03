@@ -56,11 +56,45 @@ public sealed class StewardOwnedWorldLocationPublicationService
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
     }
 
-    public async Task RecordDesiredAsync(
+    public Task RecordDesiredAsync(
         WorldId worldId,
         RevisionId stateRevisionId,
         RevisionId environmentRevisionId,
         CancellationToken cancellationToken = default)
+        => RecordDesiredCoreAsync(
+            worldId,
+            stateRevisionId,
+            environmentRevisionId,
+            presentation: null,
+            preserveExistingPresentation: true,
+            cancellationToken);
+
+    public Task RecordDesiredWithPresentationAsync(
+        WorldId worldId,
+        RevisionId stateRevisionId,
+        RevisionId environmentRevisionId,
+        string worldName,
+        string gameAdapterId,
+        CancellationToken cancellationToken = default)
+    {
+        var presentation = new OwnedWorldPresentation(worldName, gameAdapterId);
+        presentation.Validate();
+        return RecordDesiredCoreAsync(
+            worldId,
+            stateRevisionId,
+            environmentRevisionId,
+            presentation,
+            preserveExistingPresentation: false,
+            cancellationToken);
+    }
+
+    private async Task RecordDesiredCoreAsync(
+        WorldId worldId,
+        RevisionId stateRevisionId,
+        RevisionId environmentRevisionId,
+        OwnedWorldPresentation? presentation,
+        bool preserveExistingPresentation,
+        CancellationToken cancellationToken)
     {
         EnsureNonEmpty(worldId, stateRevisionId, environmentRevisionId);
         var gate = GetGate(_stateGates, worldId);
@@ -69,9 +103,13 @@ public sealed class StewardOwnedWorldLocationPublicationService
         {
             var current = await _journal.LoadAsync(worldId, cancellationToken);
             EnsureCurrentInstallation(current, worldId);
+            var desiredPresentation = preserveExistingPresentation
+                ? current?.DesiredPresentation
+                : presentation;
             if (current is not null &&
                 current.DesiredStateRevisionId == stateRevisionId &&
-                current.DesiredEnvironmentRevisionId == environmentRevisionId)
+                current.DesiredEnvironmentRevisionId == environmentRevisionId &&
+                current.DesiredPresentation == desiredPresentation)
             {
                 return;
             }
@@ -85,11 +123,14 @@ public sealed class StewardOwnedWorldLocationPublicationService
                     ConfirmedStateRevisionId: null,
                     ConfirmedEnvironmentRevisionId: null,
                     InFlight: null,
-                    _utcNow())
+                    _utcNow(),
+                    DesiredPresentation: desiredPresentation,
+                    ConfirmedPresentation: null)
                 : current with
                 {
                     DesiredStateRevisionId = stateRevisionId,
                     DesiredEnvironmentRevisionId = environmentRevisionId,
+                    DesiredPresentation = desiredPresentation,
                     UpdatedAt = _utcNow()
                 };
             await _journal.SaveAsync(updated, cancellationToken);
@@ -118,7 +159,6 @@ public sealed class StewardOwnedWorldLocationPublicationService
 
             if (current.ConfirmedStateRevisionId is null && current.InFlight is null)
             {
-                // No operation was ever staged, so no remote location can exist from this journal.
                 await _journal.RemoveAsync(worldId, cancellationToken);
                 return;
             }
@@ -128,6 +168,7 @@ public sealed class StewardOwnedWorldLocationPublicationService
                 {
                     DesiredStateRevisionId = null,
                     DesiredEnvironmentRevisionId = null,
+                    DesiredPresentation = null,
                     UpdatedAt = _utcNow()
                 },
                 cancellationToken);
@@ -223,8 +264,7 @@ public sealed class StewardOwnedWorldLocationPublicationService
                 return current.InFlight;
             }
 
-            if (current.DesiredStateRevisionId == current.ConfirmedStateRevisionId &&
-                current.DesiredEnvironmentRevisionId == current.ConfirmedEnvironmentRevisionId)
+            if (current.IsSynchronized)
             {
                 return null;
             }
@@ -237,7 +277,8 @@ public sealed class StewardOwnedWorldLocationPublicationService
                     desiredState,
                     desiredEnvironment,
                     current.ConfirmedStateRevisionId,
-                    current.ConfirmedEnvironmentRevisionId);
+                    current.ConfirmedEnvironmentRevisionId,
+                    current.DesiredPresentation);
             }
             else if (current.ConfirmedStateRevisionId is { } confirmedState &&
                      current.ConfirmedEnvironmentRevisionId is { } confirmedEnvironment)
@@ -273,25 +314,35 @@ public sealed class StewardOwnedWorldLocationPublicationService
         CancellationToken cancellationToken)
     {
         operation.Validate();
-        return operation.Kind switch
+        if (operation.Kind == OwnedWorldLocationPublicationOperationKind.Remove)
         {
-            OwnedWorldLocationPublicationOperationKind.Publish =>
-                _client.PublishCurrentLocationAsync(
-                    worldId,
-                    operation.StateRevisionId!.Value,
-                    operation.EnvironmentRevisionId!.Value,
-                    operation.ExpectedStateRevisionId,
-                    operation.ExpectedEnvironmentRevisionId,
-                    cancellationToken),
-            OwnedWorldLocationPublicationOperationKind.Remove =>
-                _client.RemoveCurrentLocationAsync(
-                    worldId,
-                    operation.ExpectedStateRevisionId!.Value,
-                    operation.ExpectedEnvironmentRevisionId!.Value,
-                    cancellationToken),
-            _ => throw new InvalidDataException(
-                $"Unsupported owned-World location publication operation '{operation.Kind}'.")
-        };
+            return _client.RemoveCurrentLocationAsync(
+                worldId,
+                operation.ExpectedStateRevisionId!.Value,
+                operation.ExpectedEnvironmentRevisionId!.Value,
+                cancellationToken);
+        }
+
+        if (operation.Presentation is { } presentation)
+        {
+            return _client.PublishCurrentLocationWithPresentationAsync(
+                worldId,
+                operation.StateRevisionId!.Value,
+                operation.EnvironmentRevisionId!.Value,
+                presentation.Name,
+                presentation.GameAdapterId,
+                operation.ExpectedStateRevisionId,
+                operation.ExpectedEnvironmentRevisionId,
+                cancellationToken);
+        }
+
+        return _client.PublishCurrentLocationAsync(
+            worldId,
+            operation.StateRevisionId!.Value,
+            operation.EnvironmentRevisionId!.Value,
+            operation.ExpectedStateRevisionId,
+            operation.ExpectedEnvironmentRevisionId,
+            cancellationToken);
     }
 
     private static void EnsureSuccessfulResponse(
@@ -361,6 +412,7 @@ public sealed class StewardOwnedWorldLocationPublicationService
                     {
                         ConfirmedStateRevisionId = null,
                         ConfirmedEnvironmentRevisionId = null,
+                        ConfirmedPresentation = null,
                         InFlight = null,
                         UpdatedAt = _utcNow()
                     },
@@ -373,6 +425,7 @@ public sealed class StewardOwnedWorldLocationPublicationService
                 {
                     ConfirmedStateRevisionId = completed.StateRevisionId,
                     ConfirmedEnvironmentRevisionId = completed.EnvironmentRevisionId,
+                    ConfirmedPresentation = completed.Presentation,
                     InFlight = null,
                     UpdatedAt = _utcNow()
                 },

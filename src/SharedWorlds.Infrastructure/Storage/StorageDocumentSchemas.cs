@@ -8,6 +8,23 @@ internal sealed record PersistedStateRevision(
     StateRevision Revision,
     string? PayloadSha256);
 
+internal sealed record OwnedWorldLocationPublicationOperationV3(
+    OwnedWorldLocationPublicationOperationKind Kind,
+    RevisionId? StateRevisionId,
+    RevisionId? EnvironmentRevisionId,
+    RevisionId? ExpectedStateRevisionId,
+    RevisionId? ExpectedEnvironmentRevisionId);
+
+internal sealed record OwnedWorldLocationPublicationStateV3(
+    WorldId WorldId,
+    string InstallationId,
+    RevisionId? DesiredStateRevisionId,
+    RevisionId? DesiredEnvironmentRevisionId,
+    RevisionId? ConfirmedStateRevisionId,
+    RevisionId? ConfirmedEnvironmentRevisionId,
+    OwnedWorldLocationPublicationOperationV3? InFlight,
+    DateTimeOffset UpdatedAt);
+
 internal static class StorageDocumentSchemas
 {
     public static readonly PersistedDocumentSchema<World> World = new(
@@ -16,19 +33,9 @@ internal static class StorageDocumentSchemas
         IntegrityRequiredFromVersion: 2,
         new Dictionary<int, Func<JsonElement, World>>
         {
-            // Schema 0 is the pre-envelope format used by the initial foundation.
-            [0] = payload => PersistedDocumentCodec.DeserializePayload<World>(
-                payload,
-                "sharedworlds.world"),
-            // Schema 1 is the first versioned envelope and predates in-envelope integrity.
-            [1] = payload => PersistedDocumentCodec.DeserializePayload<World>(
-                payload,
-                "sharedworlds.world"),
-            // Schema 2 is integrity-protected but predates bounded named History checkpoints.
-            // The World property's empty default keeps those Worlds compatible.
-            [2] = payload => PersistedDocumentCodec.DeserializePayload<World>(
-                payload,
-                "sharedworlds.world")
+            [0] = payload => PersistedDocumentCodec.DeserializePayload<World>(payload, "sharedworlds.world"),
+            [1] = payload => PersistedDocumentCodec.DeserializePayload<World>(payload, "sharedworlds.world"),
+            [2] = payload => PersistedDocumentCodec.DeserializePayload<World>(payload, "sharedworlds.world")
         });
 
     public static readonly PersistedDocumentSchema<EnvironmentRevision> EnvironmentRevision =
@@ -40,20 +47,10 @@ internal static class StorageDocumentSchemas
         IntegrityRequiredFromVersion: 3,
         new Dictionary<int, Func<JsonElement, PersistedStateRevision>>
         {
-            // Schema 0 is the pre-envelope format used by the initial foundation.
             [0] = payload => LegacyStateRevision(payload),
-            // Schema 1 used the same logical StateRevision payload, before local payload
-            // integrity became a required companion artifact for newly written revisions.
             [1] = payload => LegacyStateRevision(payload),
-            // Schema 2 requires payload.sha256 for payload.bin but predates integrity protection
-            // for revision.json itself.
             [2] = payload => LegacyStateRevision(payload),
-            // Schema 3 protects revision.json itself but still stores payload integrity in the
-            // separate payload.sha256 companion file.
             [3] = payload => LegacyStateRevision(payload),
-            // Schema 4 binds payload integrity inside protected revision metadata but predates the
-            // explicit state -> environment revision association. The nullable domain property keeps
-            // those revisions readable as legacy History entries.
             [4] = payload => PersistedDocumentCodec.DeserializePayload<PersistedStateRevision>(
                 payload,
                 "sharedworlds.state-revision")
@@ -65,14 +62,12 @@ internal static class StorageDocumentSchemas
     public static readonly PersistedDocumentSchema<OwnedWorldLocationPublicationState>
         OwnedWorldLocationPublication = new(
             "sharedworlds.owned-world-location-publication",
-            CurrentVersion: 3,
+            CurrentVersion: 4,
             IntegrityRequiredFromVersion: 2,
             new Dictionary<int, Func<JsonElement, OwnedWorldLocationPublicationState>>
             {
-                // Schema 2 introduced the protected journal but did not bind entries to the
-                // installation identity that scopes every backend CAS. That authority cannot be
-                // inferred safely after a device-identity reset, so old entries fail closed.
-                [2] = RejectUnboundOwnedWorldLocationPublication
+                [2] = RejectUnboundOwnedWorldLocationPublication,
+                [3] = UpgradeInstallationBoundPublicationV3
             });
 
     private static PersistedStateRevision LegacyStateRevision(JsonElement payload)
@@ -87,6 +82,34 @@ internal static class StorageDocumentSchemas
         => throw new InvalidDataException(
             "This owned-World location journal predates exact installation-ID binding and cannot be replayed safely.");
 
+    private static OwnedWorldLocationPublicationState UpgradeInstallationBoundPublicationV3(
+        JsonElement payload)
+    {
+        var legacy = PersistedDocumentCodec.DeserializePayload<OwnedWorldLocationPublicationStateV3>(
+            payload,
+            "sharedworlds.owned-world-location-publication");
+        var inFlight = legacy.InFlight is null
+            ? null
+            : new OwnedWorldLocationPublicationOperation(
+                legacy.InFlight.Kind,
+                legacy.InFlight.StateRevisionId,
+                legacy.InFlight.EnvironmentRevisionId,
+                legacy.InFlight.ExpectedStateRevisionId,
+                legacy.InFlight.ExpectedEnvironmentRevisionId,
+                Presentation: null);
+        return new OwnedWorldLocationPublicationState(
+            legacy.WorldId,
+            legacy.InstallationId,
+            legacy.DesiredStateRevisionId,
+            legacy.DesiredEnvironmentRevisionId,
+            legacy.ConfirmedStateRevisionId,
+            legacy.ConfirmedEnvironmentRevisionId,
+            inFlight,
+            legacy.UpdatedAt,
+            DesiredPresentation: null,
+            ConfirmedPresentation: null);
+    }
+
     private static PersistedDocumentSchema<T> CreateProtected<T>(string documentType)
         => new(
             documentType,
@@ -94,10 +117,7 @@ internal static class StorageDocumentSchemas
             IntegrityRequiredFromVersion: 2,
             new Dictionary<int, Func<JsonElement, T>>
             {
-                // Schema 0 is the pre-envelope format used by the initial foundation.
-                // Its root JSON object is the payload itself.
                 [0] = payload => PersistedDocumentCodec.DeserializePayload<T>(payload, documentType),
-                // Schema 1 is the first versioned envelope and predates in-envelope integrity.
                 [1] = payload => PersistedDocumentCodec.DeserializePayload<T>(payload, documentType)
             });
 }

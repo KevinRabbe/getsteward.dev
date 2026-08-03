@@ -7,8 +7,8 @@ namespace SharedWorlds.Infrastructure.Remote;
 /// <summary>
 /// Derives this installation's desired private World-location claims from canonical local storage.
 /// The reconciler never treats UI state, lifecycle presentation, timestamps, or directory presence as
-/// authority. It records exact state/environment pairs only after their immutable metadata agrees and
-/// the state payload is locally available. Network replay remains a separate operation.
+/// authority. It records exact state/environment pairs and bounded identifying presentation only after
+/// immutable metadata agrees and the state payload is locally available. Network replay is separate.
 /// </summary>
 public sealed class StewardOwnedWorldLocationCatalogReconciler
 {
@@ -68,8 +68,6 @@ public sealed class StewardOwnedWorldLocationCatalogReconciler
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                // Canonical local deletion is definitive. RecordRemovalAsync still preserves any
-                // ambiguous in-flight publish and will force exact reconciliation before deletion.
                 await _publication.RecordRemovalAsync(state.WorldId, cancellationToken);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
@@ -94,8 +92,6 @@ public sealed class StewardOwnedWorldLocationCatalogReconciler
     {
         if (world.SharingMode != WorldSharingMode.LocalOnly)
         {
-            // Local shared records are publication/recovery shadows, not this installation's private
-            // writable authority. A prior private location must therefore be removed exactly.
             await _publication.RecordRemovalAsync(world.Id, cancellationToken);
             return;
         }
@@ -148,16 +144,16 @@ public sealed class StewardOwnedWorldLocationCatalogReconciler
                 state.Id,
                 cancellationToken))
         {
-            // Metadata without payload bytes cannot satisfy Bring Here. This is a definitive local
-            // absence, not corruption, so remove any previously confirmed location claim.
             await _publication.RecordRemovalAsync(world.Id, cancellationToken);
             return;
         }
 
-        await _publication.RecordDesiredAsync(
+        await _publication.RecordDesiredWithPresentationAsync(
             world.Id,
             state.Id,
             environment.Id,
+            world.Name,
+            world.GameAdapterId,
             cancellationToken);
     }
 }

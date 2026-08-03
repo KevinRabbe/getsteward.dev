@@ -41,11 +41,11 @@ public sealed record OwnedWorldLocationPublicationOperation(
         RevisionId expectedStateRevisionId,
         RevisionId expectedEnvironmentRevisionId)
         => new(
-            OwnedWorldLocationPublicationOperationKind.Remove,
+            Kind: OwnedWorldLocationPublicationOperationKind.Remove,
             StateRevisionId: null,
             EnvironmentRevisionId: null,
-            expectedStateRevisionId,
-            expectedEnvironmentRevisionId);
+            ExpectedStateRevisionId: expectedStateRevisionId,
+            ExpectedEnvironmentRevisionId: expectedEnvironmentRevisionId);
 
     public void Validate()
     {
@@ -53,6 +53,10 @@ public sealed record OwnedWorldLocationPublicationOperation(
             ExpectedStateRevisionId,
             ExpectedEnvironmentRevisionId,
             "Expected state and environment revisions");
+        EnsureNonEmpty(StateRevisionId, "State revision");
+        EnsureNonEmpty(EnvironmentRevisionId, "Environment revision");
+        EnsureNonEmpty(ExpectedStateRevisionId, "Expected state revision");
+        EnsureNonEmpty(ExpectedEnvironmentRevisionId, "Expected environment revision");
 
         switch (Kind)
         {
@@ -96,6 +100,14 @@ public sealed record OwnedWorldLocationPublicationOperation(
             throw new InvalidDataException($"{name} must both be present or both be absent.");
         }
     }
+
+    private static void EnsureNonEmpty(RevisionId? revisionId, string name)
+    {
+        if (revisionId is { Value: var value } && value == Guid.Empty)
+        {
+            throw new InvalidDataException($"{name} must not be empty.");
+        }
+    }
 }
 
 /// <summary>
@@ -122,6 +134,11 @@ public sealed record OwnedWorldLocationPublicationState(
 
     public void Validate()
     {
+        if (WorldId.Value == Guid.Empty)
+        {
+            throw new InvalidDataException("Publication state requires a non-empty World ID.");
+        }
+
         EnsurePair(
             DesiredStateRevisionId,
             DesiredEnvironmentRevisionId,
@@ -130,6 +147,10 @@ public sealed record OwnedWorldLocationPublicationState(
             ConfirmedStateRevisionId,
             ConfirmedEnvironmentRevisionId,
             "Confirmed state and environment revisions");
+        EnsureNonEmpty(DesiredStateRevisionId, "Desired state revision");
+        EnsureNonEmpty(DesiredEnvironmentRevisionId, "Desired environment revision");
+        EnsureNonEmpty(ConfirmedStateRevisionId, "Confirmed state revision");
+        EnsureNonEmpty(ConfirmedEnvironmentRevisionId, "Confirmed environment revision");
 
         if (UpdatedAt == default)
         {
@@ -162,6 +183,14 @@ public sealed record OwnedWorldLocationPublicationState(
         if (stateRevisionId.HasValue != environmentRevisionId.HasValue)
         {
             throw new InvalidDataException($"{name} must both be present or both be absent.");
+        }
+    }
+
+    private static void EnsureNonEmpty(RevisionId? revisionId, string name)
+    {
+        if (revisionId is { Value: var value } && value == Guid.Empty)
+        {
+            throw new InvalidDataException($"{name} must not be empty.");
         }
     }
 }

@@ -12,9 +12,7 @@ public static class StewardOwnedWorldLocationApi
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
-        endpoints.MapPut(
-            "/api/v1/installations/current",
-            RegisterInstallationAsync);
+        endpoints.MapPut("/api/v1/installations/current", RegisterInstallationAsync);
         endpoints.MapPut(
             "/api/v1/private-worlds/{worldId:guid}/location",
             PublishLocationAsync);
@@ -69,9 +67,7 @@ public static class StewardOwnedWorldLocationApi
             return StewardApiResults.AuthenticationRequired();
         }
 
-        EnsureExpectedPair(
-            body.ExpectedStateRevisionId,
-            body.ExpectedEnvironmentRevisionId);
+        EnsureExpectedPair(body.ExpectedStateRevisionId, body.ExpectedEnvironmentRevisionId);
         var decision = await locations.PublishCurrentLocationAsync(
             caller,
             new WorldId(worldId),
@@ -93,7 +89,8 @@ public static class StewardOwnedWorldLocationApi
 
     private static async Task<IResult> RemoveLocationAsync(
         Guid worldId,
-        RemoveOwnedWorldLocationRequest body,
+        Guid expectedStateRevisionId,
+        Guid expectedEnvironmentRevisionId,
         HttpRequest request,
         StewardSessionService sessions,
         OwnedWorldLocationApplicationService locations,
@@ -108,8 +105,8 @@ public static class StewardOwnedWorldLocationApi
         var decision = await locations.RemoveCurrentLocationAsync(
             caller,
             new WorldId(worldId),
-            new RevisionId(body.ExpectedStateRevisionId),
-            new RevisionId(body.ExpectedEnvironmentRevisionId),
+            new RevisionId(expectedStateRevisionId),
+            new RevisionId(expectedEnvironmentRevisionId),
             cancellationToken);
         var response = WriteDecisionResponse(decision);
         return decision.Result == OwnedWorldLocationWriteResult.Conflict
@@ -204,10 +201,6 @@ public static class StewardOwnedWorldLocationApi
         Guid EnvironmentRevisionId,
         Guid? ExpectedStateRevisionId = null,
         Guid? ExpectedEnvironmentRevisionId = null);
-
-    public sealed record RemoveOwnedWorldLocationRequest(
-        Guid ExpectedStateRevisionId,
-        Guid ExpectedEnvironmentRevisionId);
 
     public sealed record InstallationData(
         string InstallationId,

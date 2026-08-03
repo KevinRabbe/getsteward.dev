@@ -125,8 +125,8 @@ public partial class MainWindow
         try
         {
             var catalog = await remote.ListOwnedPrivateWorldsAsync(cancellationToken);
-            var materializedWorldIds = _allWorldItems
-                .Select(item => item.World.Id)
+            var materializedWorldIds = (await _storage.ListWorldsAsync(cancellationToken))
+                .Select(world => world.Id)
                 .ToHashSet();
             var items = new List<OwnedPrivateWorldListItem>();
             foreach (var entry in catalog)
@@ -204,6 +204,7 @@ public partial class MainWindow
     {
         _selectedOwnedPrivateWorld = item;
         _selectedWorld = null;
+        _selectedGameAdapterId = null;
         WorldList.SelectedItem = null;
         GameLibraryList.SelectedItem = null;
         WorldDetailsPanel.Visibility = Visibility.Collapsed;

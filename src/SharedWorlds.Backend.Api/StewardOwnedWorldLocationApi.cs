@@ -175,7 +175,7 @@ public static class StewardOwnedWorldLocationApi
             "BringHereAvailability",
             Retryable: false,
             Data: new BringHereData(
-                decision.Availability,
+                (int)decision.Availability,
                 decision.Source is null ? null : ToLocationData(decision.Source),
                 decision.ConflictingClaims.Select(ToLocationData).ToArray(),
                 decision.Reason)));
@@ -187,7 +187,7 @@ public static class StewardOwnedWorldLocationApi
             entry.WorldId.Value,
             entry.Name,
             entry.GameAdapterId,
-            entry.Availability,
+            (int)entry.Availability,
             entry.Source is null ? null : ToLocationData(entry.Source),
             entry.ConflictingClaims.Select(ToLocationData).ToArray(),
             entry.Reason);
@@ -285,7 +285,7 @@ public static class StewardOwnedWorldLocationApi
         Guid WorldId,
         string Name,
         string? GameAdapterId,
-        BringHereAvailability Availability,
+        int Availability,
         OwnedWorldLocationData? Source,
         IReadOnlyList<OwnedWorldLocationData> ConflictingClaims,
         string Reason);
@@ -299,7 +299,7 @@ public static class StewardOwnedWorldLocationApi
         string Reason);
 
     public sealed record BringHereData(
-        BringHereAvailability Availability,
+        int Availability,
         OwnedWorldLocationData? Source,
         IReadOnlyList<OwnedWorldLocationData> ConflictingClaims,
         string Reason);

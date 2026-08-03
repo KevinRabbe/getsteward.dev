@@ -2,6 +2,7 @@ using SharedWorlds.Backend.Identity;
 using SharedWorlds.Backend.Transfers;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
+using SharedWorlds.Core.Worlds;
 
 namespace SharedWorlds.Backend.Api;
 

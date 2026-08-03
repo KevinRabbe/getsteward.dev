@@ -1,3 +1,4 @@
+using System.IO;
 using SharedWorlds.Infrastructure.Diagnostics;
 
 namespace SharedWorlds.Desktop;

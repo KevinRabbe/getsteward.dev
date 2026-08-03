@@ -2,6 +2,7 @@ using Npgsql;
 using SharedWorlds.Backend.PostgreSql;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Worlds;
+using Xunit;
 
 namespace SharedWorlds.Backend.PostgreSql.Tests;
 

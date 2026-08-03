@@ -16,6 +16,7 @@ namespace SharedWorlds.Desktop;
 public partial class MainWindow : Window
 {
     private readonly IWorldStorage _storage;
+    private readonly IOwnedWorldLocationPublicationJournal _ownedWorldLocationPublicationJournal;
     private readonly LocalWorldSessionCoordinator _localSessionCoordinator;
     private readonly ManagedWritableSessionGate _localManagedSessionGate;
     private readonly WorldLifecycleService _lifecycle;
@@ -39,6 +40,8 @@ public partial class MainWindow : Window
         var sharedWorldsRoot = Path.Combine(GetLocalDataRoot(), "SharedWorlds");
         var storageRoot = Path.Combine(sharedWorldsRoot, "data");
         _storage = new LocalWorldStorage(storageRoot);
+        _ownedWorldLocationPublicationJournal =
+            new LocalOwnedWorldLocationPublicationJournal(storageRoot);
         _workspaceRecoveryStore = new LocalWorkspaceRecoveryStore(storageRoot);
         _localSessionCoordinator = new LocalWorldSessionCoordinator();
         _localManagedSessionGate = new ManagedWritableSessionGate();

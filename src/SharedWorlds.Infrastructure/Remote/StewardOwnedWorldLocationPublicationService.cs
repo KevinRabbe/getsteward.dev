@@ -26,6 +26,8 @@ public sealed class StewardOwnedWorldLocationPublicationException : InvalidOpera
 /// Stages and replays exact private World location compare-and-swap operations through Steward. The
 /// journal is always advanced before network access and only acknowledged after a protocol-valid
 /// success, so process death cannot turn an ambiguous remote outcome into a guessed next operation.
+/// Every persisted entry is bound to the exact durable installation ID used by the authenticated
+/// session; a different installation identity can neither mutate nor replay it.
 /// </summary>
 public sealed class StewardOwnedWorldLocationPublicationService
 {
@@ -34,6 +36,7 @@ public sealed class StewardOwnedWorldLocationPublicationService
 
     private readonly IOwnedWorldLocationPublicationJournal _journal;
     private readonly StewardOwnedWorldLocationClient _client;
+    private readonly string _installationId;
     private readonly Func<DateTimeOffset> _utcNow;
     private readonly SemaphoreSlim[] _stateGates = CreateGates();
     private readonly SemaphoreSlim[] _replayGates = CreateGates();
@@ -41,12 +44,15 @@ public sealed class StewardOwnedWorldLocationPublicationService
     public StewardOwnedWorldLocationPublicationService(
         IOwnedWorldLocationPublicationJournal journal,
         StewardOwnedWorldLocationClient client,
+        string installationId,
         Func<DateTimeOffset>? utcNow = null)
     {
         ArgumentNullException.ThrowIfNull(journal);
         ArgumentNullException.ThrowIfNull(client);
+        OwnedWorldLocationPublicationState.ValidateInstallationId(installationId);
         _journal = journal;
         _client = client;
+        _installationId = installationId;
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
     }
 
@@ -62,6 +68,7 @@ public sealed class StewardOwnedWorldLocationPublicationService
         try
         {
             var current = await _journal.LoadAsync(worldId, cancellationToken);
+            EnsureCurrentInstallation(current, worldId);
             if (current is not null &&
                 current.DesiredStateRevisionId == stateRevisionId &&
                 current.DesiredEnvironmentRevisionId == environmentRevisionId)
@@ -72,6 +79,7 @@ public sealed class StewardOwnedWorldLocationPublicationService
             var updated = current is null
                 ? new OwnedWorldLocationPublicationState(
                     worldId,
+                    _installationId,
                     stateRevisionId,
                     environmentRevisionId,
                     ConfirmedStateRevisionId: null,
@@ -102,6 +110,7 @@ public sealed class StewardOwnedWorldLocationPublicationService
         try
         {
             var current = await _journal.LoadAsync(worldId, cancellationToken);
+            EnsureCurrentInstallation(current, worldId);
             if (current is null || current.DesiredStateRevisionId is null)
             {
                 return;
@@ -137,6 +146,7 @@ public sealed class StewardOwnedWorldLocationPublicationService
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
+                EnsureCurrentInstallation(state, state.WorldId);
                 await ReplayAsync(state.WorldId, cancellationToken);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
@@ -202,6 +212,7 @@ public sealed class StewardOwnedWorldLocationPublicationService
         try
         {
             var current = await _journal.LoadAsync(worldId, cancellationToken);
+            EnsureCurrentInstallation(current, worldId);
             if (current is null)
             {
                 return null;
@@ -330,6 +341,7 @@ public sealed class StewardOwnedWorldLocationPublicationService
             var current = await _journal.LoadAsync(worldId, cancellationToken)
                 ?? throw new InvalidDataException(
                     $"Owned-World location journal entry '{worldId}' disappeared during publication.");
+            EnsureCurrentInstallation(current, worldId);
             if (current.InFlight != completed)
             {
                 throw new InvalidDataException(
@@ -369,6 +381,21 @@ public sealed class StewardOwnedWorldLocationPublicationService
         finally
         {
             gate.Release();
+        }
+    }
+
+    private void EnsureCurrentInstallation(
+        OwnedWorldLocationPublicationState? state,
+        WorldId worldId)
+    {
+        if (state is not null &&
+            !string.Equals(
+                state.InstallationId,
+                _installationId,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                $"Owned-World location journal entry '{worldId}' belongs to installation '{state.InstallationId}', not the current installation '{_installationId}'.");
         }
     }
 

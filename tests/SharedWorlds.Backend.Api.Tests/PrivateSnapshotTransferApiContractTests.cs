@@ -129,7 +129,11 @@ public sealed class PrivateSnapshotTransferApiContractTests
             api,
             StringComparison.Ordinal);
         Assert.Contains(
-            "new PrivateSnapshotDownloadData(",
+            "private static PrivateSnapshotDownloadData ToDownloadData(",
+            api,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "plan.Authorization);",
             api,
             StringComparison.Ordinal);
     }

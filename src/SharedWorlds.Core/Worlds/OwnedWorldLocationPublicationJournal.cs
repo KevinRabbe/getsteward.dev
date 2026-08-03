@@ -103,7 +103,7 @@ public sealed record OwnedWorldLocationPublicationOperation(
 
     private static void EnsureNonEmpty(RevisionId? revisionId, string name)
     {
-        if (revisionId is { Value: var value } && value == Guid.Empty)
+        if (revisionId.HasValue && revisionId.Value.Value == Guid.Empty)
         {
             throw new InvalidDataException($"{name} must not be empty.");
         }
@@ -188,7 +188,7 @@ public sealed record OwnedWorldLocationPublicationState(
 
     private static void EnsureNonEmpty(RevisionId? revisionId, string name)
     {
-        if (revisionId is { Value: var value } && value == Guid.Empty)
+        if (revisionId.HasValue && revisionId.Value.Value == Guid.Empty)
         {
             throw new InvalidDataException($"{name} must not be empty.");
         }

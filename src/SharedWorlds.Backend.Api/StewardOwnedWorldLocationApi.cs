@@ -1,4 +1,6 @@
+using Npgsql;
 using SharedWorlds.Backend.Identity;
+using SharedWorlds.Backend.PostgreSql;
 using SharedWorlds.Backend.Worlds;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Worlds;
@@ -13,6 +15,7 @@ public static class StewardOwnedWorldLocationApi
         ArgumentNullException.ThrowIfNull(endpoints);
 
         endpoints.MapPut("/api/v1/installations/current", RegisterInstallationAsync);
+        endpoints.MapGet("/api/v1/private-worlds", ListPrivateWorldCatalogAsync);
         endpoints.MapPut(
             "/api/v1/private-worlds/{worldId:guid}/location",
             PublishLocationAsync);
@@ -51,6 +54,28 @@ public static class StewardOwnedWorldLocationApi
                 registration.DisplayName,
                 registration.RegisteredAt,
                 registration.LastSeenAt)));
+    }
+
+    private static async Task<IResult> ListPrivateWorldCatalogAsync(
+        HttpRequest request,
+        StewardSessionService sessions,
+        NpgsqlDataSource dataSource,
+        CancellationToken cancellationToken)
+    {
+        var caller = await AuthenticateAsync(request, sessions, cancellationToken);
+        if (caller is null)
+        {
+            return StewardApiResults.AuthenticationRequired();
+        }
+
+        var service = new OwnedPrivateWorldCatalogApplicationService(
+            new PostgreSqlOwnedWorldLocationCatalogStore(dataSource));
+        var entries = await service.ListAsync(caller, cancellationToken);
+        return Results.Ok(new OwnedWorldLocationResponse(
+            "OwnedPrivateWorldCatalog",
+            Retryable: false,
+            Data: new OwnedPrivateWorldCatalogData(
+                entries.Select(ToCatalogEntryData).ToArray())));
     }
 
     private static async Task<IResult> PublishLocationAsync(
@@ -156,6 +181,17 @@ public static class StewardOwnedWorldLocationApi
                 decision.Reason)));
     }
 
+    private static OwnedPrivateWorldCatalogEntryData ToCatalogEntryData(
+        OwnedPrivateWorldCatalogEntry entry)
+        => new(
+            entry.WorldId.Value,
+            entry.Name,
+            entry.GameAdapterId,
+            entry.Availability,
+            entry.Source is null ? null : ToLocationData(entry.Source),
+            entry.ConflictingClaims.Select(ToLocationData).ToArray(),
+            entry.Reason);
+
     private static OwnedWorldLocationResponse WriteDecisionResponse(
         OwnedWorldLocationWriteDecision decision)
         => new(
@@ -244,6 +280,18 @@ public static class StewardOwnedWorldLocationApi
         DateTimeOffset ObservedAt,
         string? WorldName = null,
         string? GameAdapterId = null);
+
+    public sealed record OwnedPrivateWorldCatalogEntryData(
+        Guid WorldId,
+        string Name,
+        string? GameAdapterId,
+        BringHereAvailability Availability,
+        OwnedWorldLocationData? Source,
+        IReadOnlyList<OwnedWorldLocationData> ConflictingClaims,
+        string Reason);
+
+    public sealed record OwnedPrivateWorldCatalogData(
+        IReadOnlyList<OwnedPrivateWorldCatalogEntryData> Worlds);
 
     public sealed record WorldLocationWriteData(
         OwnedWorldLocationWriteResult Result,

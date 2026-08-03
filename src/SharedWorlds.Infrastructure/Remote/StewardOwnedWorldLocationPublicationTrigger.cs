@@ -128,7 +128,10 @@ public sealed class StewardOwnedWorldLocationPublicationTrigger : IDisposable
 
             _disposed = true;
             _requested = false;
-            _lifetime.Cancel();
         }
+
+        // Cancellation may run arbitrary continuations synchronously. Never invoke it while holding
+        // the trigger's internal lock.
+        _lifetime.Cancel();
     }
 }

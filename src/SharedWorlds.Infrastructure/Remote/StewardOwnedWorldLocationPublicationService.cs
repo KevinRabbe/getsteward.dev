@@ -102,12 +102,7 @@ public sealed class StewardOwnedWorldLocationPublicationService
         try
         {
             var current = await _journal.LoadAsync(worldId, cancellationToken);
-            if (current is null)
-            {
-                return;
-            }
-
-            if (current.DesiredStateRevisionId is null)
+            if (current is null || current.DesiredStateRevisionId is null)
             {
                 return;
             }
@@ -180,6 +175,16 @@ public sealed class StewardOwnedWorldLocationPublicationService
                 var response = await ExecuteAsync(worldId, operation, cancellationToken);
                 EnsureSuccessfulResponse(worldId, operation, response);
                 await AcknowledgeAsync(worldId, operation, cancellationToken);
+            }
+
+            var remaining = await GetOrStageNextAsync(worldId, cancellationToken);
+            if (remaining is not null)
+            {
+                throw new StewardOwnedWorldLocationPublicationException(
+                    worldId,
+                    "ReplayLimitReached",
+                    retryable: true,
+                    $"Owned-World location publication changed more than {MaxOperationsPerReplay} times during one bounded replay pass. The next exact CAS operation remains journaled.");
             }
         }
         finally

@@ -181,9 +181,17 @@ public sealed class PostgreSqlOwnedWorldLocationStore : IOwnedWorldLocationStore
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(
-            IsolationLevel.Serializable,
+            IsolationLevel.ReadCommitted,
             cancellationToken);
 
+        await AcquireLocationAuthorityLockAsync(
+            connection,
+            transaction,
+            desired.WorldId,
+            desired.OwnerProvider,
+            desired.OwnerExternalId,
+            desired.InstallationId,
+            cancellationToken);
         await EnsureInstallationOwnerAsync(
             connection,
             transaction,
@@ -263,9 +271,17 @@ public sealed class PostgreSqlOwnedWorldLocationStore : IOwnedWorldLocationStore
     {
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(
-            IsolationLevel.Serializable,
+            IsolationLevel.ReadCommitted,
             cancellationToken);
 
+        await AcquireLocationAuthorityLockAsync(
+            connection,
+            transaction,
+            worldId,
+            ownerProvider,
+            ownerExternalId,
+            installationId,
+            cancellationToken);
         await EnsureInstallationOwnerAsync(
             connection,
             transaction,
@@ -320,6 +336,36 @@ public sealed class PostgreSqlOwnedWorldLocationStore : IOwnedWorldLocationStore
             OwnedWorldLocationWriteResult.Updated,
             Current: null,
             "The exact private World location was removed.");
+    }
+
+    private static async Task AcquireLocationAuthorityLockAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        WorldId worldId,
+        string ownerProvider,
+        string ownerExternalId,
+        string installationId,
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT pg_advisory_xact_lock(
+                hashtextextended(
+                    concat_ws(
+                        E'\x1f',
+                        @world_id::text,
+                        @owner_provider,
+                        @owner_external_id,
+                        @installation_id),
+                    0));
+            """;
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
+        AddLocationKeyParameters(
+            command,
+            worldId,
+            ownerProvider,
+            ownerExternalId,
+            installationId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task EnsureInstallationOwnerAsync(

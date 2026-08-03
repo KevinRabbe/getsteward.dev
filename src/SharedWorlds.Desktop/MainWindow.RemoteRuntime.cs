@@ -40,6 +40,8 @@ public partial class MainWindow
             initialTokens,
             authenticatedUser,
             remoteRoot,
+            _storage,
+            _ownedWorldLocationPublicationJournal,
             _workspaceRecoveryStore,
             CreateDesktopLifecycleObserver());
 
@@ -58,6 +60,7 @@ public partial class MainWindow
                     "Steward did not confirm this Safe World installation registration.");
             }
 
+            await next.ReconcileAndReplayOwnedWorldLocationsAsync(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
         }
         catch

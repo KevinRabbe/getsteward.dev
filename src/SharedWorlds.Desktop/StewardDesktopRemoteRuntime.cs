@@ -10,8 +10,8 @@ namespace SharedWorlds.Desktop;
 /// <summary>
 /// Owns the authenticated shared-World runtime used by the Windows desktop after external identity has
 /// already been verified. Once authenticated, all shared World metadata, transfer, authority, commit,
-/// recovery, flat access-management, host-presence, and ephemeral player-presence traffic flows through
-/// remote Infrastructure.
+/// recovery, flat access-management, host-presence, ephemeral player-presence, and private owned-World
+/// location publication traffic flows through remote Infrastructure.
 /// </summary>
 internal sealed class StewardDesktopRemoteRuntime : IDisposable
 {
@@ -22,6 +22,8 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
     private readonly StewardWorldMetadataClient _metadata;
     private readonly StewardHostPresenceClient _hostPresence;
     private readonly StewardWorldSessionCoordinator _coordinator;
+    private readonly StewardOwnedWorldLocationPublicationService _ownedWorldLocationPublication;
+    private readonly StewardOwnedWorldLocationCatalogReconciler _ownedWorldLocationCatalogReconciler;
     private bool _disposed;
 
     private StewardDesktopRemoteRuntime(
@@ -32,6 +34,8 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         StewardWorldMetadataClient metadata,
         StewardHostPresenceClient hostPresence,
         StewardWorldSessionCoordinator coordinator,
+        StewardOwnedWorldLocationPublicationService ownedWorldLocationPublication,
+        StewardOwnedWorldLocationCatalogReconciler ownedWorldLocationCatalogReconciler,
         StewardWorldStorage storage,
         WorldLifecycleService lifecycle,
         CoordinatedWorldJoinService join,
@@ -49,6 +53,8 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         _metadata = metadata;
         _hostPresence = hostPresence;
         _coordinator = coordinator;
+        _ownedWorldLocationPublication = ownedWorldLocationPublication;
+        _ownedWorldLocationCatalogReconciler = ownedWorldLocationCatalogReconciler;
         Storage = storage;
         Lifecycle = lifecycle;
         Join = join;
@@ -69,6 +75,13 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
     public StewardWorldPlayerPresenceClient PlayerPresence { get; }
     public StewardOwnedWorldLocationClient OwnedWorldLocations { get; }
     public UserIdentity User { get; }
+
+    public async Task ReconcileAndReplayOwnedWorldLocationsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await _ownedWorldLocationCatalogReconciler.ReconcileAsync(cancellationToken);
+        await _ownedWorldLocationPublication.ReplayAllAsync(cancellationToken);
+    }
 
     public async Task<StewardRemoteWorldMetadata?> GetWorldMetadataAsync(
         WorldId worldId,
@@ -100,6 +113,8 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         StewardRemoteSessionTokens initialTokens,
         UserIdentity authenticatedUser,
         string dataRoot,
+        IWorldStorage localStorage,
+        IOwnedWorldLocationPublicationJournal ownedWorldLocationPublicationJournal,
         IWorkspaceRecoveryStore recoveryStore,
         IWorldLifecycleObserver lifecycleObserver)
     {
@@ -108,6 +123,8 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         ArgumentNullException.ThrowIfNull(initialTokens);
         ArgumentNullException.ThrowIfNull(authenticatedUser);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataRoot);
+        ArgumentNullException.ThrowIfNull(localStorage);
+        ArgumentNullException.ThrowIfNull(ownedWorldLocationPublicationJournal);
         ArgumentNullException.ThrowIfNull(recoveryStore);
         ArgumentNullException.ThrowIfNull(lifecycleObserver);
 
@@ -145,6 +162,16 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 apiClient,
                 async cancellationToken =>
                     await createdAccessSession.GetAccessTokenAsync(cancellationToken));
+            var ownedWorldLocationPublication =
+                new StewardOwnedWorldLocationPublicationService(
+                    ownedWorldLocationPublicationJournal,
+                    ownedWorldLocations,
+                    installationId);
+            var ownedWorldLocationCatalogReconciler =
+                new StewardOwnedWorldLocationCatalogReconciler(
+                    localStorage,
+                    ownedWorldLocationPublicationJournal,
+                    ownedWorldLocationPublication);
             var authority = new StewardAuthorityClient(apiClient);
             var abandon = new StewardReservationAbandonClient(apiClient);
             var packageDownloads = new StewardPackageDownloadClient(apiClient);
@@ -203,6 +230,8 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 metadata,
                 hostPresence,
                 coordinator,
+                ownedWorldLocationPublication,
+                ownedWorldLocationCatalogReconciler,
                 storage,
                 lifecycle,
                 join,

@@ -99,6 +99,13 @@ builder.Services.AddSingleton<IStewardSessionStore>(services =>
 builder.Services.AddSingleton<PostgreSqlOwnedWorldLocationStore>();
 builder.Services.AddSingleton<IOwnedWorldLocationStore>(services =>
     services.GetRequiredService<PostgreSqlOwnedWorldLocationStore>());
+builder.Services.AddSingleton<PostgreSqlOwnedWorldSnapshotStore>();
+builder.Services.AddSingleton<PostgreSqlBringHereOwnedWorldSnapshotStore>();
+builder.Services.AddSingleton<IOwnedWorldSnapshotStore>(services =>
+    services.GetRequiredService<PostgreSqlBringHereOwnedWorldSnapshotStore>());
+builder.Services.AddSingleton<PostgreSqlPrivateSnapshotTransferStore>();
+builder.Services.AddSingleton<IPrivateSnapshotTransferStore>(services =>
+    services.GetRequiredService<PostgreSqlPrivateSnapshotTransferStore>());
 
 builder.Services.AddSingleton<PostgreSqlSharedPackageTransferStore>();
 builder.Services.AddSingleton<ISharedPackageTransferStore>(services =>
@@ -158,6 +165,12 @@ builder.Services.AddSingleton(services => new SharedPackageTransferService(
     services.GetRequiredService<ISharedPackageTransferStore>(),
     services.GetRequiredService<IPrivateImmutableObjectStore>(),
     () => DateTimeOffset.UtcNow));
+builder.Services.AddSingleton(services => new PrivateSnapshotTransferService(
+    services.GetRequiredService<IOwnedWorldLocationStore>(),
+    services.GetRequiredService<IOwnedWorldSnapshotStore>(),
+    services.GetRequiredService<IPrivateSnapshotTransferStore>(),
+    services.GetRequiredService<IPrivateImmutableObjectStore>(),
+    () => DateTimeOffset.UtcNow));
 
 builder.Services.AddSingleton(new SharedPackageTransferCleanupOptions(
     TimeSpan.FromDays(cleanupVerifiedCandidateRetentionDays),
@@ -194,6 +207,8 @@ await PostgreSqlBackendSchema.InitializeAsync(dataSource);
 await PostgreSqlSharedWorldHostPresenceSchema.InitializeAsync(dataSource);
 await PostgreSqlSharedWorldPlayerPresenceSchema.InitializeAsync(dataSource);
 await app.Services.GetRequiredService<PostgreSqlOwnedWorldLocationStore>().InitializeAsync();
+await app.Services.GetRequiredService<PostgreSqlOwnedWorldSnapshotStore>().InitializeAsync();
+await app.Services.GetRequiredService<PostgreSqlPrivateSnapshotTransferStore>().InitializeAsync();
 
 app.UseStewardApiProblemHandling();
 app.MapGet("/health/live", () => Results.Ok(new { status = "live" }));
@@ -207,6 +222,7 @@ app.MapStewardReservationAbandonApiV1();
 app.MapStewardHostPresenceApiV1();
 app.MapStewardWorldPlayerPresenceApiV1();
 app.MapStewardOwnedWorldLocationApiV1();
+app.MapStewardPrivateSnapshotTransferApiV1();
 
 await app.RunAsync();
 

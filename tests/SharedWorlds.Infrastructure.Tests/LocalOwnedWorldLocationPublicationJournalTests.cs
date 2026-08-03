@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using SharedWorlds.Core.Domain;
@@ -61,8 +62,15 @@ public sealed class LocalOwnedWorldLocationPublicationJournalTests : IDisposable
 
         var path = GetPath(state.WorldId);
         var envelope = JsonNode.Parse(await File.ReadAllTextAsync(path))!.AsObject();
-        envelope["schemaVersion"] = 2;
-        envelope["payload"]!.AsObject().Remove("installationId");
+        const string documentType = "sharedworlds.owned-world-location-publication";
+        const int schemaVersion = 2;
+        var payload = envelope["payload"]!.AsObject();
+        payload.Remove("installationId");
+        envelope["schemaVersion"] = schemaVersion;
+        envelope["contentSha256"] = ComputeContentSha256(
+            documentType,
+            schemaVersion,
+            payload);
         await File.WriteAllTextAsync(path, envelope.ToJsonString());
 
         var exception = await Assert.ThrowsAsync<InvalidDataException>(
@@ -271,6 +279,26 @@ public sealed class LocalOwnedWorldLocationPublicationJournalTests : IDisposable
                 confirmedState,
                 confirmedEnvironment),
             DateTimeOffset.UtcNow);
+    }
+
+    private static string ComputeContentSha256(
+        string documentType,
+        int schemaVersion,
+        JsonNode payload)
+    {
+        using var buffer = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("documentType", documentType);
+            writer.WriteNumber("schemaVersion", schemaVersion);
+            writer.WritePropertyName("payload");
+            payload.WriteTo(writer);
+            writer.WriteEndObject();
+            writer.Flush();
+        }
+
+        return Convert.ToHexString(SHA256.HashData(buffer.ToArray()));
     }
 
     private string GetPath(WorldId worldId)

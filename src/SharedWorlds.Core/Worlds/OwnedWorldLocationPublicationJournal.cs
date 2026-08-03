@@ -111,13 +111,15 @@ public sealed record OwnedWorldLocationPublicationOperation(
 }
 
 /// <summary>
-/// Durable, bounded local publication state for one private World. Desired is the newest local
-/// canonical head (or absent after local removal). Confirmed is the last backend result acknowledged
-/// locally. InFlight is at most one immutable CAS operation and is never replaced by later local head
-/// changes until its outcome has been reconciled.
+/// Durable, bounded local publication state for one private World. The exact durable installation ID
+/// is part of the authority record because every backend CAS is installation-scoped. Desired is the
+/// newest local canonical head (or absent after local removal). Confirmed is the last backend result
+/// acknowledged locally. InFlight is at most one immutable CAS operation and is never replaced by
+/// later local head changes until its outcome has been reconciled.
 /// </summary>
 public sealed record OwnedWorldLocationPublicationState(
     WorldId WorldId,
+    string InstallationId,
     RevisionId? DesiredStateRevisionId,
     RevisionId? DesiredEnvironmentRevisionId,
     RevisionId? ConfirmedStateRevisionId,
@@ -125,6 +127,8 @@ public sealed record OwnedWorldLocationPublicationState(
     OwnedWorldLocationPublicationOperation? InFlight,
     DateTimeOffset UpdatedAt)
 {
+    private const int MaximumInstallationIdLength = 128;
+
     public bool RemovalRequested => DesiredStateRevisionId is null;
 
     public bool IsSynchronized =>
@@ -139,6 +143,7 @@ public sealed record OwnedWorldLocationPublicationState(
             throw new InvalidDataException("Publication state requires a non-empty World ID.");
         }
 
+        ValidateInstallationId(InstallationId);
         EnsurePair(
             DesiredStateRevisionId,
             DesiredEnvironmentRevisionId,
@@ -172,6 +177,27 @@ public sealed record OwnedWorldLocationPublicationState(
         {
             throw new InvalidDataException(
                 "An empty owned-World location publication state has no durable work or evidence.");
+        }
+    }
+
+    public static void ValidateInstallationId(string installationId)
+    {
+        if (string.IsNullOrWhiteSpace(installationId))
+        {
+            throw new InvalidDataException(
+                "Publication state requires a durable installation ID.");
+        }
+
+        if (installationId.Length > MaximumInstallationIdLength)
+        {
+            throw new InvalidDataException(
+                $"Publication-state installation ID must not exceed {MaximumInstallationIdLength} characters.");
+        }
+
+        if (installationId.Any(char.IsControl))
+        {
+            throw new InvalidDataException(
+                "Publication-state installation ID cannot contain control characters.");
         }
     }
 

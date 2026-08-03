@@ -11,7 +11,7 @@ namespace SharedWorlds.Desktop;
 /// Owns the authenticated shared-World runtime used by the Windows desktop after external identity has
 /// already been verified. Once authenticated, all shared World metadata, transfer, authority, commit,
 /// recovery, flat access-management, host-presence, ephemeral player-presence, and private owned-World
-/// location publication traffic flows through remote Infrastructure.
+/// location publication/discovery traffic flows through remote Infrastructure.
 /// </summary>
 internal sealed class StewardDesktopRemoteRuntime : IDisposable
 {
@@ -24,6 +24,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
     private readonly StewardWorldSessionCoordinator _coordinator;
     private readonly StewardOwnedWorldLocationPublicationService _ownedWorldLocationPublication;
     private readonly StewardOwnedWorldLocationCatalogReconciler _ownedWorldLocationCatalogReconciler;
+    private readonly StewardOwnedPrivateWorldCatalogClient _ownedPrivateWorldCatalog;
     private bool _disposed;
 
     private StewardDesktopRemoteRuntime(
@@ -36,6 +37,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         StewardWorldSessionCoordinator coordinator,
         StewardOwnedWorldLocationPublicationService ownedWorldLocationPublication,
         StewardOwnedWorldLocationCatalogReconciler ownedWorldLocationCatalogReconciler,
+        StewardOwnedPrivateWorldCatalogClient ownedPrivateWorldCatalog,
         StewardWorldStorage storage,
         WorldLifecycleService lifecycle,
         CoordinatedWorldJoinService join,
@@ -55,6 +57,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         _coordinator = coordinator;
         _ownedWorldLocationPublication = ownedWorldLocationPublication;
         _ownedWorldLocationCatalogReconciler = ownedWorldLocationCatalogReconciler;
+        _ownedPrivateWorldCatalog = ownedPrivateWorldCatalog;
         Storage = storage;
         Lifecycle = lifecycle;
         Join = join;
@@ -75,6 +78,10 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
     public StewardWorldPlayerPresenceClient PlayerPresence { get; }
     public StewardOwnedWorldLocationClient OwnedWorldLocations { get; }
     public UserIdentity User { get; }
+
+    public Task<IReadOnlyList<StewardOwnedPrivateWorldCatalogEntry>>
+        ListOwnedPrivateWorldsAsync(CancellationToken cancellationToken = default)
+        => _ownedPrivateWorldCatalog.ListAsync(cancellationToken);
 
     public async Task ReconcileAndReplayOwnedWorldLocationsAsync(
         CancellationToken cancellationToken = default)
@@ -158,10 +165,14 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
             var worldCreation = new StewardWorldCreationClient(apiClient);
             var access = new StewardWorldAccessClient(apiClient, createdAccessSession);
             var playerPresence = new StewardWorldPlayerPresenceClient(apiClient, createdAccessSession);
+            async Task<string?> GetAccessTokenAsync(CancellationToken cancellationToken)
+                => await createdAccessSession.GetAccessTokenAsync(cancellationToken);
             var ownedWorldLocations = new StewardOwnedWorldLocationClient(
                 apiClient,
-                async cancellationToken =>
-                    await createdAccessSession.GetAccessTokenAsync(cancellationToken));
+                GetAccessTokenAsync);
+            var ownedPrivateWorldCatalog = new StewardOwnedPrivateWorldCatalogClient(
+                apiClient,
+                GetAccessTokenAsync);
             var ownedWorldLocationPublication =
                 new StewardOwnedWorldLocationPublicationService(
                     ownedWorldLocationPublicationJournal,
@@ -232,6 +243,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 coordinator,
                 ownedWorldLocationPublication,
                 ownedWorldLocationCatalogReconciler,
+                ownedPrivateWorldCatalog,
                 storage,
                 lifecycle,
                 join,

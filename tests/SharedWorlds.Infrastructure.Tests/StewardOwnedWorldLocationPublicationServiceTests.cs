@@ -77,22 +77,24 @@ public sealed class StewardOwnedWorldLocationPublicationServiceTests : IDisposab
     public async Task NewDesiredHeadDoesNotReplaceOperationAlreadyOnTheWire()
     {
         var journal = CreateJournal();
-        var firstRequestStarted = new TaskCompletionSource(
+        var firstRequestStarted = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseFirstRequest = new TaskCompletionSource(
+        var releaseFirstRequest = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var requests = new List<string>();
         using var http = CreateHttp(async (request, cancellationToken) =>
         {
             var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            int requestNumber;
             lock (requests)
             {
                 requests.Add(body);
+                requestNumber = requests.Count;
             }
 
-            if (requests.Count == 1)
+            if (requestNumber == 1)
             {
-                firstRequestStarted.SetResult();
+                firstRequestStarted.SetResult(true);
                 await releaseFirstRequest.Task.WaitAsync(cancellationToken);
                 return Json(HttpStatusCode.OK, "WorldLocationCreated");
             }
@@ -110,7 +112,7 @@ public sealed class StewardOwnedWorldLocationPublicationServiceTests : IDisposab
         var replay = service.ReplayAsync(world);
         await firstRequestStarted.Task;
         await service.RecordDesiredAsync(world, newestState, newestEnvironment);
-        releaseFirstRequest.SetResult();
+        releaseFirstRequest.SetResult(true);
         await replay;
 
         var confirmed = Assert.IsType<OwnedWorldLocationPublicationState>(
@@ -125,6 +127,55 @@ public sealed class StewardOwnedWorldLocationPublicationServiceTests : IDisposab
         Assert.Equal(newestState, confirmed.ConfirmedStateRevisionId);
         Assert.Equal(newestEnvironment, confirmed.ConfirmedEnvironmentRevisionId);
         Assert.True(confirmed.IsSynchronized);
+    }
+
+    [Fact]
+    public async Task ReplayLimitLeavesNextExactOperationStaged()
+    {
+        var journal = CreateJournal();
+        var world = WorldId.New();
+        var heads = Enumerable.Range(0, 5)
+            .Select(_ => (State: RevisionId.New(), Environment: RevisionId.New()))
+            .ToArray();
+        var requestCount = 0;
+        StewardOwnedWorldLocationPublicationService? service = null;
+        using var http = CreateHttp(async (_, cancellationToken) =>
+        {
+            var requestNumber = Interlocked.Increment(ref requestCount);
+            await service!.RecordDesiredAsync(
+                world,
+                heads[requestNumber].State,
+                heads[requestNumber].Environment,
+                cancellationToken);
+            return Json(
+                HttpStatusCode.OK,
+                requestNumber == 1
+                    ? "WorldLocationCreated"
+                    : "WorldLocationUpdated");
+        });
+        service = CreateService(journal, http);
+        await service.RecordDesiredAsync(
+            world,
+            heads[0].State,
+            heads[0].Environment);
+
+        var exception = await Assert.ThrowsAsync<StewardOwnedWorldLocationPublicationException>(
+            () => service.ReplayAsync(world));
+
+        Assert.Equal("ReplayLimitReached", exception.Code);
+        Assert.True(exception.Retryable);
+        Assert.Equal(4, requestCount);
+        var pending = Assert.IsType<OwnedWorldLocationPublicationState>(
+            await journal.LoadAsync(world));
+        Assert.Equal(heads[4].State, pending.DesiredStateRevisionId);
+        Assert.Equal(heads[3].State, pending.ConfirmedStateRevisionId);
+        Assert.Equal(
+            OwnedWorldLocationPublicationOperation.Publish(
+                heads[4].State,
+                heads[4].Environment,
+                heads[3].State,
+                heads[3].Environment),
+            pending.InFlight);
     }
 
     [Fact]
@@ -155,7 +206,7 @@ public sealed class StewardOwnedWorldLocationPublicationServiceTests : IDisposab
 
             await recoveryService.ReplayAsync(world);
 
-            Assert.Equal([HttpMethod.Put, HttpMethod.Delete], methods);
+            Assert.Equal(new[] { HttpMethod.Put, HttpMethod.Delete }, methods);
             Assert.Null(await journal.LoadAsync(world));
         }
     }

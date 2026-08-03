@@ -8,7 +8,43 @@ namespace SharedWorlds.Core.Worlds;
 /// </summary>
 public sealed record OwnedWorldPresentation(
     string Name,
-    string GameAdapterId);
+    string GameAdapterId)
+{
+    public const int MaximumNameLength = 200;
+    public const int MaximumGameAdapterIdLength = 128;
+
+    public void Validate()
+    {
+        ValidateText(Name, "World name", MaximumNameLength);
+        ValidateText(
+            GameAdapterId,
+            "Game adapter ID",
+            MaximumGameAdapterIdLength);
+    }
+
+    private static void ValidateText(
+        string value,
+        string name,
+        int maximumLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new InvalidDataException($"{name} is required.");
+        }
+
+        if (value.Length > maximumLength)
+        {
+            throw new InvalidDataException(
+                $"{name} must not exceed {maximumLength} characters.");
+        }
+
+        if (value.Any(char.IsControl))
+        {
+            throw new InvalidDataException(
+                $"{name} cannot contain control characters.");
+        }
+    }
+}
 
 public sealed record OwnedWorldLocationClaim(
     WorldId WorldId,

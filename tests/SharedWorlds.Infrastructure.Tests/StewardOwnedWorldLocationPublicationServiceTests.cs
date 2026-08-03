@@ -10,6 +10,9 @@ namespace SharedWorlds.Infrastructure.Tests;
 
 public sealed class StewardOwnedWorldLocationPublicationServiceTests : IDisposable
 {
+    private const string InstallationId = "desktop-installation-a";
+    private const string OtherInstallationId = "desktop-installation-b";
+
     private readonly string _root = Path.Combine(
         Path.GetTempPath(),
         $"sharedworlds-owned-location-publication-tests-{Guid.NewGuid():N}");
@@ -36,6 +39,7 @@ public sealed class StewardOwnedWorldLocationPublicationServiceTests : IDisposab
         var pending = Assert.IsType<OwnedWorldLocationPublicationState>(
             await journal.LoadAsync(world));
         Assert.Equal(1, requestCount);
+        Assert.Equal(InstallationId, pending.InstallationId);
         Assert.Null(pending.ConfirmedStateRevisionId);
         Assert.Equal(
             OwnedWorldLocationPublicationOperation.Publish(state, environment),
@@ -67,6 +71,7 @@ public sealed class StewardOwnedWorldLocationPublicationServiceTests : IDisposab
         Assert.Equal(HttpMethod.Put, method);
         Assert.Contains(state.Value.ToString("D"), body, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(environment.Value.ToString("D"), body, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(InstallationId, confirmed.InstallationId);
         Assert.Equal(state, confirmed.ConfirmedStateRevisionId);
         Assert.Equal(environment, confirmed.ConfirmedEnvironmentRevisionId);
         Assert.Null(confirmed.InFlight);
@@ -265,17 +270,99 @@ public sealed class StewardOwnedWorldLocationPublicationServiceTests : IDisposab
         Assert.NotNull(pending.InFlight);
     }
 
+    [Fact]
+    public async Task DifferentInstallationCannotReplayPersistedOperation()
+    {
+        var journal = CreateJournal();
+        var world = WorldId.New();
+        using (var failingHttp = CreateHttp((_, _) =>
+                   throw new HttpRequestException("Leave an exact operation in flight.")))
+        {
+            var owningService = CreateService(journal, failingHttp);
+            await owningService.RecordDesiredAsync(
+                world,
+                RevisionId.New(),
+                RevisionId.New());
+            await Assert.ThrowsAsync<HttpRequestException>(() =>
+                owningService.ReplayAsync(world));
+        }
+
+        var before = Assert.IsType<OwnedWorldLocationPublicationState>(
+            await journal.LoadAsync(world));
+        var requestCount = 0;
+        using var otherHttp = CreateHttp((_, _) =>
+        {
+            requestCount++;
+            throw new InvalidOperationException("Mismatched installation must not use HTTP.");
+        });
+        var otherService = CreateService(
+            journal,
+            otherHttp,
+            OtherInstallationId);
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(
+            () => otherService.ReplayAsync(world));
+
+        Assert.Contains(
+            $"belongs to installation '{InstallationId}'",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"not the current installation '{OtherInstallationId}'",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(0, requestCount);
+        Assert.Equal(before, await journal.LoadAsync(world));
+    }
+
+    [Fact]
+    public async Task DifferentInstallationCannotOverwriteDesiredHead()
+    {
+        var journal = CreateJournal();
+        using var http = CreateHttp((_, _) =>
+            throw new InvalidOperationException("No network access is expected."));
+        var world = WorldId.New();
+        var originalState = RevisionId.New();
+        var originalEnvironment = RevisionId.New();
+        var owningService = CreateService(journal, http);
+        await owningService.RecordDesiredAsync(
+            world,
+            originalState,
+            originalEnvironment);
+        var before = Assert.IsType<OwnedWorldLocationPublicationState>(
+            await journal.LoadAsync(world));
+        var otherService = CreateService(
+            journal,
+            http,
+            OtherInstallationId);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            otherService.RecordDesiredAsync(
+                world,
+                RevisionId.New(),
+                RevisionId.New()));
+
+        var after = Assert.IsType<OwnedWorldLocationPublicationState>(
+            await journal.LoadAsync(world));
+        Assert.Equal(before, after);
+        Assert.Equal(InstallationId, after.InstallationId);
+        Assert.Equal(originalState, after.DesiredStateRevisionId);
+        Assert.Equal(originalEnvironment, after.DesiredEnvironmentRevisionId);
+    }
+
     private LocalOwnedWorldLocationPublicationJournal CreateJournal()
         => new(_root);
 
     private static StewardOwnedWorldLocationPublicationService CreateService(
         IOwnedWorldLocationPublicationJournal journal,
-        HttpClient http)
+        HttpClient http,
+        string installationId = InstallationId)
         => new(
             journal,
             new StewardOwnedWorldLocationClient(
                 http,
                 _ => Task.FromResult<string?>("access-token")),
+            installationId,
             () => new DateTimeOffset(2026, 8, 3, 20, 0, 0, TimeSpan.Zero));
 
     private static HttpClient CreateHttp(

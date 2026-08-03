@@ -2,6 +2,7 @@ using SharedWorlds.Backend.Identity;
 using SharedWorlds.Backend.Worlds;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Worlds;
+using Xunit;
 
 namespace SharedWorlds.Backend.Tests;
 

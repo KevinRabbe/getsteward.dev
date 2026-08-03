@@ -63,9 +63,17 @@ internal static class StorageDocumentSchemas
         CreateProtected<WorkspaceRecoveryRecord>("sharedworlds.workspace-recovery");
 
     public static readonly PersistedDocumentSchema<OwnedWorldLocationPublicationState>
-        OwnedWorldLocationPublication =
-            CreateProtected<OwnedWorldLocationPublicationState>(
-                "sharedworlds.owned-world-location-publication");
+        OwnedWorldLocationPublication = new(
+            "sharedworlds.owned-world-location-publication",
+            CurrentVersion: 3,
+            IntegrityRequiredFromVersion: 2,
+            new Dictionary<int, Func<JsonElement, OwnedWorldLocationPublicationState>>
+            {
+                // Schema 2 introduced the protected journal but did not bind entries to the
+                // installation identity that scopes every backend CAS. That authority cannot be
+                // inferred safely after a device-identity reset, so old entries fail closed.
+                [2] = RejectUnboundOwnedWorldLocationPublication
+            });
 
     private static PersistedStateRevision LegacyStateRevision(JsonElement payload)
         => new(
@@ -73,6 +81,11 @@ internal static class StorageDocumentSchemas
                 payload,
                 "sharedworlds.state-revision"),
             PayloadSha256: null);
+
+    private static OwnedWorldLocationPublicationState RejectUnboundOwnedWorldLocationPublication(
+        JsonElement _)
+        => throw new InvalidDataException(
+            "This owned-World location journal predates exact installation-ID binding and cannot be replayed safely.");
 
     private static PersistedDocumentSchema<T> CreateProtected<T>(string documentType)
         => new(

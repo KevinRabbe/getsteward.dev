@@ -42,7 +42,7 @@ public sealed class OwnedWorldLocationDesktopCompositionTests
     }
 
     [Fact]
-    public void DesktopOwnsOneDurableJournalOutsideCandidateRuntimeLifetime()
+    public void DesktopOwnsOneDurableJournalAndOneBoundedMutationTrigger()
     {
         var window = File.ReadAllText(FindRepositoryFile(
             "src/SharedWorlds.Desktop/MainWindow.xaml.cs"));
@@ -54,17 +54,39 @@ public sealed class OwnedWorldLocationDesktopCompositionTests
             CountOccurrences(
                 window,
                 "new LocalOwnedWorldLocationPublicationJournal("));
+        Assert.Equal(
+            1,
+            CountOccurrences(
+                window,
+                "new StewardOwnedWorldLocationPublicationTrigger("));
+        Assert.Equal(
+            1,
+            CountOccurrences(
+                window,
+                "new OwnedWorldLocationObservedWorldStorage("));
         Assert.Contains(
             "private readonly IOwnedWorldLocationPublicationJournal _ownedWorldLocationPublicationJournal;",
             window,
             StringComparison.Ordinal);
         Assert.Contains(
-            "_ownedWorldLocationPublicationJournal =\n            new LocalOwnedWorldLocationPublicationJournal(storageRoot);",
+            "private readonly StewardOwnedWorldLocationPublicationTrigger _ownedWorldLocationPublicationTrigger;",
+            window,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "private readonly SemaphoreSlim _ownedWorldLocationPublicationGate = new(1, 1);",
+            window,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_storage = new OwnedWorldLocationObservedWorldStorage(\n            localStorage,\n            _ownedWorldLocationPublicationTrigger.Request);",
             window,
             StringComparison.Ordinal);
         Assert.Contains(
             "_storage,\n            _ownedWorldLocationPublicationJournal,\n            _workspaceRecoveryStore,",
             composition,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_ownedWorldLocationPublicationTrigger.Dispose();\n            DisposeRemoteRuntime();",
+            window,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "_ownedWorldLocationPublicationJournal.Dispose",
@@ -73,7 +95,7 @@ public sealed class OwnedWorldLocationDesktopCompositionTests
     }
 
     [Fact]
-    public void RegistrationReconciliationAndReplayCompleteBeforeRuntimeReplacement()
+    public void CandidateReplayAndRuntimeSwapHoldTheSharedPublicationGate()
     {
         var composition = File.ReadAllText(FindRepositoryFile(
             "src/SharedWorlds.Desktop/MainWindow.RemoteRuntime.cs"));
@@ -83,39 +105,64 @@ public sealed class OwnedWorldLocationDesktopCompositionTests
         var create = RequiredIndex(
             composition,
             "var next = StewardDesktopRemoteRuntime.Create(");
-        var registrationTry = RequiredIndex(composition, "        try\n", create);
         var register = RequiredIndex(
             composition,
             "await next.OwnedWorldLocations.RegisterCurrentInstallationAsync(",
-            registrationTry);
-        var machineName = RequiredIndex(composition, "Environment.MachineName", register);
+            create);
         var protocolCheck = RequiredIndex(composition, "registration.IsConflict", register);
+        var gateWait = RequiredIndex(
+            composition,
+            "await _ownedWorldLocationPublicationGate.WaitAsync(cancellationToken);",
+            protocolCheck);
+        var gateHeld = RequiredIndex(
+            composition,
+            "publicationGateHeld = true;",
+            gateWait);
         var reconcileAndReplay = RequiredIndex(
             composition,
             "await next.ReconcileAndReplayOwnedWorldLocationsAsync(cancellationToken);",
-            protocolCheck);
+            gateHeld);
         var cancellationFence = RequiredIndex(
             composition,
             "cancellationToken.ThrowIfCancellationRequested();",
             reconcileAndReplay);
-        var registrationCatch = RequiredIndex(composition, "        catch\n", cancellationFence);
-        var disposeCandidate = RequiredIndex(composition, "next.Dispose();", registrationCatch);
-        var previous = RequiredIndex(composition, "var previous = _remoteRuntime;", disposeCandidate);
-        var activate = RequiredIndex(composition, "_remoteRuntime = next;", previous);
-        var disposePrevious = RequiredIndex(composition, "previous?.Dispose();", activate);
+        var activate = RequiredIndex(
+            composition,
+            "previous = Interlocked.Exchange(ref _remoteRuntime, next);",
+            cancellationFence);
+        var disposeCandidate = RequiredIndex(
+            composition,
+            "next.Dispose();",
+            activate);
+        var releaseGate = RequiredIndex(
+            composition,
+            "_ownedWorldLocationPublicationGate.Release();",
+            disposeCandidate);
+        var disposePrevious = RequiredIndex(
+            composition,
+            "previous?.Dispose();",
+            releaseGate);
+        var followUpRequest = RequiredIndex(
+            composition,
+            "_ownedWorldLocationPublicationTrigger.Request();",
+            disposePrevious);
 
-        Assert.True(create < registrationTry);
-        Assert.True(registrationTry < register);
-        Assert.True(register < machineName);
-        Assert.True(machineName < protocolCheck);
-        Assert.True(protocolCheck < reconcileAndReplay);
+        Assert.True(create < register);
+        Assert.True(register < protocolCheck);
+        Assert.True(protocolCheck < gateWait);
+        Assert.True(gateWait < gateHeld);
+        Assert.True(gateHeld < reconcileAndReplay);
         Assert.True(reconcileAndReplay < cancellationFence);
-        Assert.True(cancellationFence < registrationCatch);
-        Assert.True(registrationCatch < disposeCandidate);
-        Assert.True(disposeCandidate < previous);
-        Assert.True(previous < activate);
-        Assert.True(activate < disposePrevious);
-        Assert.Equal(1, CountOccurrences(composition, "_remoteRuntime = next;"));
+        Assert.True(cancellationFence < activate);
+        Assert.True(activate < disposeCandidate);
+        Assert.True(disposeCandidate < releaseGate);
+        Assert.True(releaseGate < disposePrevious);
+        Assert.True(disposePrevious < followUpRequest);
+        Assert.Equal(
+            1,
+            CountOccurrences(
+                composition,
+                "Interlocked.Exchange(ref _remoteRuntime, next)"));
         Assert.Contains(
             "Steward did not confirm this Safe World installation registration.",
             composition,
@@ -129,6 +176,45 @@ public sealed class OwnedWorldLocationDesktopCompositionTests
             "await _ownedWorldLocationPublication.ReplayAllAsync(cancellationToken);",
             reconcile);
         Assert.True(reconcile < replay);
+    }
+
+    [Fact]
+    public void LivePublicationUsesTheSameGateAndCurrentRuntimeOnly()
+    {
+        var publication = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/MainWindow.OwnedWorldLocationPublication.cs"));
+        var composition = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/MainWindow.RemoteRuntime.cs"));
+
+        var gateWait = RequiredIndex(
+            publication,
+            "await _ownedWorldLocationPublicationGate.WaitAsync(cancellationToken);");
+        var currentRuntime = RequiredIndex(
+            publication,
+            "var remote = Volatile.Read(ref _remoteRuntime);",
+            gateWait);
+        var nullExit = RequiredIndex(publication, "if (remote is null)", currentRuntime);
+        var reconcile = RequiredIndex(
+            publication,
+            "await remote.ReconcileAndReplayOwnedWorldLocationsAsync(cancellationToken);",
+            nullExit);
+        var gateRelease = RequiredIndex(
+            publication,
+            "_ownedWorldLocationPublicationGate.Release();",
+            reconcile);
+
+        Assert.True(gateWait < currentRuntime);
+        Assert.True(currentRuntime < nullExit);
+        Assert.True(nullExit < reconcile);
+        Assert.True(reconcile < gateRelease);
+        Assert.Contains(
+            "Interlocked.Exchange(ref _remoteRuntime, null)?.Dispose();",
+            composition,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Exact pending work remains durable",
+            publication,
+            StringComparison.Ordinal);
     }
 
     private static int RequiredIndex(string source, string value, int startIndex = 0)

@@ -17,24 +17,28 @@ public sealed record OwnedWorldLocationPublicationOperation(
     RevisionId? StateRevisionId,
     RevisionId? EnvironmentRevisionId,
     RevisionId? ExpectedStateRevisionId,
-    RevisionId? ExpectedEnvironmentRevisionId)
+    RevisionId? ExpectedEnvironmentRevisionId,
+    OwnedWorldPresentation? Presentation = null)
 {
     public static OwnedWorldLocationPublicationOperation Publish(
         RevisionId stateRevisionId,
         RevisionId environmentRevisionId,
         RevisionId? expectedStateRevisionId = null,
-        RevisionId? expectedEnvironmentRevisionId = null)
+        RevisionId? expectedEnvironmentRevisionId = null,
+        OwnedWorldPresentation? presentation = null)
     {
         EnsurePair(
             expectedStateRevisionId,
             expectedEnvironmentRevisionId,
             "Expected state and environment revisions");
+        presentation?.Validate();
         return new(
             OwnedWorldLocationPublicationOperationKind.Publish,
             stateRevisionId,
             environmentRevisionId,
             expectedStateRevisionId,
-            expectedEnvironmentRevisionId);
+            expectedEnvironmentRevisionId,
+            presentation);
     }
 
     public static OwnedWorldLocationPublicationOperation Remove(
@@ -45,7 +49,8 @@ public sealed record OwnedWorldLocationPublicationOperation(
             StateRevisionId: null,
             EnvironmentRevisionId: null,
             ExpectedStateRevisionId: expectedStateRevisionId,
-            ExpectedEnvironmentRevisionId: expectedEnvironmentRevisionId);
+            ExpectedEnvironmentRevisionId: expectedEnvironmentRevisionId,
+            Presentation: null);
 
     public void Validate()
     {
@@ -57,6 +62,7 @@ public sealed record OwnedWorldLocationPublicationOperation(
         EnsureNonEmpty(EnvironmentRevisionId, "Environment revision");
         EnsureNonEmpty(ExpectedStateRevisionId, "Expected state revision");
         EnsureNonEmpty(ExpectedEnvironmentRevisionId, "Expected environment revision");
+        Presentation?.Validate();
 
         switch (Kind)
         {
@@ -70,10 +76,12 @@ public sealed record OwnedWorldLocationPublicationOperation(
                 break;
 
             case OwnedWorldLocationPublicationOperationKind.Remove:
-                if (StateRevisionId is not null || EnvironmentRevisionId is not null)
+                if (StateRevisionId is not null ||
+                    EnvironmentRevisionId is not null ||
+                    Presentation is not null)
                 {
                     throw new InvalidDataException(
-                        "A remove operation cannot contain a desired state/environment head.");
+                        "A remove operation cannot contain a desired state/environment head or presentation.");
                 }
 
                 if (ExpectedStateRevisionId is null || ExpectedEnvironmentRevisionId is null)
@@ -113,9 +121,9 @@ public sealed record OwnedWorldLocationPublicationOperation(
 /// <summary>
 /// Durable, bounded local publication state for one private World. The exact durable installation ID
 /// is part of the authority record because every backend CAS is installation-scoped. Desired is the
-/// newest local canonical head (or absent after local removal). Confirmed is the last backend result
-/// acknowledged locally. InFlight is at most one immutable CAS operation and is never replaced by
-/// later local head changes until its outcome has been reconciled.
+/// newest local canonical head and its current bounded presentation (or absent after local removal).
+/// Confirmed is the last backend result acknowledged locally. InFlight is at most one immutable CAS
+/// operation and is never replaced by later local head or presentation changes until reconciled.
 /// </summary>
 public sealed record OwnedWorldLocationPublicationState(
     WorldId WorldId,
@@ -125,7 +133,9 @@ public sealed record OwnedWorldLocationPublicationState(
     RevisionId? ConfirmedStateRevisionId,
     RevisionId? ConfirmedEnvironmentRevisionId,
     OwnedWorldLocationPublicationOperation? InFlight,
-    DateTimeOffset UpdatedAt)
+    DateTimeOffset UpdatedAt,
+    OwnedWorldPresentation? DesiredPresentation = null,
+    OwnedWorldPresentation? ConfirmedPresentation = null)
 {
     private const int MaximumInstallationIdLength = 128;
 
@@ -134,7 +144,8 @@ public sealed record OwnedWorldLocationPublicationState(
     public bool IsSynchronized =>
         InFlight is null &&
         DesiredStateRevisionId == ConfirmedStateRevisionId &&
-        DesiredEnvironmentRevisionId == ConfirmedEnvironmentRevisionId;
+        DesiredEnvironmentRevisionId == ConfirmedEnvironmentRevisionId &&
+        DesiredPresentation == ConfirmedPresentation;
 
     public void Validate()
     {
@@ -156,6 +167,20 @@ public sealed record OwnedWorldLocationPublicationState(
         EnsureNonEmpty(DesiredEnvironmentRevisionId, "Desired environment revision");
         EnsureNonEmpty(ConfirmedStateRevisionId, "Confirmed state revision");
         EnsureNonEmpty(ConfirmedEnvironmentRevisionId, "Confirmed environment revision");
+        DesiredPresentation?.Validate();
+        ConfirmedPresentation?.Validate();
+
+        if (DesiredStateRevisionId is null && DesiredPresentation is not null)
+        {
+            throw new InvalidDataException(
+                "A removal request cannot contain desired World presentation.");
+        }
+
+        if (ConfirmedStateRevisionId is null && ConfirmedPresentation is not null)
+        {
+            throw new InvalidDataException(
+                "Confirmed World presentation requires a confirmed state/environment head.");
+        }
 
         if (UpdatedAt == default)
         {

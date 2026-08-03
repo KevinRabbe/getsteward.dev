@@ -2,6 +2,15 @@ using SharedWorlds.Core.Domain;
 
 namespace SharedWorlds.Core.Worlds;
 
+public interface IOwnedWorldLocationCatalogStore
+{
+    Task<IReadOnlyList<OwnedWorldLocationClaim>> ListOwnerWorldLocationsAsync(
+        string ownerProvider,
+        string ownerExternalId,
+        int maximumClaims,
+        CancellationToken cancellationToken = default);
+}
+
 public sealed record OwnedPrivateWorldCatalogEntry(
     WorldId WorldId,
     string Name,

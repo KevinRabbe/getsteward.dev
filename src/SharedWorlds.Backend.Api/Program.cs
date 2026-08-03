@@ -100,8 +100,9 @@ builder.Services.AddSingleton<PostgreSqlOwnedWorldLocationStore>();
 builder.Services.AddSingleton<IOwnedWorldLocationStore>(services =>
     services.GetRequiredService<PostgreSqlOwnedWorldLocationStore>());
 builder.Services.AddSingleton<PostgreSqlOwnedWorldSnapshotStore>();
+builder.Services.AddSingleton<PostgreSqlBringHereOwnedWorldSnapshotStore>();
 builder.Services.AddSingleton<IOwnedWorldSnapshotStore>(services =>
-    services.GetRequiredService<PostgreSqlOwnedWorldSnapshotStore>());
+    services.GetRequiredService<PostgreSqlBringHereOwnedWorldSnapshotStore>());
 builder.Services.AddSingleton<PostgreSqlPrivateSnapshotTransferStore>();
 builder.Services.AddSingleton<IPrivateSnapshotTransferStore>(services =>
     services.GetRequiredService<PostgreSqlPrivateSnapshotTransferStore>());

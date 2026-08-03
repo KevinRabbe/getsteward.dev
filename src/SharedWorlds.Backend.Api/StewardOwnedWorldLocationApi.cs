@@ -68,18 +68,33 @@ public static class StewardOwnedWorldLocationApi
         }
 
         EnsureExpectedPair(body.ExpectedStateRevisionId, body.ExpectedEnvironmentRevisionId);
-        var decision = await locations.PublishCurrentLocationAsync(
-            caller,
-            new WorldId(worldId),
-            new RevisionId(body.StateRevisionId),
-            new RevisionId(body.EnvironmentRevisionId),
-            body.ExpectedStateRevisionId is null
-                ? null
-                : new RevisionId(body.ExpectedStateRevisionId.Value),
-            body.ExpectedEnvironmentRevisionId is null
-                ? null
-                : new RevisionId(body.ExpectedEnvironmentRevisionId.Value),
-            cancellationToken);
+        EnsurePresentationPair(body.WorldName, body.GameAdapterId);
+
+        RevisionId? expectedState = body.ExpectedStateRevisionId is null
+            ? null
+            : new RevisionId(body.ExpectedStateRevisionId.Value);
+        RevisionId? expectedEnvironment = body.ExpectedEnvironmentRevisionId is null
+            ? null
+            : new RevisionId(body.ExpectedEnvironmentRevisionId.Value);
+        var decision = body.WorldName is null
+            ? await locations.PublishCurrentLocationAsync(
+                caller,
+                new WorldId(worldId),
+                new RevisionId(body.StateRevisionId),
+                new RevisionId(body.EnvironmentRevisionId),
+                expectedState,
+                expectedEnvironment,
+                cancellationToken)
+            : await locations.PublishCurrentLocationWithPresentationAsync(
+                caller,
+                new WorldId(worldId),
+                new RevisionId(body.StateRevisionId),
+                new RevisionId(body.EnvironmentRevisionId),
+                body.WorldName,
+                body.GameAdapterId!,
+                expectedState,
+                expectedEnvironment,
+                cancellationToken);
 
         var response = WriteDecisionResponse(decision);
         return decision.Result == OwnedWorldLocationWriteResult.Conflict
@@ -165,7 +180,9 @@ public static class StewardOwnedWorldLocationApi
             claim.InstallationId,
             claim.StateRevisionId.Value,
             claim.EnvironmentRevisionId.Value,
-            claim.ObservedAt);
+            claim.ObservedAt,
+            claim.Presentation?.Name,
+            claim.Presentation?.GameAdapterId);
 
     private static void EnsureExpectedPair(Guid? state, Guid? environment)
     {
@@ -173,6 +190,15 @@ public static class StewardOwnedWorldLocationApi
         {
             throw new ArgumentException(
                 "Expected state and environment revisions must both be supplied or both be absent.");
+        }
+    }
+
+    private static void EnsurePresentationPair(string? worldName, string? gameAdapterId)
+    {
+        if ((worldName is null) != (gameAdapterId is null))
+        {
+            throw new ArgumentException(
+                "World name and game adapter ID must both be supplied or both be absent.");
         }
     }
 
@@ -200,7 +226,9 @@ public static class StewardOwnedWorldLocationApi
         Guid StateRevisionId,
         Guid EnvironmentRevisionId,
         Guid? ExpectedStateRevisionId = null,
-        Guid? ExpectedEnvironmentRevisionId = null);
+        Guid? ExpectedEnvironmentRevisionId = null,
+        string? WorldName = null,
+        string? GameAdapterId = null);
 
     public sealed record InstallationData(
         string InstallationId,
@@ -213,7 +241,9 @@ public static class StewardOwnedWorldLocationApi
         string InstallationId,
         Guid StateRevisionId,
         Guid EnvironmentRevisionId,
-        DateTimeOffset ObservedAt);
+        DateTimeOffset ObservedAt,
+        string? WorldName = null,
+        string? GameAdapterId = null);
 
     public sealed record WorldLocationWriteData(
         OwnedWorldLocationWriteResult Result,

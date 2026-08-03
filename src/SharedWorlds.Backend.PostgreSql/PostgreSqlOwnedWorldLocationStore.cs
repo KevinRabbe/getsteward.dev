@@ -50,6 +50,8 @@ public sealed class PostgreSqlOwnedWorldLocationStore : IOwnedWorldLocationStore
                 state_revision_id uuid NOT NULL,
                 environment_revision_id uuid NOT NULL,
                 observed_at timestamptz NOT NULL,
+                world_name text NULL,
+                game_adapter_id text NULL,
                 PRIMARY KEY (world_id, owner_provider, owner_external_id, installation_id),
                 CONSTRAINT steward_owned_world_locations_installation_owner_fk
                     FOREIGN KEY (installation_id, owner_provider, owner_external_id)
@@ -57,8 +59,31 @@ public sealed class PostgreSqlOwnedWorldLocationStore : IOwnedWorldLocationStore
                         installation_id,
                         owner_provider,
                         owner_external_id)
-                    ON DELETE CASCADE
+                    ON DELETE CASCADE,
+                CONSTRAINT steward_owned_world_locations_world_name_length
+                    CHECK (world_name IS NULL OR char_length(world_name) BETWEEN 1 AND 200),
+                CONSTRAINT steward_owned_world_locations_game_adapter_id_length
+                    CHECK (game_adapter_id IS NULL OR char_length(game_adapter_id) BETWEEN 1 AND 128),
+                CONSTRAINT steward_owned_world_locations_presentation_pair
+                    CHECK ((world_name IS NULL) = (game_adapter_id IS NULL))
             );
+
+            ALTER TABLE steward_owned_world_locations
+                ADD COLUMN IF NOT EXISTS world_name text NULL,
+                ADD COLUMN IF NOT EXISTS game_adapter_id text NULL;
+
+            ALTER TABLE steward_owned_world_locations
+                DROP CONSTRAINT IF EXISTS steward_owned_world_locations_world_name_length,
+                DROP CONSTRAINT IF EXISTS steward_owned_world_locations_game_adapter_id_length,
+                DROP CONSTRAINT IF EXISTS steward_owned_world_locations_presentation_pair;
+
+            ALTER TABLE steward_owned_world_locations
+                ADD CONSTRAINT steward_owned_world_locations_world_name_length
+                    CHECK (world_name IS NULL OR char_length(world_name) BETWEEN 1 AND 200),
+                ADD CONSTRAINT steward_owned_world_locations_game_adapter_id_length
+                    CHECK (game_adapter_id IS NULL OR char_length(game_adapter_id) BETWEEN 1 AND 128),
+                ADD CONSTRAINT steward_owned_world_locations_presentation_pair
+                    CHECK ((world_name IS NULL) = (game_adapter_id IS NULL));
 
             CREATE INDEX IF NOT EXISTS steward_owned_world_locations_owner_world_idx
                 ON steward_owned_world_locations (owner_provider, owner_external_id, world_id);
@@ -147,7 +172,9 @@ public sealed class PostgreSqlOwnedWorldLocationStore : IOwnedWorldLocationStore
                    installation_id,
                    state_revision_id,
                    environment_revision_id,
-                   observed_at
+                   observed_at,
+                   world_name,
+                   game_adapter_id
               FROM steward_owned_world_locations
              WHERE world_id = @world_id
                AND owner_provider = @owner_provider
@@ -227,20 +254,20 @@ public sealed class PostgreSqlOwnedWorldLocationStore : IOwnedWorldLocationStore
 
         if (SameHead(current, desired))
         {
-            if (desired.ObservedAt > current.ObservedAt)
+            var merged = MergePresentationAndTimestamp(current, desired);
+            if (merged != current)
             {
-                current = current with { ObservedAt = desired.ObservedAt };
-                await UpdateObservedAtAsync(
+                await UpdateLocationAsync(
                     connection,
                     transaction,
-                    current,
+                    merged,
                     cancellationToken);
             }
 
             await transaction.CommitAsync(cancellationToken);
             return new(
                 OwnedWorldLocationWriteResult.NoChange,
-                current,
+                merged,
                 "The installation already reports the same immutable state/environment head.");
         }
 
@@ -252,11 +279,15 @@ public sealed class PostgreSqlOwnedWorldLocationStore : IOwnedWorldLocationStore
                 "The stored World location changed since it was observed. Newer timestamps cannot overwrite a divergent head.");
         }
 
-        await UpdateLocationAsync(connection, transaction, desired, cancellationToken);
+        var replacement = desired with
+        {
+            Presentation = desired.Presentation ?? current.Presentation
+        };
+        await UpdateLocationAsync(connection, transaction, replacement, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return new(
             OwnedWorldLocationWriteResult.Updated,
-            desired,
+            replacement,
             "The exact previously observed World location was replaced atomically.");
     }
 
@@ -417,7 +448,9 @@ public sealed class PostgreSqlOwnedWorldLocationStore : IOwnedWorldLocationStore
                    installation_id,
                    state_revision_id,
                    environment_revision_id,
-                   observed_at
+                   observed_at,
+                   world_name,
+                   game_adapter_id
               FROM steward_owned_world_locations
              WHERE world_id = @world_id
                AND owner_provider = @owner_provider
@@ -454,7 +487,9 @@ public sealed class PostgreSqlOwnedWorldLocationStore : IOwnedWorldLocationStore
                 installation_id,
                 state_revision_id,
                 environment_revision_id,
-                observed_at)
+                observed_at,
+                world_name,
+                game_adapter_id)
             VALUES (
                 @world_id,
                 @owner_provider,
@@ -462,7 +497,9 @@ public sealed class PostgreSqlOwnedWorldLocationStore : IOwnedWorldLocationStore
                 @installation_id,
                 @state_revision_id,
                 @environment_revision_id,
-                @observed_at);
+                @observed_at,
+                @world_name,
+                @game_adapter_id);
             """;
         await using var command = new NpgsqlCommand(sql, connection, transaction);
         AddLocationParameters(command, location);
@@ -479,7 +516,9 @@ public sealed class PostgreSqlOwnedWorldLocationStore : IOwnedWorldLocationStore
             UPDATE steward_owned_world_locations
                SET state_revision_id = @state_revision_id,
                    environment_revision_id = @environment_revision_id,
-                   observed_at = @observed_at
+                   observed_at = @observed_at,
+                   world_name = @world_name,
+                   game_adapter_id = @game_adapter_id
              WHERE world_id = @world_id
                AND owner_provider = @owner_provider
                AND owner_external_id = @owner_external_id
@@ -487,34 +526,6 @@ public sealed class PostgreSqlOwnedWorldLocationStore : IOwnedWorldLocationStore
             """;
         await using var command = new NpgsqlCommand(sql, connection, transaction);
         AddLocationParameters(command, location);
-        await command.ExecuteNonQueryAsync(cancellationToken);
-    }
-
-    private static async Task UpdateObservedAtAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        OwnedWorldLocationClaim location,
-        CancellationToken cancellationToken)
-    {
-        const string sql = """
-            UPDATE steward_owned_world_locations
-               SET observed_at = @observed_at
-             WHERE world_id = @world_id
-               AND owner_provider = @owner_provider
-               AND owner_external_id = @owner_external_id
-               AND installation_id = @installation_id;
-            """;
-        await using var command = new NpgsqlCommand(sql, connection, transaction);
-        AddLocationKeyParameters(
-            command,
-            location.WorldId,
-            location.OwnerProvider,
-            location.OwnerExternalId,
-            location.InstallationId);
-        command.Parameters.AddWithValue(
-            "observed_at",
-            NpgsqlDbType.TimestampTz,
-            location.ObservedAt);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -528,14 +539,31 @@ public sealed class PostgreSqlOwnedWorldLocationStore : IOwnedWorldLocationStore
             reader.GetFieldValue<DateTimeOffset>(5));
 
     private static OwnedWorldLocationClaim ReadLocation(NpgsqlDataReader reader)
-        => new(
+    {
+        var worldNameIsNull = reader.IsDBNull(7);
+        var gameAdapterIdIsNull = reader.IsDBNull(8);
+        if (worldNameIsNull != gameAdapterIdIsNull)
+        {
+            throw new InvalidDataException(
+                "A persisted owned-World location contains only one side of its presentation metadata.");
+        }
+
+        return new OwnedWorldLocationClaim(
             new WorldId(reader.GetGuid(0)),
             reader.GetString(1),
             reader.GetString(2),
             reader.GetString(3),
             new RevisionId(reader.GetGuid(4)),
             new RevisionId(reader.GetGuid(5)),
-            reader.GetFieldValue<DateTimeOffset>(6));
+            reader.GetFieldValue<DateTimeOffset>(6))
+        {
+            Presentation = worldNameIsNull
+                ? null
+                : new OwnedWorldPresentation(
+                    reader.GetString(7),
+                    reader.GetString(8))
+        };
+    }
 
     private static void AddInstallationParameters(
         NpgsqlCommand command,
@@ -589,6 +617,14 @@ public sealed class PostgreSqlOwnedWorldLocationStore : IOwnedWorldLocationStore
             "observed_at",
             NpgsqlDbType.TimestampTz,
             location.ObservedAt);
+        command.Parameters.AddWithValue(
+            "world_name",
+            NpgsqlDbType.Text,
+            (object?)location.Presentation?.Name ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "game_adapter_id",
+            NpgsqlDbType.Text,
+            (object?)location.Presentation?.GameAdapterId ?? DBNull.Value);
     }
 
     private static void AddLocationKeyParameters(
@@ -629,6 +665,17 @@ public sealed class PostgreSqlOwnedWorldLocationStore : IOwnedWorldLocationStore
         OwnedWorldLocationClaim right)
         => left.StateRevisionId == right.StateRevisionId &&
            left.EnvironmentRevisionId == right.EnvironmentRevisionId;
+
+    private static OwnedWorldLocationClaim MergePresentationAndTimestamp(
+        OwnedWorldLocationClaim current,
+        OwnedWorldLocationClaim desired)
+        => current with
+        {
+            ObservedAt = desired.ObservedAt > current.ObservedAt
+                ? desired.ObservedAt
+                : current.ObservedAt,
+            Presentation = desired.Presentation ?? current.Presentation
+        };
 
     private static OwnedWorldLocationWriteDecision Conflict(
         OwnedWorldLocationClaim? current,

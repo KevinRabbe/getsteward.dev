@@ -68,6 +68,8 @@ public sealed class OwnedWorldLocationRegistry
 {
     private const int MaximumInstallationIdLength = 128;
     private const int MaximumDisplayNameLength = 80;
+    private const int MaximumWorldNameLength = 200;
+    private const int MaximumGameAdapterIdLength = 128;
 
     private readonly IOwnedWorldLocationStore _store;
 
@@ -113,7 +115,7 @@ public sealed class OwnedWorldLocationRegistry
         return registration;
     }
 
-    public async Task<OwnedWorldLocationWriteDecision> PublishLocationAsync(
+    public Task<OwnedWorldLocationWriteDecision> PublishLocationAsync(
         UserIdentity authenticatedOwner,
         string installationId,
         WorldId worldId,
@@ -123,6 +125,60 @@ public sealed class OwnedWorldLocationRegistry
         RevisionId? expectedStateRevisionId = null,
         RevisionId? expectedEnvironmentRevisionId = null,
         CancellationToken cancellationToken = default)
+        => PublishLocationCoreAsync(
+            authenticatedOwner,
+            installationId,
+            worldId,
+            stateRevisionId,
+            environmentRevisionId,
+            presentation: null,
+            observedAt,
+            expectedStateRevisionId,
+            expectedEnvironmentRevisionId,
+            cancellationToken);
+
+    public Task<OwnedWorldLocationWriteDecision> PublishLocationWithPresentationAsync(
+        UserIdentity authenticatedOwner,
+        string installationId,
+        WorldId worldId,
+        RevisionId stateRevisionId,
+        RevisionId environmentRevisionId,
+        string worldName,
+        string gameAdapterId,
+        DateTimeOffset observedAt,
+        RevisionId? expectedStateRevisionId = null,
+        RevisionId? expectedEnvironmentRevisionId = null,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateBoundedText(worldName, nameof(worldName), MaximumWorldNameLength);
+        ValidateBoundedText(
+            gameAdapterId,
+            nameof(gameAdapterId),
+            MaximumGameAdapterIdLength);
+        return PublishLocationCoreAsync(
+            authenticatedOwner,
+            installationId,
+            worldId,
+            stateRevisionId,
+            environmentRevisionId,
+            new OwnedWorldPresentation(worldName, gameAdapterId),
+            observedAt,
+            expectedStateRevisionId,
+            expectedEnvironmentRevisionId,
+            cancellationToken);
+    }
+
+    private async Task<OwnedWorldLocationWriteDecision> PublishLocationCoreAsync(
+        UserIdentity authenticatedOwner,
+        string installationId,
+        WorldId worldId,
+        RevisionId stateRevisionId,
+        RevisionId environmentRevisionId,
+        OwnedWorldPresentation? presentation,
+        DateTimeOffset observedAt,
+        RevisionId? expectedStateRevisionId,
+        RevisionId? expectedEnvironmentRevisionId,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(authenticatedOwner);
         ValidateBoundedText(installationId, nameof(installationId), MaximumInstallationIdLength);
@@ -144,7 +200,10 @@ public sealed class OwnedWorldLocationRegistry
             installationId,
             stateRevisionId,
             environmentRevisionId,
-            observedAt);
+            observedAt)
+        {
+            Presentation = presentation
+        };
 
         return await _store.CompareExchangeLocationAsync(
             desired,

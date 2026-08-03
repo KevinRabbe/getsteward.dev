@@ -11,6 +11,8 @@ public sealed class StewardOwnedWorldLocationClient
 {
     private const int MaxResponseBytes = 1024 * 1024;
     private const int MaxReasonLength = 4096;
+    private const int MaxWorldNameLength = 200;
+    private const int MaxGameAdapterIdLength = 128;
 
     private static readonly JsonSerializerOptions ResponseJsonOptions =
         new(JsonSerializerDefaults.Web);
@@ -61,6 +63,37 @@ public sealed class StewardOwnedWorldLocationClient
                 environmentRevisionId = environmentRevisionId.Value,
                 expectedStateRevisionId = expectedStateRevisionId?.Value,
                 expectedEnvironmentRevisionId = expectedEnvironmentRevisionId?.Value
+            },
+            cancellationToken);
+    }
+
+    public Task<OwnedWorldLocationTransportResponse> PublishCurrentLocationWithPresentationAsync(
+        WorldId worldId,
+        RevisionId stateRevisionId,
+        RevisionId environmentRevisionId,
+        string worldName,
+        string gameAdapterId,
+        RevisionId? expectedStateRevisionId = null,
+        RevisionId? expectedEnvironmentRevisionId = null,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureExpectedPair(expectedStateRevisionId, expectedEnvironmentRevisionId);
+        ValidateBoundedText(worldName, nameof(worldName), MaxWorldNameLength);
+        ValidateBoundedText(
+            gameAdapterId,
+            nameof(gameAdapterId),
+            MaxGameAdapterIdLength);
+        return SendAsync(
+            HttpMethod.Put,
+            $"api/v1/private-worlds/{worldId.Value:D}/location",
+            new
+            {
+                stateRevisionId = stateRevisionId.Value,
+                environmentRevisionId = environmentRevisionId.Value,
+                expectedStateRevisionId = expectedStateRevisionId?.Value,
+                expectedEnvironmentRevisionId = expectedEnvironmentRevisionId?.Value,
+                worldName,
+                gameAdapterId
             },
             cancellationToken);
     }
@@ -253,12 +286,41 @@ public sealed class StewardOwnedWorldLocationClient
                 $"Bring Here {path} requires an observation timestamp.");
         }
 
+        var presentation = ValidatePresentation(
+            wire.WorldName,
+            wire.GameAdapterId,
+            path);
         return new StewardOwnedWorldLocation(
             requestedWorldId,
             wire.InstallationId,
             new RevisionId(wire.StateRevisionId),
             new RevisionId(wire.EnvironmentRevisionId),
-            wire.ObservedAt);
+            wire.ObservedAt,
+            presentation);
+    }
+
+    private static StewardOwnedWorldPresentation? ValidatePresentation(
+        string? worldName,
+        string? gameAdapterId,
+        string path)
+    {
+        if ((worldName is null) != (gameAdapterId is null))
+        {
+            throw new InvalidDataException(
+                $"Bring Here {path} must contain both World name and game adapter ID or neither.");
+        }
+
+        if (worldName is null)
+        {
+            return null;
+        }
+
+        ValidateBoundedText(worldName, $"{path}.worldName", MaxWorldNameLength);
+        ValidateBoundedText(
+            gameAdapterId!,
+            $"{path}.gameAdapterId",
+            MaxGameAdapterIdLength);
+        return new StewardOwnedWorldPresentation(worldName, gameAdapterId!);
     }
 
     private static string ValidateReason(string? reason)
@@ -360,6 +422,29 @@ public sealed class StewardOwnedWorldLocationClient
         }
     }
 
+    private static void ValidateBoundedText(
+        string value,
+        string parameterName,
+        int maximumLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException("Value is required.", parameterName);
+        }
+
+        if (value.Length > maximumLength)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                $"Value must not exceed {maximumLength} characters.");
+        }
+
+        if (value.Any(char.IsControl))
+        {
+            throw new ArgumentException("Control characters are not allowed.", parameterName);
+        }
+    }
+
     private sealed record BringHereDataWire(
         BringHereAvailability Availability,
         OwnedWorldLocationWire? Source,
@@ -371,7 +456,9 @@ public sealed class StewardOwnedWorldLocationClient
         string InstallationId,
         Guid StateRevisionId,
         Guid EnvironmentRevisionId,
-        DateTimeOffset ObservedAt);
+        DateTimeOffset ObservedAt,
+        string? WorldName,
+        string? GameAdapterId);
 }
 
 public sealed record OwnedWorldLocationTransportResponse(
@@ -383,12 +470,17 @@ public sealed record OwnedWorldLocationTransportResponse(
     public bool IsConflict => StatusCode == HttpStatusCode.Conflict;
 }
 
+public sealed record StewardOwnedWorldPresentation(
+    string Name,
+    string GameAdapterId);
+
 public sealed record StewardOwnedWorldLocation(
     WorldId WorldId,
     string InstallationId,
     RevisionId StateRevisionId,
     RevisionId EnvironmentRevisionId,
-    DateTimeOffset ObservedAt);
+    DateTimeOffset ObservedAt,
+    StewardOwnedWorldPresentation? Presentation = null);
 
 public sealed record StewardBringHereResolution(
     BringHereAvailability Availability,

@@ -63,6 +63,32 @@ public sealed class OwnedWorldLocationApplicationService
             cancellationToken);
     }
 
+    public Task<OwnedWorldLocationWriteDecision> PublishCurrentLocationWithPresentationAsync(
+        StewardAuthenticatedCaller caller,
+        WorldId worldId,
+        RevisionId stateRevisionId,
+        RevisionId environmentRevisionId,
+        string worldName,
+        string gameAdapterId,
+        RevisionId? expectedStateRevisionId = null,
+        RevisionId? expectedEnvironmentRevisionId = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        return _registry.PublishLocationWithPresentationAsync(
+            ToUserIdentity(caller.Identity),
+            caller.InstallationId,
+            worldId,
+            stateRevisionId,
+            environmentRevisionId,
+            worldName,
+            gameAdapterId,
+            _utcNow(),
+            expectedStateRevisionId,
+            expectedEnvironmentRevisionId,
+            cancellationToken);
+    }
+
     public Task<OwnedWorldLocationWriteDecision> RemoveCurrentLocationAsync(
         StewardAuthenticatedCaller caller,
         WorldId worldId,

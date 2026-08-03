@@ -26,6 +26,38 @@ public sealed class OwnedWorldLocationApiContractTests
         Assert.Contains("InitializeAsync()", program, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void OptionalPresentationIsPairedAndDerivedOnlyFromAuthenticatedPublication()
+    {
+        var api = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Backend.Api/StewardOwnedWorldLocationApi.cs"));
+
+        Assert.Contains(
+            "EnsurePresentationPair(body.WorldName, body.GameAdapterId);",
+            api,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PublishCurrentLocationWithPresentationAsync(",
+            api,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "string? WorldName = null,\n        string? GameAdapterId = null",
+            api,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "claim.Presentation?.Name",
+            api,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "claim.Presentation?.GameAdapterId",
+            api,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "World name and game adapter ID must both be supplied or both be absent.",
+            api,
+            StringComparison.Ordinal);
+    }
+
     private static string FindRepositoryFile(string relativePath)
     {
         var workspace = Environment.GetEnvironmentVariable("GITHUB_WORKSPACE");

@@ -53,7 +53,19 @@ public sealed class StewardOwnedPrivateWorldMaterializationServiceTests
 
         var storedWorld = Assert.IsType<World>(
             await recording.LoadWorldAsync(fixture.WorldId));
-        Assert.Equal(result.World, storedWorld);
+        Assert.Equal(result.World.Id, storedWorld.Id);
+        Assert.Equal(result.World.Name, storedWorld.Name);
+        Assert.Equal(result.World.GameAdapterId, storedWorld.GameAdapterId);
+        Assert.Equal(LocalOwner, Assert.Single(storedWorld.Members));
+        Assert.Equal(
+            result.World.CurrentEnvironmentRevisionId,
+            storedWorld.CurrentEnvironmentRevisionId);
+        Assert.Equal(
+            result.World.CurrentStateRevisionId,
+            storedWorld.CurrentStateRevisionId);
+        Assert.Equal(result.World.SharingMode, storedWorld.SharingMode);
+        Assert.Equal(result.World.Visibility, storedWorld.Visibility);
+        Assert.Null(storedWorld.StartedFrom);
 
         var storedEnvironment = Assert.IsType<EnvironmentRevision>(
             await recording.LoadEnvironmentRevisionAsync(
@@ -209,7 +221,18 @@ public sealed class StewardOwnedPrivateWorldMaterializationServiceTests
                 LocalOwner));
 
         Assert.Empty(recording.Operations);
-        Assert.Equal(conflicting, await storage.LoadWorldAsync(fixture.WorldId));
+        var persisted = Assert.IsType<World>(
+            await storage.LoadWorldAsync(fixture.WorldId));
+        Assert.Equal(conflicting.Id, persisted.Id);
+        Assert.Equal(conflicting.Name, persisted.Name);
+        Assert.Equal(conflicting.GameAdapterId, persisted.GameAdapterId);
+        Assert.Equal(LocalOwner, Assert.Single(persisted.Members));
+        Assert.Equal(
+            conflicting.CurrentEnvironmentRevisionId,
+            persisted.CurrentEnvironmentRevisionId);
+        Assert.Equal(
+            conflicting.CurrentStateRevisionId,
+            persisted.CurrentStateRevisionId);
         Assert.Equal(0, fixture.DirectTransferCalls);
     }
 
@@ -273,7 +296,7 @@ public sealed class StewardOwnedPrivateWorldMaterializationServiceTests
     {
         using var fixture = await Fixture.CreateAsync(
             seedCache: false,
-            transferBytes: "corrupt-remote-bytes"u8.ToArray());
+            transferBytes: "xxxxxxxxxxxxxxxxxxxxxxxxx"u8.ToArray());
         var recording = new RecordingWorldStorage(
             new LocalWorldStorage(fixture.StorageRoot));
         var service = new StewardOwnedPrivateWorldMaterializationService(
@@ -517,11 +540,6 @@ public sealed class StewardOwnedPrivateWorldMaterializationServiceTests
             CancellationToken cancellationToken = default)
             => _inner.LoadEnvironmentRevisionAsync(worldId, revisionId, cancellationToken);
 
-        public Task<IReadOnlyList<EnvironmentRevision>> ListEnvironmentRevisionsAsync(
-            WorldId worldId,
-            CancellationToken cancellationToken = default)
-            => _inner.ListEnvironmentRevisionsAsync(worldId, cancellationToken);
-
         public async Task StoreRevisionAsync(
             StateRevision revision,
             Stream package,
@@ -542,11 +560,6 @@ public sealed class StewardOwnedPrivateWorldMaterializationServiceTests
             RevisionId revisionId,
             CancellationToken cancellationToken = default)
             => _inner.OpenRevisionAsync(worldId, revisionId, cancellationToken);
-
-        public Task<IReadOnlyList<StateRevision>> ListStateRevisionsAsync(
-            WorldId worldId,
-            CancellationToken cancellationToken = default)
-            => _inner.ListStateRevisionsAsync(worldId, cancellationToken);
 
         public Task<bool> IsRevisionPayloadAvailableAsync(
             WorldId worldId,

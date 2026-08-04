@@ -30,9 +30,15 @@ function Require-SafeRelativePath([string]$Path) {
     Require (-not [string]::IsNullOrWhiteSpace($Path)) 'Artifact path is required.'
     Require ($Path.Length -le 260) "Artifact path '$Path' is too long."
     Require (-not [IO.Path]::IsPathRooted($Path)) "Artifact path '$Path' must be relative."
-    Require (-not $Path.Contains('\\', [StringComparison]::Ordinal)) "Artifact path '$Path' must use forward slashes."
-    Require (-not $Path.Contains('..', [StringComparison]::Ordinal)) "Artifact path '$Path' cannot contain '..'."
+    Require (-not $Path.Contains('\', [StringComparison]::Ordinal)) "Artifact path '$Path' must use forward slashes."
     Require (-not $Path.StartsWith('/', [StringComparison]::Ordinal)) "Artifact path '$Path' cannot start with '/'."
+    Require ($Path -notmatch '[\x00-\x1F\x7F:]') "Artifact path '$Path' contains a control character or colon."
+    $segments = @($Path.Split('/'))
+    Require ($segments.Count -gt 0) "Artifact path '$Path' has no segments."
+    foreach ($segment in $segments) {
+        Require (-not [string]::IsNullOrEmpty($segment)) "Artifact path '$Path' contains an empty segment."
+        Require ($segment -cne '.' -and $segment -cne '..') "Artifact path '$Path' contains a traversal segment."
+    }
 }
 
 $root = [IO.Path]::GetFullPath($BundleDirectory)
@@ -82,6 +88,7 @@ $publishAllowed = [bool]$manifest.publishAuthorization.publishAllowed
 Require ($publishAllowed -eq ($physicalStatus -ceq 'passed')) 'Publish authorization disagrees with the physical Bring Here status.'
 $reason = [string]$manifest.publishAuthorization.reason
 Require (-not [string]::IsNullOrWhiteSpace($reason) -and $reason.Length -le 500) 'Publish authorization reason is missing or too long.'
+Require ($reason -notmatch '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]') 'Publish authorization reason contains a forbidden control character.'
 
 Require-ExactProperties $manifest.deployment @(
     'apiBaseUrl',
@@ -99,6 +106,7 @@ Require ([Uri]::TryCreate([string]$manifest.deployment.apiBaseUrl, [UriKind]::Ab
 Require ([string]::Equals($apiUri.Scheme, [Uri]::UriSchemeHttps, [StringComparison]::OrdinalIgnoreCase)) 'Deployment API base URL must use HTTPS.'
 Require ([string]::IsNullOrEmpty($apiUri.UserInfo)) 'Deployment API base URL cannot contain credentials.'
 Require ([string]::IsNullOrEmpty($apiUri.Query) -and [string]::IsNullOrEmpty($apiUri.Fragment)) 'Deployment API base URL cannot contain query or fragment data.'
+Require ($apiUri.AbsoluteUri.EndsWith('/', [StringComparison]::Ordinal)) 'Deployment API base URL must end with a slash.'
 Require ([string]$manifest.deployment.authenticationMode -ceq 'friends-build') 'Closed-alpha authentication mode must be friends-build.'
 Require ([string]$manifest.deployment.backendRuntimeUser -ceq 'app') 'Backend image must run as the non-root app user.'
 Require ([string]$manifest.deployment.targetPlatform -ceq 'linux/amd64') 'Backend target platform must be linux/amd64.'
@@ -125,13 +133,14 @@ foreach ($artifact in $artifacts) {
     Require ($fullPath.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) "Artifact '$relativePath' escapes the bundle root."
     Require ([IO.File]::Exists($fullPath)) "Artifact '$relativePath' is missing."
     $file = Get-Item -LiteralPath $fullPath
+    Require ($null -eq $file.LinkType) "Artifact '$relativePath' cannot be a symbolic link."
     Require ($file.Length -eq $expectedSize) "Artifact '$relativePath' does not match its declared byte size."
     $actualHash = (Get-FileHash -LiteralPath $fullPath -Algorithm SHA256).Hash
     Require ([string]::Equals($actualHash, $expectedHash, [StringComparison]::Ordinal)) "Artifact '$relativePath' does not match its declared SHA-256."
 }
 
 $actualRelativePaths = @(Get-ChildItem -LiteralPath $root -Recurse -File |
-    ForEach-Object { [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\\', '/') } |
+    ForEach-Object { [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\', '/') } |
     Sort-Object)
 $expectedRelativePaths = @($seenPaths | Sort-Object) + @('release-manifest.json')
 $expectedRelativePaths = @($expectedRelativePaths | Sort-Object)

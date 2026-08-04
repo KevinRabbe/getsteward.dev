@@ -306,3 +306,35 @@ jobs:
           path: ${{ runner.temp }}/closed-alpha-deployment-rehearsal.json
           if-no-files-found: warn
           retention-days: 14
+
+  rehearse-https:
+    name: Rehearse exact candidate behind HTTPS ingress
+    needs:
+      - rehearse
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact release commit
+        uses: actions/checkout@v6
+
+      - name: Download exact assembled candidate
+        uses: actions/download-artifact@v6
+        with:
+          name: safe-world-closed-alpha-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/safe-world-closed-alpha-release
+
+      - name: Prove Caddy TLS and authenticated API access without rebuild
+        shell: pwsh
+        run: |
+          ./tools/rehearse-closed-alpha-https-ingress.ps1 `
+            -BundleDirectory "$env:RUNNER_TEMP/safe-world-closed-alpha-release" `
+            -EvidencePath "$env:RUNNER_TEMP/closed-alpha-https-ingress-rehearsal.json"
+
+      - name: Upload HTTPS ingress rehearsal evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: closed-alpha-https-ingress-rehearsal-${{ github.sha }}
+          path: ${{ runner.temp }}/closed-alpha-https-ingress-rehearsal.json
+          if-no-files-found: warn
+          retention-days: 14

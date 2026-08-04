@@ -5,8 +5,7 @@ namespace SharedWorlds.Backend.ObjectStorage.S3;
 
 public static class S3CompatibleObjectStoreFactory
 {
-    public static CompactS3CompatibleImmutableObjectStore Create(
-        S3CompatibleObjectStoreOptions options)
+    public static RecoveringS3CompatibleImmutableObjectStore Create(S3CompatibleObjectStoreOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -21,13 +20,10 @@ public static class S3CompatibleObjectStoreFactory
         var protocol = options.ServiceUrl.Scheme == Uri.UriSchemeHttp
             ? Protocol.HTTP
             : Protocol.HTTPS;
-        var recovering = new RecoveringS3CompatibleImmutableObjectStore(
+        return new RecoveringS3CompatibleImmutableObjectStore(
             client,
             options.BucketName,
             protocol,
             ownsClient: true);
-        return new CompactS3CompatibleImmutableObjectStore(
-            recovering,
-            ownsInner: true);
     }
 }

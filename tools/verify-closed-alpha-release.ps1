@@ -148,7 +148,7 @@ Require ([string]$manifest.deployment.backendImageId -match '^sha256:[0-9a-f]{64
 Require (-not [string]::IsNullOrWhiteSpace([string]$manifest.deployment.backendImageTag)) 'Backend image tag is required.'
 
 $artifacts = @($manifest.artifacts)
-Require ($artifacts.Count -gt 0 -and $artifacts.Count -le 10_000) 'Release artifact list is empty or exceeds the 10,000-file bound.'
+Require ($artifacts.Count -gt 0 -and $artifacts.Count -le 10000) 'Release artifact list is empty or exceeds the 10,000-file bound.'
 $seenPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
 foreach ($artifact in $artifacts) {
     Require-ExactProperties $artifact @('byteSize', 'path', 'sha256') 'Artifact entry'

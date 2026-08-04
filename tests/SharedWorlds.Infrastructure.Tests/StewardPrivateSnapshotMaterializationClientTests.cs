@@ -54,7 +54,24 @@ public sealed class StewardPrivateSnapshotMaterializationClientTests
 
         Assert.Equal(fixture.WorldId, first.Plan.WorldId);
         Assert.Equal(fixture.State, first.Plan.StateRevision);
-        Assert.Equal(fixture.Environment, first.Plan.EnvironmentRevision);
+        Assert.Equal(fixture.Environment.Id, first.Plan.EnvironmentRevision.Id);
+        Assert.Equal(fixture.Environment.WorldId, first.Plan.EnvironmentRevision.WorldId);
+        Assert.Equal(
+            fixture.Environment.ParentRevisionId,
+            first.Plan.EnvironmentRevision.ParentRevisionId);
+        Assert.Equal(fixture.Environment.CreatedAt, first.Plan.EnvironmentRevision.CreatedAt);
+        Assert.Equal(fixture.Environment.CreatedBy, first.Plan.EnvironmentRevision.CreatedBy);
+        Assert.Equal(
+            fixture.Environment.Manifest.SchemaVersion,
+            first.Plan.EnvironmentRevision.Manifest.SchemaVersion);
+        Assert.Equal(
+            fixture.Environment.Manifest.AdapterId,
+            first.Plan.EnvironmentRevision.Manifest.AdapterId);
+        Assert.Equal(
+            fixture.Environment.Manifest.GameVersion,
+            first.Plan.EnvironmentRevision.Manifest.GameVersion);
+        Assert.Empty(first.Plan.EnvironmentRevision.Manifest.Components);
+        Assert.Empty(first.Plan.EnvironmentRevision.Manifest.Configuration);
         Assert.Equal(fixture.State.Id, first.Plan.StateRevisionId);
         Assert.Equal(fixture.Environment.Id, first.Plan.EnvironmentRevisionId);
         Assert.Equal(fixture.Sha256, first.Plan.ExpectedSha256);

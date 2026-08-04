@@ -1,6 +1,7 @@
 using SharedWorlds.Backend.Identity;
 using SharedWorlds.Backend.Transfers;
 using SharedWorlds.Core.Domain;
+using SharedWorlds.Core.Worlds;
 
 namespace SharedWorlds.Backend.Api;
 
@@ -73,7 +74,7 @@ public static class StewardPrivateSnapshotRevisionEvidenceApi
     }
 
     private static PrivateSnapshotRevisionEvidenceData ToData(
-        Core.Worlds.OwnedWorldSnapshotRevisionEvidence evidence)
+        OwnedWorldSnapshotRevisionEvidence evidence)
         => new(
             evidence.WorldId.Value,
             evidence.StateRevision.Id.Value,

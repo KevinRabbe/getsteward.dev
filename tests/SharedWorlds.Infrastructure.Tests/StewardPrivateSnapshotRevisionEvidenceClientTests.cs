@@ -28,10 +28,18 @@ public sealed class StewardPrivateSnapshotRevisionEvidenceClientTests
             var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
             Assert.Equal(
                 fixture.State.Id.Value,
-                body.RootElement.GetProperty("stateRevision").GetProperty("id").GetGuid());
+                body.RootElement
+                    .GetProperty("stateRevision")
+                    .GetProperty("id")
+                    .GetProperty("value")
+                    .GetGuid());
             Assert.Equal(
                 fixture.Environment.Id.Value,
-                body.RootElement.GetProperty("environmentRevision").GetProperty("id").GetGuid());
+                body.RootElement
+                    .GetProperty("environmentRevision")
+                    .GetProperty("id")
+                    .GetProperty("value")
+                    .GetGuid());
             return Json(
                 HttpStatusCode.OK,
                 "PrivateSnapshotRevisionEvidencePublished",

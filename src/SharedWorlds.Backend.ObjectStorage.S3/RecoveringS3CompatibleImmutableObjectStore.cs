@@ -222,14 +222,42 @@ public sealed class RecoveringS3CompatibleImmutableObjectStore : IPrivateImmutab
             return providerUploadId;
         }
 
-        var source = Encoding.UTF8.GetBytes(providerUploadId);
+        if (!providerUploadId.StartsWith(HandlePrefix, StringComparison.Ordinal))
+        {
+            if (providerUploadId.Length <= MaximumDurableHandleLength)
+            {
+                return providerUploadId;
+            }
+
+            throw new InvalidOperationException(
+                "Unknown S3 multipart handle cannot be represented inside the durable transfer-store boundary.");
+        }
+
+        byte[] legacyPayload;
+        try
+        {
+            legacyPayload = FromBase64Url(providerUploadId[HandlePrefix.Length..]);
+        }
+        catch (FormatException exception)
+        {
+            throw new InvalidDataException(
+                "Legacy S3 multipart handle is malformed.",
+                exception);
+        }
+
+        if (legacyPayload.Length > MaximumExpandedHandleBytes)
+        {
+            throw new InvalidOperationException(
+                "S3 multipart handle payload exceeds its bounded expanded length.");
+        }
+
         using var output = new MemoryStream();
         using (var compressor = new BrotliStream(
                    output,
                    CompressionLevel.SmallestSize,
                    leaveOpen: true))
         {
-            compressor.Write(source);
+            compressor.Write(legacyPayload);
         }
 
         var compact = CompactHandlePrefix + ToBase64Url(output.ToArray());
@@ -303,23 +331,7 @@ public sealed class RecoveringS3CompatibleImmutableObjectStore : IPrivateImmutab
             output.Write(buffer, 0, read);
         }
 
-        string expanded;
-        try
-        {
-            expanded = new UTF8Encoding(
-                    encoderShouldEmitUTF8Identifier: false,
-                    throwOnInvalidBytes: true)
-                .GetString(output.ToArray());
-        }
-        catch (DecoderFallbackException exception)
-        {
-            throw new InvalidDataException(
-                "Compact S3 multipart handle does not contain valid UTF-8.",
-                exception);
-        }
-
-        ValidateProviderHandle(expanded, MaximumExpandedHandleBytes);
-        return expanded;
+        return HandlePrefix + ToBase64Url(output.ToArray());
     }
 
     private static string EncodeHandle(MultipartHandle handle)

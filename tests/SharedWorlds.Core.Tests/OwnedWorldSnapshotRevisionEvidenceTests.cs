@@ -99,8 +99,11 @@ public sealed class OwnedWorldSnapshotRevisionEvidenceTests
     public async Task RevisionEvidenceRequiresExistingVerifiedSnapshotBytes()
     {
         var fixture = CreateFixture();
-        var store = new MemoryStore();
-        var registry = new OwnedWorldSnapshotRevisionEvidenceRegistry(store, store);
+        var snapshots = new SnapshotStore();
+        var evidenceStore = new EvidenceStore();
+        var registry = new OwnedWorldSnapshotRevisionEvidenceRegistry(
+            snapshots,
+            evidenceStore);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             registry.PublishAsync(Owner, fixture.Evidence));
@@ -109,15 +112,18 @@ public sealed class OwnedWorldSnapshotRevisionEvidenceTests
             "snapshot bytes must exist",
             exception.Message,
             StringComparison.Ordinal);
-        Assert.Empty(store.Evidence);
+        Assert.Empty(evidenceStore.Evidence);
     }
 
     [Fact]
     public async Task ExactEvidenceIsIdempotentAndDivergentRecordConflicts()
     {
         var fixture = CreateFixture();
-        var store = new MemoryStore { Snapshot = fixture.Snapshot };
-        var registry = new OwnedWorldSnapshotRevisionEvidenceRegistry(store, store);
+        var snapshots = new SnapshotStore { Snapshot = fixture.Snapshot };
+        var evidenceStore = new EvidenceStore();
+        var registry = new OwnedWorldSnapshotRevisionEvidenceRegistry(
+            snapshots,
+            evidenceStore);
 
         var created = await registry.PublishAsync(Owner, fixture.Evidence);
         var repeated = await registry.PublishAsync(Owner, fixture.Evidence);
@@ -140,7 +146,7 @@ public sealed class OwnedWorldSnapshotRevisionEvidenceTests
             OwnedWorldSnapshotRevisionEvidenceWriteResult.Conflict,
             conflict.Result);
         Assert.Equal(fixture.Evidence, conflict.Current);
-        Assert.Single(store.Evidence);
+        Assert.Single(evidenceStore.Evidence);
     }
 
     [Fact]
@@ -350,12 +356,9 @@ public sealed class OwnedWorldSnapshotRevisionEvidenceTests
         OwnedWorldSnapshot Snapshot,
         OwnedWorldSnapshotRevisionEvidence Evidence);
 
-    private sealed class MemoryStore :
-        IOwnedWorldSnapshotStore,
-        IOwnedWorldSnapshotRevisionEvidenceStore
+    private sealed class SnapshotStore : IOwnedWorldSnapshotStore
     {
         public OwnedWorldSnapshot? Snapshot { get; init; }
-        public List<OwnedWorldSnapshotRevisionEvidence> Evidence { get; } = [];
 
         public Task<OwnedWorldSnapshot?> LoadExactAsync(
             string ownerProvider,
@@ -399,6 +402,11 @@ public sealed class OwnedWorldSnapshotRevisionEvidenceTests
             OwnedWorldSnapshot snapshot,
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
+    }
+
+    private sealed class EvidenceStore : IOwnedWorldSnapshotRevisionEvidenceStore
+    {
+        public List<OwnedWorldSnapshotRevisionEvidence> Evidence { get; } = [];
 
         public Task<OwnedWorldSnapshotRevisionEvidence?> LoadExactAsync(
             string ownerProvider,

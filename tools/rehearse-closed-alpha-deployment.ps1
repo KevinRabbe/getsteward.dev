@@ -49,25 +49,15 @@ function Remove-ContainerIfPresent([string]$Name) {
     }
 }
 
-function Get-PublishedPort([string]$ContainerName, [int]$ContainerPort) {
-    $mapping = Invoke-Docker -Arguments @(
-        'port',
-        $ContainerName,
-        "$ContainerPort/tcp"
-    ) -Capture
-    $match = [Text.RegularExpressions.Regex]::Match(
-        $mapping,
-        ':(?<port>[0-9]{1,5})\s*$',
-        [Text.RegularExpressions.RegexOptions]::CultureInvariant)
-    Require $match.Success "Container '$ContainerName' has no published port for $ContainerPort/tcp."
-    $port = [int]$match.Groups['port'].Value
-    Require ($port -ge 1 -and $port -le 65535) "Container '$ContainerName' published an invalid port."
-    return $port
-}
-
-function Wait-PostgreSql([string]$ContainerName, [string]$DatabaseName) {
+function Wait-PostgreSql(
+    [string]$ContainerName,
+    [string]$DatabaseName,
+    [int]$Port) {
     for ($attempt = 1; $attempt -le 90; $attempt++) {
-        & docker exec $ContainerName pg_isready --username postgres --dbname $DatabaseName *> $null
+        & docker exec $ContainerName pg_isready `
+            --username postgres `
+            --dbname $DatabaseName `
+            --port $Port *> $null
         if ($LASTEXITCODE -eq 0) {
             return
         }
@@ -105,6 +95,7 @@ function Wait-HttpOk([Uri]$Uri, [string]$Context, [string]$ContainerName) {
 function Invoke-PostgreSqlScalar(
     [string]$ContainerName,
     [string]$DatabaseName,
+    [int]$Port,
     [string]$Sql) {
     $value = Invoke-Docker -Arguments @(
         'exec',
@@ -112,6 +103,7 @@ function Invoke-PostgreSqlScalar(
         'psql',
         '--username', 'postgres',
         '--dbname', $DatabaseName,
+        '--port', $Port.ToString([Globalization.CultureInfo]::InvariantCulture),
         '--no-psqlrc',
         '--tuples-only',
         '--no-align',
@@ -152,22 +144,22 @@ function Invoke-JsonRequest(
 
 function Start-Backend(
     [string]$ContainerName,
-    [string]$NetworkName,
     [string]$ImageId,
     [string]$ConnectionString,
+    [Uri]$ObjectStorageServiceUrl,
     [string]$BucketName,
-    [string]$CredentialHash) {
+    [string]$CredentialHash,
+    [int]$Port) {
     Remove-ContainerIfPresent $ContainerName
 
     Invoke-Docker -Arguments @(
         'run',
         '--detach',
         '--name', $ContainerName,
-        '--network', $NetworkName,
-        '--publish', '127.0.0.1::8080',
-        '--env', 'PORT=8080',
+        '--network', 'host',
+        '--env', "PORT=$Port",
         '--env', "ConnectionStrings__Steward=$ConnectionString",
-        '--env', 'ObjectStorage__ServiceUrl=http://minio:9000',
+        '--env', "ObjectStorage__ServiceUrl=$($ObjectStorageServiceUrl.AbsoluteUri)",
         '--env', 'ObjectStorage__AuthenticationRegion=us-east-1',
         '--env', "ObjectStorage__BucketName=$BucketName",
         '--env', 'ObjectStorage__AccessKeyId=minioadmin',
@@ -180,8 +172,7 @@ function Start-Backend(
         $ImageId
     )
 
-    $publishedPort = Get-PublishedPort $ContainerName 8080
-    $baseUri = [Uri]"http://127.0.0.1:$publishedPort/"
+    $baseUri = [Uri]"http://127.0.0.1:$Port/"
     Wait-HttpOk ([Uri]::new($baseUri, 'health/live')) 'Backend liveness' $ContainerName
     Wait-HttpOk ([Uri]::new($baseUri, 'health/ready')) 'Backend readiness' $ContainerName
 
@@ -244,13 +235,16 @@ Require ([string]::Equals($loadedRevision, $releaseCommit, [StringComparison]::O
 Require ([string]::Equals($loadedVersion, $releaseVersion, [StringComparison]::Ordinal)) 'The loaded image version label does not match the release version.'
 
 $suffix = [Guid]::NewGuid().ToString('N').Substring(0, 12)
-$networkName = "steward-alpha-$suffix"
 $postgresName = "steward-alpha-postgres-$suffix"
 $minioName = "steward-alpha-minio-$suffix"
 $backendName = "steward-alpha-backend-$suffix"
 $databaseName = 'steward_closed_alpha_rehearsal'
 $bucketName = 'steward-closed-alpha-rehearsal'
-$connectionString = "Host=postgres;Port=5432;Database=$databaseName;Username=postgres;Password=postgres;Pooling=false"
+$postgreSqlPort = 15432
+$minioPort = 19000
+$backendPort = 18080
+$connectionString = "Host=127.0.0.1;Port=$postgreSqlPort;Database=$databaseName;Username=postgres;Password=postgres;Pooling=false"
+$objectStorageServiceUrl = [Uri]"http://127.0.0.1:$minioPort/"
 $secretBytes = [byte[]]::new(32)
 [Security.Cryptography.RandomNumberGenerator]::Fill($secretBytes)
 $encodedSecret = [Convert]::ToBase64String($secretBytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
@@ -259,23 +253,22 @@ $credentialHash = [Convert]::ToHexString(
     [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($credential)))
 
 try {
-    Invoke-Docker -Arguments @('network', 'create', $networkName)
-
     Invoke-Docker -Arguments @(
         'run',
         '--detach',
         '--name', $postgresName,
-        '--network', $networkName,
-        '--network-alias', 'postgres',
+        '--network', 'host',
         '--env', 'POSTGRES_USER=postgres',
         '--env', 'POSTGRES_PASSWORD=postgres',
         '--env', "POSTGRES_DB=$databaseName",
-        'postgres:17-alpine'
+        'postgres:17-alpine',
+        '-c', "port=$postgreSqlPort"
     )
-    Wait-PostgreSql $postgresName $databaseName
+    Wait-PostgreSql $postgresName $databaseName $postgreSqlPort
     $postgresVersionNumber = [int](Invoke-PostgreSqlScalar `
         -ContainerName $postgresName `
         -DatabaseName $databaseName `
+        -Port $postgreSqlPort `
         -Sql "SELECT current_setting('server_version_num');")
     Require ($postgresVersionNumber -ge 170000 -and $postgresVersionNumber -lt 180000) "Disposable database is PostgreSQL version number $postgresVersionNumber, expected major version 17."
     $postgresImageId = Invoke-Docker -Arguments @(
@@ -290,16 +283,13 @@ try {
         'run',
         '--detach',
         '--name', $minioName,
-        '--network', $networkName,
-        '--network-alias', 'minio',
-        '--publish', '127.0.0.1::9000',
+        '--network', 'host',
         '--env', 'MINIO_ROOT_USER=minioadmin',
         '--env', 'MINIO_ROOT_PASSWORD=minioadmin',
         'quay.io/minio/minio:latest',
-        'server', '/data', '--address', ':9000'
+        'server', '/data', '--address', ":$minioPort"
     )
-    $minioPort = Get-PublishedPort $minioName 9000
-    Wait-HttpOk ([Uri]"http://127.0.0.1:$minioPort/minio/health/ready") 'MinIO readiness' $minioName
+    Wait-HttpOk ([Uri]::new($objectStorageServiceUrl, 'minio/health/ready')) 'MinIO readiness' $minioName
     $minioImageId = Invoke-Docker -Arguments @(
         'container',
         'inspect',
@@ -311,29 +301,32 @@ try {
     Invoke-Docker -Arguments @(
         'run',
         '--rm',
-        '--network', $networkName,
+        '--network', 'host',
         '--entrypoint', '/bin/sh',
         'quay.io/minio/mc:latest',
         '-c',
-        "mc alias set local http://minio:9000 minioadmin minioadmin >/dev/null && mc mb --ignore-existing local/$bucketName >/dev/null"
+        "mc alias set local $($objectStorageServiceUrl.AbsoluteUri) minioadmin minioadmin >/dev/null && mc mb --ignore-existing local/$bucketName >/dev/null"
     )
 
     $initialBaseUri = Start-Backend `
         -ContainerName $backendName `
-        -NetworkName $networkName `
         -ImageId $imageId `
         -ConnectionString $connectionString `
+        -ObjectStorageServiceUrl $objectStorageServiceUrl `
         -BucketName $bucketName `
-        -CredentialHash $credentialHash
+        -CredentialHash $credentialHash `
+        -Port $backendPort
 
     $schemaReady = Invoke-PostgreSqlScalar `
         -ContainerName $postgresName `
         -DatabaseName $databaseName `
+        -Port $postgreSqlPort `
         -Sql "SELECT CASE WHEN to_regclass('public.steward_shared_worlds') IS NOT NULL AND to_regclass('public.steward_auth_sessions') IS NOT NULL THEN 1 ELSE 0 END;"
     Require ($schemaReady -ceq '1') 'Backend startup did not initialize the required PostgreSQL schema.'
     $stewardTableCount = [int](Invoke-PostgreSqlScalar `
         -ContainerName $postgresName `
         -DatabaseName $databaseName `
+        -Port $postgreSqlPort `
         -Sql "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename LIKE 'steward_%';")
     Require ($stewardTableCount -gt 0) 'Backend startup initialized no Steward PostgreSQL tables.'
 
@@ -360,6 +353,7 @@ try {
     $sessionsBeforeBackup = [int](Invoke-PostgreSqlScalar `
         -ContainerName $postgresName `
         -DatabaseName $databaseName `
+        -Port $postgreSqlPort `
         -Sql 'SELECT count(*) FROM steward_auth_sessions;')
     Require ($sessionsBeforeBackup -eq 1) "Expected one session before backup, found $sessionsBeforeBackup."
 
@@ -369,6 +363,7 @@ try {
         'pg_dump',
         '--username', 'postgres',
         '--dbname', $databaseName,
+        '--port', $postgreSqlPort.ToString([Globalization.CultureInfo]::InvariantCulture),
         '--format', 'custom',
         '--file', '/tmp/pre-rollback.dump'
     )
@@ -395,6 +390,7 @@ try {
     $sessionsAfterMutation = [int](Invoke-PostgreSqlScalar `
         -ContainerName $postgresName `
         -DatabaseName $databaseName `
+        -Port $postgreSqlPort `
         -Sql 'SELECT count(*) FROM steward_auth_sessions;')
     Require ($sessionsAfterMutation -eq 2) "Expected two sessions after mutation, found $sessionsAfterMutation."
 
@@ -404,6 +400,7 @@ try {
         $postgresName,
         'dropdb',
         '--username', 'postgres',
+        '--port', $postgreSqlPort.ToString([Globalization.CultureInfo]::InvariantCulture),
         '--if-exists',
         '--force',
         $databaseName
@@ -413,6 +410,7 @@ try {
         $postgresName,
         'createdb',
         '--username', 'postgres',
+        '--port', $postgreSqlPort.ToString([Globalization.CultureInfo]::InvariantCulture),
         $databaseName
     )
     Invoke-Docker -Arguments @(
@@ -421,21 +419,24 @@ try {
         'pg_restore',
         '--username', 'postgres',
         '--dbname', $databaseName,
+        '--port', $postgreSqlPort.ToString([Globalization.CultureInfo]::InvariantCulture),
         '--exit-on-error',
         '/tmp/pre-rollback.dump'
     )
 
     $rollbackBaseUri = Start-Backend `
         -ContainerName $backendName `
-        -NetworkName $networkName `
         -ImageId $imageId `
         -ConnectionString $connectionString `
+        -ObjectStorageServiceUrl $objectStorageServiceUrl `
         -BucketName $bucketName `
-        -CredentialHash $credentialHash
+        -CredentialHash $credentialHash `
+        -Port $backendPort
 
     $sessionsAfterRollback = [int](Invoke-PostgreSqlScalar `
         -ContainerName $postgresName `
         -DatabaseName $databaseName `
+        -Port $postgreSqlPort `
         -Sql 'SELECT count(*) FROM steward_auth_sessions;')
     Require ($sessionsAfterRollback -eq 1) "Rollback restored $sessionsAfterRollback sessions instead of one."
 
@@ -483,12 +484,14 @@ try {
             backendTarPath = $backendRelativePath
         }
         infrastructure = [ordered]@{
+            networkMode = 'host-loopback'
             postgresImage = 'postgres:17-alpine'
             postgresImageId = $postgresImageId
             postgresVersionNumber = $postgresVersionNumber
             objectStorageImage = 'quay.io/minio/minio:latest'
             objectStorageImageId = $minioImageId
             objectStorageProtocol = 's3-compatible'
+            objectStorageTransport = 'http-loopback-only'
         }
         startup = [ordered]@{
             liveness = 'passed'
@@ -533,7 +536,6 @@ finally {
     Remove-ContainerIfPresent $backendName
     Remove-ContainerIfPresent $minioName
     Remove-ContainerIfPresent $postgresName
-    & docker network rm $networkName *> $null
 
     [Array]::Clear($secretBytes, 0, $secretBytes.Length)
     $credential = $null

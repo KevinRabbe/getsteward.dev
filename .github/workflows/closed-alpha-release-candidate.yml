@@ -109,11 +109,15 @@ jobs:
 
           $imageId = (docker image inspect $imageTag --format '{{.Id}}').Trim().ToLowerInvariant()
           $runtimeUser = (docker image inspect $imageTag --format '{{.Config.User}}').Trim()
+          $platform = (docker image inspect $imageTag --format '{{.Os}}/{{.Architecture}}').Trim().ToLowerInvariant()
           if ($imageId -notmatch '^sha256:[0-9a-f]{64}$') {
             throw 'Backend image ID is malformed.'
           }
           if (-not [string]::Equals($runtimeUser, 'app', [StringComparison]::Ordinal)) {
             throw "Backend image runtime user is '$runtimeUser', expected 'app'."
+          }
+          if (-not [string]::Equals($platform, 'linux/amd64', [StringComparison]::Ordinal)) {
+            throw "Backend image platform is '$platform', expected linux/amd64."
           }
 
           $tarPath = Join-Path $output 'backend-image.tar'
@@ -124,8 +128,6 @@ jobs:
 
           $metadata = [ordered]@{
             imageTag = $imageTag
-            imageId = $imageId
-            runtimeUser = $runtimeUser
           }
           [IO.File]::WriteAllText(
             (Join-Path $output 'backend-metadata.json'),
@@ -180,6 +182,10 @@ jobs:
 
           $backendMetadataPath = "$env:RUNNER_TEMP/closed-alpha-backend/backend-metadata.json"
           $backendMetadata = Get-Content -LiteralPath $backendMetadataPath -Raw | ConvertFrom-Json
+          $metadataProperties = @($backendMetadata.PSObject.Properties.Name)
+          if ($metadataProperties.Count -ne 1 -or $metadataProperties[0] -cne 'imageTag') {
+            throw 'Backend staging metadata contains missing or unexpected fields.'
+          }
           $output = "$env:RUNNER_TEMP/safe-world-closed-alpha-release"
 
           ./tools/assemble-closed-alpha-release.ps1 `
@@ -189,8 +195,6 @@ jobs:
             -DesktopInputDirectory "$env:RUNNER_TEMP/closed-alpha-desktop" `
             -BackendTarPath "$env:RUNNER_TEMP/closed-alpha-backend/backend-image.tar" `
             -BackendImageTag ([string]$backendMetadata.imageTag) `
-            -BackendImageId ([string]$backendMetadata.imageId) `
-            -BackendRuntimeUser ([string]$backendMetadata.runtimeUser) `
             -OutputDirectory $output
 
           ./tools/verify-closed-alpha-release.ps1 -BundleDirectory $output

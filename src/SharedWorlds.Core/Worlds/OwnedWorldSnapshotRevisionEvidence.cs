@@ -41,8 +41,12 @@ public sealed record OwnedWorldSnapshotRevisionEvidence(
                 "Revision evidence requires a non-empty World ID.");
         }
 
-        ArgumentNullException.ThrowIfNull(StateRevision);
-        ArgumentNullException.ThrowIfNull(EnvironmentRevision);
+        if (StateRevision is null || EnvironmentRevision is null)
+        {
+            throw new InvalidDataException(
+                "Revision evidence requires exact state and environment revision records.");
+        }
+
         if (StateRevision.Id.Value == Guid.Empty ||
             EnvironmentRevision.Id.Value == Guid.Empty)
         {
@@ -256,6 +260,67 @@ public interface IOwnedWorldSnapshotRevisionEvidenceStore
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// Publishes exact revision records only when the authenticated owner already has one verified
+/// snapshot descriptor for that exact source key. Store immutability prevents one revision ID from
+/// acquiring different parent, timestamp, actor, package, adapter, or manifest metadata later.
+/// </summary>
+public sealed class OwnedWorldSnapshotRevisionEvidenceRegistry
+{
+    private readonly IOwnedWorldSnapshotStore _snapshots;
+    private readonly IOwnedWorldSnapshotRevisionEvidenceStore _revisionEvidence;
+
+    public OwnedWorldSnapshotRevisionEvidenceRegistry(
+        IOwnedWorldSnapshotStore snapshots,
+        IOwnedWorldSnapshotRevisionEvidenceStore revisionEvidence)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+        ArgumentNullException.ThrowIfNull(revisionEvidence);
+        _snapshots = snapshots;
+        _revisionEvidence = revisionEvidence;
+    }
+
+    public async Task<OwnedWorldSnapshotRevisionEvidenceWriteDecision> PublishAsync(
+        UserIdentity authenticatedOwner,
+        OwnedWorldSnapshotRevisionEvidence evidence,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(authenticatedOwner);
+        ArgumentNullException.ThrowIfNull(evidence);
+        evidence.Validate();
+        if (!SameOwner(evidence, authenticatedOwner))
+        {
+            throw new InvalidOperationException(
+                "The authenticated owner does not own the exact revision evidence.");
+        }
+
+        var snapshot = await _snapshots.LoadExactAsync(
+            evidence.OwnerProvider,
+            evidence.OwnerExternalId,
+            evidence.WorldId,
+            evidence.InstallationId,
+            evidence.StateRevision.Id,
+            evidence.EnvironmentRevision.Id,
+            cancellationToken)
+            ?? throw new InvalidOperationException(
+                "Verified private snapshot bytes must exist before exact revision evidence can be published.");
+        evidence.ValidateAgainst(snapshot);
+        return await _revisionEvidence.PublishAsync(evidence, cancellationToken);
+    }
+
+    private static bool SameOwner(
+        OwnedWorldSnapshotRevisionEvidence evidence,
+        UserIdentity owner)
+        => string.Equals(
+               evidence.OwnerProvider,
+               owner.Provider,
+               StringComparison.Ordinal) &&
+           string.Equals(
+               evidence.OwnerExternalId,
+               owner.ExternalId,
+               StringComparison.Ordinal);
+}
+
 public sealed record BringHereMaterializationDecision(
     BringHereAvailability Availability,
     OwnedWorldLocationClaim? Source,
@@ -316,6 +381,11 @@ public sealed class BringHereMaterializationAuthorityService
         {
             throw new InvalidOperationException(
                 $"Private World '{worldId}' exceeded the bounded limit of {MaximumRevisionEvidencePerWorld} revision-evidence objects.");
+        }
+
+        foreach (var evidence in ownedEvidence)
+        {
+            evidence.Validate();
         }
 
         var exact = ownedEvidence

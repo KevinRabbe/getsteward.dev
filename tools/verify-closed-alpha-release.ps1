@@ -41,6 +41,23 @@ function Require-SafeRelativePath([string]$Path) {
     }
 }
 
+function Get-ArtifactByPath([object[]]$Artifacts, [string]$Path) {
+    $matches = @($Artifacts | Where-Object { [string]$_.path -ceq $Path })
+    Require ($matches.Count -eq 1) "Evidence path '$Path' is not represented exactly once in the release artifact list."
+    return $matches[0]
+}
+
+function Require-EvidenceCheckpoint([object]$Checkpoint, [string]$Context, [object[]]$Artifacts) {
+    Require-ExactProperties $Checkpoint @('path', 'sha256') $Context
+    $path = [string]$Checkpoint.path
+    Require-SafeRelativePath $path
+    Require ($path.StartsWith('physical-evidence/', [StringComparison]::Ordinal)) "$Context path must be under physical-evidence/."
+    $sha256 = [string]$Checkpoint.sha256
+    Require ($sha256 -match '^[0-9A-F]{64}$') "$Context SHA-256 is malformed."
+    $artifact = Get-ArtifactByPath $Artifacts $path
+    Require ([string]$artifact.sha256 -ceq $sha256) "$Context SHA-256 disagrees with the release artifact list."
+}
+
 $root = [IO.Path]::GetFullPath($BundleDirectory)
 Require ([IO.Directory]::Exists($root)) "Closed-alpha bundle directory does not exist: $root"
 
@@ -77,6 +94,8 @@ Require ([DateTimeOffset]::TryParse([string]$manifest.builtAtUtc, [ref]$builtAt)
 Require ($builtAt -ne [DateTimeOffset]::MinValue) 'Release builtAtUtc cannot be the default timestamp.'
 
 Require-ExactProperties $manifest.publishAuthorization @(
+    'evidencePath',
+    'evidenceSha256',
     'physicalBringHere',
     'publishAllowed',
     'reason'
@@ -89,6 +108,19 @@ Require ($publishAllowed -eq ($physicalStatus -ceq 'passed')) 'Publish authoriza
 $reason = [string]$manifest.publishAuthorization.reason
 Require (-not [string]::IsNullOrWhiteSpace($reason) -and $reason.Length -le 500) 'Publish authorization reason is missing or too long.'
 Require ($reason -notmatch '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]') 'Publish authorization reason contains a forbidden control character.'
+$physicalEvidencePathValue = $manifest.publishAuthorization.evidencePath
+$physicalEvidenceShaValue = $manifest.publishAuthorization.evidenceSha256
+if ($physicalStatus -ceq 'deferred') {
+    Require ($null -eq $physicalEvidencePathValue -and $null -eq $physicalEvidenceShaValue) 'Deferred publish authorization cannot carry physical evidence fields.'
+}
+else {
+    $physicalEvidencePath = [string]$physicalEvidencePathValue
+    $physicalEvidenceSha = [string]$physicalEvidenceShaValue
+    Require-SafeRelativePath $physicalEvidencePath
+    Require ($physicalEvidencePath.StartsWith('physical-evidence/', [StringComparison]::Ordinal) -and
+        $physicalEvidencePath.EndsWith('.json', [StringComparison]::OrdinalIgnoreCase)) 'Passed physical evidence summary must be one JSON file under physical-evidence/.'
+    Require ($physicalEvidenceSha -match '^[0-9A-F]{64}$') 'Passed physical evidence summary SHA-256 is malformed.'
+}
 
 Require-ExactProperties $manifest.deployment @(
     'apiBaseUrl',
@@ -155,6 +187,35 @@ Require ($seenPaths.Contains('backend/deployment.env.example')) 'Bundle is missi
 Require ($seenPaths.Contains('CLOSED-ALPHA-OPERATOR-RUNBOOK.txt')) 'Bundle is missing the operator runbook.'
 Require ($seenPaths.Contains('verify-closed-alpha-release.ps1')) 'Bundle is missing its verifier.'
 Require ($seenPaths.Contains('RELEASE-STATUS.txt')) 'Bundle is missing RELEASE-STATUS.txt.'
+
+if ($physicalStatus -ceq 'passed') {
+    $physicalEvidencePath = [string]$physicalEvidencePathValue
+    $physicalEvidenceSha = [string]$physicalEvidenceShaValue
+    $physicalEvidenceArtifact = Get-ArtifactByPath $artifacts $physicalEvidencePath
+    Require ([string]$physicalEvidenceArtifact.sha256 -ceq $physicalEvidenceSha) 'Physical evidence summary SHA-256 disagrees with the release artifact list.'
+    $physicalEvidenceFullPath = Join-Path $root $physicalEvidencePath
+    $physicalEvidenceText = [IO.File]::ReadAllText($physicalEvidenceFullPath)
+    Require ($physicalEvidenceText.Length -le 1MB) 'Physical evidence summary exceeds the 1 MiB bound.'
+    $physicalEvidence = $physicalEvidenceText | ConvertFrom-Json
+    Require-ExactProperties $physicalEvidence @(
+        'completedAtUtc',
+        'documentType',
+        'qualifiedKitCommitSha',
+        'schemaVersion',
+        'sourceAfter',
+        'sourceBefore',
+        'targetAfter'
+    ) 'Physical evidence summary'
+    Require ([string]$physicalEvidence.documentType -ceq 'steward.bring-here-physical-pass') 'Physical evidence summary has the wrong document type.'
+    Require ([int]$physicalEvidence.schemaVersion -eq 1) 'Physical evidence summary has an unsupported schema version.'
+    Require ([string]$physicalEvidence.qualifiedKitCommitSha -match '^[0-9a-f]{40}$') 'Physical evidence summary has a malformed qualified kit commit SHA.'
+    $completedAt = [DateTimeOffset]::MinValue
+    Require ([DateTimeOffset]::TryParse([string]$physicalEvidence.completedAtUtc, [ref]$completedAt) -and
+        $completedAt -ne [DateTimeOffset]::MinValue) 'Physical evidence summary completedAtUtc is malformed.'
+    Require-EvidenceCheckpoint $physicalEvidence.sourceBefore 'Physical source-before evidence' $artifacts
+    Require-EvidenceCheckpoint $physicalEvidence.targetAfter 'Physical target-after evidence' $artifacts
+    Require-EvidenceCheckpoint $physicalEvidence.sourceAfter 'Physical source-after evidence' $artifacts
+}
 
 if ($RequirePublishAuthorized.IsPresent -and -not $publishAllowed) {
     throw "Release candidate is structurally valid but publishing is blocked: $reason"

@@ -17,7 +17,11 @@ public partial class MainWindow
                 return;
             }
 
+            // The backend requires the exact source location head before it can authorize immutable
+            // private snapshot bytes. Snapshot publication is auxiliary and occurs only after the
+            // current canonical location claims have been reconciled and replayed.
             await remote.ReconcileAndReplayOwnedWorldLocationsAsync(cancellationToken);
+            await remote.PublishCurrentOwnedWorldSnapshotsAsync(cancellationToken);
         }
         finally
         {
@@ -33,7 +37,7 @@ public partial class MainWindow
             "logs");
         LocalDiagnosticLog.TryWriteException(
             new InvalidOperationException(
-                "Safe World could not accelerate owned-World location publication. Exact pending work remains durable and will be reconciled by the next storage change, authentication activation, or startup.",
+                "Safe World could not accelerate owned-World location or private snapshot publication. Local World changes remain committed, exact pending location work remains durable, and resumable snapshot transfer can continue after the next storage change, authentication activation, or startup.",
                 exception),
             diagnosticsRoot);
     }

@@ -199,6 +199,57 @@ jobs:
 
           ./tools/verify-closed-alpha-release.ps1 -BundleDirectory $output
 
+          $manifestPath = Join-Path $output 'release-manifest.json'
+          $originalManifestBytes = [IO.File]::ReadAllBytes($manifestPath)
+          try {
+            $unauthorizedPromotion = [Text.Encoding]::UTF8.GetString($originalManifestBytes) | ConvertFrom-Json
+            $unauthorizedPromotion.publishAuthorization.physicalBringHere = 'passed'
+            $unauthorizedPromotion.publishAuthorization.publishAllowed = $true
+            [IO.File]::WriteAllText(
+              $manifestPath,
+              ($unauthorizedPromotion | ConvertTo-Json -Depth 6),
+              [Text.UTF8Encoding]::new($false))
+
+            $unauthorizedPromotionRejected = $false
+            try {
+              ./tools/verify-closed-alpha-release.ps1 `
+                -BundleDirectory $output `
+                -RequirePublishAuthorized
+            }
+            catch {
+              $unauthorizedPromotionRejected = $true
+              Write-Host "[EXPECTED] Boolean-only publish promotion rejected: $($_.Exception.Message)"
+            }
+            if (-not $unauthorizedPromotionRejected) {
+              throw 'Boolean-only publish promotion was accepted without physical evidence.'
+            }
+          }
+          finally {
+            [IO.File]::WriteAllBytes($manifestPath, $originalManifestBytes)
+          }
+
+          $statusPath = Join-Path $output 'RELEASE-STATUS.txt'
+          $originalStatusBytes = [IO.File]::ReadAllBytes($statusPath)
+          try {
+            Add-Content -LiteralPath $statusPath -Value 'tampered'
+            $statusTamperRejected = $false
+            try {
+              ./tools/verify-closed-alpha-release.ps1 -BundleDirectory $output
+            }
+            catch {
+              $statusTamperRejected = $true
+              Write-Host "[EXPECTED] Artifact tamper rejected: $($_.Exception.Message)"
+            }
+            if (-not $statusTamperRejected) {
+              throw 'Modified release status passed byte verification.'
+            }
+          }
+          finally {
+            [IO.File]::WriteAllBytes($statusPath, $originalStatusBytes)
+          }
+
+          ./tools/verify-closed-alpha-release.ps1 -BundleDirectory $output
+
           $strictGateBlocked = $false
           try {
             ./tools/verify-closed-alpha-release.ps1 `
@@ -213,8 +264,8 @@ jobs:
             throw 'Deferred physical Bring Here evidence unexpectedly produced a publish-authorized bundle.'
           }
 
-          Get-Content -LiteralPath (Join-Path $output 'release-manifest.json')
-          Get-Content -LiteralPath (Join-Path $output 'RELEASE-STATUS.txt')
+          Get-Content -LiteralPath $manifestPath
+          Get-Content -LiteralPath $statusPath
 
       - name: Upload exact deferred closed-alpha candidate
         uses: actions/upload-artifact@v6

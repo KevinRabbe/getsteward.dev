@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
 using Amazon.S3;
@@ -8,12 +9,16 @@ namespace SharedWorlds.Backend.ObjectStorage.S3;
 
 /// <summary>
 /// Restart-safe S3-compatible object-store facade. Begin recovers an in-progress multipart upload
-/// for the exact immutable object key before creating another provider upload. All remaining
-/// operations delegate to the already-validated S3 implementation.
+/// for the exact immutable object key before creating another provider upload. Newly returned provider
+/// handles are compressed inside the durable 512-character transfer-store boundary; legacy handles
+/// remain readable so in-flight transfers survive deployment of the compact format.
 /// </summary>
 public sealed class RecoveringS3CompatibleImmutableObjectStore : IPrivateImmutableObjectStore, IDisposable
 {
     private const string HandlePrefix = "s3mp1_";
+    private const string CompactHandlePrefix = "s3z1_";
+    private const int MaximumDurableHandleLength = 512;
+    private const int MaximumExpandedHandleBytes = 131_072;
 
     private readonly IAmazonS3 _client;
     private readonly string _bucketName;
@@ -52,26 +57,33 @@ public sealed class RecoveringS3CompatibleImmutableObjectStore : IPrivateImmutab
         var existing = await FindExistingUploadAsync(objectKey, cancellationToken);
         if (existing is not null)
         {
+            var legacyHandle = EncodeHandle(new MultipartHandle(
+                objectKey,
+                existing.UploadId,
+                expectedByteSize,
+                NormalizeSha256(expectedSha256)));
             return new ImmutableUploadSession(
-                EncodeHandle(new MultipartHandle(
-                    objectKey,
-                    existing.UploadId,
-                    expectedByteSize,
-                    NormalizeSha256(expectedSha256))),
+                CompactHandle(legacyHandle),
                 objectKey);
         }
 
-        return await _inner.BeginMultipartUploadAsync(
+        var created = await _inner.BeginMultipartUploadAsync(
             objectKey,
             expectedByteSize,
             expectedSha256,
             cancellationToken);
+        return created with
+        {
+            ProviderUploadId = CompactHandle(created.ProviderUploadId)
+        };
     }
 
     public Task<ImmutableUploadSnapshot?> GetMultipartUploadAsync(
         string providerUploadId,
         CancellationToken cancellationToken = default)
-        => _inner.GetMultipartUploadAsync(providerUploadId, cancellationToken);
+        => _inner.GetMultipartUploadAsync(
+            ExpandHandle(providerUploadId),
+            cancellationToken);
 
     public Task<DirectObjectTransferAuthorization> AuthorizeUploadPartAsync(
         string providerUploadId,
@@ -80,7 +92,7 @@ public sealed class RecoveringS3CompatibleImmutableObjectStore : IPrivateImmutab
         DateTimeOffset expiresAt,
         CancellationToken cancellationToken = default)
         => _inner.AuthorizeUploadPartAsync(
-            providerUploadId,
+            ExpandHandle(providerUploadId),
             partNumber,
             expectedByteSize,
             expiresAt,
@@ -89,12 +101,16 @@ public sealed class RecoveringS3CompatibleImmutableObjectStore : IPrivateImmutab
     public Task<ImmutableStoredObject> CompleteMultipartUploadAsync(
         string providerUploadId,
         CancellationToken cancellationToken = default)
-        => _inner.CompleteMultipartUploadAsync(providerUploadId, cancellationToken);
+        => _inner.CompleteMultipartUploadAsync(
+            ExpandHandle(providerUploadId),
+            cancellationToken);
 
     public Task AbortMultipartUploadAsync(
         string providerUploadId,
         CancellationToken cancellationToken = default)
-        => _inner.AbortMultipartUploadAsync(providerUploadId, cancellationToken);
+        => _inner.AbortMultipartUploadAsync(
+            ExpandHandle(providerUploadId),
+            cancellationToken);
 
     public Task<ImmutableStoredObject?> InspectObjectAsync(
         string objectKey,
@@ -191,13 +207,146 @@ public sealed class RecoveringS3CompatibleImmutableObjectStore : IPrivateImmutab
             : string.Compare(left.UploadId, right.UploadId, StringComparison.Ordinal);
     }
 
+    private static string CompactHandle(string providerUploadId)
+    {
+        ValidateProviderHandle(providerUploadId, MaximumExpandedHandleBytes);
+        if (providerUploadId.StartsWith(CompactHandlePrefix, StringComparison.Ordinal))
+        {
+            if (providerUploadId.Length > MaximumDurableHandleLength)
+            {
+                throw new InvalidOperationException(
+                    "Compact S3 multipart handle exceeds the durable transfer-store boundary.");
+            }
+
+            _ = ExpandHandle(providerUploadId);
+            return providerUploadId;
+        }
+
+        var source = Encoding.UTF8.GetBytes(providerUploadId);
+        using var output = new MemoryStream();
+        using (var compressor = new BrotliStream(
+                   output,
+                   CompressionLevel.SmallestSize,
+                   leaveOpen: true))
+        {
+            compressor.Write(source);
+        }
+
+        var compact = CompactHandlePrefix + ToBase64Url(output.ToArray());
+        if (compact.Length > MaximumDurableHandleLength)
+        {
+            throw new InvalidOperationException(
+                "S3 multipart handle cannot be represented inside the durable transfer-store boundary.");
+        }
+
+        return compact;
+    }
+
+    private static string ExpandHandle(string providerUploadId)
+    {
+        ValidateProviderHandle(providerUploadId, MaximumExpandedHandleBytes);
+        if (!providerUploadId.StartsWith(CompactHandlePrefix, StringComparison.Ordinal))
+        {
+            return providerUploadId;
+        }
+
+        if (providerUploadId.Length > MaximumDurableHandleLength)
+        {
+            throw new InvalidDataException(
+                "Compact S3 multipart handle exceeds the durable transfer-store boundary.");
+        }
+
+        byte[] compressed;
+        try
+        {
+            compressed = FromBase64Url(providerUploadId[CompactHandlePrefix.Length..]);
+        }
+        catch (FormatException exception)
+        {
+            throw new InvalidDataException(
+                "Compact S3 multipart handle is malformed.",
+                exception);
+        }
+
+        using var input = new MemoryStream(compressed, writable: false);
+        using var decompressor = new BrotliStream(
+            input,
+            CompressionMode.Decompress,
+            leaveOpen: false);
+        using var output = new MemoryStream();
+        var buffer = new byte[4096];
+        while (true)
+        {
+            int read;
+            try
+            {
+                read = decompressor.Read(buffer, 0, buffer.Length);
+            }
+            catch (InvalidDataException exception)
+            {
+                throw new InvalidDataException(
+                    "Compact S3 multipart handle contains invalid compressed data.",
+                    exception);
+            }
+
+            if (read == 0)
+            {
+                break;
+            }
+
+            if (output.Length + read > MaximumExpandedHandleBytes)
+            {
+                throw new InvalidDataException(
+                    "Compact S3 multipart handle expands beyond its bounded limit.");
+            }
+
+            output.Write(buffer, 0, read);
+        }
+
+        string expanded;
+        try
+        {
+            expanded = new UTF8Encoding(
+                    encoderShouldEmitUTF8Identifier: false,
+                    throwOnInvalidBytes: true)
+                .GetString(output.ToArray());
+        }
+        catch (DecoderFallbackException exception)
+        {
+            throw new InvalidDataException(
+                "Compact S3 multipart handle does not contain valid UTF-8.",
+                exception);
+        }
+
+        ValidateProviderHandle(expanded, MaximumExpandedHandleBytes);
+        return expanded;
+    }
+
     private static string EncodeHandle(MultipartHandle handle)
     {
         var json = JsonSerializer.SerializeToUtf8Bytes(handle);
-        return HandlePrefix + Convert.ToBase64String(json)
+        return HandlePrefix + ToBase64Url(json);
+    }
+
+    private static string ToBase64Url(byte[] value)
+        => Convert.ToBase64String(value)
             .TrimEnd('=')
             .Replace('+', '-')
             .Replace('/', '_');
+
+    private static byte[] FromBase64Url(string value)
+    {
+        var padded = value
+            .Replace('-', '+')
+            .Replace('_', '/');
+        padded += (padded.Length % 4) switch
+        {
+            0 => string.Empty,
+            2 => "==",
+            3 => "=",
+            _ => throw new FormatException("Invalid Base64Url length.")
+        };
+        return Convert.FromBase64String(padded);
     }
 
     private static void ValidateExpectedObject(long expectedByteSize, string expectedSha256)
@@ -225,6 +374,17 @@ public sealed class RecoveringS3CompatibleImmutableObjectStore : IPrivateImmutab
             throw new ArgumentOutOfRangeException(
                 nameof(objectKey),
                 "Object key is too long for S3-compatible storage.");
+        }
+    }
+
+    private static void ValidateProviderHandle(string providerUploadId, int maximumLength)
+    {
+        if (string.IsNullOrWhiteSpace(providerUploadId) ||
+            providerUploadId.Length > maximumLength ||
+            providerUploadId.Any(char.IsControl))
+        {
+            throw new InvalidDataException(
+                "S3 multipart handle is empty, malformed, or exceeds its bounded length.");
         }
     }
 

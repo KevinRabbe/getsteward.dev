@@ -219,7 +219,8 @@ public sealed class StewardOwnedWorldSnapshotPublisher
         if (result.WorldId != snapshot.World.Id ||
             result.StateRevisionId != snapshot.State.Id ||
             result.EnvironmentRevisionId != snapshot.Environment.Id ||
-            result.RecordedAt is null or { } recordedAt && recordedAt == default)
+            result.RecordedAt is null ||
+            result.RecordedAt.Value == default)
         {
             throw new InvalidDataException(
                 "Steward private revision evidence success result disagrees with the requested exact canonical head.");

@@ -274,3 +274,35 @@ jobs:
           path: ${{ runner.temp }}/safe-world-closed-alpha-release
           if-no-files-found: error
           retention-days: 14
+
+  rehearse:
+    name: Rehearse exact bundled backend deployment
+    needs:
+      - assemble
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact release commit
+        uses: actions/checkout@v6
+
+      - name: Download exact assembled candidate
+        uses: actions/download-artifact@v6
+        with:
+          name: safe-world-closed-alpha-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/safe-world-closed-alpha-release
+
+      - name: Deploy, authenticate, and prove rollback without rebuild
+        shell: pwsh
+        run: |
+          ./tools/rehearse-closed-alpha-deployment.ps1 `
+            -BundleDirectory "$env:RUNNER_TEMP/safe-world-closed-alpha-release" `
+            -EvidencePath "$env:RUNNER_TEMP/closed-alpha-deployment-rehearsal.json"
+
+      - name: Upload deployment rehearsal evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: closed-alpha-deployment-rehearsal-${{ github.sha }}
+          path: ${{ runner.temp }}/closed-alpha-deployment-rehearsal.json
+          if-no-files-found: warn
+          retention-days: 14

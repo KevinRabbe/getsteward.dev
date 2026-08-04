@@ -56,19 +56,29 @@ public sealed class PrivateSnapshotMaterializationDesktopCompositionTests
             client,
             StringComparison.Ordinal);
         Assert.DoesNotContain("/snapshot-download", client, StringComparison.Ordinal);
+
+        var authorizeCall = RequiredIndex(
+            client,
+            "var authorization = await AuthorizeAsync(worldId, cancellationToken);");
+        var exactPlan = RequiredIndex(
+            client,
+            "var plan = authorization.Plan",
+            authorizeCall);
+        var cachePublication = RequiredIndex(
+            client,
+            "var cached = await _cache.EnsureAsync(",
+            exactPlan);
         var evidenceValidation = RequiredIndex(
             client,
             "evidence.ValidateAgainst(descriptor);");
-        var authorizationValidation = RequiredIndex(
+        var signedAuthorizationValidation = RequiredIndex(
             client,
             "var authorization = Authorization.ToDomain(",
             evidenceValidation);
-        var cachePublication = RequiredIndex(
-            client,
-            "var cached = await _cache.EnsureAsync(");
 
-        Assert.True(evidenceValidation < authorizationValidation);
-        Assert.True(authorizationValidation < cachePublication);
+        Assert.True(authorizeCall < exactPlan);
+        Assert.True(exactPlan < cachePublication);
+        Assert.True(evidenceValidation < signedAuthorizationValidation);
     }
 
     private static int RequiredIndex(string source, string value, int startIndex = 0)

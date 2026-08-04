@@ -37,7 +37,7 @@ public partial class MainWindow
             "logs");
         LocalDiagnosticLog.TryWriteException(
             new InvalidOperationException(
-                "Safe World could not accelerate owned-World location or private snapshot publication. Local World changes remain committed, exact pending location work remains durable, and resumable snapshot transfer can continue after the next storage change, authentication activation, or startup.",
+                "Safe World could not accelerate owned-World location or private snapshot publication. Local World changes remain committed. Exact pending work remains durable, and resumable snapshot transfer can continue after the next storage change, authentication activation, or startup.",
                 exception),
             diagnosticsRoot);
     }

@@ -22,10 +22,9 @@ function Require-Tool([string]$Name) {
 
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $desktopBuilder = Join-Path $repoRoot 'tools/v2-build-friends.ps1'
-$verifierSource = Join-Path $repoRoot 'tools/verify-closed-alpha-release.ps1'
-$runbookSource = Join-Path $repoRoot 'tools/closed-alpha-release/CLOSED-ALPHA-OPERATOR-RUNBOOK.txt'
+$assembler = Join-Path $repoRoot 'tools/assemble-closed-alpha-release.ps1'
 $backendDockerfile = Join-Path $repoRoot 'src/SharedWorlds.Backend.Api/Dockerfile'
-foreach ($requiredPath in @($desktopBuilder, $verifierSource, $runbookSource, $backendDockerfile)) {
+foreach ($requiredPath in @($desktopBuilder, $assembler, $backendDockerfile)) {
     if (-not [IO.File]::Exists($requiredPath)) {
         Fail "Closed-alpha release input is missing: $requiredPath"
     }
@@ -63,15 +62,15 @@ if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
     $OutputDirectory = Join-Path $repoRoot "artifacts/closed-alpha-$Version"
 }
 $output = [IO.Path]::GetFullPath($OutputDirectory)
-if ([IO.Directory]::Exists($output)) {
-    Remove-Item -LiteralPath $output -Recurse -Force
-}
-[IO.Directory]::CreateDirectory($output) | Out-Null
+$temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("steward-closed-alpha-" + [Guid]::NewGuid().ToString('N'))
+$desktopStaging = Join-Path $temporaryRoot 'desktop'
+$backendTarPath = Join-Path $temporaryRoot "steward-backend-$Version-linux-amd64.tar"
 
-$desktopDirectory = Join-Path $output 'desktop'
-$backendDirectory = Join-Path $output 'backend'
-[IO.Directory]::CreateDirectory($desktopDirectory) | Out-Null
-[IO.Directory]::CreateDirectory($backendDirectory) | Out-Null
+$tagVersion = $Version.ToLowerInvariant()
+if ($tagVersion -notmatch '^[a-z0-9][a-z0-9._-]{0,63}$') {
+    Fail 'Version cannot be normalized into one safe backend image tag.'
+}
+$backendImageTag = "steward-backend:$tagVersion"
 
 Write-Host 'Building Safe World closed-alpha release candidate'
 Write-Host "  Version: $Version"
@@ -81,168 +80,61 @@ Write-Host "  Output: $output"
 Write-Host '  Physical Bring Here gate: deferred'
 Write-Host
 
-& $desktopBuilder `
-    -ApiBaseUrl $normalizedApiBaseUrl `
-    -Version $Version `
-    -Configuration $Configuration `
-    -OutputDirectory $desktopDirectory
-if ($LASTEXITCODE -ne 0) {
-    Fail "Friends Build package failed with exit code $LASTEXITCODE."
-}
+try {
+    [IO.Directory]::CreateDirectory($temporaryRoot) | Out-Null
 
-$desktopZips = @(Get-ChildItem -LiteralPath $desktopDirectory -File -Filter '*.zip')
-$desktopChecksums = @(Get-ChildItem -LiteralPath $desktopDirectory -File -Filter '*.zip.sha256')
-if ($desktopZips.Count -ne 1 -or $desktopChecksums.Count -ne 1) {
-    Fail 'Closed-alpha Desktop output must contain exactly one ZIP and one ZIP checksum.'
-}
-
-$tagVersion = $Version.ToLowerInvariant()
-if ($tagVersion -notmatch '^[a-z0-9][a-z0-9._-]{0,63}$') {
-    Fail 'Version cannot be normalized into one safe backend image tag.'
-}
-$backendImageTag = "steward-backend:$tagVersion"
-$buildArguments = @(
-    'build',
-    '--platform', 'linux/amd64',
-    '--file', $backendDockerfile,
-    '--tag', $backendImageTag,
-    '--label', "org.opencontainers.image.revision=$commit",
-    '--label', "org.opencontainers.image.version=$Version",
-    $repoRoot
-)
-& docker @buildArguments
-if ($LASTEXITCODE -ne 0) {
-    Fail "Backend container build failed with exit code $LASTEXITCODE."
-}
-
-$backendImageId = (& docker image inspect $backendImageTag --format '{{.Id}}').Trim().ToLowerInvariant()
-$backendRuntimeUser = (& docker image inspect $backendImageTag --format '{{.Config.User}}').Trim()
-if ($LASTEXITCODE -ne 0 -or $backendImageId -notmatch '^sha256:[0-9a-f]{64}$') {
-    Fail 'Built backend image did not expose one valid immutable image ID.'
-}
-if (-not [string]::Equals($backendRuntimeUser, 'app', [StringComparison]::Ordinal)) {
-    Fail "Built backend image must run as non-root user 'app', not '$backendRuntimeUser'."
-}
-
-$backendTarName = "steward-backend-$Version-linux-amd64.tar"
-$backendTarPath = Join-Path $backendDirectory $backendTarName
-& docker save --output $backendTarPath $backendImageTag
-if ($LASTEXITCODE -ne 0 -or
-    -not [IO.File]::Exists($backendTarPath) -or
-    (Get-Item -LiteralPath $backendTarPath).Length -le 0) {
-    Fail 'Backend image TAR was not created.'
-}
-
-$deploymentExample = @"
-# Safe World closed-alpha deployment example.
-# Never put real secrets back into the distributed release bundle.
-STEWARD_RELEASE_VERSION=$Version
-STEWARD_RELEASE_COMMIT=$commit
-STEWARD_BACKEND_IMAGE=$backendImageTag
-PORT=8080
-ConnectionStrings__Steward=<required-postgresql-17-connection-string>
-ObjectStorage__ServiceUrl=<required-s3-compatible-service-url>
-ObjectStorage__AuthenticationRegion=<required-region>
-ObjectStorage__BucketName=<required-private-bucket>
-ObjectStorage__AccessKeyId=<required-secret>
-ObjectStorage__SecretAccessKey=<required-secret>
-ObjectStorage__ForcePathStyle=true
-FriendsBuild__Enabled=true
-# Add identities produced by tools/v2-provision-friend.ps1 through the secret/configuration platform.
-"@
-[IO.File]::WriteAllText(
-    (Join-Path $backendDirectory 'deployment.env.example'),
-    $deploymentExample,
-    [Text.UTF8Encoding]::new($false))
-
-Copy-Item -LiteralPath $verifierSource -Destination (Join-Path $output 'verify-closed-alpha-release.ps1') -Force
-Copy-Item -LiteralPath $runbookSource -Destination (Join-Path $output 'CLOSED-ALPHA-OPERATOR-RUNBOOK.txt') -Force
-
-$statusText = @"
-SAFE WORLD CLOSED-ALPHA RELEASE STATUS
-======================================
-Version: $Version
-Commit: $commit
-API base URL: $normalizedApiBaseUrl
-
-Candidate packaging: READY FOR VERIFICATION
-Public/closed-alpha publish authorization: DEFERRED
-
-Reason:
-The qualified physical PC A -> PC B -> PC A Bring Here acceptance has intentionally
-been left for later. Automated PostgreSQL + MinIO source-to-target evidence is green,
-but this candidate must not be represented as physically qualified or publish-approved.
-
-Allowed now:
-- deterministic candidate generation;
-- byte verification;
-- backend deployment rehearsal;
-- backup and rollback rehearsal;
-- private operator smoke testing;
-- distribution-process preparation.
-
-Blocked until a later candidate records physicalBringHere=passed:
-- broad tester distribution;
-- claiming the physical Bring Here milestone;
-- treating -RequirePublishAuthorized as optional.
-"@
-[IO.File]::WriteAllText(
-    (Join-Path $output 'RELEASE-STATUS.txt'),
-    $statusText,
-    [Text.UTF8Encoding]::new($false))
-
-$artifactEntries = @(Get-ChildItem -LiteralPath $output -Recurse -File |
-    Where-Object { -not [string]::Equals($_.Name, 'release-manifest.json', [StringComparison]::OrdinalIgnoreCase) } |
-    Sort-Object FullName |
-    ForEach-Object {
-        [ordered]@{
-            path = [IO.Path]::GetRelativePath($output, $_.FullName).Replace('\', '/')
-            byteSize = $_.Length
-            sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToUpperInvariant()
-        }
-    })
-if ($artifactEntries.Count -eq 0) {
-    Fail 'Closed-alpha release candidate contains no artifacts.'
-}
-
-$manifest = [ordered]@{
-    documentType = 'steward.closed-alpha-release-candidate'
-    schemaVersion = 1
-    channel = 'closed-alpha'
-    version = $Version
-    commitSha = $commit
-    builtAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
-    deployment = [ordered]@{
-        apiBaseUrl = $normalizedApiBaseUrl
-        authenticationMode = 'friends-build'
-        backendImageTag = $backendImageTag
-        backendImageId = $backendImageId
-        backendRuntimeUser = $backendRuntimeUser
-        targetPlatform = 'linux/amd64'
-        postgresMajorVersion = 17
-        objectStorageProtocol = 's3-compatible'
+    & $desktopBuilder `
+        -ApiBaseUrl $normalizedApiBaseUrl `
+        -Version $Version `
+        -Configuration $Configuration `
+        -OutputDirectory $desktopStaging
+    if ($LASTEXITCODE -ne 0) {
+        Fail "Friends Build package failed with exit code $LASTEXITCODE."
     }
-    publishAuthorization = [ordered]@{
-        physicalBringHere = 'deferred'
-        publishAllowed = $false
-        reason = 'The real PC A -> PC B -> PC A Bring Here acceptance is deferred and has not been claimed.'
+
+    $buildArguments = @(
+        'build',
+        '--platform', 'linux/amd64',
+        '--file', $backendDockerfile,
+        '--tag', $backendImageTag,
+        '--label', "org.opencontainers.image.revision=$commit",
+        '--label', "org.opencontainers.image.version=$Version",
+        $repoRoot
+    )
+    & docker @buildArguments
+    if ($LASTEXITCODE -ne 0) {
+        Fail "Backend container build failed with exit code $LASTEXITCODE."
     }
-    artifacts = $artifactEntries
+
+    $backendImageId = (& docker image inspect $backendImageTag --format '{{.Id}}').Trim().ToLowerInvariant()
+    $backendRuntimeUser = (& docker image inspect $backendImageTag --format '{{.Config.User}}').Trim()
+    if ($LASTEXITCODE -ne 0 -or $backendImageId -notmatch '^sha256:[0-9a-f]{64}$') {
+        Fail 'Built backend image did not expose one valid immutable image ID.'
+    }
+    if (-not [string]::Equals($backendRuntimeUser, 'app', [StringComparison]::Ordinal)) {
+        Fail "Built backend image must run as non-root user 'app', not '$backendRuntimeUser'."
+    }
+
+    & docker save --output $backendTarPath $backendImageTag
+    if ($LASTEXITCODE -ne 0 -or
+        -not [IO.File]::Exists($backendTarPath) -or
+        (Get-Item -LiteralPath $backendTarPath).Length -le 0) {
+        Fail 'Backend image TAR was not created.'
+    }
+
+    & $assembler `
+        -ApiBaseUrl $normalizedApiBaseUrl `
+        -Version $Version `
+        -CommitSha $commit `
+        -DesktopInputDirectory $desktopStaging `
+        -BackendTarPath $backendTarPath `
+        -BackendImageTag $backendImageTag `
+        -BackendImageId $backendImageId `
+        -BackendRuntimeUser $backendRuntimeUser `
+        -OutputDirectory $output
 }
-$manifestPath = Join-Path $output 'release-manifest.json'
-[IO.File]::WriteAllText(
-    $manifestPath,
-    ($manifest | ConvertTo-Json -Depth 6),
-    [Text.UTF8Encoding]::new($false))
-
-$packagedVerifier = Join-Path $output 'verify-closed-alpha-release.ps1'
-& $packagedVerifier -BundleDirectory $output
-
-Write-Host
-Write-Host '[OK] Safe World closed-alpha release candidate bundle is complete.'
-Write-Host "  Desktop ZIP: $($desktopZips[0].FullName)"
-Write-Host "  Backend image: $backendImageTag"
-Write-Host "  Backend image ID: $backendImageId"
-Write-Host "  Backend TAR: $backendTarPath"
-Write-Host "  Manifest: $manifestPath"
-Write-Host '  Publish authorization: DEFERRED'
+finally {
+    if ([IO.Directory]::Exists($temporaryRoot)) {
+        Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}

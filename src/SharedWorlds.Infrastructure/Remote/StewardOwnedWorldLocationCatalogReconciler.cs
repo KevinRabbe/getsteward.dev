@@ -100,11 +100,11 @@ public sealed class StewardOwnedWorldLocationCatalogReconciler
         }
 
         await _publication.RecordDesiredWithPresentationAsync(
-            snapshot.World.Id,
+            world.Id,
             snapshot.State.Id,
             snapshot.Environment.Id,
-            snapshot.World.Name,
-            snapshot.World.GameAdapterId,
+            world.Name,
+            world.GameAdapterId,
             cancellationToken);
     }
 }

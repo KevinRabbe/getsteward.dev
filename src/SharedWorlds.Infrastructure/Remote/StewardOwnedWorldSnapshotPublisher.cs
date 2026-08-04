@@ -178,6 +178,7 @@ public sealed class StewardOwnedWorldSnapshotPublisher
                     $"Steward private snapshot publication ended with status '{upload.Status}'.");
             }
 
+            ValidateUploadResult(upload, snapshot);
             _byteConfirmed[world.Id] = currentHead;
         }
 
@@ -194,7 +195,35 @@ public sealed class StewardOwnedWorldSnapshotPublisher
                 $"Steward private revision evidence publication ended with status '{evidence.Status}'.");
         }
 
+        ValidateEvidenceResult(evidence, snapshot);
         _fullyConfirmed[world.Id] = currentHead;
+    }
+
+    private static void ValidateUploadResult(
+        RemotePrivateSnapshotUploadResult result,
+        OwnedWorldCanonicalSnapshot snapshot)
+    {
+        if (result.WorldId != snapshot.World.Id ||
+            result.StateRevisionId != snapshot.State.Id ||
+            result.EnvironmentRevisionId != snapshot.Environment.Id)
+        {
+            throw new InvalidDataException(
+                "Steward private snapshot success result disagrees with the requested exact canonical head.");
+        }
+    }
+
+    private static void ValidateEvidenceResult(
+        RemotePrivateSnapshotRevisionEvidenceResult result,
+        OwnedWorldCanonicalSnapshot snapshot)
+    {
+        if (result.WorldId != snapshot.World.Id ||
+            result.StateRevisionId != snapshot.State.Id ||
+            result.EnvironmentRevisionId != snapshot.Environment.Id ||
+            result.RecordedAt is null or { } recordedAt && recordedAt == default)
+        {
+            throw new InvalidDataException(
+                "Steward private revision evidence success result disagrees with the requested exact canonical head.");
+        }
     }
 
     private static OwnedWorldSnapshotUploadAsync BindTransfers(

@@ -14,11 +14,18 @@ public delegate Task<RemotePrivateSnapshotUploadResult> OwnedWorldSnapshotUpload
     Stream statePackage,
     CancellationToken cancellationToken);
 
+public delegate Task<RemotePrivateSnapshotRevisionEvidenceResult>
+    OwnedWorldSnapshotRevisionEvidencePublishAsync(
+        WorldId worldId,
+        StateRevision stateRevision,
+        EnvironmentRevision environmentRevision,
+        CancellationToken cancellationToken);
+
 /// <summary>
-/// Publishes immutable bytes for current owner-private canonical heads. The backend transfer intent
-/// owns resume state; this scanner owns no queue and never changes local World authority. Confirmed
-/// immutable heads are remembered for this runtime so unrelated local mutations do not re-hash large
-/// unchanged packages. A new runtime safely repairs that optimization state from backend idempotence.
+/// Publishes immutable bytes and exact revision-record evidence for current owner-private canonical
+/// heads. Backend transfer intent owns byte resume state. Two bounded runtime-local confirmation maps
+/// prevent unrelated mutations from re-hashing unchanged large packages and allow interrupted evidence
+/// publication to retry metadata only after bytes are known to exist.
 /// </summary>
 public sealed class StewardOwnedWorldSnapshotPublisher
 {
@@ -27,25 +34,34 @@ public sealed class StewardOwnedWorldSnapshotPublisher
     private readonly IWorldStorage _storage;
     private readonly OwnedWorldCanonicalSnapshotResolver _resolver;
     private readonly OwnedWorldSnapshotUploadAsync _uploadAsync;
+    private readonly OwnedWorldSnapshotRevisionEvidencePublishAsync _publishEvidenceAsync;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly Dictionary<WorldId, ConfirmedHead> _confirmed = [];
+    private readonly Dictionary<WorldId, ConfirmedHead> _byteConfirmed = [];
+    private readonly Dictionary<WorldId, ConfirmedHead> _fullyConfirmed = [];
 
     public StewardOwnedWorldSnapshotPublisher(
         IWorldStorage storage,
-        StewardPrivateSnapshotTransferClient transfers)
-        : this(storage, Bind(transfers))
+        StewardPrivateSnapshotTransferClient transfers,
+        StewardPrivateSnapshotRevisionEvidenceClient revisionEvidence)
+        : this(
+            storage,
+            BindTransfers(transfers),
+            BindRevisionEvidence(revisionEvidence))
     {
     }
 
     public StewardOwnedWorldSnapshotPublisher(
         IWorldStorage storage,
-        OwnedWorldSnapshotUploadAsync uploadAsync)
+        OwnedWorldSnapshotUploadAsync uploadAsync,
+        OwnedWorldSnapshotRevisionEvidencePublishAsync publishEvidenceAsync)
     {
         ArgumentNullException.ThrowIfNull(storage);
         ArgumentNullException.ThrowIfNull(uploadAsync);
+        ArgumentNullException.ThrowIfNull(publishEvidenceAsync);
         _storage = storage;
         _resolver = new OwnedWorldCanonicalSnapshotResolver(storage);
         _uploadAsync = uploadAsync;
+        _publishEvidenceAsync = publishEvidenceAsync;
     }
 
     public async Task PublishAllCurrentAsync(
@@ -82,11 +98,14 @@ public sealed class StewardOwnedWorldSnapshotPublisher
             }
         }
 
-        foreach (var absentWorldId in _confirmed.Keys
+        foreach (var absentWorldId in _byteConfirmed.Keys
+                     .Concat(_fullyConfirmed.Keys)
                      .Where(worldId => !worldsById.ContainsKey(worldId))
+                     .Distinct()
                      .ToArray())
         {
-            _confirmed.Remove(absentWorldId);
+            _byteConfirmed.Remove(absentWorldId);
+            _fullyConfirmed.Remove(absentWorldId);
         }
 
         var failures = new List<Exception>();
@@ -101,7 +120,7 @@ public sealed class StewardOwnedWorldSnapshotPublisher
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
                 failures.Add(new InvalidOperationException(
-                    $"Could not publish the current private snapshot for local World '{world.Id}'.",
+                    $"Could not publish the current private snapshot and exact revision evidence for local World '{world.Id}'.",
                     exception));
             }
         }
@@ -109,7 +128,7 @@ public sealed class StewardOwnedWorldSnapshotPublisher
         if (failures.Count > 0)
         {
             throw new AggregateException(
-                "One or more current local private snapshots could not be published.",
+                "One or more current local private snapshots or revision-evidence records could not be published.",
                 failures);
         }
     }
@@ -121,7 +140,8 @@ public sealed class StewardOwnedWorldSnapshotPublisher
         var snapshot = await _resolver.ResolveAsync(world, cancellationToken);
         if (snapshot is null)
         {
-            _confirmed.Remove(world.Id);
+            _byteConfirmed.Remove(world.Id);
+            _fullyConfirmed.Remove(world.Id);
             return;
         }
 
@@ -129,40 +149,96 @@ public sealed class StewardOwnedWorldSnapshotPublisher
             snapshot.State.Id,
             snapshot.Environment.Id,
             snapshot.World.GameAdapterId);
-        if (_confirmed.TryGetValue(world.Id, out var confirmed) &&
-            confirmed == currentHead)
+        if (_fullyConfirmed.TryGetValue(world.Id, out var fullyConfirmed) &&
+            fullyConfirmed == currentHead)
         {
             return;
         }
 
-        await using var package = await _storage.OpenRevisionAsync(
-            snapshot.World.Id,
-            snapshot.State.Id,
-            cancellationToken);
-        var result = await _uploadAsync(
-            snapshot.World.Id,
-            snapshot.State.Id,
-            snapshot.Environment.Id,
-            snapshot.World.GameAdapterId,
-            snapshot.Environment.Manifest,
-            package,
-            cancellationToken);
-        if (result.Status is not (
-                RemotePrivateSnapshotUploadStatus.Published or
-                RemotePrivateSnapshotUploadStatus.AlreadyPublished))
+        if (!_byteConfirmed.TryGetValue(world.Id, out var byteConfirmed) ||
+            byteConfirmed != currentHead)
         {
-            throw new IOException(
-                $"Steward private snapshot publication ended with status '{result.Status}'.");
+            await using var package = await _storage.OpenRevisionAsync(
+                snapshot.World.Id,
+                snapshot.State.Id,
+                cancellationToken);
+            var upload = await _uploadAsync(
+                snapshot.World.Id,
+                snapshot.State.Id,
+                snapshot.Environment.Id,
+                snapshot.World.GameAdapterId,
+                snapshot.Environment.Manifest,
+                package,
+                cancellationToken);
+            if (upload.Status is not (
+                    RemotePrivateSnapshotUploadStatus.Published or
+                    RemotePrivateSnapshotUploadStatus.AlreadyPublished))
+            {
+                throw new IOException(
+                    $"Steward private snapshot publication ended with status '{upload.Status}'.");
+            }
+
+            ValidateUploadResult(upload, snapshot);
+            _byteConfirmed[world.Id] = currentHead;
         }
 
-        _confirmed[world.Id] = currentHead;
+        var evidence = await _publishEvidenceAsync(
+            snapshot.World.Id,
+            snapshot.State,
+            snapshot.Environment,
+            cancellationToken);
+        if (evidence.Status is not (
+                RemotePrivateSnapshotRevisionEvidenceStatus.Published or
+                RemotePrivateSnapshotRevisionEvidenceStatus.AlreadyPublished))
+        {
+            throw new IOException(
+                $"Steward private revision evidence publication ended with status '{evidence.Status}'.");
+        }
+
+        ValidateEvidenceResult(evidence, snapshot);
+        _fullyConfirmed[world.Id] = currentHead;
     }
 
-    private static OwnedWorldSnapshotUploadAsync Bind(
+    private static void ValidateUploadResult(
+        RemotePrivateSnapshotUploadResult result,
+        OwnedWorldCanonicalSnapshot snapshot)
+    {
+        if (result.WorldId != snapshot.World.Id ||
+            result.StateRevisionId != snapshot.State.Id ||
+            result.EnvironmentRevisionId != snapshot.Environment.Id)
+        {
+            throw new InvalidDataException(
+                "Steward private snapshot success result disagrees with the requested exact canonical head.");
+        }
+    }
+
+    private static void ValidateEvidenceResult(
+        RemotePrivateSnapshotRevisionEvidenceResult result,
+        OwnedWorldCanonicalSnapshot snapshot)
+    {
+        if (result.WorldId != snapshot.World.Id ||
+            result.StateRevisionId != snapshot.State.Id ||
+            result.EnvironmentRevisionId != snapshot.Environment.Id ||
+            result.RecordedAt is null ||
+            result.RecordedAt.Value == default)
+        {
+            throw new InvalidDataException(
+                "Steward private revision evidence success result disagrees with the requested exact canonical head.");
+        }
+    }
+
+    private static OwnedWorldSnapshotUploadAsync BindTransfers(
         StewardPrivateSnapshotTransferClient transfers)
     {
         ArgumentNullException.ThrowIfNull(transfers);
         return transfers.UploadAsync;
+    }
+
+    private static OwnedWorldSnapshotRevisionEvidencePublishAsync BindRevisionEvidence(
+        StewardPrivateSnapshotRevisionEvidenceClient revisionEvidence)
+    {
+        ArgumentNullException.ThrowIfNull(revisionEvidence);
+        return revisionEvidence.PublishAsync;
     }
 
     private sealed record ConfirmedHead(

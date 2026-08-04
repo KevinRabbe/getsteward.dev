@@ -5,20 +5,29 @@ namespace SharedWorlds.Desktop.AcceptanceTests;
 public sealed class OwnedWorldSnapshotDesktopCompositionTests
 {
     [Fact]
-    public void RuntimeReusesSingleSessionTransferClientCacheAndCanonicalStorage()
+    public void RuntimeReusesSingleSessionApiTransferCacheAndCanonicalStorage()
     {
         var runtime = Read("src/SharedWorlds.Desktop/StewardDesktopRemoteRuntime.cs");
 
         Assert.Equal(1, CountOccurrences(runtime, "new StewardAccessSession("));
         Assert.Equal(1, CountOccurrences(runtime, "new VerifiedPackageCache("));
         Assert.Equal(1, CountOccurrences(runtime, "new StewardPrivateSnapshotTransferClient("));
+        Assert.Equal(
+            1,
+            CountOccurrences(
+                runtime,
+                "new StewardPrivateSnapshotRevisionEvidenceClient("));
         Assert.Equal(1, CountOccurrences(runtime, "new StewardOwnedWorldSnapshotPublisher("));
         Assert.Contains(
             "new StewardPrivateSnapshotTransferClient(\n                apiClient,\n                transferClient,\n                verifiedCache,\n                GetAccessTokenAsync);",
             runtime,
             StringComparison.Ordinal);
         Assert.Contains(
-            "new StewardOwnedWorldSnapshotPublisher(\n                localStorage,\n                privateSnapshotTransfers);",
+            "new StewardPrivateSnapshotRevisionEvidenceClient(\n                    apiClient,\n                    GetAccessTokenAsync);",
+            runtime,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new StewardOwnedWorldSnapshotPublisher(\n                localStorage,\n                privateSnapshotTransfers,\n                privateSnapshotRevisionEvidence);",
             runtime,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -28,11 +37,13 @@ public sealed class OwnedWorldSnapshotDesktopCompositionTests
     }
 
     [Fact]
-    public void LivePassPublishesLocationBeforeBytesUnderExistingGate()
+    public void LivePassPublishesLocationBeforeBytesAndRevisionEvidenceUnderExistingGate()
     {
         var publication = Read(
             "src/SharedWorlds.Desktop/MainWindow.OwnedWorldLocationPublication.cs");
         var activation = Read("src/SharedWorlds.Desktop/MainWindow.RemoteRuntime.cs");
+        var publisher = Read(
+            "src/SharedWorlds.Infrastructure/Remote/StewardOwnedWorldSnapshotPublisher.cs");
 
         var gate = RequiredIndex(
             publication,
@@ -53,11 +64,27 @@ public sealed class OwnedWorldSnapshotDesktopCompositionTests
             publication,
             "_ownedWorldLocationPublicationGate.Release();",
             snapshot);
+        var upload = RequiredIndex(publisher, "var upload = await _uploadAsync(");
+        var byteConfirmation = RequiredIndex(
+            publisher,
+            "_byteConfirmed[world.Id] = currentHead;",
+            upload);
+        var evidence = RequiredIndex(
+            publisher,
+            "var evidence = await _publishEvidenceAsync(",
+            byteConfirmation);
+        var fullConfirmation = RequiredIndex(
+            publisher,
+            "_fullyConfirmed[world.Id] = currentHead;",
+            evidence);
 
         Assert.True(gate < currentRuntime);
         Assert.True(currentRuntime < location);
         Assert.True(location < snapshot);
         Assert.True(snapshot < release);
+        Assert.True(upload < byteConfirmation);
+        Assert.True(byteConfirmation < evidence);
+        Assert.True(evidence < fullConfirmation);
         Assert.DoesNotContain(
             "PublishCurrentOwnedWorldSnapshotsAsync",
             activation,
@@ -65,6 +92,34 @@ public sealed class OwnedWorldSnapshotDesktopCompositionTests
         Assert.Contains(
             "_ownedWorldLocationPublicationTrigger.Request();",
             activation,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EvidenceRepairRetainsByteConfirmationWithoutCompletingHead()
+    {
+        var publisher = Read(
+            "src/SharedWorlds.Infrastructure/Remote/StewardOwnedWorldSnapshotPublisher.cs");
+
+        Assert.Contains(
+            "private readonly Dictionary<WorldId, ConfirmedHead> _byteConfirmed = [];",
+            publisher,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "private readonly Dictionary<WorldId, ConfirmedHead> _fullyConfirmed = [];",
+            publisher,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "if (!_byteConfirmed.TryGetValue(world.Id, out var byteConfirmed) ||",
+            publisher,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Steward private revision evidence publication ended with status",
+            publisher,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "_byteConfirmed.Remove(world.Id);\n            throw",
+            publisher,
             StringComparison.Ordinal);
     }
 

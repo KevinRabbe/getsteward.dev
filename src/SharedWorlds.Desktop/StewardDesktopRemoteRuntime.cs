@@ -203,9 +203,14 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 transferClient,
                 verifiedCache,
                 GetAccessTokenAsync);
+            var privateSnapshotRevisionEvidence =
+                new StewardPrivateSnapshotRevisionEvidenceClient(
+                    apiClient,
+                    GetAccessTokenAsync);
             var ownedWorldSnapshotPublisher = new StewardOwnedWorldSnapshotPublisher(
                 localStorage,
-                privateSnapshotTransfers);
+                privateSnapshotTransfers,
+                privateSnapshotRevisionEvidence);
             var initialWorldPublisher = new StewardInitialWorldPublisher(
                 worldCreation,
                 metadata,

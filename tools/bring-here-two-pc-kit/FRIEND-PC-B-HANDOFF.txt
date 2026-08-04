@@ -1,0 +1,111 @@
+SAFE WORLD — FRIEND-OPERATED PC B HANDOFF
+==========================================
+
+This guide is for the case where PC B belongs to a trusted friend at another home.
+That is a valid and useful physical Bring Here test. A different household network
+adds coverage beyond two PCs on the same LAN.
+
+What the friend needs
+---------------------
+- One Windows PC with a different Windows machine name from PC A.
+- The exact same extracted, byte-verified Bring Here acceptance package used on PC A.
+- Network access to the same qualified Steward backend and object store.
+- pc-a-source-before.json from PC A.
+- The exact World ID.
+- Enough free disk space for the World package plus temporary verified-cache space.
+
+What the friend does NOT need
+-----------------------------
+- GitHub access.
+- Repository access.
+- Backend administrator access.
+- Access to PC A.
+- Any portable .safeworld file.
+- Your normal personal password.
+
+Owner authentication rule
+-------------------------
+Both Safe World desktops must authenticate as the same Steward owner. The friend may
+use a different Windows account and may own the physical PC, but logging Safe World in
+as the friend's separate Steward owner will not expose your private World.
+
+Recommended safe authentication choices, in order:
+1. Use a dedicated temporary Steward test owner on both PCs.
+2. Authenticate the dedicated test owner yourself through a trusted remote-control
+   session while the friend watches.
+3. Give the friend credentials only for the dedicated temporary test owner.
+
+Do not send credentials for a primary personal account. Do not include passwords,
+session tokens, cookies, QR codes, or authentication screens in screenshots or evidence.
+
+No peer-to-peer network setup
+-----------------------------
+PC B does not connect directly to PC A. Do not open router ports, expose Windows file
+sharing, or install a VPN between the two homes for this test. Both desktops communicate
+with the same Steward backend and object store over their normal configured connection.
+
+Before sending the package
+--------------------------
+On PC A:
+1. Complete PHASE 1 in START-HERE-BRING-HERE-TWO-PC.txt.
+2. Confirm PC-A-SOURCE-BEFORE.cmd reports [OK].
+3. Send the friend:
+   - the exact acceptance-package archive;
+   - pc-a-source-before.json;
+   - the exact World ID;
+   - this guide.
+4. Send package hashes or the acceptance-build.json through a second message so the
+   friend can detect an incomplete or substituted archive.
+
+Friend's PC B procedure
+-----------------------
+1. Extract the package into a new empty directory. Do not mix it with another build.
+2. Confirm no other Safe World Desktop process is running.
+3. Start SharedWorlds.Desktop.exe from that extracted directory.
+4. Authenticate as the same dedicated Steward owner used on PC A.
+5. Confirm this PC does not already contain the source World ID.
+6. Refresh the Games Library.
+7. Under "On another PC", locate the exact World.
+8. Stop if the entry is absent, Conflict, Already here, or has different state or
+   environment revision IDs.
+9. Capture the required BEFORE screenshot without authentication secrets visible.
+10. Click Bring here exactly once.
+11. Do not launch or host the game while materialization is running.
+12. Wait until Safe World reports that the World is stored locally.
+13. Capture the required AFTER screenshot.
+14. Keep Safe World online, Refresh, and wait until no publication/remote error appears.
+15. Run acceptance-tools\PC-B-TARGET-AFTER.cmd.
+16. Enter the exact World ID and the full path to pc-a-source-before.json.
+17. Stop if the launcher does not report [OK].
+18. Send back:
+    - pc-b-target-after.json;
+    - the BEFORE screenshot;
+    - the AFTER screenshot;
+    - any Safe World incident ID and diagnostic log.
+
+Evidence-transfer rule
+----------------------
+Do not edit, rename internally, reformat, copy-paste, or open/save the JSON evidence in
+an editor. Send the generated files as file attachments. The final PC A check links the
+exact evidence bytes cryptographically.
+
+Friend test PASS boundary
+-------------------------
+The friend's phase is not the full physical PASS by itself. After receiving the PC B
+evidence, PC A must still complete PHASE 3 and produce pc-a-source-after.json.
+
+Stop immediately when
+---------------------
+- Safe World on PC B is authenticated as a different Steward owner.
+- The package or acceptance-build.json differs from PC A.
+- PC B already has the World ID.
+- Availability is not exactly Available.
+- Any World, state, environment, source-installation, package-size, or hash evidence differs.
+- Bring here reports an incident or launches/hosts the game automatically.
+- The probe reports [FAIL].
+
+Privacy reminder
+----------------
+Screenshots should show only the required Safe World evidence. Crop or redact unrelated
+personal desktop content, notifications, email addresses, account names, and remote-control
+session identifiers. Never redact or alter the World/revision IDs required by the kit.

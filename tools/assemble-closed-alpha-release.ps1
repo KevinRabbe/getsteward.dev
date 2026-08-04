@@ -289,6 +289,8 @@ $manifest = [ordered]@{
         physicalBringHere = 'deferred'
         publishAllowed = $false
         reason = 'The real PC A -> PC B -> PC A Bring Here acceptance is deferred and has not been claimed.'
+        evidencePath = $null
+        evidenceSha256 = $null
     }
     artifacts = $artifactEntries
 }

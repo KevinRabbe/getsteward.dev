@@ -102,24 +102,27 @@ public partial class MainWindow
             SetBusy(true);
             await RefreshOwnedPrivateWorldCatalogAsync(cancellation.Token);
 
-            StatusText.Text = result.Status switch
-            {
-                OwnedPrivateWorldMaterializationStatus.Materialized =>
-                    $"'{result.World.Name}' is now stored on this PC.",
-                OwnedPrivateWorldMaterializationStatus.AlreadyMaterialized =>
-                    $"'{result.World.Name}' was already stored on this PC.",
-                _ => throw new InvalidOperationException(
-                    $"Unhandled private World materialization status {result.Status}.")
-            };
+            StatusText.Text = FormatMaterializationSuccess(result);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
-            StatusText.Text = "Bring here was canceled.";
+            StatusText.Text = result is null
+                ? "Bring here was canceled."
+                : $"'{result.World.Name}' is stored on this PC. The final view refresh was canceled.";
         }
         catch (Exception exception)
         {
-            StatusText.Text = "Bring here failed.";
-            ShowError("Could not bring private World here", exception);
+            if (result is null)
+            {
+                StatusText.Text = "Bring here failed.";
+                ShowError("Could not bring private World here", exception);
+            }
+            else
+            {
+                StatusText.Text =
+                    $"'{result.World.Name}' is stored on this PC, but the view could not be refreshed.";
+                ShowError("Private World stored, but refresh failed", exception);
+            }
         }
         finally
         {
@@ -133,6 +136,18 @@ public partial class MainWindow
             UpdateOwnedPrivateWorldBringHereActionState();
         }
     }
+
+    private static string FormatMaterializationSuccess(
+        OwnedPrivateWorldMaterializationResult result)
+        => result.Status switch
+        {
+            OwnedPrivateWorldMaterializationStatus.Materialized =>
+                $"'{result.World.Name}' is now stored on this PC.",
+            OwnedPrivateWorldMaterializationStatus.AlreadyMaterialized =>
+                $"'{result.World.Name}' was already stored on this PC.",
+            _ => throw new InvalidOperationException(
+                $"Unhandled private World materialization status {result.Status}.")
+        };
 
     private void UpdateOwnedPrivateWorldBringHereActionState()
     {

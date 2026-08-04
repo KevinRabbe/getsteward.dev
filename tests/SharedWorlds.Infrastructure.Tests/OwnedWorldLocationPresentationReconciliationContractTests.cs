@@ -7,29 +7,42 @@ public sealed class OwnedWorldLocationPresentationReconciliationContractTests
     [Fact]
     public void CanonicalCatalogSuppliesExactWorldNameAndAdapterToPublicationState()
     {
-        var source = File.ReadAllText(FindRepositoryFile(
-            "src/SharedWorlds.Infrastructure/Remote/StewardOwnedWorldLocationCatalogReconciler.cs"));
+        var reconciler = Read(
+            "src/SharedWorlds.Infrastructure/Remote/StewardOwnedWorldLocationCatalogReconciler.cs");
+        var resolver = Read(
+            "src/SharedWorlds.Infrastructure/Remote/OwnedWorldCanonicalSnapshotResolver.cs");
 
         Assert.Contains(
             "await _publication.RecordDesiredWithPresentationAsync(",
-            source,
+            reconciler,
             StringComparison.Ordinal);
         Assert.Contains(
             "world.Name,\n            world.GameAdapterId,",
-            source,
+            reconciler,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "new OwnedWorldCanonicalSnapshotResolver(localStorage)",
+            reconciler,
             StringComparison.Ordinal);
         Assert.Contains(
             "World '{world.Id}', state revision '{state.Id}', and environment revision '{environment.Id}' do not agree on one exact adapter ID.",
-            source,
+            resolver,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IsRevisionPayloadAvailableAsync(",
+            resolver,
             StringComparison.Ordinal);
         Assert.True(
-            source.IndexOf(
-                "IsRevisionPayloadAvailableAsync(",
+            reconciler.IndexOf(
+                "await _snapshotResolver.ResolveAsync(",
                 StringComparison.Ordinal) <
-            source.IndexOf(
+            reconciler.IndexOf(
                 "RecordDesiredWithPresentationAsync(",
                 StringComparison.Ordinal));
     }
+
+    private static string Read(string relativePath)
+        => File.ReadAllText(FindRepositoryFile(relativePath));
 
     private static string FindRepositoryFile(string relativePath)
     {

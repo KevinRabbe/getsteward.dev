@@ -1,0 +1,140 @@
+SAFE WORLD — CLOSED ALPHA OPERATOR RUNBOOK
+==========================================
+
+Purpose
+-------
+This bundle is a reproducible closed-alpha release candidate. It binds one exact source
+commit to one byte-verified Windows Friends Build, one byte-verified Linux/amd64 backend
+container image, one public deployment contract, and one fail-closed release status.
+
+The bundle is NOT automatically publish-authorized. Read RELEASE-STATUS.txt and run:
+
+  powershell -ExecutionPolicy Bypass -File .\verify-closed-alpha-release.ps1 `
+    -BundleDirectory .
+
+Before distributing to any tester, run the stricter gate:
+
+  powershell -ExecutionPolicy Bypass -File .\verify-closed-alpha-release.ps1 `
+    -BundleDirectory . `
+    -RequirePublishAuthorized
+
+While the physical Bring Here test is deferred, the strict command must fail. Do not
+rename that failure as a pass. The candidate may still be used for deployment rehearsal,
+private operator validation, backup/restore rehearsal, and installer/distribution work.
+
+Bundle contents
+---------------
+- desktop/Steward-<version>-win-x64.zip
+- desktop/Steward-<version>-win-x64.zip.sha256
+- backend/steward-backend-<version>-linux-amd64.tar
+- backend/deployment.env.example
+- release-manifest.json
+- RELEASE-STATUS.txt
+- verify-closed-alpha-release.ps1
+- this runbook
+
+No database password, object-store credential, Friends Build plaintext credential,
+Steam publisher key, access token, cookie, or private signing key belongs in this bundle.
+
+Release identity
+----------------
+release-manifest.json is authoritative for:
+- product version;
+- exact Git commit;
+- exact HTTPS API base URL embedded in the Desktop package;
+- backend image tag and immutable image ID;
+- target platform and non-root runtime user;
+- PostgreSQL and object-storage compatibility contract;
+- every bundle file's exact byte size and SHA-256;
+- the physical-test release gate.
+
+Do not combine a Desktop ZIP, backend TAR, manifest, or checksum from different bundles.
+
+Infrastructure prerequisites
+----------------------------
+- One HTTPS public endpoint for the Steward backend.
+- PostgreSQL 17 with durable storage and a tested backup procedure.
+- A durable S3-compatible object store and private bucket.
+- TLS termination that preserves the public HTTPS API coordinate in release-manifest.json.
+- A secret-management mechanism outside this bundle.
+- A host capable of loading and running a linux/amd64 OCI/Docker image.
+
+Deployment configuration
+------------------------
+backend/deployment.env.example lists the required public names and secret placeholders.
+Create the real environment through the deployment platform's secret store. Never edit
+and redistribute the example file with actual credentials inside the release bundle.
+
+At minimum configure:
+- ConnectionStrings__Steward
+- ObjectStorage__ServiceUrl
+- ObjectStorage__AuthenticationRegion
+- ObjectStorage__BucketName
+- ObjectStorage__AccessKeyId
+- ObjectStorage__SecretAccessKey
+- ObjectStorage__ForcePathStyle
+- FriendsBuild__Enabled=true
+- at least one provisioned Friends Build identity digest
+
+Use tools/v2-provision-friend.ps1 from the exact source commit to generate each temporary
+closed-alpha identity. Give testers only their dedicated plaintext credential. Store only
+the SHA-256 digest in backend configuration.
+
+Candidate deployment rehearsal
+------------------------------
+1. Verify the complete bundle without -RequirePublishAuthorized.
+2. Back up PostgreSQL and record the backup identifier.
+3. Confirm object-store versioning/backup or an equivalent recovery procedure.
+4. Load the exact backend image:
+
+     docker load --input .\backend\steward-backend-<version>-linux-amd64.tar
+
+5. Confirm the loaded image ID exactly matches release-manifest.json.
+6. Deploy the exact image tag with the real secret environment.
+7. Confirm the container runs as user app, not root.
+8. Confirm both endpoints succeed:
+
+     GET /health/live
+     GET /health/ready
+
+9. Confirm the externally visible API URL is exactly the manifest API base URL.
+10. Provision one disposable Friends Build identity.
+11. Extract the Desktop ZIP into a new empty directory on a Windows test machine.
+12. Verify the ZIP against its .sha256 file before extraction/distribution.
+13. Authenticate, refresh, and execute only non-destructive smoke checks.
+14. Preserve backend logs, deployment ID, image ID, database backup ID, and test incident IDs.
+
+Do not distribute broadly during rehearsal. The physical Bring Here gate remains deferred.
+
+Closed-alpha publish sequence after the deferred test
+-----------------------------------------------------
+1. Complete the qualified physical PC A → PC B → PC A Bring Here evidence procedure.
+2. Preserve the three linked JSON evidence files and required screenshots.
+3. Produce a later release candidate whose manifest records physicalBringHere=passed.
+4. Run the strict verifier successfully.
+5. Re-run all repository workflows on the exact final release-candidate head.
+6. Back up PostgreSQL immediately before production deployment.
+7. Deploy the exact backend image from the final bundle.
+8. Verify live/ready health and one disposable authentication session.
+9. Distribute the exact Desktop ZIP and checksum to the bounded tester list.
+10. Record which tester received which dedicated identity.
+
+Rollback and incident handling
+------------------------------
+- Stop further distribution immediately when integrity, authentication, materialization,
+  data-loss, or cross-owner isolation behavior is uncertain.
+- Preserve logs and incident IDs before restarting services.
+- Do not delete PostgreSQL rows or S3 objects as an improvised rollback.
+- Roll back the application image only to a previously qualified image whose database
+  compatibility is understood.
+- Keep the pre-deployment database backup and object-store recovery evidence.
+- A Desktop local commit is not rolled back merely because auxiliary remote publication
+  or UI refresh failed.
+- A failed Bring Here operation must never be repaired by copying internal storage files
+  manually between testers.
+
+Release boundary
+----------------
+A structurally valid bundle means its bytes and deployment identities agree. It does not
+mean public release approval. Public distribution remains blocked whenever
+publishAuthorization.publishAllowed is false.

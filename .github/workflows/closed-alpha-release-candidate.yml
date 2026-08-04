@@ -1,0 +1,276 @@
+name: Closed alpha release candidate
+
+on:
+  push:
+    branches:
+      - main
+      - "agent/**"
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "Real HTTPS Steward backend URL for an operator release candidate"
+        required: false
+        type: string
+      version:
+        description: "Closed-alpha candidate version"
+        required: false
+        default: "2.0.0-alpha.2"
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  desktop:
+    name: Build exact Windows Friends Build
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build byte-verifiable Desktop ZIP
+        shell: pwsh
+        env:
+          REQUESTED_API_BASE_URL: ${{ github.event.inputs.api_base_url }}
+          REQUESTED_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          $apiBaseUrl = $env:REQUESTED_API_BASE_URL
+          if ([string]::IsNullOrWhiteSpace($apiBaseUrl)) {
+            $apiBaseUrl = 'https://closed-alpha.example.invalid/'
+          }
+          $version = $env:REQUESTED_VERSION
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            $version = '2.0.0-ci'
+          }
+
+          ./tools/v2-build-friends.ps1 `
+            -ApiBaseUrl $apiBaseUrl `
+            -Version $version `
+            -OutputDirectory "$env:RUNNER_TEMP/closed-alpha-desktop"
+
+      - name: Upload Desktop staging artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: closed-alpha-desktop-input
+          path: ${{ runner.temp }}/closed-alpha-desktop
+          if-no-files-found: error
+          retention-days: 2
+
+  backend:
+    name: Build exact Linux backend image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build, inspect, and save backend image
+        shell: pwsh
+        env:
+          REQUESTED_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          $version = $env:REQUESTED_VERSION
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            $version = '2.0.0-ci'
+          }
+          if ($version -notmatch '^[0-9A-Za-z][0-9A-Za-z.-]{0,63}$') {
+            throw 'Closed-alpha version is malformed.'
+          }
+
+          $tagVersion = $version.ToLowerInvariant()
+          if ($tagVersion -notmatch '^[a-z0-9][a-z0-9._-]{0,63}$') {
+            throw 'Closed-alpha version cannot form a safe backend tag.'
+          }
+          $imageTag = "steward-backend:$tagVersion"
+          $output = "$env:RUNNER_TEMP/closed-alpha-backend"
+          New-Item -ItemType Directory -Force -Path $output | Out-Null
+
+          docker build `
+            --platform linux/amd64 `
+            --file src/SharedWorlds.Backend.Api/Dockerfile `
+            --tag $imageTag `
+            --label "org.opencontainers.image.revision=${{ github.sha }}" `
+            --label "org.opencontainers.image.version=$version" `
+            .
+          if ($LASTEXITCODE -ne 0) {
+            throw "Backend image build failed with exit code $LASTEXITCODE."
+          }
+
+          $imageId = (docker image inspect $imageTag --format '{{.Id}}').Trim().ToLowerInvariant()
+          $runtimeUser = (docker image inspect $imageTag --format '{{.Config.User}}').Trim()
+          $platform = (docker image inspect $imageTag --format '{{.Os}}/{{.Architecture}}').Trim().ToLowerInvariant()
+          if ($imageId -notmatch '^sha256:[0-9a-f]{64}$') {
+            throw 'Backend image ID is malformed.'
+          }
+          if (-not [string]::Equals($runtimeUser, 'app', [StringComparison]::Ordinal)) {
+            throw "Backend image runtime user is '$runtimeUser', expected 'app'."
+          }
+          if (-not [string]::Equals($platform, 'linux/amd64', [StringComparison]::Ordinal)) {
+            throw "Backend image platform is '$platform', expected linux/amd64."
+          }
+
+          $tarPath = Join-Path $output 'backend-image.tar'
+          docker save --output $tarPath $imageTag
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $tarPath)) {
+            throw 'Backend image TAR was not created.'
+          }
+
+          $metadata = [ordered]@{
+            imageTag = $imageTag
+          }
+          [IO.File]::WriteAllText(
+            (Join-Path $output 'backend-metadata.json'),
+            ($metadata | ConvertTo-Json -Compress),
+            [Text.UTF8Encoding]::new($false))
+
+      - name: Upload backend staging artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: closed-alpha-backend-input
+          path: ${{ runner.temp }}/closed-alpha-backend
+          if-no-files-found: error
+          retention-days: 2
+
+  assemble:
+    name: Assemble and verify deferred release candidate
+    needs:
+      - desktop
+      - backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download Desktop staging artifact
+        uses: actions/download-artifact@v6
+        with:
+          name: closed-alpha-desktop-input
+          path: ${{ runner.temp }}/closed-alpha-desktop
+
+      - name: Download backend staging artifact
+        uses: actions/download-artifact@v6
+        with:
+          name: closed-alpha-backend-input
+          path: ${{ runner.temp }}/closed-alpha-backend
+
+      - name: Assemble exact release candidate
+        shell: pwsh
+        env:
+          REQUESTED_API_BASE_URL: ${{ github.event.inputs.api_base_url }}
+          REQUESTED_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          $apiBaseUrl = $env:REQUESTED_API_BASE_URL
+          if ([string]::IsNullOrWhiteSpace($apiBaseUrl)) {
+            $apiBaseUrl = 'https://closed-alpha.example.invalid/'
+          }
+          $version = $env:REQUESTED_VERSION
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            $version = '2.0.0-ci'
+          }
+
+          $backendMetadataPath = "$env:RUNNER_TEMP/closed-alpha-backend/backend-metadata.json"
+          $backendMetadata = Get-Content -LiteralPath $backendMetadataPath -Raw | ConvertFrom-Json
+          $metadataProperties = @($backendMetadata.PSObject.Properties.Name)
+          if ($metadataProperties.Count -ne 1 -or $metadataProperties[0] -cne 'imageTag') {
+            throw 'Backend staging metadata contains missing or unexpected fields.'
+          }
+          $output = "$env:RUNNER_TEMP/safe-world-closed-alpha-release"
+
+          ./tools/assemble-closed-alpha-release.ps1 `
+            -ApiBaseUrl $apiBaseUrl `
+            -Version $version `
+            -CommitSha '${{ github.sha }}' `
+            -DesktopInputDirectory "$env:RUNNER_TEMP/closed-alpha-desktop" `
+            -BackendTarPath "$env:RUNNER_TEMP/closed-alpha-backend/backend-image.tar" `
+            -BackendImageTag ([string]$backendMetadata.imageTag) `
+            -OutputDirectory $output
+
+          ./tools/verify-closed-alpha-release.ps1 -BundleDirectory $output
+
+          $manifestPath = Join-Path $output 'release-manifest.json'
+          $originalManifestBytes = [IO.File]::ReadAllBytes($manifestPath)
+          try {
+            $unauthorizedPromotion = [Text.Encoding]::UTF8.GetString($originalManifestBytes) | ConvertFrom-Json
+            $unauthorizedPromotion.publishAuthorization.physicalBringHere = 'passed'
+            $unauthorizedPromotion.publishAuthorization.publishAllowed = $true
+            [IO.File]::WriteAllText(
+              $manifestPath,
+              ($unauthorizedPromotion | ConvertTo-Json -Depth 6),
+              [Text.UTF8Encoding]::new($false))
+
+            $unauthorizedPromotionRejected = $false
+            try {
+              ./tools/verify-closed-alpha-release.ps1 `
+                -BundleDirectory $output `
+                -RequirePublishAuthorized
+            }
+            catch {
+              $unauthorizedPromotionRejected = $true
+              Write-Host "[EXPECTED] Boolean-only publish promotion rejected: $($_.Exception.Message)"
+            }
+            if (-not $unauthorizedPromotionRejected) {
+              throw 'Boolean-only publish promotion was accepted without physical evidence.'
+            }
+          }
+          finally {
+            [IO.File]::WriteAllBytes($manifestPath, $originalManifestBytes)
+          }
+
+          $statusPath = Join-Path $output 'RELEASE-STATUS.txt'
+          $originalStatusBytes = [IO.File]::ReadAllBytes($statusPath)
+          try {
+            Add-Content -LiteralPath $statusPath -Value 'tampered'
+            $statusTamperRejected = $false
+            try {
+              ./tools/verify-closed-alpha-release.ps1 -BundleDirectory $output
+            }
+            catch {
+              $statusTamperRejected = $true
+              Write-Host "[EXPECTED] Artifact tamper rejected: $($_.Exception.Message)"
+            }
+            if (-not $statusTamperRejected) {
+              throw 'Modified release status passed byte verification.'
+            }
+          }
+          finally {
+            [IO.File]::WriteAllBytes($statusPath, $originalStatusBytes)
+          }
+
+          ./tools/verify-closed-alpha-release.ps1 -BundleDirectory $output
+
+          $strictGateBlocked = $false
+          try {
+            ./tools/verify-closed-alpha-release.ps1 `
+              -BundleDirectory $output `
+              -RequirePublishAuthorized
+          }
+          catch {
+            $strictGateBlocked = $true
+            Write-Host "[EXPECTED] Strict publish gate remains blocked: $($_.Exception.Message)"
+          }
+          if (-not $strictGateBlocked) {
+            throw 'Deferred physical Bring Here evidence unexpectedly produced a publish-authorized bundle.'
+          }
+
+          Get-Content -LiteralPath $manifestPath
+          Get-Content -LiteralPath $statusPath
+
+      - name: Upload exact deferred closed-alpha candidate
+        uses: actions/upload-artifact@v6
+        with:
+          name: safe-world-closed-alpha-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/safe-world-closed-alpha-release
+          if-no-files-found: error
+          retention-days: 14

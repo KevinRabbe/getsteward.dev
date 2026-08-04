@@ -64,6 +64,31 @@ public sealed class StewardOwnedWorldSnapshotPublisherTests : IDisposable
     }
 
     [Fact]
+    public async Task UnchangedConfirmedHeadDoesNotRehashOrReupload()
+    {
+        var storage = CreateStorage();
+        await StoreCanonicalWorldAsync(storage, new byte[] { 8, 9 });
+        var calls = 0;
+        var publisher = new StewardOwnedWorldSnapshotPublisher(
+            storage,
+            (worldId, stateId, environmentId, _, _, package, _) =>
+            {
+                calls++;
+                return Task.FromResult(Result(
+                    RemotePrivateSnapshotUploadStatus.Published,
+                    worldId,
+                    stateId,
+                    environmentId,
+                    package.Length));
+            });
+
+        await publisher.PublishAllCurrentAsync();
+        await publisher.PublishAllCurrentAsync();
+
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
     public async Task SharedWorldAndMissingPayloadDoNotUpload()
     {
         var storage = CreateStorage();

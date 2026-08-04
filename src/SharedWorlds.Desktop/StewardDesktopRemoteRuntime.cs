@@ -26,6 +26,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
     private readonly StewardOwnedWorldLocationCatalogReconciler _ownedWorldLocationCatalogReconciler;
     private readonly StewardOwnedWorldSnapshotPublisher _ownedWorldSnapshotPublisher;
     private readonly StewardOwnedPrivateWorldCatalogClient _ownedPrivateWorldCatalog;
+    private readonly StewardPrivateSnapshotMaterializationClient _privateSnapshotMaterialization;
     private bool _disposed;
 
     private StewardDesktopRemoteRuntime(
@@ -40,6 +41,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         StewardOwnedWorldLocationCatalogReconciler ownedWorldLocationCatalogReconciler,
         StewardOwnedWorldSnapshotPublisher ownedWorldSnapshotPublisher,
         StewardOwnedPrivateWorldCatalogClient ownedPrivateWorldCatalog,
+        StewardPrivateSnapshotMaterializationClient privateSnapshotMaterialization,
         StewardWorldStorage storage,
         WorldLifecycleService lifecycle,
         CoordinatedWorldJoinService join,
@@ -61,6 +63,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         _ownedWorldLocationCatalogReconciler = ownedWorldLocationCatalogReconciler;
         _ownedWorldSnapshotPublisher = ownedWorldSnapshotPublisher;
         _ownedPrivateWorldCatalog = ownedPrivateWorldCatalog;
+        _privateSnapshotMaterialization = privateSnapshotMaterialization;
         Storage = storage;
         Lifecycle = lifecycle;
         Join = join;
@@ -85,6 +88,14 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
     public Task<IReadOnlyList<StewardOwnedPrivateWorldCatalogEntry>>
         ListOwnedPrivateWorldsAsync(CancellationToken cancellationToken = default)
         => _ownedPrivateWorldCatalog.ListAsync(cancellationToken);
+
+    public Task<RemoteVerifiedPrivateSnapshotMaterialization?>
+        PrepareOwnedPrivateWorldMaterializationAsync(
+            WorldId worldId,
+            CancellationToken cancellationToken = default)
+        => _privateSnapshotMaterialization.EnsureDownloadedAsync(
+            worldId,
+            cancellationToken);
 
     public async Task ReconcileAndReplayOwnedWorldLocationsAsync(
         CancellationToken cancellationToken = default)
@@ -207,6 +218,11 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 new StewardPrivateSnapshotRevisionEvidenceClient(
                     apiClient,
                     GetAccessTokenAsync);
+            var privateSnapshotMaterialization =
+                new StewardPrivateSnapshotMaterializationClient(
+                    apiClient,
+                    verifiedCache,
+                    GetAccessTokenAsync);
             var ownedWorldSnapshotPublisher = new StewardOwnedWorldSnapshotPublisher(
                 localStorage,
                 privateSnapshotTransfers,
@@ -265,6 +281,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 ownedWorldLocationCatalogReconciler,
                 ownedWorldSnapshotPublisher,
                 ownedPrivateWorldCatalog,
+                privateSnapshotMaterialization,
                 storage,
                 lifecycle,
                 join,

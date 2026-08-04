@@ -1,0 +1,165 @@
+SAFE WORLD — PRIVATE BRING HERE TWO-PC ACCEPTANCE
+=================================================
+
+Purpose
+-------
+Prove the authenticated private Bring Here path on two real Windows PCs:
+
+PC A canonical private World
+→ confirmed source-location publication
+→ PC B owner-private catalog shows Available
+→ PC B downloads and verifies the exact source snapshot
+→ PC B materializes the same World/revision/package identities locally
+→ PC B publishes its target location
+→ PC A remains unchanged and still owns its source copy
+
+This is NOT the portable .safeworld copy test. Do not use the old creator/viewer evidence launchers for this milestone.
+
+Required setup
+--------------
+- Two distinct Windows PCs with different Windows machine names.
+- This exact extracted acceptance package on both PCs.
+- Both Safe World desktops authenticate as the same Steward owner.
+- Both desktops point to the same qualified Steward backend and object store.
+- PC A already contains one complete private LocalOnly World with current state and environment payload.
+- PC B does not already contain that World ID.
+- Keep exactly one Safe World desktop process running on the PC where each check is executed.
+- Do not mix package files or acceptance-build.json files from different builds.
+
+The package is an unsigned engineering build. Windows SmartScreen may show Unknown publisher.
+
+Evidence directory
+------------------
+Each launcher writes under:
+
+%USERPROFILE%\Desktop\SafeWorld-Bring-Here-Evidence
+
+Keep all three JSON files and the required screenshots together.
+
+PHASE 1 — PC A SOURCE BEFORE
+----------------------------
+1. Start Safe World from this exact package on PC A.
+2. Complete normal Steward authentication.
+3. Open the source private World and confirm it is usable locally.
+4. Record the exact World ID from the technical details.
+5. Keep Safe World online and use Refresh. Wait until no publication/remote error is shown.
+6. Capture a screenshot showing:
+   - the World name;
+   - exact World ID;
+   - exact state revision ID;
+   - exact environment revision ID;
+   - that this is the source PC/local World.
+7. Run:
+
+   acceptance-tools\PC-A-SOURCE-BEFORE.cmd
+
+8. Paste the exact World ID.
+9. The launcher must report [OK] and create:
+
+   pc-a-source-before.json
+
+The source-before probe requires the protected local publication journal to be fully synchronized with the exact canonical head. If it says publication is still pending, keep Safe World online, Refresh, and retry. Do not bypass this gate.
+
+Transfer pc-a-source-before.json to PC B.
+
+PHASE 2 — PC B DISCOVERY AND BRING HERE
+---------------------------------------
+1. Extract this exact same acceptance package on PC B.
+2. Start Safe World and authenticate as the same Steward owner.
+3. Confirm PC B has no local World with the source World ID.
+4. Refresh the Games Library.
+5. Under "On another PC", locate the source World.
+6. Capture a BEFORE screenshot showing:
+   - the same World name and World ID;
+   - availability is Available, not Conflict;
+   - the source installation is shown;
+   - the Bring here button is enabled;
+   - the exact source state and environment IDs match PC A.
+7. Click Bring here once.
+8. Do not start or host the game during materialization.
+9. Wait for Safe World to report that the World is stored on this PC.
+10. Confirm:
+    - the remote-only entry disappeared;
+    - the normal local World workspace opened;
+    - the World did not launch automatically;
+    - the World ID, state ID, and environment ID are unchanged.
+11. Capture an AFTER screenshot showing the now-local World and exact IDs.
+12. Keep Safe World online and Refresh. Wait until no publication/remote error is shown.
+13. Run:
+
+    acceptance-tools\PC-B-TARGET-AFTER.cmd
+
+14. Paste:
+    - the exact World ID;
+    - the full path to pc-a-source-before.json.
+15. The launcher must report [OK] and create:
+
+    pc-b-target-after.json
+
+The target-after probe requires:
+- a different durable installation ID and Windows machine name;
+- the exact same World, immutable revision records, environment manifest, payload size, and payload SHA-256;
+- the exact same byte-verified Safe World package;
+- a fully synchronized target-location publication journal.
+
+Transfer pc-b-target-after.json back to PC A.
+
+PHASE 3 — PC A SOURCE AFTER
+---------------------------
+1. Return to PC A without deleting or changing the source World.
+2. Keep Safe World online and Refresh.
+3. Confirm the source World is still present and locally usable.
+4. Capture an AFTER screenshot showing the source World and the same exact IDs.
+5. Run:
+
+   acceptance-tools\PC-A-SOURCE-AFTER.cmd
+
+6. Paste:
+   - the same World ID;
+   - the full path to pc-a-source-before.json;
+   - the full path to pc-b-target-after.json.
+7. The launcher must report [OK] and create:
+
+   pc-a-source-after.json
+
+This final check cryptographically links both earlier evidence files and proves the source canonical World, package hash, installation identity, and confirmed source-location journal remained exact.
+
+PASS only when
+--------------
+- All three launchers report [OK].
+- Both PCs used the exact same byte-verified package and commit.
+- PC A and PC B have different machine names and durable installation IDs.
+- PC B showed one unambiguous Available entry before the click.
+- Bring here completed with no Conflict or integrity incident.
+- PC B materialized the exact same World ID, state revision ID, environment revision ID, immutable revision fingerprints, payload byte size, and payload SHA-256.
+- PC B published the exact target location after materialization.
+- PC A remained unchanged after PC B completed.
+- Safe World did not launch, host, share, or delete the World automatically.
+- The required before/after screenshots exist.
+
+STOP immediately when
+---------------------
+- Any launcher reports [FAIL].
+- PC B shows Conflict, Already here, or no source.
+- The Bring here button is disabled despite the source being expected Available.
+- Any World, state, environment, payload, build, machine, or installation identity differs.
+- The game launches automatically.
+- PC A loses or changes its source World.
+- Safe World reports an incident. Preserve the incident ID and diagnostic log.
+
+Evidence to keep
+----------------
+- pc-a-source-before.json
+- pc-b-target-after.json
+- pc-a-source-after.json
+- PC A source-before screenshot
+- PC B Available/Bring here screenshot
+- PC B local-after screenshot
+- PC A source-after screenshot
+- Any Safe World incident ID and diagnostic log
+
+Evidence limits
+---------------
+The probe is read-only outside its isolated --self-test. It verifies local canonical storage, protected publication journals, package bytes, installation identities, and the linked evidence chain.
+
+The probe does not directly query the live backend and cannot inspect what was visually shown before the button click. The PC B Available screenshot and the successful authenticated action are therefore mandatory physical observations. Do not claim the physical milestone from probe JSON alone.

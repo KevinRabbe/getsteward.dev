@@ -65,6 +65,7 @@ jobs:
           $requiredFiles = @(
             'SharedWorlds.Desktop.exe',
             'START-HERE-BRING-HERE-TWO-PC.txt',
+            'FRIEND-PC-B-HANDOFF.txt',
             'acceptance-tools/PC-A-SOURCE-BEFORE.cmd',
             'acceptance-tools/PC-B-TARGET-AFTER.cmd',
             'acceptance-tools/PC-A-SOURCE-AFTER.cmd',

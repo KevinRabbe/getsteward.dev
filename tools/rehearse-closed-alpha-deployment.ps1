@@ -8,6 +8,9 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if (Test-Path Variable:PSNativeCommandUseErrorActionPreference) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
 
 function Require([bool]$Condition, [string]$Message) {
     if (-not $Condition) {
@@ -252,11 +255,9 @@ $secretBytes = [byte[]]::new(32)
 [Security.Cryptography.RandomNumberGenerator]::Fill($secretBytes)
 $encodedSecret = [Convert]::ToBase64String($secretBytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
 $credential = "st_friend_$encodedSecret"
-$credentialHash = Convert.ToHexString(
+$credentialHash = [Convert]::ToHexString(
     [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($credential)))
 
-$initialBaseUri = $null
-$rollbackBaseUri = $null
 try {
     Invoke-Docker -Arguments @('network', 'create', $networkName)
 
@@ -272,6 +273,18 @@ try {
         'postgres:17-alpine'
     )
     Wait-PostgreSql $postgresName $databaseName
+    $postgresVersionNumber = [int](Invoke-PostgreSqlScalar `
+        -ContainerName $postgresName `
+        -DatabaseName $databaseName `
+        -Sql "SELECT current_setting('server_version_num');")
+    Require ($postgresVersionNumber -ge 170000 -and $postgresVersionNumber -lt 180000) "Disposable database is PostgreSQL version number $postgresVersionNumber, expected major version 17."
+    $postgresImageId = Invoke-Docker -Arguments @(
+        'container',
+        'inspect',
+        $postgresName,
+        '--format', '{{.Image}}'
+    ) -Capture
+    Require ($postgresImageId -match '^sha256:[0-9a-f]{64}$') 'Disposable PostgreSQL image ID is malformed.'
 
     Invoke-Docker -Arguments @(
         'run',
@@ -287,6 +300,13 @@ try {
     )
     $minioPort = Get-PublishedPort $minioName 9000
     Wait-HttpOk ([Uri]"http://127.0.0.1:$minioPort/minio/health/ready") 'MinIO readiness' $minioName
+    $minioImageId = Invoke-Docker -Arguments @(
+        'container',
+        'inspect',
+        $minioName,
+        '--format', '{{.Image}}'
+    ) -Capture
+    Require ($minioImageId -match '^sha256:[0-9a-f]{64}$') 'Disposable MinIO image ID is malformed.'
 
     Invoke-Docker -Arguments @(
         'run',
@@ -464,8 +484,10 @@ try {
         }
         infrastructure = [ordered]@{
             postgresImage = 'postgres:17-alpine'
-            postgresMajorVersion = 17
+            postgresImageId = $postgresImageId
+            postgresVersionNumber = $postgresVersionNumber
             objectStorageImage = 'quay.io/minio/minio:latest'
+            objectStorageImageId = $minioImageId
             objectStorageProtocol = 's3-compatible'
         }
         startup = [ordered]@{
@@ -508,18 +530,10 @@ try {
     Write-Host "  Evidence: $evidenceFullPath"
 }
 finally {
-    if ($null -ne $backendName) {
-        Remove-ContainerIfPresent $backendName
-    }
-    if ($null -ne $minioName) {
-        Remove-ContainerIfPresent $minioName
-    }
-    if ($null -ne $postgresName) {
-        Remove-ContainerIfPresent $postgresName
-    }
-    if (-not [string]::IsNullOrWhiteSpace($networkName)) {
-        & docker network rm $networkName *> $null
-    }
+    Remove-ContainerIfPresent $backendName
+    Remove-ContainerIfPresent $minioName
+    Remove-ContainerIfPresent $postgresName
+    & docker network rm $networkName *> $null
 
     [Array]::Clear($secretBytes, 0, $secretBytes.Length)
     $credential = $null

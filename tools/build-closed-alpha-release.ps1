@@ -129,8 +129,6 @@ try {
         -DesktopInputDirectory $desktopStaging `
         -BackendTarPath $backendTarPath `
         -BackendImageTag $backendImageTag `
-        -BackendImageId $backendImageId `
-        -BackendRuntimeUser $backendRuntimeUser `
         -OutputDirectory $output
 }
 finally {

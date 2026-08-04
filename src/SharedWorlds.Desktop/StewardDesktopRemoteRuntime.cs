@@ -27,6 +27,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
     private readonly StewardOwnedWorldSnapshotPublisher _ownedWorldSnapshotPublisher;
     private readonly StewardOwnedPrivateWorldCatalogClient _ownedPrivateWorldCatalog;
     private readonly StewardPrivateSnapshotMaterializationClient _privateSnapshotMaterialization;
+    private readonly StewardOwnedPrivateWorldMaterializationService _ownedPrivateWorldMaterialization;
     private bool _disposed;
 
     private StewardDesktopRemoteRuntime(
@@ -42,6 +43,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         StewardOwnedWorldSnapshotPublisher ownedWorldSnapshotPublisher,
         StewardOwnedPrivateWorldCatalogClient ownedPrivateWorldCatalog,
         StewardPrivateSnapshotMaterializationClient privateSnapshotMaterialization,
+        StewardOwnedPrivateWorldMaterializationService ownedPrivateWorldMaterialization,
         StewardWorldStorage storage,
         WorldLifecycleService lifecycle,
         CoordinatedWorldJoinService join,
@@ -64,6 +66,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         _ownedWorldSnapshotPublisher = ownedWorldSnapshotPublisher;
         _ownedPrivateWorldCatalog = ownedPrivateWorldCatalog;
         _privateSnapshotMaterialization = privateSnapshotMaterialization;
+        _ownedPrivateWorldMaterialization = ownedPrivateWorldMaterialization;
         Storage = storage;
         Lifecycle = lifecycle;
         Join = join;
@@ -96,6 +99,47 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         => _privateSnapshotMaterialization.EnsureDownloadedAsync(
             worldId,
             cancellationToken);
+
+    public async Task<OwnedPrivateWorldMaterializationResult>
+        BringOwnedPrivateWorldHereAsync(
+            WorldId worldId,
+            CancellationToken cancellationToken = default)
+    {
+        if (worldId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("World ID is required.", nameof(worldId));
+        }
+
+        var matchingEntries = (await _ownedPrivateWorldCatalog.ListAsync(cancellationToken))
+            .Where(entry => entry.WorldId == worldId)
+            .Take(2)
+            .ToArray();
+        if (matchingEntries.Length != 1)
+        {
+            throw new InvalidOperationException(
+                "The authenticated private World catalog no longer contains one exact requested World.");
+        }
+
+        var entry = matchingEntries[0];
+        if (entry.Availability != BringHereAvailability.Available ||
+            entry.Source is null ||
+            entry.ConflictingClaims.Count != 0)
+        {
+            throw new InvalidOperationException(
+                "The requested private World is no longer unambiguously available on another owned installation.");
+        }
+
+        var prepared = await _privateSnapshotMaterialization.EnsureDownloadedAsync(
+            worldId,
+            cancellationToken)
+            ?? throw new InvalidOperationException(
+                "The requested private World changed before exact materialization preparation completed.");
+        return await _ownedPrivateWorldMaterialization.MaterializeAsync(
+            entry,
+            prepared,
+            User,
+            cancellationToken);
+    }
 
     public async Task ReconcileAndReplayOwnedWorldLocationsAsync(
         CancellationToken cancellationToken = default)
@@ -223,6 +267,10 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                     apiClient,
                     verifiedCache,
                     GetAccessTokenAsync);
+            var ownedPrivateWorldMaterialization =
+                new StewardOwnedPrivateWorldMaterializationService(
+                    localStorage,
+                    verifiedCache);
             var ownedWorldSnapshotPublisher = new StewardOwnedWorldSnapshotPublisher(
                 localStorage,
                 privateSnapshotTransfers,
@@ -282,6 +330,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 ownedWorldSnapshotPublisher,
                 ownedPrivateWorldCatalog,
                 privateSnapshotMaterialization,
+                ownedPrivateWorldMaterialization,
                 storage,
                 lifecycle,
                 join,

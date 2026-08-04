@@ -82,7 +82,7 @@ internal static class Program
                     sourcePath,
                     ProbeContract.SourceBeforeRole,
                     requirePhysicalProcess: true,
-                    cancellation.Token);
+                    cancellationToken: cancellation.Token);
                 var sourceHash = await ProbeEngine.ComputeFileSha256Async(sourcePath, cancellation.Token);
                 evidence = ProbeEngine.CreateEvidence(
                     role,
@@ -102,12 +102,12 @@ internal static class Program
                     sourcePath,
                     ProbeContract.SourceBeforeRole,
                     requirePhysicalProcess: true,
-                    cancellation.Token);
+                    cancellationToken: cancellation.Token);
                 var target = await ProbeEngine.ReadEvidenceAsync(
                     targetPath,
                     ProbeContract.TargetAfterRole,
                     requirePhysicalProcess: true,
-                    cancellation.Token);
+                    cancellationToken: cancellation.Token);
                 var sourceHash = await ProbeEngine.ComputeFileSha256Async(sourcePath, cancellation.Token);
                 var targetHash = await ProbeEngine.ComputeFileSha256Async(targetPath, cancellation.Token);
                 evidence = ProbeEngine.CreateEvidence(

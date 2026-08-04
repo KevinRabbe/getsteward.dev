@@ -24,6 +24,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
     private readonly StewardWorldSessionCoordinator _coordinator;
     private readonly StewardOwnedWorldLocationPublicationService _ownedWorldLocationPublication;
     private readonly StewardOwnedWorldLocationCatalogReconciler _ownedWorldLocationCatalogReconciler;
+    private readonly StewardOwnedWorldSnapshotPublisher _ownedWorldSnapshotPublisher;
     private readonly StewardOwnedPrivateWorldCatalogClient _ownedPrivateWorldCatalog;
     private bool _disposed;
 
@@ -37,6 +38,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         StewardWorldSessionCoordinator coordinator,
         StewardOwnedWorldLocationPublicationService ownedWorldLocationPublication,
         StewardOwnedWorldLocationCatalogReconciler ownedWorldLocationCatalogReconciler,
+        StewardOwnedWorldSnapshotPublisher ownedWorldSnapshotPublisher,
         StewardOwnedPrivateWorldCatalogClient ownedPrivateWorldCatalog,
         StewardWorldStorage storage,
         WorldLifecycleService lifecycle,
@@ -57,6 +59,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         _coordinator = coordinator;
         _ownedWorldLocationPublication = ownedWorldLocationPublication;
         _ownedWorldLocationCatalogReconciler = ownedWorldLocationCatalogReconciler;
+        _ownedWorldSnapshotPublisher = ownedWorldSnapshotPublisher;
         _ownedPrivateWorldCatalog = ownedPrivateWorldCatalog;
         Storage = storage;
         Lifecycle = lifecycle;
@@ -89,6 +92,10 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
         await _ownedWorldLocationCatalogReconciler.ReconcileAsync(cancellationToken);
         await _ownedWorldLocationPublication.ReplayAllAsync(cancellationToken);
     }
+
+    public Task PublishCurrentOwnedWorldSnapshotsAsync(
+        CancellationToken cancellationToken = default)
+        => _ownedWorldSnapshotPublisher.PublishAllCurrentAsync(cancellationToken);
 
     public async Task<StewardRemoteWorldMetadata?> GetWorldMetadataAsync(
         WorldId worldId,
@@ -191,6 +198,14 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 transferClient);
             var packages = new StewardVerifiedPackageSource(packageDownloads, verifiedCache);
             var uploads = new StewardPackageUploadClient(apiClient, transferClient);
+            var privateSnapshotTransfers = new StewardPrivateSnapshotTransferClient(
+                apiClient,
+                transferClient,
+                verifiedCache,
+                GetAccessTokenAsync);
+            var ownedWorldSnapshotPublisher = new StewardOwnedWorldSnapshotPublisher(
+                localStorage,
+                privateSnapshotTransfers);
             var initialWorldPublisher = new StewardInitialWorldPublisher(
                 worldCreation,
                 metadata,
@@ -243,6 +258,7 @@ internal sealed class StewardDesktopRemoteRuntime : IDisposable
                 coordinator,
                 ownedWorldLocationPublication,
                 ownedWorldLocationCatalogReconciler,
+                ownedWorldSnapshotPublisher,
                 ownedPrivateWorldCatalog,
                 storage,
                 lifecycle,

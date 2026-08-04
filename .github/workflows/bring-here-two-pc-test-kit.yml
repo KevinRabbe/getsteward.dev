@@ -1,0 +1,93 @@
+name: Bring Here two-PC test kit
+
+on:
+  push:
+    branches:
+      - main
+      - "agent/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  package:
+    name: Build private Bring Here two-PC kit
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build and verify byte-exact kit
+        shell: pwsh
+        run: |
+          $output = "$env:RUNNER_TEMP/safe-world-bring-here-two-pc-kit"
+          ./tools/build-bring-here-two-pc-kit.ps1 `
+            -OutputDirectory $output
+
+          $manifestPath = Join-Path $output 'acceptance-build.json'
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          $actualFiles = @(Get-ChildItem -LiteralPath $output -Recurse -File |
+            Where-Object { -not [string]::Equals($_.FullName, $manifestPath, [StringComparison]::OrdinalIgnoreCase) } |
+            Sort-Object FullName)
+          $manifestEntries = @($manifest.files)
+
+          if ($actualFiles.Count -ne $manifestEntries.Count) {
+            throw "Bring Here kit contains $($actualFiles.Count) files but the manifest lists $($manifestEntries.Count)."
+          }
+
+          foreach ($file in $actualFiles) {
+            $relativePath = [IO.Path]::GetRelativePath($output, $file.FullName).Replace('\', '/')
+            $entries = @($manifestEntries | Where-Object { [string]$_.path -eq $relativePath })
+            if ($entries.Count -ne 1) {
+              throw "Bring Here kit file '$relativePath' is not represented exactly once in acceptance-build.json."
+            }
+            if ([int64]$entries[0].byteSize -ne $file.Length) {
+              throw "Bring Here kit file '$relativePath' does not match its declared byte size."
+            }
+            $actualHash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+            if (-not [string]::Equals([string]$entries[0].sha256, $actualHash, [StringComparison]::OrdinalIgnoreCase)) {
+              throw "Bring Here kit file '$relativePath' does not match its declared SHA-256."
+            }
+          }
+
+          $requiredFiles = @(
+            'SharedWorlds.Desktop.exe',
+            'START-HERE-BRING-HERE-TWO-PC.txt',
+            'acceptance-tools/PC-A-SOURCE-BEFORE.cmd',
+            'acceptance-tools/PC-B-TARGET-AFTER.cmd',
+            'acceptance-tools/PC-A-SOURCE-AFTER.cmd',
+            'acceptance-tools/SharedWorlds.BringHereProbe.exe'
+          )
+          $manifestPaths = @($manifestEntries | ForEach-Object { [string]$_.path })
+          foreach ($requiredFile in $requiredFiles) {
+            if ($manifestPaths -notcontains $requiredFile) {
+              throw "Bring Here kit is missing required file '$requiredFile'."
+            }
+          }
+
+          & (Join-Path $output 'acceptance-tools/SharedWorlds.BringHereProbe.exe') --self-test
+          if ($LASTEXITCODE -ne 0) {
+            throw "Packaged Bring Here probe self-test failed with exit code $LASTEXITCODE."
+          }
+
+          Get-Content -LiteralPath $manifestPath
+
+      - name: Upload exact Bring Here two-PC kit
+        uses: actions/upload-artifact@v6
+        with:
+          name: safe-world-bring-here-two-pc-kit-${{ github.sha }}
+          path: ${{ runner.temp }}/safe-world-bring-here-two-pc-kit
+          if-no-files-found: error
+          retention-days: 14

@@ -19,11 +19,16 @@ public sealed class StewardOwnedWorldSnapshotPublisherTests : IDisposable
         $"sharedworlds-owned-snapshot-publisher-tests-{Guid.NewGuid():N}");
 
     [Fact]
-    public async Task PublishesExactCanonicalIdentityManifestAndBytes()
+    public async Task PublishesExactBytesBeforeExactRevisionEvidence()
     {
         var storage = CreateStorage();
-        var fixture = await StoreCanonicalWorldAsync(storage, new byte[] { 1, 2, 3, 4 });
-        PublishedSnapshot? published = null;
+        var fixture = await StoreCanonicalWorldAsync(
+            storage,
+            new byte[] { 1, 2, 3, 4 });
+        var order = new List<string>();
+        byte[]? publishedBytes = null;
+        StateRevision? publishedState = null;
+        EnvironmentRevision? publishedEnvironment = null;
         var publisher = new StewardOwnedWorldSnapshotPublisher(
             storage,
             async (
@@ -35,75 +40,115 @@ public sealed class StewardOwnedWorldSnapshotPublisherTests : IDisposable
                 package,
                 cancellationToken) =>
             {
+                order.Add("bytes");
+                Assert.Equal(fixture.World.Id, worldId);
+                Assert.Equal(fixture.State.Id, stateId);
+                Assert.Equal(fixture.Environment.Id, environmentId);
+                Assert.Equal(AdapterId, adapterId);
+                Assert.Equal(AdapterId, manifest.AdapterId);
                 using var bytes = new MemoryStream();
                 await package.CopyToAsync(bytes, cancellationToken);
-                published = new(
-                    worldId,
-                    stateId,
-                    environmentId,
-                    adapterId,
-                    manifest,
-                    bytes.ToArray());
-                return Result(
+                publishedBytes = bytes.ToArray();
+                return UploadResult(
                     RemotePrivateSnapshotUploadStatus.Published,
-                    worldId,
-                    stateId,
-                    environmentId,
+                    fixture,
                     bytes.Length);
+            },
+            (worldId, state, environment, _) =>
+            {
+                order.Add("evidence");
+                Assert.Equal(fixture.World.Id, worldId);
+                publishedState = state;
+                publishedEnvironment = environment;
+                return Task.FromResult(EvidenceResult(
+                    RemotePrivateSnapshotRevisionEvidenceStatus.Published,
+                    fixture));
             });
 
         await publisher.PublishAllCurrentAsync();
 
-        var actual = Assert.IsType<PublishedSnapshot>(published);
-        Assert.Equal(fixture.World.Id, actual.WorldId);
-        Assert.Equal(fixture.State.Id, actual.StateRevisionId);
-        Assert.Equal(fixture.Environment.Id, actual.EnvironmentRevisionId);
-        Assert.Equal(AdapterId, actual.GameAdapterId);
+        Assert.Equal(new[] { "bytes", "evidence" }, order);
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, publishedBytes);
+        Assert.Equal(fixture.State.Id, publishedState?.Id);
+        Assert.Equal(fixture.State.ParentRevisionId, publishedState?.ParentRevisionId);
+        Assert.Equal(fixture.State.StatePackageId, publishedState?.StatePackageId);
+        Assert.Equal(fixture.Environment.Id, publishedEnvironment?.Id);
         Assert.Equal(
-            fixture.Environment.Manifest.SchemaVersion,
-            actual.EnvironmentManifest.SchemaVersion);
+            fixture.Environment.ParentRevisionId,
+            publishedEnvironment?.ParentRevisionId);
         Assert.Equal(
             fixture.Environment.Manifest.AdapterId,
-            actual.EnvironmentManifest.AdapterId);
-        Assert.Equal(
-            fixture.Environment.Manifest.GameVersion,
-            actual.EnvironmentManifest.GameVersion);
-        Assert.Equal(
-            fixture.Environment.Manifest.Components.ToArray(),
-            actual.EnvironmentManifest.Components.ToArray());
-        Assert.Equal(
-            fixture.Environment.Manifest.Configuration.OrderBy(pair => pair.Key),
-            actual.EnvironmentManifest.Configuration.OrderBy(pair => pair.Key));
-        Assert.Equal(new byte[] { 1, 2, 3, 4 }, actual.Bytes);
+            publishedEnvironment?.Manifest.AdapterId);
     }
 
     [Fact]
-    public async Task UnchangedConfirmedHeadDoesNotRehashOrReupload()
+    public async Task InterruptedEvidenceRepairDoesNotReopenOrReuploadBytes()
     {
         var storage = CreateStorage();
-        await StoreCanonicalWorldAsync(storage, new byte[] { 8, 9 });
-        var calls = 0;
+        var fixture = await StoreCanonicalWorldAsync(storage, new byte[] { 5, 6 });
+        var byteCalls = 0;
+        var evidenceCalls = 0;
         var publisher = new StewardOwnedWorldSnapshotPublisher(
             storage,
             (worldId, stateId, environmentId, _, _, package, _) =>
             {
-                calls++;
-                return Task.FromResult(Result(
+                byteCalls++;
+                return Task.FromResult(UploadResult(
                     RemotePrivateSnapshotUploadStatus.Published,
-                    worldId,
-                    stateId,
-                    environmentId,
+                    fixture,
                     package.Length));
+            },
+            (_, _, _, _) =>
+            {
+                evidenceCalls++;
+                var status = evidenceCalls == 1
+                    ? RemotePrivateSnapshotRevisionEvidenceStatus.Conflict
+                    : RemotePrivateSnapshotRevisionEvidenceStatus.AlreadyPublished;
+                return Task.FromResult(EvidenceResult(status, fixture));
+            });
+
+        await Assert.ThrowsAsync<AggregateException>(
+            () => publisher.PublishAllCurrentAsync());
+        await publisher.PublishAllCurrentAsync();
+
+        Assert.Equal(1, byteCalls);
+        Assert.Equal(2, evidenceCalls);
+    }
+
+    [Fact]
+    public async Task FullyConfirmedUnchangedHeadSkipsAllFurtherWork()
+    {
+        var storage = CreateStorage();
+        var fixture = await StoreCanonicalWorldAsync(storage, new byte[] { 7, 8 });
+        var byteCalls = 0;
+        var evidenceCalls = 0;
+        var publisher = new StewardOwnedWorldSnapshotPublisher(
+            storage,
+            (_, _, _, _, _, package, _) =>
+            {
+                byteCalls++;
+                return Task.FromResult(UploadResult(
+                    RemotePrivateSnapshotUploadStatus.AlreadyPublished,
+                    fixture,
+                    package.Length));
+            },
+            (_, _, _, _) =>
+            {
+                evidenceCalls++;
+                return Task.FromResult(EvidenceResult(
+                    RemotePrivateSnapshotRevisionEvidenceStatus.AlreadyPublished,
+                    fixture));
             });
 
         await publisher.PublishAllCurrentAsync();
         await publisher.PublishAllCurrentAsync();
 
-        Assert.Equal(1, calls);
+        Assert.Equal(1, byteCalls);
+        Assert.Equal(1, evidenceCalls);
     }
 
     [Fact]
-    public async Task SharedWorldAndMissingPayloadDoNotUpload()
+    public async Task SharedWorldAndMissingPayloadPublishNothing()
     {
         var storage = CreateStorage();
         await StoreCanonicalWorldAsync(
@@ -114,25 +159,32 @@ public sealed class StewardOwnedWorldSnapshotPublisherTests : IDisposable
         Assert.True(await storage.EvictRevisionPayloadAsync(
             missing.World.Id,
             missing.State.Id));
-        var calls = 0;
+        var byteCalls = 0;
+        var evidenceCalls = 0;
         var publisher = new StewardOwnedWorldSnapshotPublisher(
             storage,
             (_, _, _, _, _, _, _) =>
             {
-                calls++;
-                throw new InvalidOperationException("Upload must not be called.");
+                byteCalls++;
+                throw new InvalidOperationException("Bytes must not publish.");
+            },
+            (_, _, _, _) =>
+            {
+                evidenceCalls++;
+                throw new InvalidOperationException("Evidence must not publish.");
             });
 
         await publisher.PublishAllCurrentAsync();
 
-        Assert.Equal(0, calls);
+        Assert.Equal(0, byteCalls);
+        Assert.Equal(0, evidenceCalls);
     }
 
     [Fact]
-    public async Task MalformedWorldDoesNotBlockIndependentValidSnapshot()
+    public async Task MalformedWorldDoesNotBlockIndependentCompletePublication()
     {
         var storage = CreateStorage();
-        var valid = await StoreCanonicalWorldAsync(storage, new byte[] { 3, 4 });
+        var valid = await StoreCanonicalWorldAsync(storage, new byte[] { 9 });
         var malformed = new World(
             WorldId.New(),
             "Malformed",
@@ -141,24 +193,26 @@ public sealed class StewardOwnedWorldSnapshotPublisherTests : IDisposable
             CurrentEnvironmentRevisionId: null,
             CurrentStateRevisionId: RevisionId.New());
         await storage.SaveWorldAsync(malformed);
-        var uploaded = new List<WorldId>();
+        var completed = new List<WorldId>();
         var publisher = new StewardOwnedWorldSnapshotPublisher(
             storage,
-            (worldId, stateId, environmentId, _, _, package, _) =>
-            {
-                uploaded.Add(worldId);
-                return Task.FromResult(Result(
+            (worldId, _, _, _, _, package, _) =>
+                Task.FromResult(UploadResult(
                     RemotePrivateSnapshotUploadStatus.Published,
-                    worldId,
-                    stateId,
-                    environmentId,
-                    package.Length));
+                    valid,
+                    package.Length)),
+            (worldId, _, _, _) =>
+            {
+                completed.Add(worldId);
+                return Task.FromResult(EvidenceResult(
+                    RemotePrivateSnapshotRevisionEvidenceStatus.Published,
+                    valid));
             });
 
         var exception = await Assert.ThrowsAsync<AggregateException>(
             () => publisher.PublishAllCurrentAsync());
 
-        Assert.Contains(valid.World.Id, uploaded);
+        Assert.Contains(valid.World.Id, completed);
         Assert.Contains(
             "only one side of its canonical state/environment head",
             exception.ToString(),
@@ -166,59 +220,42 @@ public sealed class StewardOwnedWorldSnapshotPublisherTests : IDisposable
     }
 
     [Fact]
-    public async Task TypedFailureDoesNotBlockIndependentWorldAndFailsPass()
+    public async Task ByteFailureNeverPublishesEvidenceAndIndependentWorldContinues()
     {
         var storage = CreateStorage();
-        var failed = await StoreCanonicalWorldAsync(storage, new byte[] { 5 });
-        var successful = await StoreCanonicalWorldAsync(storage, new byte[] { 6 });
-        var uploaded = new HashSet<WorldId>();
+        var failed = await StoreCanonicalWorldAsync(storage, new byte[] { 10 });
+        var successful = await StoreCanonicalWorldAsync(storage, new byte[] { 11 });
+        var evidenceWorlds = new List<WorldId>();
         var publisher = new StewardOwnedWorldSnapshotPublisher(
             storage,
             (worldId, stateId, environmentId, _, _, package, _) =>
             {
-                uploaded.Add(worldId);
+                var fixture = worldId == failed.World.Id ? failed : successful;
                 var status = worldId == failed.World.Id
                     ? RemotePrivateSnapshotUploadStatus.PublicationBlocked
                     : RemotePrivateSnapshotUploadStatus.Published;
-                return Task.FromResult(Result(
+                return Task.FromResult(UploadResult(
                     status,
-                    worldId,
-                    stateId,
-                    environmentId,
+                    fixture,
                     package.Length));
+            },
+            (worldId, _, _, _) =>
+            {
+                evidenceWorlds.Add(worldId);
+                return Task.FromResult(EvidenceResult(
+                    RemotePrivateSnapshotRevisionEvidenceStatus.Published,
+                    successful));
             });
 
         var exception = await Assert.ThrowsAsync<AggregateException>(
             () => publisher.PublishAllCurrentAsync());
 
-        Assert.Contains(failed.World.Id, uploaded);
-        Assert.Contains(successful.World.Id, uploaded);
+        Assert.DoesNotContain(failed.World.Id, evidenceWorlds);
+        Assert.Contains(successful.World.Id, evidenceWorlds);
         Assert.Contains(
             "PublicationBlocked",
             exception.ToString(),
             StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task AlreadyPublishedIsSuccessfulIdempotentCompletion()
-    {
-        var storage = CreateStorage();
-        var fixture = await StoreCanonicalWorldAsync(storage, new byte[] { 7 });
-        var publisher = new StewardOwnedWorldSnapshotPublisher(
-            storage,
-            (worldId, stateId, environmentId, _, _, package, _) =>
-                Task.FromResult(Result(
-                    RemotePrivateSnapshotUploadStatus.AlreadyPublished,
-                    worldId,
-                    stateId,
-                    environmentId,
-                    package.Length)));
-
-        await publisher.PublishAllCurrentAsync();
-
-        Assert.True(await storage.IsRevisionPayloadAvailableAsync(
-            fixture.World.Id,
-            fixture.State.Id));
     }
 
     private LocalWorldStorage CreateStorage()
@@ -241,14 +278,14 @@ public sealed class StewardOwnedWorldSnapshotPublisherTests : IDisposable
         var environment = new EnvironmentRevision(
             environmentId,
             worldId,
-            ParentRevisionId: null,
-            ObservedAt,
+            ParentRevisionId: RevisionId.New(),
+            ObservedAt.AddMinutes(-1),
             CreatedBy: null,
             manifest);
         var state = new StateRevision(
             stateId,
             worldId,
-            ParentRevisionId: null,
+            ParentRevisionId: RevisionId.New(),
             ObservedAt,
             CreatedBy: null,
             AdapterId,
@@ -275,32 +312,35 @@ public sealed class StewardOwnedWorldSnapshotPublisherTests : IDisposable
         return new(world, state, environment);
     }
 
-    private static RemotePrivateSnapshotUploadResult Result(
+    private static RemotePrivateSnapshotUploadResult UploadResult(
         RemotePrivateSnapshotUploadStatus status,
-        WorldId worldId,
-        RevisionId stateId,
-        RevisionId environmentId,
+        CanonicalWorldFixture fixture,
         long byteSize)
         => new(
             status,
-            worldId,
-            stateId,
-            environmentId,
+            fixture.World.Id,
+            fixture.State.Id,
+            fixture.Environment.Id,
             byteSize,
             new string('A', 64));
+
+    private static RemotePrivateSnapshotRevisionEvidenceResult EvidenceResult(
+        RemotePrivateSnapshotRevisionEvidenceStatus status,
+        CanonicalWorldFixture fixture)
+        => new(
+            status,
+            fixture.World.Id,
+            fixture.State.Id,
+            fixture.Environment.Id,
+            status is RemotePrivateSnapshotRevisionEvidenceStatus.Published or
+                RemotePrivateSnapshotRevisionEvidenceStatus.AlreadyPublished
+                ? ObservedAt.AddMinutes(1)
+                : null);
 
     private sealed record CanonicalWorldFixture(
         World World,
         StateRevision State,
         EnvironmentRevision Environment);
-
-    private sealed record PublishedSnapshot(
-        WorldId WorldId,
-        RevisionId StateRevisionId,
-        RevisionId EnvironmentRevisionId,
-        string GameAdapterId,
-        EnvironmentManifest EnvironmentManifest,
-        byte[] Bytes);
 
     public void Dispose()
     {

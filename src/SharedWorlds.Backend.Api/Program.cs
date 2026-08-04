@@ -178,6 +178,12 @@ builder.Services.AddSingleton(services => new PrivateSnapshotRevisionEvidenceSer
     services.GetRequiredService<IOwnedWorldSnapshotStore>(),
     services.GetRequiredService<IOwnedWorldSnapshotRevisionEvidenceStore>(),
     () => DateTimeOffset.UtcNow));
+builder.Services.AddSingleton(services => new PrivateSnapshotMaterializationDownloadService(
+    services.GetRequiredService<IOwnedWorldLocationStore>(),
+    services.GetRequiredService<IOwnedWorldSnapshotStore>(),
+    services.GetRequiredService<IOwnedWorldSnapshotRevisionEvidenceStore>(),
+    services.GetRequiredService<IPrivateImmutableObjectStore>(),
+    () => DateTimeOffset.UtcNow));
 
 builder.Services.AddSingleton(new SharedPackageTransferCleanupOptions(
     TimeSpan.FromDays(cleanupVerifiedCandidateRetentionDays),
@@ -232,6 +238,7 @@ app.MapStewardWorldPlayerPresenceApiV1();
 app.MapStewardOwnedWorldLocationApiV1();
 app.MapStewardPrivateSnapshotTransferApiV1();
 app.MapStewardPrivateSnapshotRevisionEvidenceApiV1();
+app.MapStewardPrivateSnapshotMaterializationApiV1();
 
 await app.RunAsync();
 

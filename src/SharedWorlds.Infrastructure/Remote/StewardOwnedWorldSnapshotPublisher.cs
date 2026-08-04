@@ -16,7 +16,9 @@ public delegate Task<RemotePrivateSnapshotUploadResult> OwnedWorldSnapshotUpload
 
 /// <summary>
 /// Publishes immutable bytes for current owner-private canonical heads. The backend transfer intent
-/// owns resume state; this scanner owns no queue and never changes local World authority.
+/// owns resume state; this scanner owns no queue and never changes local World authority. Confirmed
+/// immutable heads are remembered for this runtime so unrelated local mutations do not re-hash large
+/// unchanged packages. A new runtime safely repairs that optimization state from backend idempotence.
 /// </summary>
 public sealed class StewardOwnedWorldSnapshotPublisher
 {
@@ -25,6 +27,8 @@ public sealed class StewardOwnedWorldSnapshotPublisher
     private readonly IWorldStorage _storage;
     private readonly OwnedWorldCanonicalSnapshotResolver _resolver;
     private readonly OwnedWorldSnapshotUploadAsync _uploadAsync;
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly Dictionary<WorldId, ConfirmedHead> _confirmed = [];
 
     public StewardOwnedWorldSnapshotPublisher(
         IWorldStorage storage,
@@ -47,6 +51,20 @@ public sealed class StewardOwnedWorldSnapshotPublisher
     public async Task PublishAllCurrentAsync(
         CancellationToken cancellationToken = default)
     {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await PublishAllCurrentLockedAsync(cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task PublishAllCurrentLockedAsync(
+        CancellationToken cancellationToken)
+    {
         var worlds = await _storage.ListWorldsAsync(cancellationToken);
         if (worlds.Count > MaximumWorldsPerPass)
         {
@@ -62,6 +80,13 @@ public sealed class StewardOwnedWorldSnapshotPublisher
                 throw new InvalidDataException(
                     $"Local World storage returned duplicate canonical World ID '{world.Id}'.");
             }
+        }
+
+        foreach (var absentWorldId in _confirmed.Keys
+                     .Where(worldId => !worldsById.ContainsKey(worldId))
+                     .ToArray())
+        {
+            _confirmed.Remove(absentWorldId);
         }
 
         var failures = new List<Exception>();
@@ -96,6 +121,17 @@ public sealed class StewardOwnedWorldSnapshotPublisher
         var snapshot = await _resolver.ResolveAsync(world, cancellationToken);
         if (snapshot is null)
         {
+            _confirmed.Remove(world.Id);
+            return;
+        }
+
+        var currentHead = new ConfirmedHead(
+            snapshot.State.Id,
+            snapshot.Environment.Id,
+            snapshot.World.GameAdapterId);
+        if (_confirmed.TryGetValue(world.Id, out var confirmed) &&
+            confirmed == currentHead)
+        {
             return;
         }
 
@@ -118,6 +154,8 @@ public sealed class StewardOwnedWorldSnapshotPublisher
             throw new IOException(
                 $"Steward private snapshot publication ended with status '{result.Status}'.");
         }
+
+        _confirmed[world.Id] = currentHead;
     }
 
     private static OwnedWorldSnapshotUploadAsync Bind(
@@ -126,4 +164,9 @@ public sealed class StewardOwnedWorldSnapshotPublisher
         ArgumentNullException.ThrowIfNull(transfers);
         return transfers.UploadAsync;
     }
+
+    private sealed record ConfirmedHead(
+        RevisionId StateRevisionId,
+        RevisionId EnvironmentRevisionId,
+        string GameAdapterId);
 }

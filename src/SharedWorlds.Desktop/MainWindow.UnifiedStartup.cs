@@ -12,6 +12,7 @@ public partial class MainWindow
         await LoadDeviceSettingsAsync();
         await InitializeUnifiedGameUiAsync();
         InitializeOwnedPrivateWorldCatalogRefreshHooks();
+        InitializeOwnedPrivateWorldBringHereAction();
         InitializeInstallationAwareWorldActions();
         InitializeWorldSearchUi();
 

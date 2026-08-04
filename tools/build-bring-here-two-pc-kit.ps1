@@ -66,6 +66,7 @@ Copy-Item -LiteralPath (Join-Path $kitSource 'PC-A-SOURCE-BEFORE.cmd') -Destinat
 Copy-Item -LiteralPath (Join-Path $kitSource 'PC-B-TARGET-AFTER.cmd') -Destination $toolOutput -Force
 Copy-Item -LiteralPath (Join-Path $kitSource 'PC-A-SOURCE-AFTER.cmd') -Destination $toolOutput -Force
 Copy-Item -LiteralPath (Join-Path $kitSource 'START-HERE-BRING-HERE-TWO-PC.txt') -Destination $output -Force
+Copy-Item -LiteralPath (Join-Path $kitSource 'FRIEND-PC-B-HANDOFF.txt') -Destination $output -Force
 
 $manifestPath = Join-Path $output 'acceptance-build.json'
 if (-not [IO.File]::Exists($manifestPath)) {
@@ -117,6 +118,7 @@ if ($LASTEXITCODE -ne 0) {
 $requiredFiles = @(
     'SharedWorlds.Desktop.exe',
     'START-HERE-BRING-HERE-TWO-PC.txt',
+    'FRIEND-PC-B-HANDOFF.txt',
     'acceptance-tools/PC-A-SOURCE-BEFORE.cmd',
     'acceptance-tools/PC-B-TARGET-AFTER.cmd',
     'acceptance-tools/PC-A-SOURCE-AFTER.cmd',
@@ -134,6 +136,7 @@ Write-Host '[OK] Safe World private Bring Here two-PC acceptance kit is complete
 Write-Host "  Output: $output"
 Write-Host "  Desktop: $(Join-Path $output 'SharedWorlds.Desktop.exe')"
 Write-Host "  Probe: $probeExecutable"
+Write-Host "  Friend PC B guide: $(Join-Path $output 'FRIEND-PC-B-HANDOFF.txt')"
 Write-Host "  Source-before: $(Join-Path $toolOutput 'PC-A-SOURCE-BEFORE.cmd')"
 Write-Host "  Target-after: $(Join-Path $toolOutput 'PC-B-TARGET-AFTER.cmd')"
 Write-Host "  Source-after: $(Join-Path $toolOutput 'PC-A-SOURCE-AFTER.cmd')"

@@ -59,7 +59,21 @@ public sealed class StewardOwnedWorldSnapshotPublisherTests : IDisposable
         Assert.Equal(fixture.State.Id, actual.StateRevisionId);
         Assert.Equal(fixture.Environment.Id, actual.EnvironmentRevisionId);
         Assert.Equal(AdapterId, actual.GameAdapterId);
-        Assert.Equal(fixture.Environment.Manifest, actual.EnvironmentManifest);
+        Assert.Equal(
+            fixture.Environment.Manifest.SchemaVersion,
+            actual.EnvironmentManifest.SchemaVersion);
+        Assert.Equal(
+            fixture.Environment.Manifest.AdapterId,
+            actual.EnvironmentManifest.AdapterId);
+        Assert.Equal(
+            fixture.Environment.Manifest.GameVersion,
+            actual.EnvironmentManifest.GameVersion);
+        Assert.Equal(
+            fixture.Environment.Manifest.Components.ToArray(),
+            actual.EnvironmentManifest.Components.ToArray());
+        Assert.Equal(
+            fixture.Environment.Manifest.Configuration.OrderBy(pair => pair.Key),
+            actual.EnvironmentManifest.Configuration.OrderBy(pair => pair.Key));
         Assert.Equal(new byte[] { 1, 2, 3, 4 }, actual.Bytes);
     }
 

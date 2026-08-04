@@ -103,6 +103,9 @@ builder.Services.AddSingleton<PostgreSqlOwnedWorldSnapshotStore>();
 builder.Services.AddSingleton<PostgreSqlBringHereOwnedWorldSnapshotStore>();
 builder.Services.AddSingleton<IOwnedWorldSnapshotStore>(services =>
     services.GetRequiredService<PostgreSqlBringHereOwnedWorldSnapshotStore>());
+builder.Services.AddSingleton<PostgreSqlOwnedWorldSnapshotRevisionEvidenceStore>();
+builder.Services.AddSingleton<IOwnedWorldSnapshotRevisionEvidenceStore>(services =>
+    services.GetRequiredService<PostgreSqlOwnedWorldSnapshotRevisionEvidenceStore>());
 builder.Services.AddSingleton<PostgreSqlPrivateSnapshotTransferStore>();
 builder.Services.AddSingleton<IPrivateSnapshotTransferStore>(services =>
     services.GetRequiredService<PostgreSqlPrivateSnapshotTransferStore>());
@@ -171,6 +174,10 @@ builder.Services.AddSingleton(services => new PrivateSnapshotTransferService(
     services.GetRequiredService<IPrivateSnapshotTransferStore>(),
     services.GetRequiredService<IPrivateImmutableObjectStore>(),
     () => DateTimeOffset.UtcNow));
+builder.Services.AddSingleton(services => new PrivateSnapshotRevisionEvidenceService(
+    services.GetRequiredService<IOwnedWorldSnapshotStore>(),
+    services.GetRequiredService<IOwnedWorldSnapshotRevisionEvidenceStore>(),
+    () => DateTimeOffset.UtcNow));
 
 builder.Services.AddSingleton(new SharedPackageTransferCleanupOptions(
     TimeSpan.FromDays(cleanupVerifiedCandidateRetentionDays),
@@ -208,6 +215,7 @@ await PostgreSqlSharedWorldHostPresenceSchema.InitializeAsync(dataSource);
 await PostgreSqlSharedWorldPlayerPresenceSchema.InitializeAsync(dataSource);
 await app.Services.GetRequiredService<PostgreSqlOwnedWorldLocationStore>().InitializeAsync();
 await app.Services.GetRequiredService<PostgreSqlOwnedWorldSnapshotStore>().InitializeAsync();
+await app.Services.GetRequiredService<PostgreSqlOwnedWorldSnapshotRevisionEvidenceStore>().InitializeAsync();
 await app.Services.GetRequiredService<PostgreSqlPrivateSnapshotTransferStore>().InitializeAsync();
 
 app.UseStewardApiProblemHandling();
@@ -223,6 +231,7 @@ app.MapStewardHostPresenceApiV1();
 app.MapStewardWorldPlayerPresenceApiV1();
 app.MapStewardOwnedWorldLocationApiV1();
 app.MapStewardPrivateSnapshotTransferApiV1();
+app.MapStewardPrivateSnapshotRevisionEvidenceApiV1();
 
 await app.RunAsync();
 

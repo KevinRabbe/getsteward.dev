@@ -376,8 +376,21 @@ public sealed class PrivateBringHereEndToEndTests
                 OwnedPrivateWorldMaterializationStatus.AlreadyMaterialized,
                 retry.Status);
 
-            var sourceAfter = await sourceStorage.LoadWorldAsync(worldId);
-            Assert.Equal(sourceWorld, sourceAfter);
+            var sourceAfter = Assert.IsType<World>(
+                await sourceStorage.LoadWorldAsync(worldId));
+            Assert.Equal(sourceWorld.Id, sourceAfter.Id);
+            Assert.Equal(sourceWorld.Name, sourceAfter.Name);
+            Assert.Equal(sourceWorld.GameAdapterId, sourceAfter.GameAdapterId);
+            Assert.Equal(sourceWorld.CurrentEnvironmentRevisionId, sourceAfter.CurrentEnvironmentRevisionId);
+            Assert.Equal(sourceWorld.CurrentStateRevisionId, sourceAfter.CurrentStateRevisionId);
+            Assert.Equal(sourceWorld.SharingMode, sourceAfter.SharingMode);
+            Assert.Equal(sourceWorld.GameVersionPolicy, sourceAfter.GameVersionPolicy);
+            Assert.Equal(sourceWorld.Visibility, sourceAfter.Visibility);
+            Assert.Equal(sourceWorld.JoinPolicy, sourceAfter.JoinPolicy);
+            Assert.Equal(sourceWorld.StartYourOwnPolicy, sourceAfter.StartYourOwnPolicy);
+            Assert.Equal(sourceWorld.StartedFrom, sourceAfter.StartedFrom);
+            Assert.Equal(sourceWorld.Members, sourceAfter.Members);
+            Assert.Equal(sourceWorld.Checkpoints, sourceAfter.Checkpoints);
             await using var sourcePayload = await sourceStorage.OpenRevisionAsync(
                 worldId,
                 stateId);

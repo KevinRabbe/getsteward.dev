@@ -122,7 +122,7 @@ try {
     Require ([string]$desktopManifest.steamNativeRuntime -ceq 'steam_api64.dll') 'Desktop acceptance manifest names the wrong Steam runtime.'
 
     $desktopEntries = @($desktopManifest.files)
-    Require ($desktopEntries.Count -gt 0 -and $desktopEntries.Count -le 10_000) 'Desktop acceptance manifest is empty or exceeds the file bound.'
+    Require ($desktopEntries.Count -gt 0 -and $desktopEntries.Count -le 10000) 'Desktop acceptance manifest is empty or exceeds the file bound.'
     $seenDesktopPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($entry in $desktopEntries) {
         Require-ExactProperties $entry @('byteSize', 'path', 'sha256') 'Desktop package entry'

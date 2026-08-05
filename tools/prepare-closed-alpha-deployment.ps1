@@ -208,57 +208,39 @@ catch {
     throw 'ConnectionStrings__Steward is not a valid connection string.'
 }
 
-$postgresHost = $null
-$postgresDatabase = $null
-$postgresUsername = $null
-$postgresPassword = $null
-$postgresSslMode = $null
-$trustServerCertificate = $null
-$seenConnectionKeys = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-foreach ($keyObject in $connectionBuilder.Keys) {
-    $connectionKey = [string]$keyObject
-    $normalizedKey = ($connectionKey -replace '[\s_-]', '').ToLowerInvariant()
-    Require ($seenConnectionKeys.Add($normalizedKey)) "ConnectionStrings__Steward contains an ambiguous duplicate key '$connectionKey'."
-    $connectionValue = [string]$connectionBuilder[$connectionKey]
+$hostAliases = @('Host', 'Server', 'Data Source')
+$databaseAliases = @('Database', 'Initial Catalog')
+$usernameAliases = @('Username', 'User ID', 'User')
+$passwordAliases = @('Password', 'Pwd')
+$presentHostAliases = @($hostAliases | Where-Object { $connectionBuilder.ContainsKey($_) })
+$presentDatabaseAliases = @($databaseAliases | Where-Object { $connectionBuilder.ContainsKey($_) })
+$presentUsernameAliases = @($usernameAliases | Where-Object { $connectionBuilder.ContainsKey($_) })
+$presentPasswordAliases = @($passwordAliases | Where-Object { $connectionBuilder.ContainsKey($_) })
+Require ($presentHostAliases.Count -eq 1) 'PostgreSQL host is missing or ambiguous.'
+Require ($presentDatabaseAliases.Count -eq 1) 'PostgreSQL database is missing or ambiguous.'
+Require ($presentUsernameAliases.Count -eq 1) 'PostgreSQL username is missing or ambiguous.'
+Require ($presentPasswordAliases.Count -eq 1) 'PostgreSQL password is missing or ambiguous.'
+Require ($connectionBuilder.ContainsKey('SSL Mode')) 'PostgreSQL SSL Mode is missing.'
 
-    if ($normalizedKey -in @('host', 'server', 'datasource')) {
-        Require ($null -eq $postgresHost) 'ConnectionStrings__Steward contains multiple PostgreSQL host aliases.'
-        $postgresHost = $connectionValue
-    }
-    elseif ($normalizedKey -in @('database', 'initialcatalog')) {
-        Require ($null -eq $postgresDatabase) 'ConnectionStrings__Steward contains multiple PostgreSQL database aliases.'
-        $postgresDatabase = $connectionValue
-    }
-    elseif ($normalizedKey -in @('username', 'userid', 'user')) {
-        Require ($null -eq $postgresUsername) 'ConnectionStrings__Steward contains multiple PostgreSQL username aliases.'
-        $postgresUsername = $connectionValue
-    }
-    elseif ($normalizedKey -in @('password', 'pwd')) {
-        Require ($null -eq $postgresPassword) 'ConnectionStrings__Steward contains multiple PostgreSQL password aliases.'
-        $postgresPassword = $connectionValue
-    }
-    elseif ($normalizedKey -ceq 'sslmode') {
-        Require ($null -eq $postgresSslMode) 'ConnectionStrings__Steward contains multiple PostgreSQL SSL Mode entries.'
-        $postgresSslMode = $connectionValue
-    }
-    elseif ($normalizedKey -ceq 'trustservercertificate') {
-        Require ($null -eq $trustServerCertificate) 'ConnectionStrings__Steward contains multiple Trust Server Certificate entries.'
-        $trustServerCertificate = $connectionValue
-    }
-}
-
-Require (-not [string]::IsNullOrWhiteSpace($postgresHost)) 'PostgreSQL host is missing.'
-Require (-not [string]::IsNullOrWhiteSpace($postgresDatabase)) 'PostgreSQL database is missing.'
-Require (-not [string]::IsNullOrWhiteSpace($postgresUsername)) 'PostgreSQL username is missing.'
-Require (-not [string]::IsNullOrWhiteSpace($postgresPassword)) 'PostgreSQL password is missing.'
-Require (-not [string]::IsNullOrWhiteSpace($postgresSslMode)) 'PostgreSQL SSL Mode is missing.'
+$postgresHost = [string]$connectionBuilder[$presentHostAliases[0]]
+$postgresDatabase = [string]$connectionBuilder[$presentDatabaseAliases[0]]
+$postgresUsername = [string]$connectionBuilder[$presentUsernameAliases[0]]
+$postgresPassword = [string]$connectionBuilder[$presentPasswordAliases[0]]
+$postgresSslMode = [string]$connectionBuilder['SSL Mode']
+Require (-not [string]::IsNullOrWhiteSpace($postgresHost)) 'PostgreSQL host is empty.'
+Require (-not [string]::IsNullOrWhiteSpace($postgresDatabase)) 'PostgreSQL database is empty.'
+Require (-not [string]::IsNullOrWhiteSpace($postgresUsername)) 'PostgreSQL username is empty.'
+Require (-not [string]::IsNullOrWhiteSpace($postgresPassword)) 'PostgreSQL password is empty.'
 Require ([string]::Equals($postgresSslMode.Replace(' ', ''), 'VerifyFull', [StringComparison]::OrdinalIgnoreCase)) 'PostgreSQL SSL Mode must be VerifyFull.'
 Require ($postgresHost.Length -le 255 -and
     $postgresDatabase.Length -le 128 -and
     $postgresUsername.Length -le 128) 'PostgreSQL connection identity exceeds a supported bound.'
 Require ($postgresPassword.Length -ge 16) 'PostgreSQL password must contain at least 16 characters.'
-if ($null -ne $trustServerCertificate) {
-    Require ([string]::Equals($trustServerCertificate, 'false', [StringComparison]::OrdinalIgnoreCase)) 'Trust Server Certificate must be false when configured.'
+if ($connectionBuilder.ContainsKey('Trust Server Certificate')) {
+    Require ([string]::Equals(
+        [string]$connectionBuilder['Trust Server Certificate'],
+        'false',
+        [StringComparison]::OrdinalIgnoreCase)) 'Trust Server Certificate must be false when configured.'
 }
 
 $objectStorageUriText = Get-RequiredEnvironmentValue -Entries $entries -Key 'ObjectStorage__ServiceUrl'

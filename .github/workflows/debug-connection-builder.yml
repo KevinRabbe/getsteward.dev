@@ -1,0 +1,31 @@
+name: Debug connection builder
+
+on:
+  push:
+    branches:
+      - agent/safe-world-closed-alpha-deployment-plan-v1
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Inspect generic connection parser
+        shell: pwsh
+        run: |
+          $value = 'Host=postgres.private.example;Database=steward;Username=steward_operator;Password=not-a-secret-value-12345;SSL Mode=VerifyFull;Trust Server Certificate=false'
+          $builder = [Data.Common.DbConnectionStringBuilder]::new()
+          $builder.ConnectionString = $value
+          Write-Host "Input length: $($value.Length)"
+          Write-Host "Builder count: $($builder.Count)"
+          Write-Host "Keys: $(@($builder.Keys) -join '|')"
+          Write-Host "Contains Host: $($builder.ContainsKey('Host'))"
+          Write-Host "Contains host: $($builder.ContainsKey('host'))"
+          Write-Host "Canonical: $($builder.ConnectionString.Replace('not-a-secret-value-12345', '<redacted>'))"
+          if ($builder.Count -lt 6 -or -not $builder.ContainsKey('Host')) {
+            throw 'Generic DbConnectionStringBuilder did not expose the expected keys.'
+          }

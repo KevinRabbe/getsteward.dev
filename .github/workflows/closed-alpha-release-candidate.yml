@@ -197,6 +197,9 @@ jobs:
             -BackendImageTag ([string]$backendMetadata.imageTag) `
             -OutputDirectory $output
 
+          ./tools/finalize-closed-alpha-deployment-plan.ps1 `
+            -BundleDirectory $output
+
           ./tools/verify-closed-alpha-release.ps1 -BundleDirectory $output
 
           $manifestPath = Join-Path $output 'release-manifest.json'
@@ -290,6 +293,114 @@ jobs:
         with:
           name: safe-world-closed-alpha-candidate-${{ github.sha }}
           path: ${{ runner.temp }}/safe-world-closed-alpha-release
+
+      - name: Prove bundled deployment planner without repository dependency
+        shell: pwsh
+        run: |
+          $bundle = "$env:RUNNER_TEMP/safe-world-closed-alpha-release"
+          $planner = Join-Path $bundle 'prepare-closed-alpha-deployment.ps1'
+          if (-not [IO.File]::Exists($planner)) {
+            throw 'Downloaded release candidate is missing its bundled deployment planner.'
+          }
+
+          $manifestPath = Join-Path $bundle 'release-manifest.json'
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          $plannerEntries = @($manifest.artifacts | Where-Object {
+            [string]$_.path -ceq 'prepare-closed-alpha-deployment.ps1'
+          })
+          if ($plannerEntries.Count -ne 1) {
+            throw 'Release manifest does not contain exactly one deployment planner.'
+          }
+          $plannerHash = (Get-FileHash -LiteralPath $planner -Algorithm SHA256).Hash
+          if ([string]$plannerEntries[0].sha256 -cne $plannerHash) {
+            throw 'Bundled deployment planner does not match release-manifest.json.'
+          }
+
+          $environmentPath = "$env:RUNNER_TEMP/bundled-backend.env"
+          $environment = @'
+          PORT=8080
+          ConnectionStrings__Steward=Host=postgres.private.example;Database=steward;Username=steward_operator;Password=synthetic-postgres-password-12345;SSL Mode=VerifyFull;Trust Server Certificate=false
+          ObjectStorage__ServiceUrl=https://s3.fr-par.scw.cloud/
+          ObjectStorage__AuthenticationRegion=fr-par
+          ObjectStorage__BucketName=steward-closed-alpha
+          ObjectStorage__AccessKeyId=SYNTHETICACCESSKEY123
+          ObjectStorage__SecretAccessKey=synthetic-object-storage-secret-key-123456789
+          ObjectStorage__ForcePathStyle=false
+          FriendsBuild__Enabled=true
+          FriendsBuild__Identities__0__Id=friend-alpha
+          FriendsBuild__Identities__0__DisplayName=Friend Alpha
+          FriendsBuild__Identities__0__CredentialSha256=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+          ReverseProxy__KnownProxyIp=127.0.0.1
+          Cleanup__IntervalMinutes=15
+          Cleanup__VerifiedCandidateRetentionDays=7
+          Cleanup__BatchSize=100
+          '@
+          [IO.File]::WriteAllText(
+            $environmentPath,
+            $environment,
+            [Text.UTF8Encoding]::new($false))
+
+          $output = "$env:RUNNER_TEMP/bundled-deployment-plan"
+          & $planner `
+            -BundleDirectory $bundle `
+            -EnvironmentFile $environmentPath `
+            -OutputDirectory $output
+
+          $plan = Get-Content -LiteralPath (Join-Path $output 'deployment-plan.json') -Raw | ConvertFrom-Json
+          if ([string]$plan.release.commitSha -cne [string]$manifest.commitSha -or
+              [string]$plan.release.backendImageId -cne [string]$manifest.deployment.backendImageId) {
+            throw 'Bundled deployment plan is not bound to the downloaded candidate identity.'
+          }
+          if ([bool]$plan.configuration.secretValuesCopied) {
+            throw 'Bundled deployment plan claims that secret values were copied.'
+          }
+
+          bash -n (Join-Path $output 'deploy-exact-candidate.sh')
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Bundled deployment script has invalid Bash syntax.'
+          }
+          bash -n (Join-Path $output 'verify-public-https.sh')
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Bundled public HTTPS verifier has invalid Bash syntax.'
+          }
+
+          $combinedOutput = (Get-ChildItem -LiteralPath $output -File |
+            ForEach-Object { [IO.File]::ReadAllText($_.FullName) }) -join "`n"
+          foreach ($secret in @(
+            'synthetic-postgres-password-12345',
+            'SYNTHETICACCESSKEY123',
+            'synthetic-object-storage-secret-key-123456789',
+            'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+          )) {
+            if ($combinedOutput.Contains($secret, [StringComparison]::Ordinal)) {
+              throw 'Bundled deployment planner leaked a supplied secret or identity digest.'
+            }
+          }
+
+          if ([bool]$plan.deployability.deployable) {
+            & $planner `
+              -BundleDirectory $bundle `
+              -EnvironmentFile $environmentPath `
+              -OutputDirectory "$env:RUNNER_TEMP/bundled-deployment-plan-strict" `
+              -RequireDeployable
+          }
+          else {
+            $strictBlocked = $false
+            try {
+              & $planner `
+                -BundleDirectory $bundle `
+                -EnvironmentFile $environmentPath `
+                -OutputDirectory "$env:RUNNER_TEMP/bundled-deployment-plan-strict" `
+                -RequireDeployable
+            }
+            catch {
+              $strictBlocked = $true
+              Write-Host "[EXPECTED] Manifest API coordinate remains non-deployable: $($_.Exception.Message)"
+            }
+            if (-not $strictBlocked) {
+              throw 'Bundled planner did not enforce its manifest-derived deployment state.'
+            }
+          }
 
       - name: Deploy, authenticate, and prove rollback without rebuild
         shell: pwsh

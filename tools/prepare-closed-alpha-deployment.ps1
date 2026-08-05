@@ -64,37 +64,33 @@ function Get-RequiredEnvironmentValue(
     return $value
 }
 
-function Get-NormalizedConnectionValues([string]$ConnectionString) {
-    $builder = [Data.Common.DbConnectionStringBuilder]::new()
-    try {
-        $builder.ConnectionString = $ConnectionString
-    }
-    catch {
-        throw 'ConnectionStrings__Steward is not a valid connection string.'
-    }
-
-    $values = @{}
-    foreach ($keyObject in $builder.Keys) {
-        $key = [string]$keyObject
-        $normalized = ($key -replace '[\s_-]', '').ToLowerInvariant()
-        Require (-not $values.ContainsKey($normalized)) "ConnectionStrings__Steward contains an ambiguous duplicate key '$key'."
-        $values[$normalized] = [string]$builder[$key]
-    }
-    return $values
-}
-
 function Get-RequiredConnectionValue(
-    [hashtable]$Values,
+    [Data.Common.DbConnectionStringBuilder]$Builder,
     [string[]]$Aliases,
     [string]$Context) {
-    foreach ($alias in $Aliases) {
-        if ($Values.ContainsKey($alias)) {
-            $value = [string]$Values[$alias]
+    foreach ($keyObject in $Builder.Keys) {
+        $key = [string]$keyObject
+        $normalized = ($key -replace '[\s_-]', '').ToLowerInvariant()
+        if ($Aliases -contains $normalized) {
+            $value = [string]$Builder[$key]
             Require (-not [string]::IsNullOrWhiteSpace($value)) "$Context is empty."
             return $value
         }
     }
     throw "$Context is missing."
+}
+
+function Get-OptionalConnectionValue(
+    [Data.Common.DbConnectionStringBuilder]$Builder,
+    [string]$Alias) {
+    foreach ($keyObject in $Builder.Keys) {
+        $key = [string]$keyObject
+        $normalized = ($key -replace '[\s_-]', '').ToLowerInvariant()
+        if ([string]::Equals($normalized, $Alias, [StringComparison]::OrdinalIgnoreCase)) {
+            return [string]$Builder[$key]
+        }
+    }
+    return $null
 }
 
 function Test-ReservedDnsHost([string]$HostName) {
@@ -223,17 +219,24 @@ Require ((Get-RequiredEnvironmentValue $entries 'FriendsBuild__Enabled') -ceq 't
 Require ((Get-RequiredEnvironmentValue $entries 'ReverseProxy__KnownProxyIp') -ceq '127.0.0.1') 'ReverseProxy__KnownProxyIp must be exactly 127.0.0.1.'
 
 $connectionString = Get-RequiredEnvironmentValue $entries 'ConnectionStrings__Steward'
-$connectionValues = Get-NormalizedConnectionValues $connectionString
-$postgresHost = Get-RequiredConnectionValue $connectionValues @('host', 'server', 'datasource') 'PostgreSQL host'
-$postgresDatabase = Get-RequiredConnectionValue $connectionValues @('database', 'initialcatalog') 'PostgreSQL database'
-$postgresUsername = Get-RequiredConnectionValue $connectionValues @('username', 'userid', 'user') 'PostgreSQL username'
-$postgresPassword = Get-RequiredConnectionValue $connectionValues @('password', 'pwd') 'PostgreSQL password'
-$postgresSslMode = Get-RequiredConnectionValue $connectionValues @('sslmode') 'PostgreSQL SSL Mode'
+$connectionBuilder = [Data.Common.DbConnectionStringBuilder]::new()
+try {
+    $connectionBuilder.ConnectionString = $connectionString
+}
+catch {
+    throw 'ConnectionStrings__Steward is not a valid connection string.'
+}
+$postgresHost = Get-RequiredConnectionValue $connectionBuilder @('host', 'server', 'datasource') 'PostgreSQL host'
+$postgresDatabase = Get-RequiredConnectionValue $connectionBuilder @('database', 'initialcatalog') 'PostgreSQL database'
+$postgresUsername = Get-RequiredConnectionValue $connectionBuilder @('username', 'userid', 'user') 'PostgreSQL username'
+$postgresPassword = Get-RequiredConnectionValue $connectionBuilder @('password', 'pwd') 'PostgreSQL password'
+$postgresSslMode = Get-RequiredConnectionValue $connectionBuilder @('sslmode') 'PostgreSQL SSL Mode'
 Require ([string]::Equals($postgresSslMode.Replace(' ', ''), 'VerifyFull', [StringComparison]::OrdinalIgnoreCase)) 'PostgreSQL SSL Mode must be VerifyFull.'
 Require ($postgresHost.Length -le 255 -and $postgresDatabase.Length -le 128 -and $postgresUsername.Length -le 128) 'PostgreSQL connection identity exceeds a supported bound.'
 Require ($postgresPassword.Length -ge 16) 'PostgreSQL password must contain at least 16 characters.'
-if ($connectionValues.ContainsKey('trustservercertificate')) {
-    Require ([string]::Equals([string]$connectionValues['trustservercertificate'], 'false', [StringComparison]::OrdinalIgnoreCase)) 'Trust Server Certificate must be false when configured.'
+$trustServerCertificate = Get-OptionalConnectionValue $connectionBuilder 'trustservercertificate'
+if ($null -ne $trustServerCertificate) {
+    Require ([string]::Equals($trustServerCertificate, 'false', [StringComparison]::OrdinalIgnoreCase)) 'Trust Server Certificate must be false when configured.'
 }
 
 $objectStorageUriText = Get-RequiredEnvironmentValue $entries 'ObjectStorage__ServiceUrl'

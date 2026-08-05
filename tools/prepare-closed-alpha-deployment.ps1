@@ -50,7 +50,7 @@ function Read-StrictEnvironmentFile([string]$Path) {
     }
 
     Require ($entries.Count -gt 0 -and $entries.Count -le 512) 'Deployment environment key count is outside the supported bound.'
-    return $entries
+    return ,$entries
 }
 
 function Get-RequiredEnvironmentValue(
@@ -80,7 +80,7 @@ function Get-NormalizedConnectionValues([string]$ConnectionString) {
         Require (-not $values.ContainsKey($normalized)) "ConnectionStrings__Steward contains an ambiguous duplicate key '$key'."
         $values.Add($normalized, [string]$builder[$key])
     }
-    return $values
+    return ,$values
 }
 
 function Get-RequiredConnectionValue(

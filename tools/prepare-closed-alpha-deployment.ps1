@@ -200,7 +200,10 @@ Require ((Get-RequiredEnvironmentValue -Entries $entries -Key 'FriendsBuild__Ena
 Require ((Get-RequiredEnvironmentValue -Entries $entries -Key 'ReverseProxy__KnownProxyIp') -ceq '127.0.0.1') 'ReverseProxy__KnownProxyIp must be exactly 127.0.0.1.'
 
 $connectionString = Get-RequiredEnvironmentValue -Entries $entries -Key 'ConnectionStrings__Steward'
-Require ($connectionString -notmatch "[`r`n'\"]") 'ConnectionStrings__Steward must use the first-release unquoted KEY=VALUE format.'
+Require (-not $connectionString.Contains([char]39) -and
+    -not $connectionString.Contains([char]34) -and
+    -not $connectionString.Contains("`r") -and
+    -not $connectionString.Contains("`n")) 'ConnectionStrings__Steward must use the first-release unquoted KEY=VALUE format.'
 $connectionValues = @{}
 foreach ($rawSegment in $connectionString.Split(';')) {
     $segment = $rawSegment.Trim()

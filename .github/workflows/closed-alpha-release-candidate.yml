@@ -58,7 +58,6 @@ jobs:
           ./tools/v2-build-friends.ps1 `
             -ApiBaseUrl $apiBaseUrl `
             -Version $version `
-            -CommitSha '${{ github.sha }}' `
             -OutputDirectory "$env:RUNNER_TEMP/closed-alpha-desktop"
 
       - name: Upload Desktop staging artifact

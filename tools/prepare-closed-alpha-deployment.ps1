@@ -200,45 +200,52 @@ Require ((Get-RequiredEnvironmentValue -Entries $entries -Key 'FriendsBuild__Ena
 Require ((Get-RequiredEnvironmentValue -Entries $entries -Key 'ReverseProxy__KnownProxyIp') -ceq '127.0.0.1') 'ReverseProxy__KnownProxyIp must be exactly 127.0.0.1.'
 
 $connectionString = Get-RequiredEnvironmentValue -Entries $entries -Key 'ConnectionStrings__Steward'
-$connectionBuilder = [Data.Common.DbConnectionStringBuilder]::new()
-try {
-    $connectionBuilder.ConnectionString = $connectionString
-}
-catch {
-    throw 'ConnectionStrings__Steward is not a valid connection string.'
+Require ($connectionString -notmatch "[`r`n'\"]") 'ConnectionStrings__Steward must use the first-release unquoted KEY=VALUE format.'
+$connectionValues = @{}
+foreach ($rawSegment in $connectionString.Split(';')) {
+    $segment = $rawSegment.Trim()
+    if ([string]::IsNullOrEmpty($segment)) {
+        continue
+    }
+
+    $separator = $segment.IndexOf('=')
+    Require ($separator -gt 0) 'ConnectionStrings__Steward contains a malformed segment.'
+    $key = $segment.Substring(0, $separator).Trim()
+    $value = $segment.Substring($separator + 1).Trim()
+    Require (-not [string]::IsNullOrWhiteSpace($key)) 'ConnectionStrings__Steward contains an empty key.'
+    Require (-not [string]::IsNullOrWhiteSpace($value)) "ConnectionStrings__Steward key '$key' is empty."
+    $normalizedKey = ($key -replace '[\s_-]', '').ToLowerInvariant()
+    Require (-not $connectionValues.ContainsKey($normalizedKey)) "ConnectionStrings__Steward contains an ambiguous duplicate key '$key'."
+    $connectionValues[$normalizedKey] = $value
 }
 
-$hostAliases = @('Host', 'Server', 'Data Source')
-$databaseAliases = @('Database', 'Initial Catalog')
-$usernameAliases = @('Username', 'User ID', 'User')
-$passwordAliases = @('Password', 'Pwd')
-$presentHostAliases = @($hostAliases | Where-Object { $connectionBuilder.ContainsKey($_) })
-$presentDatabaseAliases = @($databaseAliases | Where-Object { $connectionBuilder.ContainsKey($_) })
-$presentUsernameAliases = @($usernameAliases | Where-Object { $connectionBuilder.ContainsKey($_) })
-$presentPasswordAliases = @($passwordAliases | Where-Object { $connectionBuilder.ContainsKey($_) })
+$hostAliases = @('host', 'server', 'datasource')
+$databaseAliases = @('database', 'initialcatalog')
+$usernameAliases = @('username', 'userid', 'user')
+$passwordAliases = @('password', 'pwd')
+$presentHostAliases = @($hostAliases | Where-Object { $connectionValues.ContainsKey($_) })
+$presentDatabaseAliases = @($databaseAliases | Where-Object { $connectionValues.ContainsKey($_) })
+$presentUsernameAliases = @($usernameAliases | Where-Object { $connectionValues.ContainsKey($_) })
+$presentPasswordAliases = @($passwordAliases | Where-Object { $connectionValues.ContainsKey($_) })
 Require ($presentHostAliases.Count -eq 1) 'PostgreSQL host is missing or ambiguous.'
 Require ($presentDatabaseAliases.Count -eq 1) 'PostgreSQL database is missing or ambiguous.'
 Require ($presentUsernameAliases.Count -eq 1) 'PostgreSQL username is missing or ambiguous.'
 Require ($presentPasswordAliases.Count -eq 1) 'PostgreSQL password is missing or ambiguous.'
-Require ($connectionBuilder.ContainsKey('SSL Mode')) 'PostgreSQL SSL Mode is missing.'
+Require ($connectionValues.ContainsKey('sslmode')) 'PostgreSQL SSL Mode is missing.'
 
-$postgresHost = [string]$connectionBuilder[$presentHostAliases[0]]
-$postgresDatabase = [string]$connectionBuilder[$presentDatabaseAliases[0]]
-$postgresUsername = [string]$connectionBuilder[$presentUsernameAliases[0]]
-$postgresPassword = [string]$connectionBuilder[$presentPasswordAliases[0]]
-$postgresSslMode = [string]$connectionBuilder['SSL Mode']
-Require (-not [string]::IsNullOrWhiteSpace($postgresHost)) 'PostgreSQL host is empty.'
-Require (-not [string]::IsNullOrWhiteSpace($postgresDatabase)) 'PostgreSQL database is empty.'
-Require (-not [string]::IsNullOrWhiteSpace($postgresUsername)) 'PostgreSQL username is empty.'
-Require (-not [string]::IsNullOrWhiteSpace($postgresPassword)) 'PostgreSQL password is empty.'
+$postgresHost = [string]$connectionValues[$presentHostAliases[0]]
+$postgresDatabase = [string]$connectionValues[$presentDatabaseAliases[0]]
+$postgresUsername = [string]$connectionValues[$presentUsernameAliases[0]]
+$postgresPassword = [string]$connectionValues[$presentPasswordAliases[0]]
+$postgresSslMode = [string]$connectionValues['sslmode']
 Require ([string]::Equals($postgresSslMode.Replace(' ', ''), 'VerifyFull', [StringComparison]::OrdinalIgnoreCase)) 'PostgreSQL SSL Mode must be VerifyFull.'
 Require ($postgresHost.Length -le 255 -and
     $postgresDatabase.Length -le 128 -and
     $postgresUsername.Length -le 128) 'PostgreSQL connection identity exceeds a supported bound.'
 Require ($postgresPassword.Length -ge 16) 'PostgreSQL password must contain at least 16 characters.'
-if ($connectionBuilder.ContainsKey('Trust Server Certificate')) {
+if ($connectionValues.ContainsKey('trustservercertificate')) {
     Require ([string]::Equals(
-        [string]$connectionBuilder['Trust Server Certificate'],
+        [string]$connectionValues['trustservercertificate'],
         'false',
         [StringComparison]::OrdinalIgnoreCase)) 'Trust Server Certificate must be false when configured.'
 }

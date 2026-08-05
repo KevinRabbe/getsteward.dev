@@ -73,23 +73,23 @@ function Get-NormalizedConnectionValues([string]$ConnectionString) {
         throw 'ConnectionStrings__Steward is not a valid connection string.'
     }
 
-    $values = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $values = @{}
     foreach ($keyObject in $builder.Keys) {
         $key = [string]$keyObject
         $normalized = ($key -replace '[\s_-]', '').ToLowerInvariant()
         Require (-not $values.ContainsKey($normalized)) "ConnectionStrings__Steward contains an ambiguous duplicate key '$key'."
-        $values.Add($normalized, [string]$builder[$key])
+        $values[$normalized] = [string]$builder[$key]
     }
-    return ,$values
+    return $values
 }
 
 function Get-RequiredConnectionValue(
-    [Collections.Generic.Dictionary[string, string]]$Values,
+    [hashtable]$Values,
     [string[]]$Aliases,
     [string]$Context) {
     foreach ($alias in $Aliases) {
-        $value = $null
-        if ($Values.TryGetValue($alias, [ref]$value)) {
+        if ($Values.ContainsKey($alias)) {
+            $value = [string]$Values[$alias]
             Require (-not [string]::IsNullOrWhiteSpace($value)) "$Context is empty."
             return $value
         }
@@ -232,9 +232,8 @@ $postgresSslMode = Get-RequiredConnectionValue $connectionValues @('sslmode') 'P
 Require ([string]::Equals($postgresSslMode.Replace(' ', ''), 'VerifyFull', [StringComparison]::OrdinalIgnoreCase)) 'PostgreSQL SSL Mode must be VerifyFull.'
 Require ($postgresHost.Length -le 255 -and $postgresDatabase.Length -le 128 -and $postgresUsername.Length -le 128) 'PostgreSQL connection identity exceeds a supported bound.'
 Require ($postgresPassword.Length -ge 16) 'PostgreSQL password must contain at least 16 characters.'
-$trustServerCertificate = $null
-if ($connectionValues.TryGetValue('trustservercertificate', [ref]$trustServerCertificate)) {
-    Require ([string]::Equals($trustServerCertificate, 'false', [StringComparison]::OrdinalIgnoreCase)) 'Trust Server Certificate must be false when configured.'
+if ($connectionValues.ContainsKey('trustservercertificate')) {
+    Require ([string]::Equals([string]$connectionValues['trustservercertificate'], 'false', [StringComparison]::OrdinalIgnoreCase)) 'Trust Server Certificate must be false when configured.'
 }
 
 $objectStorageUriText = Get-RequiredEnvironmentValue $entries 'ObjectStorage__ServiceUrl'

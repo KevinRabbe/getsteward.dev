@@ -32,6 +32,7 @@ function Read-StrictEnvironmentFile([string]$Path) {
     $entries = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
     $text = [IO.File]::ReadAllText($fullPath)
     Require ($text -notmatch '\x00') 'Deployment environment file contains a null byte.'
+
     $lineNumber = 0
     foreach ($rawLine in [Text.RegularExpressions.Regex]::Split($text, '\r?\n')) {
         $lineNumber++
@@ -65,32 +66,17 @@ function Get-RequiredEnvironmentValue(
 }
 
 function Get-RequiredConnectionValue(
-    [Data.Common.DbConnectionStringBuilder]$Builder,
+    [hashtable]$Values,
     [string[]]$Aliases,
     [string]$Context) {
-    foreach ($keyObject in $Builder.Keys) {
-        $key = [string]$keyObject
-        $normalized = ($key -replace '[\s_-]', '').ToLowerInvariant()
-        if ($Aliases -contains $normalized) {
-            $value = [string]$Builder[$key]
+    foreach ($alias in $Aliases) {
+        if ($Values.ContainsKey($alias)) {
+            $value = [string]$Values[$alias]
             Require (-not [string]::IsNullOrWhiteSpace($value)) "$Context is empty."
             return $value
         }
     }
     throw "$Context is missing."
-}
-
-function Get-OptionalConnectionValue(
-    [Data.Common.DbConnectionStringBuilder]$Builder,
-    [string]$Alias) {
-    foreach ($keyObject in $Builder.Keys) {
-        $key = [string]$keyObject
-        $normalized = ($key -replace '[\s_-]', '').ToLowerInvariant()
-        if ([string]::Equals($normalized, $Alias, [StringComparison]::OrdinalIgnoreCase)) {
-            return [string]$Builder[$key]
-        }
-    }
-    return $null
 }
 
 function Test-ReservedDnsHost([string]$HostName) {
@@ -111,6 +97,7 @@ function Test-ReservedDnsHost([string]$HostName) {
     if ([Net.IPAddress]::TryParse($normalized, [ref]$ipAddress)) {
         return $true
     }
+
     return -not $normalized.Contains('.', [StringComparison]::Ordinal)
 }
 
@@ -121,13 +108,16 @@ function ConvertTo-ShellSingleQuoted([string]$Value) {
     return $singleQuote + $Value.Replace($singleQuote, $escapedQuote) + $singleQuote
 }
 
-function Require-SafeAbsoluteLinuxPath([string]$Path) {
-    Require (-not [string]::IsNullOrWhiteSpace($Path)) 'HostEnvironmentPath is required.'
-    Require ($Path.StartsWith('/', [StringComparison]::Ordinal)) 'HostEnvironmentPath must be an absolute Linux path.'
-    Require ($Path.Length -le 260) 'HostEnvironmentPath is too long.'
-    Require ($Path -notmatch '[\x00-\x1F\x7F]') 'HostEnvironmentPath contains a control character.'
-    Require ($Path -notmatch '(^|/)\.\.?(/|$)') 'HostEnvironmentPath contains a traversal segment.'
+function Write-Utf8NoBom([string]$Path, [string]$Content) {
+    $normalized = $Content.Replace("`r`n", "`n")
+    [IO.File]::WriteAllText($Path, $normalized, [Text.UTF8Encoding]::new($false))
 }
+
+Require (-not [string]::IsNullOrWhiteSpace($HostEnvironmentPath)) 'HostEnvironmentPath is required.'
+Require ($HostEnvironmentPath.StartsWith('/', [StringComparison]::Ordinal)) 'HostEnvironmentPath must be an absolute Linux path.'
+Require ($HostEnvironmentPath.Length -le 260) 'HostEnvironmentPath is too long.'
+Require ($HostEnvironmentPath -notmatch '[\x00-\x1F\x7F]') 'HostEnvironmentPath contains a control character.'
+Require ($HostEnvironmentPath -notmatch '(^|/)\.\.?(/|$)') 'HostEnvironmentPath contains a traversal segment.'
 
 $bundleRoot = [IO.Path]::GetFullPath($BundleDirectory)
 Require ([IO.Directory]::Exists($bundleRoot)) "Closed-alpha bundle directory does not exist: $bundleRoot"
@@ -150,9 +140,12 @@ Require (-not [string]::IsNullOrWhiteSpace($backendImageTag)) 'Release backend i
 Require ([int]$manifest.deployment.postgresMajorVersion -eq 17) 'Deployment plan requires PostgreSQL 17.'
 Require ([string]$manifest.deployment.objectStorageProtocol -ceq 's3-compatible') 'Deployment plan requires S3-compatible object storage.'
 
-$apiUri = [Uri]$apiBaseUrl
+$apiUri = $null
+Require ([Uri]::TryCreate($apiBaseUrl, [UriKind]::Absolute, [ref]$apiUri)) 'Release API base URL is malformed.'
 Require ([string]::Equals($apiUri.Scheme, 'https', [StringComparison]::OrdinalIgnoreCase)) 'Release API base URL must use HTTPS.'
-Require ([string]::IsNullOrEmpty($apiUri.UserInfo) -and [string]::IsNullOrEmpty($apiUri.Query) -and [string]::IsNullOrEmpty($apiUri.Fragment)) 'Release API base URL contains forbidden components.'
+Require ([string]::IsNullOrEmpty($apiUri.UserInfo) -and
+    [string]::IsNullOrEmpty($apiUri.Query) -and
+    [string]::IsNullOrEmpty($apiUri.Fragment)) 'Release API base URL contains forbidden components.'
 Require ($apiUri.AbsolutePath -ceq '/') 'Deployment-ready API base URL must use the origin root path.'
 Require ($apiUri.IsDefaultPort) 'Deployment-ready API base URL must use the default HTTPS port.'
 $apiHost = $apiUri.DnsSafeHost
@@ -214,11 +207,11 @@ foreach ($entry in $entries.GetEnumerator()) {
     Require ($identityFields[$index].TryAdd($field, $entry.Value)) "Friends Build identity $index field '$field' is duplicated."
 }
 
-Require ((Get-RequiredEnvironmentValue $entries 'PORT') -ceq '8080') 'PORT must be exactly 8080 for the one-host Caddy deployment.'
-Require ((Get-RequiredEnvironmentValue $entries 'FriendsBuild__Enabled') -ceq 'true') 'FriendsBuild__Enabled must be exactly true.'
-Require ((Get-RequiredEnvironmentValue $entries 'ReverseProxy__KnownProxyIp') -ceq '127.0.0.1') 'ReverseProxy__KnownProxyIp must be exactly 127.0.0.1.'
+Require ((Get-RequiredEnvironmentValue -Entries $entries -Key 'PORT') -ceq '8080') 'PORT must be exactly 8080 for the one-host Caddy deployment.'
+Require ((Get-RequiredEnvironmentValue -Entries $entries -Key 'FriendsBuild__Enabled') -ceq 'true') 'FriendsBuild__Enabled must be exactly true.'
+Require ((Get-RequiredEnvironmentValue -Entries $entries -Key 'ReverseProxy__KnownProxyIp') -ceq '127.0.0.1') 'ReverseProxy__KnownProxyIp must be exactly 127.0.0.1.'
 
-$connectionString = Get-RequiredEnvironmentValue $entries 'ConnectionStrings__Steward'
+$connectionString = Get-RequiredEnvironmentValue -Entries $entries -Key 'ConnectionStrings__Steward'
 $connectionBuilder = [Data.Common.DbConnectionStringBuilder]::new()
 try {
     $connectionBuilder.ConnectionString = $connectionString
@@ -226,29 +219,44 @@ try {
 catch {
     throw 'ConnectionStrings__Steward is not a valid connection string.'
 }
-$postgresHost = Get-RequiredConnectionValue $connectionBuilder @('host', 'server', 'datasource') 'PostgreSQL host'
-$postgresDatabase = Get-RequiredConnectionValue $connectionBuilder @('database', 'initialcatalog') 'PostgreSQL database'
-$postgresUsername = Get-RequiredConnectionValue $connectionBuilder @('username', 'userid', 'user') 'PostgreSQL username'
-$postgresPassword = Get-RequiredConnectionValue $connectionBuilder @('password', 'pwd') 'PostgreSQL password'
-$postgresSslMode = Get-RequiredConnectionValue $connectionBuilder @('sslmode') 'PostgreSQL SSL Mode'
-Require ([string]::Equals($postgresSslMode.Replace(' ', ''), 'VerifyFull', [StringComparison]::OrdinalIgnoreCase)) 'PostgreSQL SSL Mode must be VerifyFull.'
-Require ($postgresHost.Length -le 255 -and $postgresDatabase.Length -le 128 -and $postgresUsername.Length -le 128) 'PostgreSQL connection identity exceeds a supported bound.'
-Require ($postgresPassword.Length -ge 16) 'PostgreSQL password must contain at least 16 characters.'
-$trustServerCertificate = Get-OptionalConnectionValue $connectionBuilder 'trustservercertificate'
-if ($null -ne $trustServerCertificate) {
-    Require ([string]::Equals($trustServerCertificate, 'false', [StringComparison]::OrdinalIgnoreCase)) 'Trust Server Certificate must be false when configured.'
+
+$connectionValues = @{}
+foreach ($keyObject in $connectionBuilder.Keys) {
+    $key = [string]$keyObject
+    $normalizedKey = ($key -replace '[\s_-]', '').ToLowerInvariant()
+    Require (-not $connectionValues.ContainsKey($normalizedKey)) "ConnectionStrings__Steward contains an ambiguous duplicate key '$key'."
+    $connectionValues[$normalizedKey] = [string]$connectionBuilder[$key]
 }
 
-$objectStorageUriText = Get-RequiredEnvironmentValue $entries 'ObjectStorage__ServiceUrl'
+$postgresHost = Get-RequiredConnectionValue -Values $connectionValues -Aliases @('host', 'server', 'datasource') -Context 'PostgreSQL host'
+$postgresDatabase = Get-RequiredConnectionValue -Values $connectionValues -Aliases @('database', 'initialcatalog') -Context 'PostgreSQL database'
+$postgresUsername = Get-RequiredConnectionValue -Values $connectionValues -Aliases @('username', 'userid', 'user') -Context 'PostgreSQL username'
+$postgresPassword = Get-RequiredConnectionValue -Values $connectionValues -Aliases @('password', 'pwd') -Context 'PostgreSQL password'
+$postgresSslMode = Get-RequiredConnectionValue -Values $connectionValues -Aliases @('sslmode') -Context 'PostgreSQL SSL Mode'
+Require ([string]::Equals($postgresSslMode.Replace(' ', ''), 'VerifyFull', [StringComparison]::OrdinalIgnoreCase)) 'PostgreSQL SSL Mode must be VerifyFull.'
+Require ($postgresHost.Length -le 255 -and
+    $postgresDatabase.Length -le 128 -and
+    $postgresUsername.Length -le 128) 'PostgreSQL connection identity exceeds a supported bound.'
+Require ($postgresPassword.Length -ge 16) 'PostgreSQL password must contain at least 16 characters.'
+if ($connectionValues.ContainsKey('trustservercertificate')) {
+    Require ([string]::Equals(
+        [string]$connectionValues['trustservercertificate'],
+        'false',
+        [StringComparison]::OrdinalIgnoreCase)) 'Trust Server Certificate must be false when configured.'
+}
+
+$objectStorageUriText = Get-RequiredEnvironmentValue -Entries $entries -Key 'ObjectStorage__ServiceUrl'
 $objectStorageUri = $null
 Require ([Uri]::TryCreate($objectStorageUriText, [UriKind]::Absolute, [ref]$objectStorageUri)) 'ObjectStorage__ServiceUrl is malformed.'
 Require ([string]::Equals($objectStorageUri.Scheme, 'https', [StringComparison]::OrdinalIgnoreCase)) 'ObjectStorage__ServiceUrl must use HTTPS.'
-Require ([string]::IsNullOrEmpty($objectStorageUri.UserInfo) -and [string]::IsNullOrEmpty($objectStorageUri.Query) -and [string]::IsNullOrEmpty($objectStorageUri.Fragment)) 'ObjectStorage__ServiceUrl contains forbidden components.'
-$objectStorageRegion = Get-RequiredEnvironmentValue $entries 'ObjectStorage__AuthenticationRegion'
-$objectStorageBucket = Get-RequiredEnvironmentValue $entries 'ObjectStorage__BucketName'
-$objectStorageAccessKey = Get-RequiredEnvironmentValue $entries 'ObjectStorage__AccessKeyId'
-$objectStorageSecretKey = Get-RequiredEnvironmentValue $entries 'ObjectStorage__SecretAccessKey'
-$forcePathStyleText = Get-RequiredEnvironmentValue $entries 'ObjectStorage__ForcePathStyle'
+Require ([string]::IsNullOrEmpty($objectStorageUri.UserInfo) -and
+    [string]::IsNullOrEmpty($objectStorageUri.Query) -and
+    [string]::IsNullOrEmpty($objectStorageUri.Fragment)) 'ObjectStorage__ServiceUrl contains forbidden components.'
+$objectStorageRegion = Get-RequiredEnvironmentValue -Entries $entries -Key 'ObjectStorage__AuthenticationRegion'
+$objectStorageBucket = Get-RequiredEnvironmentValue -Entries $entries -Key 'ObjectStorage__BucketName'
+$objectStorageAccessKey = Get-RequiredEnvironmentValue -Entries $entries -Key 'ObjectStorage__AccessKeyId'
+$objectStorageSecretKey = Get-RequiredEnvironmentValue -Entries $entries -Key 'ObjectStorage__SecretAccessKey'
+$forcePathStyleText = Get-RequiredEnvironmentValue -Entries $entries -Key 'ObjectStorage__ForcePathStyle'
 Require ($forcePathStyleText -in @('true', 'false')) 'ObjectStorage__ForcePathStyle must be exactly true or false.'
 Require ($objectStorageRegion.Length -le 64 -and $objectStorageBucket.Length -le 255) 'Object-storage region or bucket exceeds a supported bound.'
 Require ($objectStorageAccessKey.Length -ge 12) 'Object-storage access key is too short for a real deployment.'
@@ -259,6 +267,7 @@ $indices = @($identityFields.Keys | Sort-Object)
 for ($expectedIndex = 0; $expectedIndex -lt $indices.Count; $expectedIndex++) {
     Require ($indices[$expectedIndex] -eq $expectedIndex) 'Friends Build identity indices must be contiguous from zero.'
 }
+
 $seenIdentityIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
 $seenIdentityHashes = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 foreach ($index in $indices) {
@@ -267,11 +276,16 @@ foreach ($index in $indices) {
     foreach ($fieldName in @('Id', 'DisplayName', 'CredentialSha256')) {
         Require ($fields.ContainsKey($fieldName)) "Friends Build identity $index is missing $fieldName."
     }
+
     $identityId = $fields['Id']
     $displayName = $fields['DisplayName']
     $credentialHash = $fields['CredentialSha256']
-    Require (-not [string]::IsNullOrWhiteSpace($identityId) -and $identityId.Length -le 128 -and $identityId -notmatch '[\x00-\x1F\x7F]') "Friends Build identity $index has an invalid Id."
-    Require (-not [string]::IsNullOrWhiteSpace($displayName) -and $displayName.Length -le 128 -and $displayName -notmatch '[\x00-\x1F\x7F]') "Friends Build identity $index has an invalid DisplayName."
+    Require (-not [string]::IsNullOrWhiteSpace($identityId) -and
+        $identityId.Length -le 128 -and
+        $identityId -notmatch '[\x00-\x1F\x7F]') "Friends Build identity $index has an invalid Id."
+    Require (-not [string]::IsNullOrWhiteSpace($displayName) -and
+        $displayName.Length -le 128 -and
+        $displayName -notmatch '[\x00-\x1F\x7F]') "Friends Build identity $index has an invalid DisplayName."
     Require ($credentialHash -match '^[0-9A-Fa-f]{64}$') "Friends Build identity $index has a malformed credential SHA-256."
     Require ($seenIdentityIds.Add($identityId)) "Friends Build identity Id '$identityId' is duplicated."
     Require ($seenIdentityHashes.Add($credentialHash)) "Friends Build identity $index reuses another credential digest."
@@ -285,12 +299,16 @@ foreach ($boundedKey in @(
     $value = $null
     if ($entries.TryGetValue($boundedKey.Name, [ref]$value)) {
         $parsed = 0
-        Require ([int]::TryParse($value, [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$parsed)) "Deployment environment key '$($boundedKey.Name)' must be an integer."
-        Require ($parsed -ge $boundedKey.Minimum -and $parsed -le $boundedKey.Maximum) "Deployment environment key '$($boundedKey.Name)' is outside its supported bound."
+        Require ([int]::TryParse(
+            $value,
+            [Globalization.NumberStyles]::None,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [ref]$parsed)) "Deployment environment key '$($boundedKey.Name)' must be an integer."
+        Require ($parsed -ge $boundedKey.Minimum -and
+            $parsed -le $boundedKey.Maximum) "Deployment environment key '$($boundedKey.Name)' is outside its supported bound."
     }
 }
 
-Require-SafeAbsoluteLinuxPath $HostEnvironmentPath
 $outputRoot = [IO.Path]::GetFullPath($OutputDirectory)
 if ([IO.Directory]::Exists($outputRoot)) {
     Remove-Item -LiteralPath $outputRoot -Recurse -Force
@@ -301,7 +319,7 @@ $caddyFileName = 'Caddyfile'
 $deployScriptName = 'deploy-exact-candidate.sh'
 $verifyScriptName = 'verify-public-https.sh'
 $caddyText = "$apiHost {`n    reverse_proxy 127.0.0.1:8080`n}`n"
-[IO.File]::WriteAllText((Join-Path $outputRoot $caddyFileName), $caddyText, [Text.UTF8Encoding]::new($false))
+Write-Utf8NoBom -Path (Join-Path $outputRoot $caddyFileName) -Content $caddyText
 
 $deployTemplate = @'
 #!/usr/bin/env bash
@@ -354,7 +372,7 @@ $deployText = $deployText.Replace('__IMAGE_ID__', (ConvertTo-ShellSingleQuoted $
 $deployText = $deployText.Replace('__IMAGE_TAG__', (ConvertTo-ShellSingleQuoted $backendImageTag))
 $deployText = $deployText.Replace('__TAR_RELATIVE__', (ConvertTo-ShellSingleQuoted $backendTarRelativePath))
 $deployText = $deployText.Replace('__TAR_SHA256__', (ConvertTo-ShellSingleQuoted $backendTarSha256.ToLowerInvariant()))
-[IO.File]::WriteAllText((Join-Path $outputRoot $deployScriptName), $deployText, [Text.UTF8Encoding]::new($false))
+Write-Utf8NoBom -Path (Join-Path $outputRoot $deployScriptName) -Content $deployText
 
 $verifyTemplate = @'
 #!/usr/bin/env bash
@@ -366,7 +384,7 @@ curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time 15 "${ap
 echo "public HTTPS health passed for ${api_base_url}"
 '@
 $verifyText = $verifyTemplate.Replace('__API_BASE_URL__', (ConvertTo-ShellSingleQuoted $apiBaseUrl))
-[IO.File]::WriteAllText((Join-Path $outputRoot $verifyScriptName), $verifyText, [Text.UTF8Encoding]::new($false))
+Write-Utf8NoBom -Path (Join-Path $outputRoot $verifyScriptName) -Content $verifyText
 
 $deployable = -not $apiHostReserved
 $deployabilityReason = if ($deployable) {
@@ -425,7 +443,7 @@ $plan = [ordered]@{
     generatedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
 }
 $planPath = Join-Path $outputRoot 'deployment-plan.json'
-[IO.File]::WriteAllText($planPath, ($plan | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+Write-Utf8NoBom -Path $planPath -Content ($plan | ConvertTo-Json -Depth 8)
 
 Write-Host
 Write-Host '[OK] Closed-alpha deployment plan generated without copying secret values.'

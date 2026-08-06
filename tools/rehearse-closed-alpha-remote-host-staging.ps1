@@ -401,22 +401,19 @@ try {
         "${remoteTarget}:$remoteScript"
     )) -Context 'Remote staging script SSH transfer'
 
-    $remoteCommand = @(
-        'chmod 0755 ' + (ConvertTo-ShellSingleQuoted $remoteScript),
-        (ConvertTo-ShellSingleQuoted $remoteScript) + ' ' + (@(
-            $remoteArchive,
-            $archiveSha256,
-            $remoteReleaseDirectory,
-            $backendRelativePath,
-            $backendTarSha256,
-            $imageTag,
-            $imageId,
-            $releaseCommit,
-            $releaseVersion,
-            $remoteEvidence,
-            $sshHostKeySha256
-        ) | ForEach-Object { ConvertTo-ShellSingleQuoted ([string]$_) } | Join-String -Separator ' ')
-    ) -join ' && '
+    $remoteCommand = 'bash ' + (ConvertTo-ShellSingleQuoted $remoteScript) + ' ' + (@(
+        $remoteArchive,
+        $archiveSha256,
+        $remoteReleaseDirectory,
+        $backendRelativePath,
+        $backendTarSha256,
+        $imageTag,
+        $imageId,
+        $releaseCommit,
+        $releaseVersion,
+        $remoteEvidence,
+        $sshHostKeySha256
+    ) | ForEach-Object { ConvertTo-ShellSingleQuoted ([string]$_) } | Join-String -Separator ' ')
     Invoke-RequiredNative -Tool 'ssh' -Arguments ($sshOptions + @(
         $remoteTarget,
         $remoteCommand

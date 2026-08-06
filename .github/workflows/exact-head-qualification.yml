@@ -1,0 +1,194 @@
+name: Exact head qualification
+
+on:
+  push:
+    branches:
+      - "agent/**"
+
+permissions:
+  actions: read
+  contents: read
+  statuses: write
+
+jobs:
+  qualify:
+    name: Aggregate exact-head workflow qualification
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Observe all required workflow groups and publish one status
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFICATION_EVIDENCE_PATH: ${{ runner.temp }}/exact-head-qualification.json
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+
+          $expectedNames = @(
+            'Closed alpha deployment plan CI',
+            'Closed alpha release candidate',
+            'CI',
+            'Bring Here disposable end-to-end',
+            'Bring Here two-PC test kit',
+            'Windows acceptance package',
+            'Portable World acceptance probe CI',
+            'Portable World two-PC test kit',
+            'Palworld read-only CI',
+            '7 Days to Die adapter CI',
+            'Project Zomboid adapter CI'
+          )
+          $headers = @{
+            Accept = 'application/vnd.github+json'
+            Authorization = "Bearer $env:GH_TOKEN"
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $runsUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions/runs?head_sha=$env:GITHUB_SHA&event=push&per_page=100"
+          $statusUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/statuses/$env:GITHUB_SHA"
+          $observerUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          $deadline = [DateTimeOffset]::UtcNow.AddMinutes(55)
+          $selected = @{}
+          $terminal = @('completed')
+          $failureReason = $null
+
+          try {
+            $pendingBody = [ordered]@{
+              state = 'pending'
+              context = 'safe-world/exact-head-qualification'
+              description = 'Waiting for all 11 exact-head workflow groups.'
+              target_url = $observerUrl
+            } | ConvertTo-Json -Compress
+            Invoke-RestMethod -Method Post -Uri $statusUri -Headers $headers -Body $pendingBody -ContentType 'application/json' | Out-Null
+
+            do {
+              $response = Invoke-RestMethod -Method Get -Uri $runsUri -Headers $headers
+              $matching = @($response.workflow_runs | Where-Object {
+                [string]$_.head_sha -ceq $env:GITHUB_SHA -and
+                [string]$_.event -ceq 'push'
+              })
+
+              $selected = @{}
+              foreach ($name in $expectedNames) {
+                $candidates = @($matching | Where-Object { [string]$_.name -ceq $name } | Sort-Object id -Descending)
+                if ($candidates.Count -gt 0) {
+                  $selected[$name] = $candidates[0]
+                }
+              }
+
+              $presentCount = $selected.Count
+              $completedCount = @($selected.Values | Where-Object { [string]$_.status -in $terminal }).Count
+              Write-Host "Exact-head qualification: $presentCount/11 present, $completedCount/11 completed."
+              foreach ($name in $expectedNames) {
+                if ($selected.ContainsKey($name)) {
+                  $run = $selected[$name]
+                  Write-Host "  $name: $($run.status) / $($run.conclusion) / $($run.id)"
+                }
+                else {
+                  Write-Host "  $name: not registered"
+                }
+              }
+
+              if ($presentCount -eq $expectedNames.Count -and $completedCount -eq $expectedNames.Count) {
+                break
+              }
+              Start-Sleep -Seconds 15
+            } while ([DateTimeOffset]::UtcNow -lt $deadline)
+
+            if ($selected.Count -ne $expectedNames.Count) {
+              $missing = @($expectedNames | Where-Object { -not $selected.ContainsKey($_) })
+              $failureReason = "Missing exact-head workflow runs: $($missing -join ', ')"
+            }
+            else {
+              $incomplete = @($expectedNames | Where-Object { [string]$selected[$_].status -cne 'completed' })
+              if ($incomplete.Count -gt 0) {
+                $failureReason = "Exact-head workflow runs did not complete: $($incomplete -join ', ')"
+              }
+              else {
+                $failed = @($expectedNames | Where-Object { [string]$selected[$_].conclusion -cne 'success' })
+                if ($failed.Count -gt 0) {
+                  $failureReason = "Exact-head workflow runs were not successful: $($failed -join ', ')"
+                }
+              }
+            }
+          }
+          catch {
+            $failureReason = "Qualification observer failed: $($_.Exception.Message)"
+          }
+
+          $groups = @()
+          foreach ($name in $expectedNames) {
+            if ($selected.ContainsKey($name)) {
+              $run = $selected[$name]
+              $groups += [ordered]@{
+                name = $name
+                runId = [int64]$run.id
+                event = [string]$run.event
+                headSha = [string]$run.head_sha
+                status = [string]$run.status
+                conclusion = [string]$run.conclusion
+                htmlUrl = [string]$run.html_url
+              }
+            }
+            else {
+              $groups += [ordered]@{
+                name = $name
+                runId = $null
+                event = 'push'
+                headSha = $env:GITHUB_SHA
+                status = 'missing'
+                conclusion = $null
+                htmlUrl = $null
+              }
+            }
+          }
+
+          $succeeded = [string]::IsNullOrWhiteSpace($failureReason)
+          $evidence = [ordered]@{
+            documentType = 'steward.exact-head-qualification'
+            schemaVersion = 1
+            observedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
+            repository = $env:GITHUB_REPOSITORY
+            event = 'push'
+            headSha = $env:GITHUB_SHA
+            observerRunId = [int64]$env:GITHUB_RUN_ID
+            expectedWorkflowGroupCount = $expectedNames.Count
+            allPresent = ($selected.Count -eq $expectedNames.Count)
+            allCompleted = ($selected.Count -eq $expectedNames.Count -and @($selected.Values | Where-Object { [string]$_.status -cne 'completed' }).Count -eq 0)
+            allSucceeded = $succeeded
+            failureReason = $failureReason
+            workflowGroups = $groups
+          }
+          [IO.File]::WriteAllText(
+            $env:QUALIFICATION_EVIDENCE_PATH,
+            ($evidence | ConvertTo-Json -Depth 7),
+            [Text.UTF8Encoding]::new($false))
+
+          $state = if ($succeeded) { 'success' } else { 'failure' }
+          $description = if ($succeeded) {
+            'All 11 exact-head workflow groups are green.'
+          }
+          else {
+            $text = [string]$failureReason
+            if ($text.Length -gt 140) { $text.Substring(0, 140) } else { $text }
+          }
+          $statusBody = [ordered]@{
+            state = $state
+            context = 'safe-world/exact-head-qualification'
+            description = $description
+            target_url = $observerUrl
+          } | ConvertTo-Json -Compress
+          Invoke-RestMethod -Method Post -Uri $statusUri -Headers $headers -Body $statusBody -ContentType 'application/json' | Out-Null
+
+          Get-Content -LiteralPath $env:QUALIFICATION_EVIDENCE_PATH
+          if (-not $succeeded) {
+            throw $failureReason
+          }
+
+      - name: Upload exact-head qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: exact-head-qualification-${{ github.sha }}
+          path: ${{ runner.temp }}/exact-head-qualification.json
+          if-no-files-found: warn
+          retention-days: 14

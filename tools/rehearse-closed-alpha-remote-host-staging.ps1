@@ -124,6 +124,8 @@ Require ($backendTarSha256 -match '^[0-9A-F]{64}$') 'Backend TAR SHA-256 is malf
 
 $workRoot = Join-Path ([IO.Path]::GetTempPath()) ("steward-remote-staging-" + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($workRoot) | Out-Null
+$hostBuildRoot = Join-Path $workRoot 'host-image'
+[IO.Directory]::CreateDirectory($hostBuildRoot) | Out-Null
 $containerName = "steward-remote-staging-$([Guid]::NewGuid().ToString('N').Substring(0, 12))"
 $hostImageTag = "steward-remote-staging-host:$([Guid]::NewGuid().ToString('N').Substring(0, 12))"
 $privateKeyPath = Join-Path $workRoot 'id_ed25519'
@@ -184,8 +186,8 @@ UsePAM no
 CONFIG
 exec /usr/sbin/sshd -D -e
 '@
-Write-Utf8NoBom -Path (Join-Path $workRoot 'Dockerfile') -Content $dockerfile
-Write-Utf8NoBom -Path (Join-Path $workRoot 'entrypoint.sh') -Content $entrypoint
+Write-Utf8NoBom -Path (Join-Path $hostBuildRoot 'Dockerfile') -Content $dockerfile
+Write-Utf8NoBom -Path (Join-Path $hostBuildRoot 'entrypoint.sh') -Content $entrypoint
 
 $remoteStageTemplate = @'
 #!/usr/bin/env bash
@@ -326,7 +328,7 @@ try {
     Invoke-Docker -Arguments @(
         'build',
         '--tag', $hostImageTag,
-        $workRoot
+        $hostBuildRoot
     )
 
     Invoke-Docker -Arguments @(

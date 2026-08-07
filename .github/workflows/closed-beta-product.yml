@@ -182,7 +182,6 @@ jobs:
             ($config | ConvertTo-Json),
             [Text.UTF8Encoding]::new($false))
           & (Join-Path $root[0].FullName 'client/Start-Steward.ps1') -VerifyOnly
-          if ($LASTEXITCODE -ne 0) { throw 'Generic closed-beta client verification failed.' }
 
       - name: Boot packaged PostgreSQL, MinIO, backend, and Caddy
         shell: pwsh

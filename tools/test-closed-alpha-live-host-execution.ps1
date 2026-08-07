@@ -1,185 +1,48 @@
 [CmdletBinding()]
 param()
-
 Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-
-function Require([bool]$Condition,[string]$Message) { if (-not $Condition) { throw $Message } }
-function Write-Utf8([string]$Path,[string]$Content) {
-    $directory = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($Path))
-    [IO.Directory]::CreateDirectory($directory) | Out-Null
-    [IO.File]::WriteAllText($Path,$Content.Replace("`r`n","`n"),[Text.UTF8Encoding]::new($false))
-}
-function Expect-Failure([scriptblock]$Action,[string]$Context,[string]$ExpectedMessage) {
-    $failed = $false
-    try { & $Action } catch {
-        $failed = $true
-        $message = [string]$_.Exception.Message
-        Require ($message.Contains($ExpectedMessage,[StringComparison]::Ordinal)) "${Context} failed for the wrong reason: $message"
-        Write-Host "[EXPECTED] ${Context}: $message"
-    }
-    Require $failed "Expected failure did not occur: $Context"
-}
-function Write-Manifest([string]$Bundle,[bool]$PublishAllowed) {
-    $artifacts = @(Get-ChildItem -LiteralPath $Bundle -File | Sort-Object Name | ForEach-Object {
-        [ordered]@{
-            path = $_.Name
-            byteSize = $_.Length
-            sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToUpperInvariant()
-        }
-    })
-    $manifest = [ordered]@{
-        documentType = 'steward.closed-alpha-release-candidate'
-        schemaVersion = 1
-        channel = 'closed-alpha'
-        version = '2.0.0-live-chain-test'
-        commitSha = ('7' * 40)
-        publishAuthorization = [ordered]@{
-            publishAllowed = $PublishAllowed
-            physicalBringHere = if ($PublishAllowed) { 'complete' } else { 'deferred' }
-        }
-        artifacts = $artifacts
-    }
-    Write-Utf8 (Join-Path $Bundle 'release-manifest.json') ($manifest | ConvertTo-Json -Depth 6)
-}
-
-$work = Join-Path ([IO.Path]::GetTempPath()) ('steward-live-chain-test-' + [Guid]::NewGuid().ToString('N'))
-$bundle = Join-Path $work 'bundle'
-$request = Join-Path $work 'request.json'
-$key = Join-Path $work 'id_ed25519'
-$trace = Join-Path $work 'trace.txt'
-[IO.Directory]::CreateDirectory($bundle) | Out-Null
-
-try {
-    Copy-Item (Join-Path $PSScriptRoot 'execute-closed-alpha-live-host.ps1') (Join-Path $bundle 'execute-closed-alpha-live-host.ps1')
-
-    Write-Utf8 (Join-Path $bundle 'verify-closed-alpha-release.ps1') @'
-[CmdletBinding()] param([Parameter(Mandatory=$true)][string]$BundleDirectory)
-if (-not [IO.File]::Exists((Join-Path ([IO.Path]::GetFullPath($BundleDirectory)) 'release-manifest.json'))) { throw 'manifest missing' }
+$ErrorActionPreference='Stop'
+function Require([bool]$Condition,[string]$Message){if(-not $Condition){throw $Message}}
+function WriteUtf8([string]$Path,[string]$Text){$d=[IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($Path));[IO.Directory]::CreateDirectory($d)|Out-Null;[IO.File]::WriteAllText($Path,$Text.Replace("`r`n","`n"),[Text.UTF8Encoding]::new($false))}
+function ExpectFail([scriptblock]$Action,[string]$Context,[string]$Expected){$failed=$false;try{& $Action}catch{$failed=$true;$m=[string]$_.Exception.Message;Require($m.Contains($Expected,[StringComparison]::Ordinal)) "${Context} failed for the wrong reason: $m";Write-Host "[EXPECTED] ${Context}: $m"};Require $failed "Expected failure did not occur: $Context"}
+function Manifest([string]$Bundle,[bool]$Publish){$a=@(Get-ChildItem -LiteralPath $Bundle -File|Where-Object{$_.Name -cne 'release-manifest.json'}|Sort-Object Name|ForEach-Object{[ordered]@{path=$_.Name;byteSize=$_.Length;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToUpperInvariant()}});$m=[ordered]@{documentType='steward.closed-alpha-release-candidate';schemaVersion=1;channel='closed-alpha';version='2.0.0-live-chain-test';commitSha=('7'*40);publishAuthorization=[ordered]@{publishAllowed=$Publish;physicalBringHere=if($Publish){'complete'}else{'deferred'}};artifacts=$a};WriteUtf8 (Join-Path $Bundle 'release-manifest.json') ($m|ConvertTo-Json -Depth 6)}
+$work=Join-Path ([IO.Path]::GetTempPath()) ('steward-chain-'+[Guid]::NewGuid().ToString('N'));$bundle=Join-Path $work 'bundle';[IO.Directory]::CreateDirectory($bundle)|Out-Null;$request=Join-Path $work 'request.json';$key=Join-Path $work 'operator.key';$trace=Join-Path $work 'trace.txt';$version='2.0.0-live-chain-test';$commit='7'*40
+try{
+Copy-Item (Join-Path $PSScriptRoot 'execute-closed-alpha-live-host.ps1') (Join-Path $bundle 'execute-closed-alpha-live-host.ps1');Copy-Item (Join-Path $PSScriptRoot 'finalize-closed-alpha-live-host-execution.ps1') (Join-Path $bundle 'finalize-closed-alpha-live-host-execution.ps1')
+WriteUtf8 (Join-Path $bundle 'verify-closed-alpha-release.ps1') @'
+[CmdletBinding()]param([string]$BundleDirectory)
+if(-not [IO.File]::Exists((Join-Path $BundleDirectory 'release-manifest.json'))){throw 'manifest missing'}
 '@
-
-    Write-Utf8 (Join-Path $bundle 'preflight-closed-alpha-live-host.ps1') @'
-[CmdletBinding()] param([string]$BundleDirectory,[string]$RequestPath,[string]$SshPrivateKeyPath,[string]$EvidencePath)
-Add-Content -LiteralPath $env:STEWARD_EXECUTION_TEST_TRACE -Value 'preflight'
-if ($env:STEWARD_EXECUTION_TEST_FAIL_STAGE -ceq 'preflight') { throw 'synthetic preflight failure' }
-@{documentType='steward.closed-alpha-live-host-preflight';schemaVersion=1} | ConvertTo-Json | Set-Content -LiteralPath $EvidencePath -Encoding utf8NoBOM
+WriteUtf8 (Join-Path $bundle 'preflight-closed-alpha-live-host.ps1') @'
+[CmdletBinding()]param([string]$BundleDirectory,[string]$RequestPath,[string]$SshPrivateKeyPath,[string]$EvidencePath)
+Add-Content $env:STEWARD_CHAIN_TRACE 'preflight';if($env:STEWARD_CHAIN_FAIL -ceq 'preflight'){throw 'synthetic preflight failure'};$q=(Get-FileHash $RequestPath -Algorithm SHA256).Hash.ToUpperInvariant();[ordered]@{documentType='steward.closed-alpha-live-host-preflight';schemaVersion=1;releaseVersion='2.0.0-live-chain-test';releaseCommitSha=('7'*40);requestSha256=$q;publishAllowed=$false;physicalBringHere='deferred';publicationAuthorizationChanged=$false}|ConvertTo-Json|Set-Content $EvidencePath -Encoding utf8NoBOM
 '@
-
-    Write-Utf8 (Join-Path $bundle 'stage-closed-alpha-live-deployment-plan.ps1') @'
-[CmdletBinding()] param([string]$BundleDirectory,[string]$RequestPath,[string]$PreflightEvidencePath,[string]$SshPrivateKeyPath,[string]$EvidencePath)
-if (-not [IO.File]::Exists($PreflightEvidencePath)) { throw 'preflight evidence missing' }
-Add-Content -LiteralPath $env:STEWARD_EXECUTION_TEST_TRACE -Value 'stage'
-if ($env:STEWARD_EXECUTION_TEST_FAIL_STAGE -ceq 'stage') { throw 'synthetic stage failure' }
-@{documentType='steward.closed-alpha-live-plan-staging';schemaVersion=1} | ConvertTo-Json | Set-Content -LiteralPath $EvidencePath -Encoding utf8NoBOM
+WriteUtf8 (Join-Path $bundle 'stage-closed-alpha-live-deployment-plan.ps1') @'
+[CmdletBinding()]param([string]$BundleDirectory,[string]$RequestPath,[string]$PreflightEvidencePath,[string]$SshPrivateKeyPath,[string]$EvidencePath)
+Add-Content $env:STEWARD_CHAIN_TRACE 'stage';if($env:STEWARD_CHAIN_FAIL -ceq 'stage'){throw 'synthetic stage failure'};$q=(Get-FileHash $RequestPath -Algorithm SHA256).Hash.ToUpperInvariant();$p=(Get-FileHash $PreflightEvidencePath -Algorithm SHA256).Hash.ToUpperInvariant();[ordered]@{documentType='steward.closed-alpha-live-plan-staging';schemaVersion=1;releaseVersion='2.0.0-live-chain-test';releaseCommitSha=('7'*40);requestSha256=$q;preflightEvidenceSha256=$p;publishAllowed=$false;physicalBringHere='deferred';publicationAuthorizationChanged=$false}|ConvertTo-Json|Set-Content $EvidencePath -Encoding utf8NoBOM
 '@
-
-    Write-Utf8 (Join-Path $bundle 'deploy-closed-alpha-live-backend.ps1') @'
-[CmdletBinding()] param([string]$BundleDirectory,[string]$RequestPath,[string]$StagingEvidencePath,[string]$SshPrivateKeyPath,[string]$EvidencePath)
-if (-not [IO.File]::Exists($StagingEvidencePath)) { throw 'staging evidence missing' }
-Add-Content -LiteralPath $env:STEWARD_EXECUTION_TEST_TRACE -Value 'backend'
-if ($env:STEWARD_EXECUTION_TEST_FAIL_STAGE -ceq 'backend') { throw 'synthetic backend failure' }
-@{documentType='steward.closed-alpha-live-backend-deployment';schemaVersion=1} | ConvertTo-Json | Set-Content -LiteralPath $EvidencePath -Encoding utf8NoBOM
+WriteUtf8 (Join-Path $bundle 'deploy-closed-alpha-live-backend.ps1') @'
+[CmdletBinding()]param([string]$BundleDirectory,[string]$RequestPath,[string]$StagingEvidencePath,[string]$SshPrivateKeyPath,[string]$EvidencePath)
+Add-Content $env:STEWARD_CHAIN_TRACE 'backend';if($env:STEWARD_CHAIN_FAIL -ceq 'backend'){throw 'synthetic backend failure'};$q=(Get-FileHash $RequestPath -Algorithm SHA256).Hash.ToUpperInvariant();$s=(Get-FileHash $StagingEvidencePath -Algorithm SHA256).Hash.ToUpperInvariant();[ordered]@{documentType='steward.closed-alpha-live-backend-deployment';schemaVersion=1;releaseVersion='2.0.0-live-chain-test';releaseCommitSha=('7'*40);requestSha256=$q;stagingEvidenceSha256=$s;publishAllowed=$false;physicalBringHere='deferred';publicationAuthorizationChanged=$false}|ConvertTo-Json|Set-Content $EvidencePath -Encoding utf8NoBOM
 '@
-
-    Write-Utf8 (Join-Path $bundle 'activate-closed-alpha-live-ingress.ps1') @'
-[CmdletBinding()] param([string]$BundleDirectory,[string]$RequestPath,[string]$BackendDeploymentEvidencePath,[string]$SshPrivateKeyPath,[string]$EvidencePath)
-if (-not [IO.File]::Exists($BackendDeploymentEvidencePath)) { throw 'backend evidence missing' }
-Add-Content -LiteralPath $env:STEWARD_EXECUTION_TEST_TRACE -Value 'ingress'
-if ($env:STEWARD_EXECUTION_TEST_FAIL_STAGE -ceq 'ingress') { throw 'synthetic ingress failure' }
-@{documentType='steward.closed-alpha-live-ingress-activation';schemaVersion=1} | ConvertTo-Json | Set-Content -LiteralPath $EvidencePath -Encoding utf8NoBOM
+WriteUtf8 (Join-Path $bundle 'activate-closed-alpha-live-ingress.ps1') @'
+[CmdletBinding()]param([string]$BundleDirectory,[string]$RequestPath,[string]$BackendDeploymentEvidencePath,[string]$SshPrivateKeyPath,[string]$EvidencePath)
+Add-Content $env:STEWARD_CHAIN_TRACE 'ingress';if($env:STEWARD_CHAIN_FAIL -ceq 'ingress'){throw 'synthetic ingress failure'};$q=(Get-FileHash $RequestPath -Algorithm SHA256).Hash.ToUpperInvariant();$b=(Get-FileHash $BackendDeploymentEvidencePath -Algorithm SHA256).Hash.ToUpperInvariant();[ordered]@{documentType='steward.closed-alpha-live-ingress-activation';schemaVersion=1;releaseVersion='2.0.0-live-chain-test';releaseCommitSha=('7'*40);requestSha256=$q;backendDeploymentEvidenceSha256=$b;publishAllowed=$false;physicalBringHere='deferred';publicationAuthorizationChanged=$false}|ConvertTo-Json|Set-Content $EvidencePath -Encoding utf8NoBOM
 '@
-
-    Write-Utf8 (Join-Path $bundle 'verify-closed-alpha-external-ingress.ps1') @'
-[CmdletBinding()] param([string]$BundleDirectory,[string]$RequestPath,[string]$IngressActivationEvidencePath,[string]$EvidencePath)
-if (-not [IO.File]::Exists($IngressActivationEvidencePath)) { throw 'ingress evidence missing' }
-Add-Content -LiteralPath $env:STEWARD_EXECUTION_TEST_TRACE -Value 'external'
-if ($env:STEWARD_EXECUTION_TEST_FAIL_STAGE -ceq 'external') { throw 'synthetic external failure' }
-@{documentType='steward.closed-alpha-external-ingress-acceptance';schemaVersion=1} | ConvertTo-Json | Set-Content -LiteralPath $EvidencePath -Encoding utf8NoBOM
+WriteUtf8 (Join-Path $bundle 'verify-closed-alpha-external-ingress.ps1') @'
+[CmdletBinding()]param([string]$BundleDirectory,[string]$RequestPath,[string]$IngressActivationEvidencePath,[string]$EvidencePath)
+Add-Content $env:STEWARD_CHAIN_TRACE 'external';if($env:STEWARD_CHAIN_FAIL -ceq 'external'){throw 'synthetic external failure'};$q=(Get-FileHash $RequestPath -Algorithm SHA256).Hash.ToUpperInvariant();$i=(Get-FileHash $IngressActivationEvidencePath -Algorithm SHA256).Hash.ToUpperInvariant();[ordered]@{documentType='steward.closed-alpha-external-ingress-acceptance';schemaVersion=1;releaseVersion='2.0.0-live-chain-test';releaseCommitSha=('7'*40);requestSha256=$q;ingressActivationEvidenceSha256=$i;observerUsedSsh=$false;hostMutationPerformed=$false;protectedEnvironmentAccessed=$false;publicHttpsVerified=$true;externalPort8080ClosedVerified=$true;certificateValidationMode='system-trust-default-no-bypass';tlsVerifyResult=0;publishAllowed=$false;physicalBringHere='deferred';publicationAuthorizationChanged=$false}|ConvertTo-Json|Set-Content $EvidencePath -Encoding utf8NoBOM
 '@
-
-    Write-Utf8 $request '{"synthetic":true}'
-    Write-Utf8 $key 'synthetic-private-key-material-never-copy-this'
-    Write-Manifest $bundle $false
-
-    $env:STEWARD_EXECUTION_TEST_TRACE = $trace
-    $env:STEWARD_EXECUTION_TEST_FAIL_STAGE = ''
-    $successEvidence = Join-Path $work 'success-evidence'
-    & (Join-Path $bundle 'execute-closed-alpha-live-host.ps1') `
-        -BundleDirectory $bundle `
-        -RequestPath $request `
-        -SshPrivateKeyPath $key `
-        -EvidenceDirectory $successEvidence
-
-    $traceLines = @(Get-Content -LiteralPath $trace)
-    Require (@(Compare-Object $traceLines @('preflight','stage','backend','ingress','external') -SyncWindow 0).Count -eq 0) 'Successful execution did not preserve exact five-stage order.'
-    $chainPath = Join-Path $successEvidence 'execution-chain.json'
-    Require ([IO.File]::Exists($chainPath)) 'Successful execution did not write final chain evidence.'
-    $chainText = [IO.File]::ReadAllText($chainPath)
-    $chain = $chainText | ConvertFrom-Json
-    Require ([string]$chain.documentType -ceq 'steward.closed-alpha-live-host-execution-chain' -and [int]$chain.schemaVersion -eq 1) 'Execution-chain evidence identity is invalid.'
-    Require ([int]$chain.stageCount -eq 5 -and [bool]$chain.allStagesSucceeded) 'Execution-chain evidence did not record five successful stages.'
-    Require (@($chain.stageEvidence).Count -eq 5 -and @($chain.tools).Count -eq 7) 'Execution-chain evidence has the wrong binding count.'
-    Require (-not [bool]$chain.automaticCrossStageRollback -and [bool]$chain.partialStageEvidencePreservedOnFailure) 'Execution-chain failure semantics are misstated.'
-    Require (-not [bool]$chain.sshCredentialPathRecorded -and -not [bool]$chain.sshCredentialCopied -and -not [bool]$chain.externalAcceptanceUsedSsh) 'Execution-chain evidence crossed the SSH credential boundary.'
-    Require (-not [bool]$chain.publishAllowed -and [string]$chain.physicalBringHere -ceq 'deferred' -and -not [bool]$chain.publicationAuthorizationChanged) 'Execution-chain evidence changed publication state.'
-    Require (-not $chainText.Contains([IO.Path]::GetFullPath($key),[StringComparison]::OrdinalIgnoreCase)) 'Execution-chain evidence leaked the SSH private-key path.'
-    Require (-not $chainText.Contains('synthetic-private-key-material-never-copy-this',[StringComparison]::Ordinal)) 'Execution-chain evidence leaked SSH private-key contents.'
-
-    Remove-Item -LiteralPath $trace -Force
-    $env:STEWARD_EXECUTION_TEST_FAIL_STAGE = 'backend'
-    $failedEvidence = Join-Path $work 'failed-evidence'
-    Expect-Failure {
-        & (Join-Path $bundle 'execute-closed-alpha-live-host.ps1') `
-            -BundleDirectory $bundle `
-            -RequestPath $request `
-            -SshPrivateKeyPath $key `
-            -EvidenceDirectory $failedEvidence
-    } 'mid-chain failure stops later stages' 'synthetic backend failure'
-    $failedTrace = @(Get-Content -LiteralPath $trace)
-    Require (@(Compare-Object $failedTrace @('preflight','stage','backend') -SyncWindow 0).Count -eq 0) 'Failure path executed a stage after the failing backend stage.'
-    Require ([IO.File]::Exists((Join-Path $failedEvidence '01-live-host-preflight.json'))) 'Failure path did not preserve preflight evidence.'
-    Require ([IO.File]::Exists((Join-Path $failedEvidence '02-live-plan-staging.json'))) 'Failure path did not preserve staging evidence.'
-    Require (-not [IO.File]::Exists((Join-Path $failedEvidence '03-live-backend-deployment.json'))) 'Failing backend stage wrote success evidence unexpectedly.'
-    Require (-not [IO.File]::Exists((Join-Path $failedEvidence '04-live-ingress-activation.json'))) 'Ingress stage ran after backend failure.'
-    Require (-not [IO.File]::Exists((Join-Path $failedEvidence '05-external-ingress-acceptance.json'))) 'External stage ran after backend failure.'
-    Require (-not [IO.File]::Exists((Join-Path $failedEvidence 'execution-chain.json'))) 'Failure path wrote a final success chain.'
-
-    $nonEmptyEvidence = Join-Path $work 'nonempty-evidence'
-    [IO.Directory]::CreateDirectory($nonEmptyEvidence) | Out-Null
-    Write-Utf8 (Join-Path $nonEmptyEvidence 'old.json') '{}'
-    Expect-Failure {
-        & (Join-Path $bundle 'execute-closed-alpha-live-host.ps1') `
-            -BundleDirectory $bundle `
-            -RequestPath $request `
-            -SshPrivateKeyPath $key `
-            -EvidenceDirectory $nonEmptyEvidence
-    } 'cross-run evidence mixing is rejected' 'Execution evidence directory must be empty'
-
-    Write-Manifest $bundle $true
-    $publishEvidence = Join-Path $work 'publish-evidence'
-    Expect-Failure {
-        & (Join-Path $bundle 'execute-closed-alpha-live-host.ps1') `
-            -BundleDirectory $bundle `
-            -RequestPath $request `
-            -SshPrivateKeyPath $key `
-            -EvidenceDirectory $publishEvidence
-    } 'publish-authorized candidate is rejected' 'Live-host execution refuses a publish-authorized candidate.'
-
-    Write-Manifest $bundle $false
-    Add-Content -LiteralPath (Join-Path $bundle 'verify-closed-alpha-external-ingress.ps1') -Value '# tamper'
-    $tamperEvidence = Join-Path $work 'tamper-evidence'
-    Expect-Failure {
-        & (Join-Path $bundle 'execute-closed-alpha-live-host.ps1') `
-            -BundleDirectory $bundle `
-            -RequestPath $request `
-            -SshPrivateKeyPath $key `
-            -EvidenceDirectory $tamperEvidence
-    } 'manifest-bound child-tool tampering is rejected' 'Deployment tool byte size does not match the release manifest'
-
-    Write-Host '[OK] Live-host execution composition, fail-fast, and evidence-boundary tests passed.'
-}
-finally {
-    Remove-Item Env:STEWARD_EXECUTION_TEST_TRACE -ErrorAction SilentlyContinue
-    Remove-Item Env:STEWARD_EXECUTION_TEST_FAIL_STAGE -ErrorAction SilentlyContinue
-    if ([IO.Directory]::Exists($work)) { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
-}
+WriteUtf8 $request '{"synthetic":true}';WriteUtf8 $key 'synthetic-key-material';Manifest $bundle $false;$env:STEWARD_CHAIN_TRACE=$trace;$env:STEWARD_CHAIN_FAIL=''
+$deployDir=Join-Path $work 'deploy-evidence';& (Join-Path $bundle 'execute-closed-alpha-live-host.ps1') -BundleDirectory $bundle -RequestPath $request -SshPrivateKeyPath $key -EvidenceDirectory $deployDir
+$beforeExternal=@(Get-Content $trace);Require(@(Compare-Object $beforeExternal @('preflight','stage','backend','ingress') -SyncWindow 0).Count -eq 0) 'Deployment executor did not stop after the four SSH-capable stages.';Require([IO.File]::Exists((Join-Path $deployDir 'deployment-handoff.json'))) 'Deployment handoff was not written.';Require(-not [IO.File]::Exists((Join-Path $deployDir '05-external-ingress-acceptance.json'))) 'Deployment executor invoked external acceptance.';Require(-not [IO.File]::Exists((Join-Path $deployDir 'execution-chain.json'))) 'Deployment executor wrote a final chain before external acceptance.'
+$external=Join-Path $work 'external.json';& (Join-Path $bundle 'verify-closed-alpha-external-ingress.ps1') -BundleDirectory $bundle -RequestPath $request -IngressActivationEvidencePath (Join-Path $deployDir '04-live-ingress-activation.json') -EvidencePath $external
+$final=Join-Path $work 'execution-chain.json';& (Join-Path $bundle 'finalize-closed-alpha-live-host-execution.ps1') -BundleDirectory $bundle -RequestPath $request -DeploymentEvidenceDirectory $deployDir -ExternalIngressAcceptanceEvidencePath $external -EvidencePath $final
+$allTrace=@(Get-Content $trace);Require(@(Compare-Object $allTrace @('preflight','stage','backend','ingress','external') -SyncWindow 0).Count -eq 0) 'Separate external observation was not the fifth action.';$chain=[IO.File]::ReadAllText($final)|ConvertFrom-Json;Require([string]$chain.documentType -ceq 'steward.closed-alpha-live-host-execution-chain' -and [int]$chain.stageCount -eq 5 -and [bool]$chain.allStagesSucceeded) 'Final chain identity/result is invalid.';Require([bool]$chain.deploymentStagesUsedSsh -and -not [bool]$chain.externalAcceptanceUsedSsh -and -not [bool]$chain.externalAcceptanceHostMutation) 'Final chain collapsed the observer boundary.';Require([string]$chain.externalObserverSeparation -ceq 'operator-required-not-machine-attested') 'Final chain overclaims observer credential attestation.';Require(-not [bool]$chain.publishAllowed -and [string]$chain.physicalBringHere -ceq 'deferred') 'Final chain changed publication state.'
+Remove-Item $trace -Force;$env:STEWARD_CHAIN_FAIL='backend';$failDir=Join-Path $work 'fail-evidence';ExpectFail {& (Join-Path $bundle 'execute-closed-alpha-live-host.ps1') -BundleDirectory $bundle -RequestPath $request -SshPrivateKeyPath $key -EvidenceDirectory $failDir} 'mid-chain failure stops later stages' 'synthetic backend failure';$failed=@(Get-Content $trace);Require(@(Compare-Object $failed @('preflight','stage','backend') -SyncWindow 0).Count -eq 0) 'A later stage ran after backend failure.';Require(-not [IO.File]::Exists((Join-Path $failDir 'deployment-handoff.json'))) 'Failed deployment wrote a success handoff.'
+$mix=Join-Path $work 'mixed';[IO.Directory]::CreateDirectory($mix)|Out-Null;WriteUtf8 (Join-Path $mix 'old.json') '{}';ExpectFail {& (Join-Path $bundle 'execute-closed-alpha-live-host.ps1') -BundleDirectory $bundle -RequestPath $request -SshPrivateKeyPath $key -EvidenceDirectory $mix} 'evidence mixing is rejected' 'Execution evidence directory must be empty'
+Manifest $bundle $true;ExpectFail {& (Join-Path $bundle 'execute-closed-alpha-live-host.ps1') -BundleDirectory $bundle -RequestPath $request -SshPrivateKeyPath $key -EvidenceDirectory (Join-Path $work 'publish')} 'publish-authorized candidate is rejected' 'Live-host execution refuses a publish-authorized candidate.'
+Manifest $bundle $false;$badExternal=Join-Path $work 'bad-external.json';$bad=[IO.File]::ReadAllText($external)|ConvertFrom-Json;$bad.ingressActivationEvidenceSha256='A'*64;WriteUtf8 $badExternal ($bad|ConvertTo-Json -Depth 5);ExpectFail {& (Join-Path $bundle 'finalize-closed-alpha-live-host-execution.ps1') -BundleDirectory $bundle -RequestPath $request -DeploymentEvidenceDirectory $deployDir -ExternalIngressAcceptanceEvidencePath $badExternal -EvidencePath (Join-Path $work 'bad-chain.json')} 'tampered external linkage is rejected' 'External acceptance does not bind exact ingress evidence.'
+Add-Content (Join-Path $bundle 'verify-closed-alpha-external-ingress.ps1') '#tamper';ExpectFail {& (Join-Path $bundle 'execute-closed-alpha-live-host.ps1') -BundleDirectory $bundle -RequestPath $request -SshPrivateKeyPath $key -EvidenceDirectory (Join-Path $work 'tamper')} 'manifest-bound child tampering is rejected' 'Deployment tool byte size does not match the release manifest'
+Write-Host '[OK] Deployment composition and separate external-observer evidence chaining passed.'
+}finally{Remove-Item Env:STEWARD_CHAIN_TRACE -ErrorAction SilentlyContinue;Remove-Item Env:STEWARD_CHAIN_FAIL -ErrorAction SilentlyContinue;if([IO.Directory]::Exists($work)){Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue}}

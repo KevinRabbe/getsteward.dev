@@ -37,9 +37,11 @@ $livePlanStagerSource = Join-Path $PSScriptRoot 'stage-closed-alpha-live-deploym
 $liveBackendDeploymentSource = Join-Path $PSScriptRoot 'deploy-closed-alpha-live-backend.ps1'
 $liveIngressActivationSource = Join-Path $PSScriptRoot 'activate-closed-alpha-live-ingress.ps1'
 $externalIngressVerifierSource = Join-Path $PSScriptRoot 'verify-closed-alpha-external-ingress.ps1'
+$liveHostExecutionSource = Join-Path $PSScriptRoot 'execute-closed-alpha-live-host.ps1'
 foreach ($source in @(
     $plannerSource,$livePlannerSource,$liveHostPreflightSource,$livePlanStagerSource,
-    $liveBackendDeploymentSource,$liveIngressActivationSource,$externalIngressVerifierSource)) {
+    $liveBackendDeploymentSource,$liveIngressActivationSource,$externalIngressVerifierSource,
+    $liveHostExecutionSource)) {
     Require ([IO.File]::Exists($source)) "Qualified deployment tool is missing: $source"
     $sourceItem = Get-Item -LiteralPath $source
     Require ($null -eq $sourceItem.LinkType) "Qualified deployment tool cannot be a symbolic link: $source"
@@ -77,6 +79,7 @@ $livePlanStagerDestination = Join-Path $bundleRoot 'stage-closed-alpha-live-depl
 $liveBackendDeploymentDestination = Join-Path $bundleRoot 'deploy-closed-alpha-live-backend.ps1'
 $liveIngressActivationDestination = Join-Path $bundleRoot 'activate-closed-alpha-live-ingress.ps1'
 $externalIngressVerifierDestination = Join-Path $bundleRoot 'verify-closed-alpha-external-ingress.ps1'
+$liveHostExecutionDestination = Join-Path $bundleRoot 'execute-closed-alpha-live-host.ps1'
 Copy-Item -LiteralPath $plannerSource -Destination $plannerDestination -Force
 Copy-Item -LiteralPath $livePlannerSource -Destination $livePlannerDestination -Force
 Copy-Item -LiteralPath $liveHostPreflightSource -Destination $liveHostPreflightDestination -Force
@@ -84,6 +87,7 @@ Copy-Item -LiteralPath $livePlanStagerSource -Destination $livePlanStagerDestina
 Copy-Item -LiteralPath $liveBackendDeploymentSource -Destination $liveBackendDeploymentDestination -Force
 Copy-Item -LiteralPath $liveIngressActivationSource -Destination $liveIngressActivationDestination -Force
 Copy-Item -LiteralPath $externalIngressVerifierSource -Destination $externalIngressVerifierDestination -Force
+Copy-Item -LiteralPath $liveHostExecutionSource -Destination $liveHostExecutionDestination -Force
 
 $backendDirectory = Join-Path $bundleRoot 'backend'
 Require ([IO.Directory]::Exists($backendDirectory)) 'The release bundle is missing its backend directory.'
@@ -116,7 +120,7 @@ $deploymentReadme = @'
 SAFE WORLD CLOSED-ALPHA DEPLOYMENT PLAN
 =======================================
 
-This candidate contains seven byte-manifested deployment-boundary tools:
+This candidate contains eight byte-manifested deployment-boundary tools:
 
   prepare-closed-alpha-deployment.ps1
   prepare-closed-alpha-live-deployment.ps1
@@ -125,6 +129,7 @@ This candidate contains seven byte-manifested deployment-boundary tools:
   deploy-closed-alpha-live-backend.ps1
   activate-closed-alpha-live-ingress.ps1
   verify-closed-alpha-external-ingress.ps1
+  execute-closed-alpha-live-host.ps1
 
 Protected backend-environment values remain on the live host. Request and
 preflight evidence contain no protected values; live plan staging allows only the
@@ -151,7 +156,30 @@ Operator sequence
    0644 baseline /etc/caddy/Caddyfile before preflight; that baseline is the
    fail-closed rollback target for later ingress activation.
 
-4. Run the byte-manifested read-only host preflight:
+4. Preferred composed execution: use the exact byte-manifested orchestrator to
+   run preflight -> staging -> backend -> ingress -> external acceptance in order:
+
+   pwsh ./execute-closed-alpha-live-host.ps1 \
+     -BundleDirectory . \
+     -RequestPath ../live-deployment-request.json \
+     -SshPrivateKeyPath <operator-private-key> \
+     -EvidenceDirectory ../live-execution-evidence
+
+   The evidence directory must be new or empty. Each successful stage writes its
+   own bounded evidence file. If any stage fails, execution stops immediately,
+   prior stage evidence remains for diagnosis, later stages do not run, and no
+   execution-chain.json success document is written. The wrapper does NOT claim
+   cross-stage atomic rollback. The SSH key path or contents are never copied into
+   evidence, and the final external verifier still receives no SSH credential.
+
+Equivalent individual commands
+------------------------------
+
+The composed command above invokes the following exact tools. These commands remain
+available for diagnosis and deliberate recovery without introducing another
+implementation path.
+
+5. Run the byte-manifested read-only host preflight:
 
    pwsh ./preflight-closed-alpha-live-host.ps1 \
      -BundleDirectory . \
@@ -159,7 +187,7 @@ Operator sequence
      -SshPrivateKeyPath <operator-private-key> \
      -EvidencePath ../live-host-preflight.json
 
-5. Within 15 minutes, stage the exact candidate and generate the deployment plan:
+6. Within 15 minutes, stage the exact candidate and generate the deployment plan:
 
    pwsh ./stage-closed-alpha-live-deployment-plan.ps1 \
      -BundleDirectory . \
@@ -168,7 +196,7 @@ Operator sequence
      -SshPrivateKeyPath <operator-private-key> \
      -EvidencePath ../live-plan-staging.json
 
-6. Within 15 minutes, deploy only the exact backend runtime:
+7. Within 15 minutes, deploy only the exact backend runtime:
 
    pwsh ./deploy-closed-alpha-live-backend.ps1 \
      -BundleDirectory . \
@@ -177,7 +205,7 @@ Operator sequence
      -SshPrivateKeyPath <operator-private-key> \
      -EvidencePath ../live-backend-deployment.json
 
-7. Within 15 minutes of backend deployment, activate the exact generated Caddyfile:
+8. Within 15 minutes of backend deployment, activate the exact generated Caddyfile:
 
    pwsh ./activate-closed-alpha-live-ingress.ps1 \
      -BundleDirectory . \
@@ -190,7 +218,7 @@ Operator sequence
    the exact backend. It still does not claim public certificate trust or that
    backend port 8080 is externally unreachable.
 
-8. Within 15 minutes, from a separate external observer with NO SSH credentials,
+9. Within 15 minutes, from a separate external observer with NO SSH credentials,
    run the byte-manifested read-only acceptance verifier:
 
    pwsh ./verify-closed-alpha-external-ingress.ps1 \
@@ -206,10 +234,10 @@ Operator sequence
    proves TCP port 8080 is connection-refused or timed out from the same observer.
    It does not use SSH, inspect protected environment values, or mutate the host.
 
-None of these preparation, staging, backend-deployment, ingress-activation or
-external-acceptance steps authorizes publication. Physical PC A -> PC B -> PC A
-Bring Here remains controlled only by release-manifest.json and the strict release
-verifier.
+None of these preparation, staging, backend-deployment, ingress-activation,
+external-acceptance or composed-execution steps authorizes publication. Physical
+PC A -> PC B -> PC A Bring Here remains controlled only by release-manifest.json
+and the strict release verifier.
 '@
 [IO.File]::WriteAllText($deploymentReadmePath,$deploymentReadme.Replace("`r`n","`n"),[Text.UTF8Encoding]::new($false))
 
@@ -252,7 +280,8 @@ $toolBindings = @(
     @{ Path='stage-closed-alpha-live-deployment-plan.ps1'; Destination=$livePlanStagerDestination; Label='live plan stager' },
     @{ Path='deploy-closed-alpha-live-backend.ps1'; Destination=$liveBackendDeploymentDestination; Label='live backend executor' },
     @{ Path='activate-closed-alpha-live-ingress.ps1'; Destination=$liveIngressActivationDestination; Label='live ingress activator' },
-    @{ Path='verify-closed-alpha-external-ingress.ps1'; Destination=$externalIngressVerifierDestination; Label='external ingress acceptance verifier' }
+    @{ Path='verify-closed-alpha-external-ingress.ps1'; Destination=$externalIngressVerifierDestination; Label='external ingress acceptance verifier' },
+    @{ Path='execute-closed-alpha-live-host.ps1'; Destination=$liveHostExecutionDestination; Label='live-host execution orchestrator' }
 )
 $toolHashes = @{}
 foreach ($binding in $toolBindings) {
@@ -273,6 +302,7 @@ Write-Host "  Live plan stager SHA-256: $($toolHashes['stage-closed-alpha-live-d
 Write-Host "  Live backend executor SHA-256: $($toolHashes['deploy-closed-alpha-live-backend.ps1'])"
 Write-Host "  Live ingress activator SHA-256: $($toolHashes['activate-closed-alpha-live-ingress.ps1'])"
 Write-Host "  External ingress verifier SHA-256: $($toolHashes['verify-closed-alpha-external-ingress.ps1'])"
+Write-Host "  Live-host execution orchestrator SHA-256: $($toolHashes['execute-closed-alpha-live-host.ps1'])"
 Write-Host "  Artifacts: $($finalManifest.artifacts.Count)"
 Write-Host '  Protected values copied into candidate: no'
 Write-Host '  Publish authorization changed: no'

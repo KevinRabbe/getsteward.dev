@@ -8,9 +8,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 function Require([bool]$Condition, [string]$Message) {
-    if (-not $Condition) {
-        throw $Message
-    }
+    if (-not $Condition) { throw $Message }
 }
 
 function Get-StrictProperties([object]$Value) {
@@ -37,7 +35,8 @@ $livePlannerSource = Join-Path $PSScriptRoot 'prepare-closed-alpha-live-deployme
 $liveHostPreflightSource = Join-Path $PSScriptRoot 'preflight-closed-alpha-live-host.ps1'
 $livePlanStagerSource = Join-Path $PSScriptRoot 'stage-closed-alpha-live-deployment-plan.ps1'
 $liveBackendDeploymentSource = Join-Path $PSScriptRoot 'deploy-closed-alpha-live-backend.ps1'
-foreach ($source in @($plannerSource, $livePlannerSource, $liveHostPreflightSource, $livePlanStagerSource, $liveBackendDeploymentSource)) {
+$liveIngressActivationSource = Join-Path $PSScriptRoot 'activate-closed-alpha-live-ingress.ps1'
+foreach ($source in @($plannerSource, $livePlannerSource, $liveHostPreflightSource, $livePlanStagerSource, $liveBackendDeploymentSource, $liveIngressActivationSource)) {
     Require ([IO.File]::Exists($source)) "Qualified deployment tool is missing: $source"
     $sourceItem = Get-Item -LiteralPath $source
     Require ($null -eq $sourceItem.LinkType) "Qualified deployment tool cannot be a symbolic link: $source"
@@ -50,8 +49,8 @@ $manifestText = [IO.File]::ReadAllText($manifestPath)
 Require ($manifestText.Length -le 4MB) 'Closed-alpha release manifest exceeds the 4 MiB finalization bound.'
 $manifest = $manifestText | ConvertFrom-Json
 Require-ExactProperties $manifest @(
-    'artifacts', 'builtAtUtc', 'channel', 'commitSha', 'deployment', 'documentType',
-    'publishAuthorization', 'schemaVersion', 'version'
+    'artifacts','builtAtUtc','channel','commitSha','deployment','documentType',
+    'publishAuthorization','schemaVersion','version'
 ) 'Release manifest'
 Require ([string]$manifest.documentType -ceq 'steward.closed-alpha-release-candidate') 'Unexpected release-manifest document type.'
 Require ([int]$manifest.schemaVersion -eq 1) 'Unsupported release-manifest schema version.'
@@ -73,11 +72,13 @@ $livePlannerDestination = Join-Path $bundleRoot 'prepare-closed-alpha-live-deplo
 $liveHostPreflightDestination = Join-Path $bundleRoot 'preflight-closed-alpha-live-host.ps1'
 $livePlanStagerDestination = Join-Path $bundleRoot 'stage-closed-alpha-live-deployment-plan.ps1'
 $liveBackendDeploymentDestination = Join-Path $bundleRoot 'deploy-closed-alpha-live-backend.ps1'
+$liveIngressActivationDestination = Join-Path $bundleRoot 'activate-closed-alpha-live-ingress.ps1'
 Copy-Item -LiteralPath $plannerSource -Destination $plannerDestination -Force
 Copy-Item -LiteralPath $livePlannerSource -Destination $livePlannerDestination -Force
 Copy-Item -LiteralPath $liveHostPreflightSource -Destination $liveHostPreflightDestination -Force
 Copy-Item -LiteralPath $livePlanStagerSource -Destination $livePlanStagerDestination -Force
 Copy-Item -LiteralPath $liveBackendDeploymentSource -Destination $liveBackendDeploymentDestination -Force
+Copy-Item -LiteralPath $liveIngressActivationSource -Destination $liveIngressActivationDestination -Force
 
 $backendDirectory = Join-Path $bundleRoot 'backend'
 Require ([IO.Directory]::Exists($backendDirectory)) 'The release bundle is missing its backend directory.'
@@ -103,25 +104,23 @@ Cleanup__IntervalMinutes=15
 Cleanup__VerifiedCandidateRetentionDays=7
 Cleanup__BatchSize=100
 '@
-[IO.File]::WriteAllText(
-    $environmentExamplePath,
-    $environmentExample.Replace("`r`n", "`n"),
-    [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($environmentExamplePath,$environmentExample.Replace("`r`n","`n"),[Text.UTF8Encoding]::new($false))
 
 $deploymentReadmePath = Join-Path $bundleRoot 'DEPLOYMENT-PLAN-README.txt'
 $deploymentReadme = @'
 SAFE WORLD CLOSED-ALPHA DEPLOYMENT PLAN
 =======================================
 
-This candidate contains five byte-manifested deployment-boundary tools:
+This candidate contains six byte-manifested deployment-boundary tools:
 
   prepare-closed-alpha-deployment.ps1
   prepare-closed-alpha-live-deployment.ps1
   preflight-closed-alpha-live-host.ps1
   stage-closed-alpha-live-deployment-plan.ps1
   deploy-closed-alpha-live-backend.ps1
+  activate-closed-alpha-live-ingress.ps1
 
-They keep protected backend-environment values on the live host. Request and
+Protected backend-environment values remain on the live host. Request and
 preflight evidence contain no protected values; live plan staging allows only the
 bundled deployment planner to read the protected file on that host.
 
@@ -140,15 +139,13 @@ Operator sequence
      -SshHostKeySha256 SHA256:<pinned-ed25519-host-key-fingerprint> \
      -OutputPath ../live-deployment-request.json
 
-3. Put the completed backend environment on the live host only at:
+3. Put the completed backend environment on the live host only at
+   /etc/steward/backend.env. It must be a regular non-symlink file, root-owned,
+   mode 0600. Provision Caddy as a managed service with a valid root:root mode
+   0644 baseline /etc/caddy/Caddyfile before preflight; that baseline is the
+   fail-closed rollback target for later ingress activation.
 
-   /etc/steward/backend.env
-
-   It must be a regular non-symlink file, root-owned, mode 0600. The first release
-   requires PostgreSQL 17 with SSL Mode=VerifyFull and Trust Server Certificate=false,
-   private HTTPS S3-compatible storage, and the configured Friends Build identities.
-
-4. Before transferring the candidate, run the byte-manifested read-only preflight:
+4. Run the byte-manifested read-only host preflight:
 
    pwsh ./preflight-closed-alpha-live-host.ps1 \
      -BundleDirectory . \
@@ -156,12 +153,7 @@ Operator sequence
      -SshPrivateKeyPath <operator-private-key> \
      -EvidencePath ../live-host-preflight.json
 
-   It proves the bound DNS/SSH identity, Linux/x86_64, tool/sudo/Docker readiness,
-   root/0600 protected-environment metadata without reading its contents, and a
-   clean first-deployment target. It transfers no candidate and starts nothing.
-
-5. Within 15 minutes of that successful preflight, stage the exact candidate and
-   generate the deployment plan on the host:
+5. Within 15 minutes, stage the exact candidate and generate the deployment plan:
 
    pwsh ./stage-closed-alpha-live-deployment-plan.ps1 \
      -BundleDirectory . \
@@ -170,16 +162,7 @@ Operator sequence
      -SshPrivateKeyPath <operator-private-key> \
      -EvidencePath ../live-plan-staging.json
 
-   This re-resolves DNS, re-observes the pinned SSH key, and rechecks the clean
-   target before transfer. It then copies only the verified candidate, verifies
-   it again remotely, and runs prepare-closed-alpha-deployment.ps1 with
-   -RequireDeployable beside /etc/steward/backend.env. The protected environment
-   is read on the host but is never transferred back. The generated plan must
-   report secretValuesCopied=false. This step does not docker load, create or
-   start steward-backend, occupy port 8080, or modify /etc/caddy/Caddyfile.
-
-6. Within 15 minutes of successful plan staging, cross only the backend runtime
-   boundary with the byte-manifested executor:
+6. Within 15 minutes, deploy only the exact backend runtime:
 
    pwsh ./deploy-closed-alpha-live-backend.ps1 \
      -BundleDirectory . \
@@ -188,42 +171,44 @@ Operator sequence
      -SshPrivateKeyPath <operator-private-key> \
      -EvidencePath ../live-backend-deployment.json
 
-   It revalidates DNS, the pinned SSH host key, staged candidate/plan bytes,
-   protected-environment metadata, empty exact-image/container state, port 8080,
-   and unchanged Caddy state before loading or starting anything. It then executes
-   the generated exact-image deploy script, requires the exact image/runtime user,
-   and proves local /health/live and /health/ready. Caddy remains unchanged and
-   neither public HTTPS nor external port-8080 closure is claimed by this step.
+   This proves the exact image/container and local /health/live + /health/ready.
+   It does not modify Caddy and does not claim public HTTPS or external firewall
+   state.
 
-7. Only after separate public-ingress authorization, install the generated Caddyfile
-   as /etc/caddy/Caddyfile and validate/reload Caddy through the host's managed-service
-   procedure. Do not expose backend port 8080 publicly.
+7. Within 15 minutes of backend deployment, activate the exact generated Caddyfile:
 
-8. After DNS and public TLS are active, verify without certificate bypass:
+   pwsh ./activate-closed-alpha-live-ingress.ps1 \
+     -BundleDirectory . \
+     -RequestPath ../live-deployment-request.json \
+     -BackendDeploymentEvidencePath ../live-backend-deployment.json \
+     -SshPrivateKeyPath <operator-private-key> \
+     -EvidencePath ../live-ingress-activation.json
 
-   bash /srv/steward/deployment-plans/<release-commit>/verify-public-https.sh
+   The activator revalidates DNS/SSH identity, release/plan bytes, exact backend
+   health, protected-environment metadata and the byte-bound baseline Caddyfile.
+   It validates the generated Caddyfile before mutation, atomically installs it,
+   reloads managed caddy.service, and rolls back the exact baseline on any failed
+   postcondition. This step still does not claim public certificate trust or that
+   backend port 8080 is externally unreachable.
 
-None of these preparation, staging, backend-deployment, or ingress steps authorizes
-publication. Physical PC A -> PC B -> PC A Bring Here remains controlled only by
-release-manifest.json and the strict release verifier.
+8. From a separate external observer, verify public HTTPS without certificate
+   bypass and separately prove backend port 8080 is externally unreachable.
+
+None of these preparation, staging, backend-deployment or ingress-activation steps
+authorizes publication. Physical PC A -> PC B -> PC A Bring Here remains controlled
+only by release-manifest.json and the strict release verifier.
 '@
-[IO.File]::WriteAllText(
-    $deploymentReadmePath,
-    $deploymentReadme.Replace("`r`n", "`n"),
-    [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($deploymentReadmePath,$deploymentReadme.Replace("`r`n","`n"),[Text.UTF8Encoding]::new($false))
 
 $artifactEntries = @(Get-ChildItem -LiteralPath $bundleRoot -Recurse -File |
     Where-Object {
-        -not [string]::Equals(
-            [IO.Path]::GetFullPath($_.FullName),
-            [IO.Path]::GetFullPath($manifestPath),
-            [StringComparison]::OrdinalIgnoreCase)
+        -not [string]::Equals([IO.Path]::GetFullPath($_.FullName),[IO.Path]::GetFullPath($manifestPath),[StringComparison]::OrdinalIgnoreCase)
     } |
     Sort-Object FullName |
     ForEach-Object {
         Require ($null -eq $_.LinkType) "Release artifact '$($_.FullName)' cannot be a symbolic link."
         [ordered]@{
-            path = [IO.Path]::GetRelativePath($bundleRoot, $_.FullName).Replace('\', '/')
+            path = [IO.Path]::GetRelativePath($bundleRoot,$_.FullName).Replace('\','/')
             byteSize = $_.Length
             sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToUpperInvariant()
         }
@@ -241,22 +226,19 @@ $immutableIdentityAfter = [ordered]@{
     deployment = $manifest.deployment
     publishAuthorization = $manifest.publishAuthorization
 } | ConvertTo-Json -Compress -Depth 8
-Require ([string]::Equals($immutableIdentityBefore, $immutableIdentityAfter, [StringComparison]::Ordinal)) 'Deployment-plan finalization changed immutable release identity or publish authorization.'
+Require ([string]::Equals($immutableIdentityBefore,$immutableIdentityAfter,[StringComparison]::Ordinal)) 'Deployment-plan finalization changed immutable release identity or publish authorization.'
 
-[IO.File]::WriteAllText(
-    $manifestPath,
-    ($manifest | ConvertTo-Json -Depth 8),
-    [Text.UTF8Encoding]::new($false))
-
+[IO.File]::WriteAllText($manifestPath,($manifest | ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
 & $verifierPath -BundleDirectory $bundleRoot
 
 $finalManifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
 $toolBindings = @(
-    @{ Path = 'prepare-closed-alpha-deployment.ps1'; Destination = $plannerDestination; Label = 'deployment planner' },
-    @{ Path = 'prepare-closed-alpha-live-deployment.ps1'; Destination = $livePlannerDestination; Label = 'live deployment request planner' },
-    @{ Path = 'preflight-closed-alpha-live-host.ps1'; Destination = $liveHostPreflightDestination; Label = 'live-host preflight' },
-    @{ Path = 'stage-closed-alpha-live-deployment-plan.ps1'; Destination = $livePlanStagerDestination; Label = 'live plan stager' },
-    @{ Path = 'deploy-closed-alpha-live-backend.ps1'; Destination = $liveBackendDeploymentDestination; Label = 'live backend executor' }
+    @{ Path='prepare-closed-alpha-deployment.ps1'; Destination=$plannerDestination; Label='deployment planner' },
+    @{ Path='prepare-closed-alpha-live-deployment.ps1'; Destination=$livePlannerDestination; Label='live deployment request planner' },
+    @{ Path='preflight-closed-alpha-live-host.ps1'; Destination=$liveHostPreflightDestination; Label='live-host preflight' },
+    @{ Path='stage-closed-alpha-live-deployment-plan.ps1'; Destination=$livePlanStagerDestination; Label='live plan stager' },
+    @{ Path='deploy-closed-alpha-live-backend.ps1'; Destination=$liveBackendDeploymentDestination; Label='live backend executor' },
+    @{ Path='activate-closed-alpha-live-ingress.ps1'; Destination=$liveIngressActivationDestination; Label='live ingress activator' }
 )
 $toolHashes = @{}
 foreach ($binding in $toolBindings) {
@@ -275,6 +257,7 @@ Write-Host "  Live request planner SHA-256: $($toolHashes['prepare-closed-alpha-
 Write-Host "  Live-host preflight SHA-256: $($toolHashes['preflight-closed-alpha-live-host.ps1'])"
 Write-Host "  Live plan stager SHA-256: $($toolHashes['stage-closed-alpha-live-deployment-plan.ps1'])"
 Write-Host "  Live backend executor SHA-256: $($toolHashes['deploy-closed-alpha-live-backend.ps1'])"
+Write-Host "  Live ingress activator SHA-256: $($toolHashes['activate-closed-alpha-live-ingress.ps1'])"
 Write-Host "  Artifacts: $($finalManifest.artifacts.Count)"
 Write-Host '  Protected values copied into candidate: no'
 Write-Host '  Publish authorization changed: no'

@@ -37,6 +37,7 @@ jobs:
           $expectedNames = @(
             'Closed alpha deployment plan CI',
             'Closed alpha release candidate',
+            'Closed alpha live deployment request CI',
             'CI',
             'Bring Here disposable end-to-end',
             'Bring Here two-PC test kit',
@@ -47,6 +48,7 @@ jobs:
             '7 Days to Die adapter CI',
             'Project Zomboid adapter CI'
           )
+          $expectedCount = $expectedNames.Count
           $headers = @{
             Accept = 'application/vnd.github+json'
             Authorization = "Bearer $env:GH_TOKEN"
@@ -64,7 +66,7 @@ jobs:
             $pendingBody = [ordered]@{
               state = 'pending'
               context = 'safe-world/exact-head-qualification'
-              description = 'Waiting for all 11 exact-head workflow groups.'
+              description = "Waiting for all $expectedCount exact-head workflow groups."
               target_url = $observerUrl
             } | ConvertTo-Json -Compress
             Invoke-RestMethod -Method Post -Uri $statusUri -Headers $headers -Body $pendingBody -ContentType 'application/json' | Out-Null
@@ -86,7 +88,7 @@ jobs:
 
               $presentCount = $selected.Count
               $completedCount = @($selected.Values | Where-Object { [string]$_.status -in $terminal }).Count
-              Write-Host "Exact-head qualification: $presentCount/11 present, $completedCount/11 completed."
+              Write-Host "Exact-head qualification: $presentCount/$expectedCount present, $completedCount/$expectedCount completed."
               foreach ($name in $expectedNames) {
                 if ($selected.ContainsKey($name)) {
                   $run = $selected[$name]
@@ -97,13 +99,13 @@ jobs:
                 }
               }
 
-              if ($presentCount -eq $expectedNames.Count -and $completedCount -eq $expectedNames.Count) {
+              if ($presentCount -eq $expectedCount -and $completedCount -eq $expectedCount) {
                 break
               }
               Start-Sleep -Seconds 15
             } while ([DateTimeOffset]::UtcNow -lt $deadline)
 
-            if ($selected.Count -ne $expectedNames.Count) {
+            if ($selected.Count -ne $expectedCount) {
               $missing = @($expectedNames | Where-Object { -not $selected.ContainsKey($_) })
               $failureReason = "Missing exact-head workflow runs: $($missing -join ', ')"
             }
@@ -160,9 +162,9 @@ jobs:
             event = $targetEvent
             headSha = $targetSha
             observerRunId = [int64]$env:GITHUB_RUN_ID
-            expectedWorkflowGroupCount = $expectedNames.Count
-            allPresent = ($selected.Count -eq $expectedNames.Count)
-            allCompleted = ($selected.Count -eq $expectedNames.Count -and @($selected.Values | Where-Object { [string]$_.status -cne 'completed' }).Count -eq 0)
+            expectedWorkflowGroupCount = $expectedCount
+            allPresent = ($selected.Count -eq $expectedCount)
+            allCompleted = ($selected.Count -eq $expectedCount -and @($selected.Values | Where-Object { [string]$_.status -cne 'completed' }).Count -eq 0)
             allSucceeded = $succeeded
             failureReason = $failureReason
             workflowGroups = $groups
@@ -174,7 +176,7 @@ jobs:
 
           $state = if ($succeeded) { 'success' } else { 'failure' }
           $description = if ($succeeded) {
-            'All 11 exact-head workflow groups are green.'
+            "All $expectedCount exact-head workflow groups are green."
           }
           else {
             $text = [string]$failureReason

@@ -78,7 +78,7 @@ function Invoke-CurlHealth(
         '--silent','--show-error','--fail',
         '--connect-timeout','5','--max-time','15',
         '--proto','=https','--tlsv1.2',
-        '--proxy','','--noproxy','*',
+        '--noproxy','*',
         '--resolve',"${ApiHost}:443:${ExpectedIpv4}",
         '--output',$OutputPath,
         '--write-out','%{http_code}\t%{remote_ip}\t%{ssl_verify_result}\t%{scheme}',
@@ -94,7 +94,7 @@ function Invoke-CurlHealth(
     Require ($match.Groups['status'].Value -ceq '200') "$Context returned HTTP $($match.Groups['status'].Value), expected 200."
     Require ($match.Groups['remote'].Value -ceq $ExpectedIpv4) "$Context connected to '$($match.Groups['remote'].Value)', expected '$ExpectedIpv4'."
     Require ($match.Groups['verify'].Value -ceq '0') "$Context did not pass certificate verification. curl ssl_verify_result=$($match.Groups['verify'].Value)."
-    Require ($match.Groups['scheme'].Value -ceq 'HTTPS') "$Context did not use HTTPS."
+    Require ([string]::Equals($match.Groups['scheme'].Value,'https',[StringComparison]::OrdinalIgnoreCase)) "$Context did not use HTTPS."
     return [ordered]@{
         statusCode = 200
         remoteIpv4 = $ExpectedIpv4

@@ -155,7 +155,7 @@ $requestSha256 = (Get-FileHash -LiteralPath $requestFile.FullPath -Algorithm SHA
 $backendFile = Read-BoundedJson $BackendDeploymentEvidencePath 1MB 'Live backend deployment evidence'
 $backend = $backendFile.Json
 Require-ExactProperties $backend @(
-    'apiBaseUrl','apiHost','backendContainerRunning','backendContainerStarted','backendDeploymentAgeSecondsAtStart',
+    'apiBaseUrl','apiHost','backendContainerRunning','backendContainerStarted',
     'backendImageId','backendImageLoaded','backendLocalLive','backendLocalReady','backendPort8080Listening','backendRuntimeUser',
     'caddyModified','caddyStateAfter','caddyStateBefore','completedAtUtc','deploymentPlanReverified','deploymentPlanSha256',
     'dnsReverified','documentType','externalPort8080ClosedVerified','physicalBringHere','protectedEnvironmentMetadataPreserved',

@@ -108,12 +108,17 @@ if ([string]::IsNullOrWhiteSpace($backendImage) -or $backendImage -notmatch '^st
     Fail 'Backend image metadata is invalid.'
 }
 
+$postgresImage = 'postgres:17@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317'
+$minioImage = 'minio/minio:latest@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e'
+$minioMcImage = 'minio/mc:latest@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727'
+$caddyImage = 'caddy:2@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9'
+$dependencyImages = @($postgresImage, $minioImage, $minioMcImage, $caddyImage)
+
 Write-Host 'Steward Closed Beta setup'
 Write-Host "  Public API: https://$domainValue/"
 Write-Host "  Backend: $backendImage"
 Write-Host
-Write-Host 'Pulling standard private-stack dependencies...'
-$dependencyImages = @('postgres:17', 'minio/minio:latest', 'minio/mc:latest', 'caddy:2')
+Write-Host 'Pulling digest-pinned private-stack dependencies...'
 foreach ($image in $dependencyImages) { Docker @('pull', $image) }
 
 Write-Host 'Loading exact Steward backend image...'
@@ -132,10 +137,10 @@ $minioSecretKey = New-Secret 32
 $envLines = @(
     'STEWARD_BETA_DOMAIN=' + (EnvValue $domainValue),
     'STEWARD_BACKEND_IMAGE=' + (EnvValue $backendImage),
-    'POSTGRES_IMAGE=' + (EnvValue 'postgres:17'),
-    'MINIO_IMAGE=' + (EnvValue 'minio/minio:latest'),
-    'MINIO_MC_IMAGE=' + (EnvValue 'minio/mc:latest'),
-    'CADDY_IMAGE=' + (EnvValue 'caddy:2'),
+    'POSTGRES_IMAGE=' + (EnvValue $postgresImage),
+    'MINIO_IMAGE=' + (EnvValue $minioImage),
+    'MINIO_MC_IMAGE=' + (EnvValue $minioMcImage),
+    'CADDY_IMAGE=' + (EnvValue $caddyImage),
     'STEWARD_POSTGRES_PASSWORD=' + (EnvValue $postgresPassword),
     'STEWARD_MINIO_ACCESS_KEY=' + (EnvValue $minioAccessKey),
     'STEWARD_MINIO_SECRET_KEY=' + (EnvValue $minioSecretKey),

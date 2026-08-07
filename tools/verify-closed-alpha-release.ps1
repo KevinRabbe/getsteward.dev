@@ -8,229 +8,47 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Require([bool]$Condition, [string]$Message) {
-    if (-not $Condition) {
-        throw $Message
-    }
+function Require([bool]$Condition,[string]$Message){if(-not $Condition){throw $Message}}
+function Get-StrictProperties([object]$Value){Require($null -ne $Value) 'Expected a JSON object but found null.';return @($Value.PSObject.Properties.Name|Sort-Object)}
+function Require-ExactProperties([object]$Value,[string[]]$Expected,[string]$Context){$a=@(Get-StrictProperties $Value);$e=@($Expected|Sort-Object);Require($a.Count -eq $e.Count -and @(Compare-Object $a $e).Count -eq 0) "$Context contains missing or unexpected properties."}
+function Require-SafeRelativePath([string]$Path){Require(-not [string]::IsNullOrWhiteSpace($Path)) 'Artifact path is required.';Require($Path.Length -le 260) "Artifact path '$Path' is too long.";Require(-not [IO.Path]::IsPathRooted($Path)) "Artifact path '$Path' must be relative.";Require(-not $Path.Contains('\',[StringComparison]::Ordinal)) "Artifact path '$Path' must use forward slashes.";Require(-not $Path.StartsWith('/',[StringComparison]::Ordinal)) "Artifact path '$Path' cannot start with '/'.";Require($Path -notmatch '[\x00-\x1F\x7F:]') "Artifact path '$Path' contains a control character or colon.";foreach($s in @($Path.Split('/'))){Require(-not [string]::IsNullOrEmpty($s) -and $s -cne '.' -and $s -cne '..') "Artifact path '$Path' contains an invalid segment."}}
+function Get-ArtifactByPath([object[]]$Artifacts,[string]$Path){$m=@($Artifacts|Where-Object{[string]$_.path -ceq $Path});Require($m.Count -eq 1) "Evidence path '$Path' is not represented exactly once in the release artifact list.";return $m[0]}
+function Canonical([object]$Value){return ($Value|ConvertTo-Json -Compress -Depth 64)}
+function Require-Ref([object]$Ref,[string]$Context,[object[]]$Artifacts,[string]$Prefix){Require-ExactProperties $Ref @('path','sha256') $Context;$p=[string]$Ref.path;Require-SafeRelativePath $p;Require($p.StartsWith($Prefix,[StringComparison]::Ordinal)) "$Context path must be under $Prefix";$h=[string]$Ref.sha256;Require($h -match '^[0-9A-F]{64}$') "$Context SHA-256 is malformed.";$a=Get-ArtifactByPath $Artifacts $p;Require([string]$a.sha256 -ceq $h) "$Context SHA-256 disagrees with the artifact list.";return $p}
+function Read-ArtifactJson([string]$Root,[object]$Ref,[string]$Context,[object[]]$Artifacts,[string]$Prefix,[int64]$MaxBytes=1048576){$p=Require-Ref $Ref $Context $Artifacts $Prefix;$f=[IO.Path]::GetFullPath((Join-Path $Root $p));$i=Get-Item -LiteralPath $f;Require($i.Length -gt 0 -and $i.Length -le $MaxBytes) "$Context is empty or exceeds its bound.";return [ordered]@{Path=$p;FullPath=$f;Text=[IO.File]::ReadAllText($f);Json=([IO.File]::ReadAllText($f)|ConvertFrom-Json);Hash=[string]$Ref.sha256;Size=$i.Length}}
+function Require-PngRef([string]$Root,[object]$Ref,[string]$Context,[object[]]$Artifacts){$p=Require-Ref $Ref $Context $Artifacts 'publication-evidence/physical/screenshots/';Require($p.EndsWith('.png',[StringComparison]::OrdinalIgnoreCase)) "$Context must be PNG.";$f=Join-Path $Root $p;$i=Get-Item -LiteralPath $f;Require($i.Length -ge 100 -and $i.Length -le 20MB) "$Context is outside the screenshot size bound.";$s=[IO.File]::OpenRead($f);try{$b=[byte[]]::new(8);Require($s.Read($b,0,8) -eq 8) "$Context is truncated.";$sig=[byte[]](0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A);for($n=0;$n -lt 8;$n++){Require($b[$n] -eq $sig[$n]) "$Context is not a PNG file."}}finally{$s.Dispose()}}
+function Validate-Journal([object]$Evidence,[string]$Context){$j=$Evidence.journal;$w=$Evidence.world;Require-ExactProperties $j @('confirmedEnvironmentRevisionId','confirmedGameAdapterId','confirmedName','confirmedStateRevisionId','desiredEnvironmentRevisionId','desiredGameAdapterId','desiredName','desiredStateRevisionId','installationId','isSynchronized') "$Context journal";Require([bool]$j.isSynchronized) "$Context journal is not synchronized.";Require([string]$j.installationId -ceq [string]$Evidence.installationId) "$Context journal installation mismatch.";Require([string]$j.desiredStateRevisionId -ceq [string]$w.stateRevisionId -and [string]$j.confirmedStateRevisionId -ceq [string]$w.stateRevisionId) "$Context journal state mismatch.";Require([string]$j.desiredEnvironmentRevisionId -ceq [string]$w.environmentRevisionId -and [string]$j.confirmedEnvironmentRevisionId -ceq [string]$w.environmentRevisionId) "$Context journal environment mismatch.";Require([string]$j.desiredName -ceq [string]$w.name -and [string]$j.confirmedName -ceq [string]$w.name) "$Context journal name mismatch.";Require([string]$j.desiredGameAdapterId -ceq [string]$w.gameAdapterId -and [string]$j.confirmedGameAdapterId -ceq [string]$w.gameAdapterId) "$Context journal adapter mismatch."}
+function Validate-PhysicalCheckpoint([object]$Evidence,[string]$Role,[string]$Commit,[string]$Context){Require-ExactProperties $Evidence @('build','collectedAtUtc','desktopProcessCount','documentType','installationId','journal','machineName','role','schemaVersion','sourceEvidenceSha256','targetEvidenceSha256','world') $Context;Require([string]$Evidence.documentType -ceq 'safe-world.bring-here-two-pc-evidence' -and [int]$Evidence.schemaVersion -eq 1 -and [string]$Evidence.role -ceq $Role) "$Context identity is invalid.";Require([int]$Evidence.desktopProcessCount -eq 1) "$Context must prove exactly one Safe World Desktop process.";Require(-not [string]::IsNullOrWhiteSpace([string]$Evidence.machineName) -and -not [string]::IsNullOrWhiteSpace([string]$Evidence.installationId)) "$Context machine/installation identity is missing.";$dt=[DateTimeOffset]::MinValue;Require([DateTimeOffset]::TryParse([string]$Evidence.collectedAtUtc,[ref]$dt) -and $dt -ne [DateTimeOffset]::MinValue) "$Context timestamp is malformed.";Require-ExactProperties $Evidence.build @('commitSha','desktopExecutableSha256','manifestSha256','packageFingerprintSha256') "$Context build";Require([string]$Evidence.build.commitSha -ceq $Commit) "$Context build commit does not equal the release commit.";foreach($h in @([string]$Evidence.build.desktopExecutableSha256,[string]$Evidence.build.manifestSha256,[string]$Evidence.build.packageFingerprintSha256)){Require($h -match '^[0-9a-f]{64}$') "$Context build hash is malformed."};Require-ExactProperties $Evidence.world @('environmentParentRevisionId','environmentRevisionId','environmentRevisionSha256','gameAdapterId','gameVersion','name','payloadByteSize','payloadSha256','sharingMode','statePackageId','stateParentRevisionId','stateRevisionId','stateRevisionSha256','worldId') "$Context world";Require([int64]$Evidence.world.payloadByteSize -gt 0 -and [string]$Evidence.world.payloadSha256 -match '^[0-9a-f]{64}$' -and [string]$Evidence.world.stateRevisionSha256 -match '^[0-9a-f]{64}$' -and [string]$Evidence.world.environmentRevisionSha256 -match '^[0-9a-f]{64}$') "$Context World fingerprint is malformed.";Validate-Journal $Evidence $Context;return $dt}
+
+$root=[IO.Path]::GetFullPath($BundleDirectory);Require([IO.Directory]::Exists($root)) "Closed-alpha bundle directory does not exist: $root"
+$manifestPath=Join-Path $root 'release-manifest.json';Require([IO.File]::Exists($manifestPath)) "Closed-alpha release manifest is missing: $manifestPath"
+$manifestText=[IO.File]::ReadAllText($manifestPath);Require($manifestText.Length -le 4MB) 'Closed-alpha release manifest exceeds the 4 MiB verification bound.';$manifest=$manifestText|ConvertFrom-Json
+Require-ExactProperties $manifest @('artifacts','builtAtUtc','channel','commitSha','deployment','documentType','publishAuthorization','schemaVersion','version') 'Release manifest';Require([string]$manifest.documentType -ceq 'steward.closed-alpha-release-candidate' -and [int]$manifest.schemaVersion -eq 1 -and [string]$manifest.channel -ceq 'closed-alpha') 'Release manifest identity is invalid.'
+$version=[string]$manifest.version;Require($version -match '^[0-9A-Za-z][0-9A-Za-z.-]{0,63}$') 'Release version is missing or malformed.';$commitSha=[string]$manifest.commitSha;Require($commitSha -match '^[0-9a-f]{40}$') 'Release commit SHA must be one lowercase 40-character Git SHA.';$builtAt=[DateTimeOffset]::MinValue;Require([DateTimeOffset]::TryParse([string]$manifest.builtAtUtc,[ref]$builtAt) -and $builtAt -ne [DateTimeOffset]::MinValue) 'Release builtAtUtc is malformed.'
+Require-ExactProperties $manifest.publishAuthorization @('evidencePath','evidenceSha256','physicalBringHere','publishAllowed','reason') 'Publish authorization';$physicalStatus=[string]$manifest.publishAuthorization.physicalBringHere;Require($physicalStatus -in @('deferred','passed')) 'Physical Bring Here status must be deferred or passed.';$publishAllowed=[bool]$manifest.publishAuthorization.publishAllowed;Require($publishAllowed -eq ($physicalStatus -ceq 'passed')) 'Publish authorization disagrees with the physical Bring Here state.';$reason=[string]$manifest.publishAuthorization.reason;Require(-not [string]::IsNullOrWhiteSpace($reason) -and $reason.Length -le 500 -and $reason -notmatch '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]') 'Publish authorization reason is invalid.';$authPathValue=$manifest.publishAuthorization.evidencePath;$authShaValue=$manifest.publishAuthorization.evidenceSha256
+if($physicalStatus -ceq 'deferred'){Require($null -eq $authPathValue -and $null -eq $authShaValue) 'Deferred publish authorization cannot carry evidence fields.'}else{$authPath=[string]$authPathValue;$authSha=[string]$authShaValue;Require-SafeRelativePath $authPath;Require($authPath -ceq 'publication-evidence/publication-authorization.json') 'Authorized candidate must use the exact combined publication evidence path.';Require($authSha -match '^[0-9A-F]{64}$') 'Combined publication evidence SHA-256 is malformed.'}
+
+Require-ExactProperties $manifest.deployment @('apiBaseUrl','authenticationMode','backendImageId','backendImageTag','backendRuntimeUser','objectStorageProtocol','postgresMajorVersion','targetPlatform') 'Deployment contract';$apiUri=$null;Require([Uri]::TryCreate([string]$manifest.deployment.apiBaseUrl,[UriKind]::Absolute,[ref]$apiUri)) 'Deployment API base URL is malformed.';Require([string]::Equals($apiUri.Scheme,[Uri]::UriSchemeHttps,[StringComparison]::OrdinalIgnoreCase) -and [string]::IsNullOrEmpty($apiUri.UserInfo) -and [string]::IsNullOrEmpty($apiUri.Query) -and [string]::IsNullOrEmpty($apiUri.Fragment) -and $apiUri.AbsoluteUri.EndsWith('/',[StringComparison]::Ordinal)) 'Deployment API base URL is invalid.';Require([string]$manifest.deployment.authenticationMode -ceq 'friends-build' -and [string]$manifest.deployment.backendRuntimeUser -ceq 'app' -and [string]$manifest.deployment.targetPlatform -ceq 'linux/amd64' -and [int]$manifest.deployment.postgresMajorVersion -eq 17 -and [string]$manifest.deployment.objectStorageProtocol -ceq 's3-compatible') 'Deployment contract changed.';Require([string]$manifest.deployment.backendImageId -match '^sha256:[0-9a-f]{64}$' -and -not [string]::IsNullOrWhiteSpace([string]$manifest.deployment.backendImageTag)) 'Backend image identity is malformed.'
+
+$artifacts=@($manifest.artifacts);Require($artifacts.Count -gt 0 -and $artifacts.Count -le 10000) 'Release artifact list is empty or exceeds the 10,000-file bound.';$seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+foreach($a in $artifacts){Require-ExactProperties $a @('byteSize','path','sha256') 'Artifact entry';$p=[string]$a.path;Require-SafeRelativePath $p;Require($seen.Add($p)) "Artifact path '$p' is duplicated.";$size=[int64]$a.byteSize;Require($size -ge 0) "Artifact '$p' has a negative byte size.";$hash=[string]$a.sha256;Require($hash -match '^[0-9A-F]{64}$') "Artifact '$p' has a malformed SHA-256.";$f=[IO.Path]::GetFullPath((Join-Path $root $p));Require($f.StartsWith($root+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -and [IO.File]::Exists($f)) "Artifact '$p' is missing or escapes the bundle.";$i=Get-Item -LiteralPath $f;Require($null -eq $i.LinkType -and $i.Length -eq $size) "Artifact '$p' does not match its declared file identity.";Require((Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash -ceq $hash) "Artifact '$p' does not match its declared SHA-256."}
+$actual=@(Get-ChildItem -LiteralPath $root -Recurse -File|ForEach-Object{[IO.Path]::GetRelativePath($root,$_.FullName).Replace('\','/')}|Sort-Object);$expected=@($seen|Sort-Object)+@('release-manifest.json');$expected=@($expected|Sort-Object);Require($actual.Count -eq $expected.Count -and @(Compare-Object $actual $expected).Count -eq 0) 'Bundle contains unmanifested files or omits manifested files.'
+$desktop=@($artifacts|Where-Object{([string]$_.path).StartsWith('desktop/',[StringComparison]::Ordinal)-and([string]$_.path).EndsWith('.zip',[StringComparison]::OrdinalIgnoreCase)});$backend=@($artifacts|Where-Object{([string]$_.path).StartsWith('backend/',[StringComparison]::Ordinal)-and([string]$_.path).EndsWith('.tar',[StringComparison]::OrdinalIgnoreCase)});Require($desktop.Count -eq 1 -and $backend.Count -eq 1) 'Bundle must contain exactly one Desktop ZIP and one backend TAR.';foreach($required in @('backend/deployment.env.example','CLOSED-ALPHA-OPERATOR-RUNBOOK.txt','verify-closed-alpha-release.ps1','RELEASE-STATUS.txt')){Require($seen.Contains($required)) "Bundle is missing $required."}
+
+if($physicalStatus -ceq 'passed'){
+    $authRef=[ordered]@{path=[string]$authPathValue;sha256=[string]$authShaValue};$authDoc=Read-ArtifactJson $root $authRef 'Combined publication authorization' $artifacts 'publication-evidence/' 1048576;$auth=$authDoc.Json;Require-ExactProperties $auth @('completedAtUtc','documentType','externalObserverSeparation','liveHostAcceptancePassed','liveHostExecution','physicalBringHerePassed','physicalPass','physicalUiObservationAttestation','publishAllowed','releaseCommitSha','releaseVersion','schemaVersion','sourceDeferredManifest') 'Combined publication authorization';Require([string]$auth.documentType -ceq 'steward.closed-alpha-publication-authorization' -and [int]$auth.schemaVersion -eq 1 -and [string]$auth.releaseVersion -ceq $version -and [string]$auth.releaseCommitSha -ceq $commitSha) 'Combined publication authorization identity does not match the release.';$adt=[DateTimeOffset]::MinValue;Require([DateTimeOffset]::TryParse([string]$auth.completedAtUtc,[ref]$adt) -and $adt -ne [DateTimeOffset]::MinValue) 'Combined publication authorization timestamp is malformed.';Require([bool]$auth.physicalBringHerePassed -and [bool]$auth.liveHostAcceptancePassed -and [bool]$auth.publishAllowed) 'Combined authorization does not prove both required gates.';Require([string]$auth.physicalUiObservationAttestation -ceq 'operator-required-not-machine-attested' -and [string]$auth.externalObserverSeparation -ceq 'operator-required-not-machine-attested') 'Combined authorization overstates human/observer attestation.'
+
+    $sourceManifestDoc=Read-ArtifactJson $root $auth.sourceDeferredManifest 'Deferred source manifest' $artifacts 'publication-evidence/' 4194304;Require($sourceManifestDoc.Path -ceq 'publication-evidence/source-release-manifest.json') 'Deferred source manifest path is not canonical.';$sourceManifest=$sourceManifestDoc.Json;Require-ExactProperties $sourceManifest @('artifacts','builtAtUtc','channel','commitSha','deployment','documentType','publishAuthorization','schemaVersion','version') 'Deferred source manifest';Require([string]$sourceManifest.documentType -ceq 'steward.closed-alpha-release-candidate' -and [int]$sourceManifest.schemaVersion -eq 1 -and [string]$sourceManifest.channel -ceq 'closed-alpha' -and [string]$sourceManifest.version -ceq $version -and [string]$sourceManifest.commitSha -ceq $commitSha -and [string]$sourceManifest.builtAtUtc -ceq [string]$manifest.builtAtUtc) 'Deferred source manifest release identity changed.';Require((Canonical $sourceManifest.deployment) -ceq (Canonical $manifest.deployment)) 'Publication promotion changed the deployment contract.';Require-ExactProperties $sourceManifest.publishAuthorization @('evidencePath','evidenceSha256','physicalBringHere','publishAllowed','reason') 'Deferred source authorization';Require([string]$sourceManifest.publishAuthorization.physicalBringHere -ceq 'deferred' -and -not [bool]$sourceManifest.publishAuthorization.publishAllowed -and $null -eq $sourceManifest.publishAuthorization.evidencePath -and $null -eq $sourceManifest.publishAuthorization.evidenceSha256) 'Copied source manifest was not deferred.'
+
+    $physicalDoc=Read-ArtifactJson $root $auth.physicalPass 'Physical Bring Here pass' $artifacts 'publication-evidence/' 1048576;Require($physicalDoc.Path -ceq 'publication-evidence/physical-pass.json') 'Physical pass path is not canonical.';$physical=$physicalDoc.Json;Require-ExactProperties $physical @('completedAtUtc','documentType','qualifiedKitCommitSha','schemaVersion','screenshots','sourceAfter','sourceBefore','targetAfter','uiObservationAttestation') 'Physical evidence summary';Require([string]$physical.documentType -ceq 'steward.bring-here-physical-pass' -and [int]$physical.schemaVersion -eq 1 -and [string]$physical.qualifiedKitCommitSha -ceq $commitSha) 'Physical pass does not bind the exact release commit.';Require([string]$physical.uiObservationAttestation -ceq 'operator-required-not-machine-attested') 'Physical pass overstates screenshot interpretation.';$pdt=[DateTimeOffset]::MinValue;Require([DateTimeOffset]::TryParse([string]$physical.completedAtUtc,[ref]$pdt) -and $pdt -ne [DateTimeOffset]::MinValue) 'Physical pass timestamp is malformed.'
+    $sbDoc=Read-ArtifactJson $root $physical.sourceBefore 'Physical source-before evidence' $artifacts 'publication-evidence/physical/' 2097152;$taDoc=Read-ArtifactJson $root $physical.targetAfter 'Physical target-after evidence' $artifacts 'publication-evidence/physical/' 2097152;$saDoc=Read-ArtifactJson $root $physical.sourceAfter 'Physical source-after evidence' $artifacts 'publication-evidence/physical/' 2097152;Require($sbDoc.Path -ceq 'publication-evidence/physical/source-before.json' -and $taDoc.Path -ceq 'publication-evidence/physical/target-after.json' -and $saDoc.Path -ceq 'publication-evidence/physical/source-after.json') 'Physical checkpoint paths are not canonical.';$t1=Validate-PhysicalCheckpoint $sbDoc.Json 'source-before' $commitSha 'Physical source-before evidence';$t2=Validate-PhysicalCheckpoint $taDoc.Json 'target-after' $commitSha 'Physical target-after evidence';$t3=Validate-PhysicalCheckpoint $saDoc.Json 'source-after' $commitSha 'Physical source-after evidence';Require($t1 -le $t2 -and $t2 -le $t3) 'Physical checkpoint timestamps are not monotonic.';Require((Canonical $sbDoc.Json.build) -ceq (Canonical $taDoc.Json.build) -and (Canonical $sbDoc.Json.build) -ceq (Canonical $saDoc.Json.build)) 'Physical checkpoints did not use the exact same build.';Require((Canonical $sbDoc.Json.world) -ceq (Canonical $taDoc.Json.world) -and (Canonical $sbDoc.Json.world) -ceq (Canonical $saDoc.Json.world)) 'Physical World/revision/package identity changed across checkpoints.';Require([string]$sbDoc.Json.installationId -ceq [string]$saDoc.Json.installationId -and [string]$sbDoc.Json.machineName -ieq [string]$saDoc.Json.machineName) 'Source-after is not the original source.';Require([string]$sbDoc.Json.installationId -cne [string]$taDoc.Json.installationId -and [string]$sbDoc.Json.machineName -ine [string]$taDoc.Json.machineName) 'Physical source and target are not distinct.';Require($null -eq $sbDoc.Json.sourceEvidenceSha256 -and $null -eq $sbDoc.Json.targetEvidenceSha256) 'Source-before contains unexpected links.';Require([string]$taDoc.Json.sourceEvidenceSha256 -ieq $sbDoc.Hash -and $null -eq $taDoc.Json.targetEvidenceSha256) 'Target-after does not bind exact source-before bytes.';Require([string]$saDoc.Json.sourceEvidenceSha256 -ieq $sbDoc.Hash -and [string]$saDoc.Json.targetEvidenceSha256 -ieq $taDoc.Hash) 'Source-after does not bind exact earlier checkpoint bytes.'
+    Require-ExactProperties $physical.screenshots @('sourceAfter','sourceBefore','targetAfter','targetAvailable') 'Physical screenshots';Require-PngRef $root $physical.screenshots.sourceBefore 'PC A source-before screenshot' $artifacts;Require-PngRef $root $physical.screenshots.targetAvailable 'PC B Available/Bring-here screenshot' $artifacts;Require-PngRef $root $physical.screenshots.targetAfter 'PC B target-after screenshot' $artifacts;Require-PngRef $root $physical.screenshots.sourceAfter 'PC A source-after screenshot' $artifacts
+
+    $liveDoc=Read-ArtifactJson $root $auth.liveHostExecution 'Live-host execution chain' $artifacts 'publication-evidence/' 1048576;Require($liveDoc.Path -ceq 'publication-evidence/live-host-execution-chain.json') 'Live-host execution chain path is not canonical.';$live=$liveDoc.Json;Require-ExactProperties $live @('allStagesSucceeded','automaticCrossStageRollback','completedAtUtc','deploymentHandoffSha256','deploymentStagesUsedSsh','documentType','externalAcceptanceHostMutation','externalAcceptanceUsedSsh','externalObserverSeparation','physicalBringHere','publicationAuthorizationChanged','publishAllowed','releaseCommitSha','releaseVersion','requestSha256','schemaVersion','stageCount','stageEvidence') 'Live-host execution chain';Require([string]$live.documentType -ceq 'steward.closed-alpha-live-host-execution-chain' -and [int]$live.schemaVersion -eq 1 -and [string]$live.releaseVersion -ceq $version -and [string]$live.releaseCommitSha -ceq $commitSha) 'Live-host execution chain does not bind the release.';Require([int]$live.stageCount -eq 5 -and [bool]$live.allStagesSucceeded -and [bool]$live.deploymentStagesUsedSsh -and -not [bool]$live.externalAcceptanceUsedSsh -and -not [bool]$live.externalAcceptanceHostMutation) 'Live-host execution chain does not prove qualified execution.';Require([string]$live.externalObserverSeparation -ceq 'operator-required-not-machine-attested' -and -not [bool]$live.automaticCrossStageRollback) 'Live-host execution chain overstates trust/rollback guarantees.';Require(-not [bool]$live.publishAllowed -and [string]$live.physicalBringHere -ceq 'deferred' -and -not [bool]$live.publicationAuthorizationChanged) 'Live-host execution chain was not produced before publication authorization.';Require([string]$live.requestSha256 -match '^[0-9A-F]{64}$' -and [string]$live.deploymentHandoffSha256 -match '^[0-9A-F]{64}$') 'Live-host execution chain has malformed hashes.';$stages=@($live.stageEvidence);$types=@('steward.closed-alpha-live-host-preflight','steward.closed-alpha-live-plan-staging','steward.closed-alpha-live-backend-deployment','steward.closed-alpha-live-ingress-activation','steward.closed-alpha-external-ingress-acceptance');Require($stages.Count -eq 5) 'Live-host execution chain has the wrong stage count.';for($n=0;$n -lt 5;$n++){Require-ExactProperties $stages[$n] @('byteSize','documentType','file','sha256') "Live-host stage $n";Require([string]$stages[$n].documentType -ceq $types[$n] -and [int64]$stages[$n].byteSize -gt 0 -and [string]$stages[$n].sha256 -match '^[0-9A-F]{64}$') "Live-host stage $n is invalid."}
+
+    $sourceArtifacts=@($sourceManifest.artifacts);$sourceSeen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);foreach($sa in $sourceArtifacts){Require-ExactProperties $sa @('byteSize','path','sha256') 'Deferred source artifact';$sp=[string]$sa.path;Require-SafeRelativePath $sp;Require($sourceSeen.Add($sp)) "Deferred source artifact '$sp' is duplicated.";Require([int64]$sa.byteSize -ge 0 -and [string]$sa.sha256 -match '^[0-9A-F]{64}$') "Deferred source artifact '$sp' is malformed.";$cur=Get-ArtifactByPath $artifacts $sp;if($sp -cne 'RELEASE-STATUS.txt'){Require([int64]$cur.byteSize -eq [int64]$sa.byteSize -and [string]$cur.sha256 -ceq [string]$sa.sha256) "Publication promotion changed original artifact '$sp'."}}
+    $newPaths=@($artifacts|Where-Object{-not $sourceSeen.Contains([string]$_.path)}|ForEach-Object{[string]$_.path}|Sort-Object);$expectedNew=@('publication-evidence/live-host-execution-chain.json','publication-evidence/physical-pass.json','publication-evidence/physical/screenshots/source-after.png','publication-evidence/physical/screenshots/source-before.png','publication-evidence/physical/screenshots/target-after.png','publication-evidence/physical/screenshots/target-available.png','publication-evidence/physical/source-after.json','publication-evidence/physical/source-before.json','publication-evidence/physical/target-after.json','publication-evidence/publication-authorization.json','publication-evidence/source-release-manifest.json')|Sort-Object;Require($newPaths.Count -eq $expectedNew.Count -and @(Compare-Object $newPaths $expectedNew).Count -eq 0) 'Publication promotion added an unexpected artifact or omitted required publication evidence.'
 }
 
-function Get-StrictProperties([object]$Value) {
-    Require ($null -ne $Value) 'Expected a JSON object but found null.'
-    return @($Value.PSObject.Properties.Name | Sort-Object)
-}
-
-function Require-ExactProperties([object]$Value, [string[]]$Expected, [string]$Context) {
-    $actual = @(Get-StrictProperties $Value)
-    $expectedSorted = @($Expected | Sort-Object)
-    Require ($actual.Count -eq $expectedSorted.Count) "$Context has an unexpected property count."
-    Require (@(Compare-Object $actual $expectedSorted).Count -eq 0) "$Context contains missing or unexpected properties."
-}
-
-function Require-SafeRelativePath([string]$Path) {
-    Require (-not [string]::IsNullOrWhiteSpace($Path)) 'Artifact path is required.'
-    Require ($Path.Length -le 260) "Artifact path '$Path' is too long."
-    Require (-not [IO.Path]::IsPathRooted($Path)) "Artifact path '$Path' must be relative."
-    Require (-not $Path.Contains('\', [StringComparison]::Ordinal)) "Artifact path '$Path' must use forward slashes."
-    Require (-not $Path.StartsWith('/', [StringComparison]::Ordinal)) "Artifact path '$Path' cannot start with '/'."
-    Require ($Path -notmatch '[\x00-\x1F\x7F:]') "Artifact path '$Path' contains a control character or colon."
-    $segments = @($Path.Split('/'))
-    Require ($segments.Count -gt 0) "Artifact path '$Path' has no segments."
-    foreach ($segment in $segments) {
-        Require (-not [string]::IsNullOrEmpty($segment)) "Artifact path '$Path' contains an empty segment."
-        Require ($segment -cne '.' -and $segment -cne '..') "Artifact path '$Path' contains a traversal segment."
-    }
-}
-
-function Get-ArtifactByPath([object[]]$Artifacts, [string]$Path) {
-    $matches = @($Artifacts | Where-Object { [string]$_.path -ceq $Path })
-    Require ($matches.Count -eq 1) "Evidence path '$Path' is not represented exactly once in the release artifact list."
-    return $matches[0]
-}
-
-function Require-EvidenceCheckpoint([object]$Checkpoint, [string]$Context, [object[]]$Artifacts) {
-    Require-ExactProperties $Checkpoint @('path', 'sha256') $Context
-    $path = [string]$Checkpoint.path
-    Require-SafeRelativePath $path
-    Require ($path.StartsWith('physical-evidence/', [StringComparison]::Ordinal)) "$Context path must be under physical-evidence/."
-    $sha256 = [string]$Checkpoint.sha256
-    Require ($sha256 -match '^[0-9A-F]{64}$') "$Context SHA-256 is malformed."
-    $artifact = Get-ArtifactByPath $Artifacts $path
-    Require ([string]$artifact.sha256 -ceq $sha256) "$Context SHA-256 disagrees with the release artifact list."
-}
-
-$root = [IO.Path]::GetFullPath($BundleDirectory)
-Require ([IO.Directory]::Exists($root)) "Closed-alpha bundle directory does not exist: $root"
-
-$manifestPath = Join-Path $root 'release-manifest.json'
-Require ([IO.File]::Exists($manifestPath)) "Closed-alpha release manifest is missing: $manifestPath"
-
-$manifestText = [IO.File]::ReadAllText($manifestPath)
-Require ($manifestText.Length -le 4MB) 'Closed-alpha release manifest exceeds the 4 MiB verification bound.'
-$manifest = $manifestText | ConvertFrom-Json
-
-Require-ExactProperties $manifest @(
-    'artifacts',
-    'builtAtUtc',
-    'channel',
-    'commitSha',
-    'deployment',
-    'documentType',
-    'publishAuthorization',
-    'schemaVersion',
-    'version'
-) 'Release manifest'
-
-Require ([string]$manifest.documentType -ceq 'steward.closed-alpha-release-candidate') 'Unexpected release-manifest document type.'
-Require ([int]$manifest.schemaVersion -eq 1) 'Unsupported release-manifest schema version.'
-Require ([string]$manifest.channel -ceq 'closed-alpha') 'Release channel must be closed-alpha.'
-
-$version = [string]$manifest.version
-Require ($version -match '^[0-9A-Za-z][0-9A-Za-z.-]{0,63}$') 'Release version is missing or malformed.'
-$commitSha = [string]$manifest.commitSha
-Require ($commitSha -match '^[0-9a-f]{40}$') 'Release commit SHA must be one lowercase 40-character Git SHA.'
-
-$builtAt = [DateTimeOffset]::MinValue
-Require ([DateTimeOffset]::TryParse([string]$manifest.builtAtUtc, [ref]$builtAt)) 'Release builtAtUtc is malformed.'
-Require ($builtAt -ne [DateTimeOffset]::MinValue) 'Release builtAtUtc cannot be the default timestamp.'
-
-Require-ExactProperties $manifest.publishAuthorization @(
-    'evidencePath',
-    'evidenceSha256',
-    'physicalBringHere',
-    'publishAllowed',
-    'reason'
-) 'Publish authorization'
-
-$physicalStatus = [string]$manifest.publishAuthorization.physicalBringHere
-Require ($physicalStatus -in @('deferred', 'passed')) 'Physical Bring Here status must be deferred or passed.'
-$publishAllowed = [bool]$manifest.publishAuthorization.publishAllowed
-Require ($publishAllowed -eq ($physicalStatus -ceq 'passed')) 'Publish authorization disagrees with the physical Bring Here status.'
-$reason = [string]$manifest.publishAuthorization.reason
-Require (-not [string]::IsNullOrWhiteSpace($reason) -and $reason.Length -le 500) 'Publish authorization reason is missing or too long.'
-Require ($reason -notmatch '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]') 'Publish authorization reason contains a forbidden control character.'
-$physicalEvidencePathValue = $manifest.publishAuthorization.evidencePath
-$physicalEvidenceShaValue = $manifest.publishAuthorization.evidenceSha256
-if ($physicalStatus -ceq 'deferred') {
-    Require ($null -eq $physicalEvidencePathValue -and $null -eq $physicalEvidenceShaValue) 'Deferred publish authorization cannot carry physical evidence fields.'
-}
-else {
-    $physicalEvidencePath = [string]$physicalEvidencePathValue
-    $physicalEvidenceSha = [string]$physicalEvidenceShaValue
-    Require-SafeRelativePath $physicalEvidencePath
-    Require ($physicalEvidencePath.StartsWith('physical-evidence/', [StringComparison]::Ordinal) -and
-        $physicalEvidencePath.EndsWith('.json', [StringComparison]::OrdinalIgnoreCase)) 'Passed physical evidence summary must be one JSON file under physical-evidence/.'
-    Require ($physicalEvidenceSha -match '^[0-9A-F]{64}$') 'Passed physical evidence summary SHA-256 is malformed.'
-}
-
-Require-ExactProperties $manifest.deployment @(
-    'apiBaseUrl',
-    'authenticationMode',
-    'backendImageId',
-    'backendImageTag',
-    'backendRuntimeUser',
-    'objectStorageProtocol',
-    'postgresMajorVersion',
-    'targetPlatform'
-) 'Deployment contract'
-
-$apiUri = $null
-Require ([Uri]::TryCreate([string]$manifest.deployment.apiBaseUrl, [UriKind]::Absolute, [ref]$apiUri)) 'Deployment API base URL is malformed.'
-Require ([string]::Equals($apiUri.Scheme, [Uri]::UriSchemeHttps, [StringComparison]::OrdinalIgnoreCase)) 'Deployment API base URL must use HTTPS.'
-Require ([string]::IsNullOrEmpty($apiUri.UserInfo)) 'Deployment API base URL cannot contain credentials.'
-Require ([string]::IsNullOrEmpty($apiUri.Query) -and [string]::IsNullOrEmpty($apiUri.Fragment)) 'Deployment API base URL cannot contain query or fragment data.'
-Require ($apiUri.AbsoluteUri.EndsWith('/', [StringComparison]::Ordinal)) 'Deployment API base URL must end with a slash.'
-Require ([string]$manifest.deployment.authenticationMode -ceq 'friends-build') 'Closed-alpha authentication mode must be friends-build.'
-Require ([string]$manifest.deployment.backendRuntimeUser -ceq 'app') 'Backend image must run as the non-root app user.'
-Require ([string]$manifest.deployment.targetPlatform -ceq 'linux/amd64') 'Backend target platform must be linux/amd64.'
-Require ([int]$manifest.deployment.postgresMajorVersion -eq 17) 'Closed-alpha PostgreSQL major version must be 17.'
-Require ([string]$manifest.deployment.objectStorageProtocol -ceq 's3-compatible') 'Closed-alpha object storage contract must be s3-compatible.'
-Require ([string]$manifest.deployment.backendImageId -match '^sha256:[0-9a-f]{64}$') 'Backend image ID is malformed.'
-Require (-not [string]::IsNullOrWhiteSpace([string]$manifest.deployment.backendImageTag)) 'Backend image tag is required.'
-
-$artifacts = @($manifest.artifacts)
-Require ($artifacts.Count -gt 0 -and $artifacts.Count -le 10000) 'Release artifact list is empty or exceeds the 10,000-file bound.'
-$seenPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-foreach ($artifact in $artifacts) {
-    Require-ExactProperties $artifact @('byteSize', 'path', 'sha256') 'Artifact entry'
-    $relativePath = [string]$artifact.path
-    Require-SafeRelativePath $relativePath
-    Require ($seenPaths.Add($relativePath)) "Artifact path '$relativePath' is duplicated."
-
-    $expectedSize = [int64]$artifact.byteSize
-    Require ($expectedSize -ge 0) "Artifact '$relativePath' has a negative byte size."
-    $expectedHash = [string]$artifact.sha256
-    Require ($expectedHash -match '^[0-9A-F]{64}$') "Artifact '$relativePath' has a malformed SHA-256."
-
-    $fullPath = [IO.Path]::GetFullPath((Join-Path $root $relativePath))
-    Require ($fullPath.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) "Artifact '$relativePath' escapes the bundle root."
-    Require ([IO.File]::Exists($fullPath)) "Artifact '$relativePath' is missing."
-    $file = Get-Item -LiteralPath $fullPath
-    Require ($null -eq $file.LinkType) "Artifact '$relativePath' cannot be a symbolic link."
-    Require ($file.Length -eq $expectedSize) "Artifact '$relativePath' does not match its declared byte size."
-    $actualHash = (Get-FileHash -LiteralPath $fullPath -Algorithm SHA256).Hash
-    Require ([string]::Equals($actualHash, $expectedHash, [StringComparison]::Ordinal)) "Artifact '$relativePath' does not match its declared SHA-256."
-}
-
-$actualRelativePaths = @(Get-ChildItem -LiteralPath $root -Recurse -File |
-    ForEach-Object { [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\', '/') } |
-    Sort-Object)
-$expectedRelativePaths = @($seenPaths | Sort-Object) + @('release-manifest.json')
-$expectedRelativePaths = @($expectedRelativePaths | Sort-Object)
-Require ($actualRelativePaths.Count -eq $expectedRelativePaths.Count) 'Bundle contains unmanifested files or omits manifested files.'
-Require (@(Compare-Object $actualRelativePaths $expectedRelativePaths).Count -eq 0) 'Bundle file set does not exactly match release-manifest.json.'
-
-$desktopZip = @($artifacts | Where-Object { ([string]$_.path).StartsWith('desktop/', [StringComparison]::Ordinal) -and ([string]$_.path).EndsWith('.zip', [StringComparison]::OrdinalIgnoreCase) })
-$backendTar = @($artifacts | Where-Object { ([string]$_.path).StartsWith('backend/', [StringComparison]::Ordinal) -and ([string]$_.path).EndsWith('.tar', [StringComparison]::OrdinalIgnoreCase) })
-Require ($desktopZip.Count -eq 1) 'Bundle must contain exactly one Desktop ZIP.'
-Require ($backendTar.Count -eq 1) 'Bundle must contain exactly one backend image TAR.'
-Require ($seenPaths.Contains('backend/deployment.env.example')) 'Bundle is missing backend/deployment.env.example.'
-Require ($seenPaths.Contains('CLOSED-ALPHA-OPERATOR-RUNBOOK.txt')) 'Bundle is missing the operator runbook.'
-Require ($seenPaths.Contains('verify-closed-alpha-release.ps1')) 'Bundle is missing its verifier.'
-Require ($seenPaths.Contains('RELEASE-STATUS.txt')) 'Bundle is missing RELEASE-STATUS.txt.'
-
-if ($physicalStatus -ceq 'passed') {
-    $physicalEvidencePath = [string]$physicalEvidencePathValue
-    $physicalEvidenceSha = [string]$physicalEvidenceShaValue
-    $physicalEvidenceArtifact = Get-ArtifactByPath $artifacts $physicalEvidencePath
-    Require ([string]$physicalEvidenceArtifact.sha256 -ceq $physicalEvidenceSha) 'Physical evidence summary SHA-256 disagrees with the release artifact list.'
-    $physicalEvidenceFullPath = Join-Path $root $physicalEvidencePath
-    $physicalEvidenceText = [IO.File]::ReadAllText($physicalEvidenceFullPath)
-    Require ($physicalEvidenceText.Length -le 1MB) 'Physical evidence summary exceeds the 1 MiB bound.'
-    $physicalEvidence = $physicalEvidenceText | ConvertFrom-Json
-    Require-ExactProperties $physicalEvidence @(
-        'completedAtUtc',
-        'documentType',
-        'qualifiedKitCommitSha',
-        'schemaVersion',
-        'sourceAfter',
-        'sourceBefore',
-        'targetAfter'
-    ) 'Physical evidence summary'
-    Require ([string]$physicalEvidence.documentType -ceq 'steward.bring-here-physical-pass') 'Physical evidence summary has the wrong document type.'
-    Require ([int]$physicalEvidence.schemaVersion -eq 1) 'Physical evidence summary has an unsupported schema version.'
-    Require ([string]$physicalEvidence.qualifiedKitCommitSha -match '^[0-9a-f]{40}$') 'Physical evidence summary has a malformed qualified kit commit SHA.'
-    $completedAt = [DateTimeOffset]::MinValue
-    Require ([DateTimeOffset]::TryParse([string]$physicalEvidence.completedAtUtc, [ref]$completedAt) -and
-        $completedAt -ne [DateTimeOffset]::MinValue) 'Physical evidence summary completedAtUtc is malformed.'
-    Require-EvidenceCheckpoint $physicalEvidence.sourceBefore 'Physical source-before evidence' $artifacts
-    Require-EvidenceCheckpoint $physicalEvidence.targetAfter 'Physical target-after evidence' $artifacts
-    Require-EvidenceCheckpoint $physicalEvidence.sourceAfter 'Physical source-after evidence' $artifacts
-}
-
-if ($RequirePublishAuthorized.IsPresent -and -not $publishAllowed) {
-    throw "Release candidate is structurally valid but publishing is blocked: $reason"
-}
-
-Write-Host
-Write-Host '[OK] Safe World closed-alpha release candidate is byte-exact and structurally valid.'
-Write-Host "  Version: $version"
-Write-Host "  Commit: $commitSha"
-Write-Host "  API: $($apiUri.AbsoluteUri)"
-Write-Host "  Artifacts: $($artifacts.Count)"
-if ($publishAllowed) {
-    Write-Host '  Publish authorization: ALLOWED'
-}
-else {
-    Write-Host '  Publish authorization: DEFERRED'
-    Write-Host "  Reason: $reason"
-}
+if($RequirePublishAuthorized.IsPresent -and -not $publishAllowed){throw "Release candidate is structurally valid but publishing is blocked: $reason"}
+Write-Host;Write-Host '[OK] Safe World closed-alpha release candidate is byte-exact and structurally valid.';Write-Host "  Version: $version";Write-Host "  Commit: $commitSha";Write-Host "  API: $($apiUri.AbsoluteUri)";Write-Host "  Artifacts: $($artifacts.Count)";if($publishAllowed){Write-Host '  Publish authorization: ALLOWED (physical Bring Here + live-host acceptance jointly bound)'}else{Write-Host '  Publish authorization: DEFERRED';Write-Host "  Reason: $reason"}

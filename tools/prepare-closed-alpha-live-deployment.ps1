@@ -63,33 +63,15 @@ function Test-PublicIpv4([Net.IPAddress]$Address) {
     $b = [int]$bytes[1]
     $c = [int]$bytes[2]
 
-    if ($a -eq 0 -or $a -eq 10 -or $a -eq 127 -or $a -ge 224) {
-        return $false
-    }
-    if ($a -eq 100 -and $b -ge 64 -and $b -le 127) {
-        return $false
-    }
-    if ($a -eq 169 -and $b -eq 254) {
-        return $false
-    }
-    if ($a -eq 172 -and $b -ge 16 -and $b -le 31) {
-        return $false
-    }
-    if ($a -eq 192 -and $b -eq 0 -and ($c -eq 0 -or $c -eq 2)) {
-        return $false
-    }
-    if ($a -eq 192 -and $b -eq 168) {
-        return $false
-    }
-    if ($a -eq 198 -and ($b -eq 18 -or $b -eq 19)) {
-        return $false
-    }
-    if ($a -eq 198 -and $b -eq 51 -and $c -eq 100) {
-        return $false
-    }
-    if ($a -eq 203 -and $b -eq 0 -and $c -eq 113) {
-        return $false
-    }
+    if ($a -eq 0 -or $a -eq 10 -or $a -eq 127 -or $a -ge 224) { return $false }
+    if ($a -eq 100 -and $b -ge 64 -and $b -le 127) { return $false }
+    if ($a -eq 169 -and $b -eq 254) { return $false }
+    if ($a -eq 172 -and $b -ge 16 -and $b -le 31) { return $false }
+    if ($a -eq 192 -and $b -eq 0 -and ($c -eq 0 -or $c -eq 2)) { return $false }
+    if ($a -eq 192 -and $b -eq 168) { return $false }
+    if ($a -eq 198 -and ($b -eq 18 -or $b -eq 19)) { return $false }
+    if ($a -eq 198 -and $b -eq 51 -and $c -eq 100) { return $false }
+    if ($a -eq 203 -and $b -eq 0 -and $c -eq 113) { return $false }
     return $true
 }
 
@@ -169,11 +151,13 @@ $canonicalPublicIpv4 = $publicAddress.ToString()
 
 Require ($SshUser -match '^[a-z_][a-z0-9_-]{0,31}$') 'SSH user is malformed.'
 Require-OpenSshSha256Fingerprint $SshHostKeySha256
+$canonicalSshHostKeySha256 = 'SHA256:' + $SshHostKeySha256.Substring('SHA256:'.Length).TrimEnd('=')
 
 $artifacts = @($manifest.artifacts)
 $verifierBinding = Require-ArtifactBinding $artifacts $bundleRoot 'verify-closed-alpha-release.ps1'
 $deploymentPlannerBinding = Require-ArtifactBinding $artifacts $bundleRoot 'prepare-closed-alpha-deployment.ps1'
 $livePlannerBinding = Require-ArtifactBinding $artifacts $bundleRoot 'prepare-closed-alpha-live-deployment.ps1'
+$liveHostPreflightBinding = Require-ArtifactBinding $artifacts $bundleRoot 'preflight-closed-alpha-live-host.ps1'
 $environmentTemplateBinding = Require-ArtifactBinding $artifacts $bundleRoot 'backend/deployment.env.example'
 $backendEntries = @($artifacts | Where-Object {
     ([string]$_.path).StartsWith('backend/', [StringComparison]::Ordinal) -and
@@ -196,8 +180,7 @@ $bundlePrefix = $bundleRoot.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]
 Require (-not $outputFullPath.StartsWith($bundlePrefix, [StringComparison]::OrdinalIgnoreCase)) 'Live deployment request must be written outside the immutable release bundle.'
 [IO.Directory]::CreateDirectory($outputDirectory) | Out-Null
 
-$remoteReleaseRoot = '/srv/steward/releases'
-$remoteReleaseDirectory = "$remoteReleaseRoot/$commitSha"
+$remoteReleaseDirectory = "/srv/steward/releases/$commitSha"
 $remotePlanDirectory = "/srv/steward/deployment-plans/$commitSha"
 $remoteEnvironmentPath = '/etc/steward/backend.env'
 $caddyConfigurationPath = '/etc/caddy/Caddyfile'
@@ -225,7 +208,7 @@ $request = [ordered]@{
         sshHost = $apiHost
         sshPort = $SshPort
         sshUser = $SshUser
-        sshHostKeySha256 = $SshHostKeySha256
+        sshHostKeySha256 = $canonicalSshHostKeySha256
         targetPlatform = 'linux/amd64'
         remoteReleaseDirectory = $remoteReleaseDirectory
         remoteDeploymentPlanDirectory = $remotePlanDirectory
@@ -247,6 +230,7 @@ $request = [ordered]@{
         releaseVerifier = $verifierBinding
         deploymentPlanner = $deploymentPlannerBinding
         liveRequestPlanner = $livePlannerBinding
+        liveHostPreflight = $liveHostPreflightBinding
         environmentTemplate = $environmentTemplateBinding
         plannerRunsOnLiveHost = $true
         plannerRequireDeployable = $true
@@ -282,7 +266,7 @@ Write-Host '[OK] Exact closed-alpha candidate is bound to one fail-closed live-h
 Write-Host "  Release: $version ($commitSha)"
 Write-Host "  API / SSH host: $apiHost"
 Write-Host "  Expected public IPv4: $canonicalPublicIpv4"
-Write-Host "  SSH host key: $SshHostKeySha256"
+Write-Host "  SSH host key: $canonicalSshHostKeySha256"
 Write-Host "  Backend image ID: $backendImageId"
 Write-Host "  Remote environment: $remoteEnvironmentPath (secret values not read or copied)"
 Write-Host '  Public backend port 8080: forbidden'

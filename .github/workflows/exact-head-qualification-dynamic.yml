@@ -1,0 +1,191 @@
+name: Exact head qualification dynamic
+
+on:
+  pull_request:
+
+permissions:
+  actions: read
+  contents: read
+  statuses: write
+
+jobs:
+  qualify:
+    name: Aggregate exact-head closed-alpha qualification dynamically
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Discover required workflows and publish one exact-head status
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFICATION_EVIDENCE_PATH: ${{ runner.temp }}/exact-head-qualification-dynamic.json
+          QUALIFICATION_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          QUALIFICATION_EVENT: pull_request
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+
+          $targetSha = [string]$env:QUALIFICATION_HEAD_SHA
+          $targetEvent = [string]$env:QUALIFICATION_EVENT
+          if ($targetSha -notmatch '^[0-9a-f]{40}$') { throw 'Qualification head SHA is malformed.' }
+          if ($targetEvent -cne 'pull_request') { throw 'Qualification event is unsupported.' }
+
+          $headers = @{
+            Accept = 'application/vnd.github+json'
+            Authorization = "Bearer $env:GH_TOKEN"
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $fixedNames = @(
+            'CI',
+            'Bring Here disposable end-to-end',
+            'Bring Here two-PC test kit',
+            'Windows acceptance package',
+            'Portable World acceptance probe CI',
+            'Portable World two-PC test kit',
+            'Palworld read-only CI',
+            '7 Days to Die adapter CI',
+            'Project Zomboid adapter CI'
+          )
+          $workflowDirectoryUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/contents/.github/workflows?ref=$targetSha"
+          $workflowFiles = @(Invoke-RestMethod -Method Get -Uri $workflowDirectoryUri -Headers $headers)
+          $closedAlphaFiles = @($workflowFiles | Where-Object {
+            [string]$_.type -ceq 'file' -and
+            ([string]$_.name).StartsWith('closed-alpha-', [StringComparison]::Ordinal) -and
+            (([string]$_.name).EndsWith('.yml', [StringComparison]::OrdinalIgnoreCase) -or
+             ([string]$_.name).EndsWith('.yaml', [StringComparison]::OrdinalIgnoreCase))
+          } | Sort-Object name)
+          if ($closedAlphaFiles.Count -eq 0) { throw 'No closed-alpha workflow files were discovered.' }
+
+          $closedAlphaNames = @()
+          $discoveredFiles = @()
+          foreach ($file in $closedAlphaFiles) {
+            $fileUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/contents/.github/workflows/$([Uri]::EscapeDataString([string]$file.name))?ref=$targetSha"
+            $fileResponse = Invoke-RestMethod -Method Get -Uri $fileUri -Headers $headers
+            if ([string]$fileResponse.encoding -cne 'base64') { throw "Workflow '$($file.name)' did not return base64 content." }
+            $yaml = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(([string]$fileResponse.content).Replace("`n", '')))
+            if ($yaml.Length -le 0 -or $yaml.Length -gt 2MB) { throw "Workflow '$($file.name)' is empty or exceeds 2 MiB." }
+            $nameMatch = [Text.RegularExpressions.Regex]::Match($yaml, '(?m)^name:\s*(?<name>[^\r\n#]+?)\s*$')
+            if (-not $nameMatch.Success) { throw "Workflow '$($file.name)' does not have one parseable top-level name." }
+            $workflowName = $nameMatch.Groups['name'].Value.Trim().Trim('"').Trim("'")
+            if ([string]::IsNullOrWhiteSpace($workflowName)) { throw "Workflow '$($file.name)' has an empty name." }
+            $pullRequestTrigger = [Text.RegularExpressions.Regex]::IsMatch($yaml, '(?m)^\s{2}pull_request\s*:') -or
+                                  [Text.RegularExpressions.Regex]::IsMatch($yaml, '(?m)^on:\s*\[[^\]]*pull_request[^\]]*\]\s*$')
+            if (-not $pullRequestTrigger) { throw "Closed-alpha workflow '$($file.name)' is not registered for pull_request qualification." }
+            $closedAlphaNames += $workflowName
+            $discoveredFiles += [ordered]@{ file = [string]$file.name; workflowName = $workflowName }
+          }
+
+          $duplicateClosedAlpha = @($closedAlphaNames | Group-Object | Where-Object Count -gt 1)
+          if ($duplicateClosedAlpha.Count -gt 0) { throw "Duplicate closed-alpha workflow names: $($duplicateClosedAlpha.Name -join ', ')" }
+          $expectedNames = @($fixedNames + $closedAlphaNames | Sort-Object -Unique)
+          if ($expectedNames.Count -ne ($fixedNames.Count + $closedAlphaNames.Count)) { throw 'A closed-alpha workflow name collides with a fixed regression workflow name.' }
+          $expectedCount = $expectedNames.Count
+
+          $runsUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions/runs?head_sha=$targetSha&event=$targetEvent&per_page=100"
+          $statusUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/statuses/$targetSha"
+          $observerUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          $deadline = [DateTimeOffset]::UtcNow.AddMinutes(55)
+          $selected = @{}
+          $failureReason = $null
+
+          try {
+            $pendingBody = [ordered]@{
+              state = 'pending'
+              context = 'safe-world/exact-head-qualification-v2'
+              description = "Waiting for all $expectedCount discovered workflow groups."
+              target_url = $observerUrl
+            } | ConvertTo-Json -Compress
+            Invoke-RestMethod -Method Post -Uri $statusUri -Headers $headers -Body $pendingBody -ContentType 'application/json' | Out-Null
+
+            do {
+              $response = Invoke-RestMethod -Method Get -Uri $runsUri -Headers $headers
+              $matching = @($response.workflow_runs | Where-Object {
+                [string]$_.head_sha -ceq $targetSha -and [string]$_.event -ceq $targetEvent
+              })
+              $selected = @{}
+              foreach ($name in $expectedNames) {
+                $candidates = @($matching | Where-Object { [string]$_.name -ceq $name } | Sort-Object id -Descending)
+                if ($candidates.Count -gt 0) { $selected[$name] = $candidates[0] }
+              }
+              $presentCount = $selected.Count
+              $completedCount = @($selected.Values | Where-Object { [string]$_.status -ceq 'completed' }).Count
+              Write-Host "Dynamic exact-head qualification: $presentCount/$expectedCount present, $completedCount/$expectedCount completed."
+              foreach ($name in $expectedNames) {
+                if ($selected.ContainsKey($name)) {
+                  $run = $selected[$name]
+                  Write-Host "  ${name}: $($run.status) / $($run.conclusion) / $($run.id)"
+                } else {
+                  Write-Host "  ${name}: not registered"
+                }
+              }
+              if ($presentCount -eq $expectedCount -and $completedCount -eq $expectedCount) { break }
+              Start-Sleep -Seconds 15
+            } while ([DateTimeOffset]::UtcNow -lt $deadline)
+
+            if ($selected.Count -ne $expectedCount) {
+              $missing = @($expectedNames | Where-Object { -not $selected.ContainsKey($_) })
+              $failureReason = "Missing exact-head workflow runs: $($missing -join ', ')"
+            } else {
+              $incomplete = @($expectedNames | Where-Object { [string]$selected[$_].status -cne 'completed' })
+              if ($incomplete.Count -gt 0) {
+                $failureReason = "Exact-head workflow runs did not complete: $($incomplete -join ', ')"
+              } else {
+                $failed = @($expectedNames | Where-Object { [string]$selected[$_].conclusion -cne 'success' })
+                if ($failed.Count -gt 0) { $failureReason = "Exact-head workflow runs were not successful: $($failed -join ', ')" }
+              }
+            }
+          } catch {
+            $failureReason = "Dynamic qualification observer failed: $($_.Exception.Message)"
+          }
+
+          $groups = @()
+          foreach ($name in $expectedNames) {
+            if ($selected.ContainsKey($name)) {
+              $run = $selected[$name]
+              $groups += [ordered]@{
+                name = $name; runId = [int64]$run.id; event = [string]$run.event; headSha = [string]$run.head_sha
+                status = [string]$run.status; conclusion = [string]$run.conclusion; htmlUrl = [string]$run.html_url
+              }
+            } else {
+              $groups += [ordered]@{ name = $name; runId = $null; event = $targetEvent; headSha = $targetSha; status = 'missing'; conclusion = $null; htmlUrl = $null }
+            }
+          }
+
+          $succeeded = [string]::IsNullOrWhiteSpace($failureReason)
+          $evidence = [ordered]@{
+            documentType = 'steward.exact-head-qualification-dynamic'
+            schemaVersion = 1
+            observedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
+            repository = $env:GITHUB_REPOSITORY
+            event = $targetEvent
+            headSha = $targetSha
+            observerRunId = [int64]$env:GITHUB_RUN_ID
+            discoveryRule = 'fixed-regressions-plus-all-closed-alpha-pull-request-workflows'
+            closedAlphaWorkflowFiles = $discoveredFiles
+            expectedWorkflowGroupCount = $expectedCount
+            allPresent = ($selected.Count -eq $expectedCount)
+            allCompleted = ($selected.Count -eq $expectedCount -and @($selected.Values | Where-Object { [string]$_.status -cne 'completed' }).Count -eq 0)
+            allSucceeded = $succeeded
+            failureReason = $failureReason
+            workflowGroups = $groups
+          }
+          [IO.File]::WriteAllText($env:QUALIFICATION_EVIDENCE_PATH,($evidence | ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
+
+          $state = if ($succeeded) { 'success' } else { 'failure' }
+          $description = if ($succeeded) { "All $expectedCount discovered workflow groups are green." } else {
+            $text = [string]$failureReason
+            if ($text.Length -gt 140) { $text.Substring(0,140) } else { $text }
+          }
+          $statusBody = [ordered]@{ state = $state; context = 'safe-world/exact-head-qualification-v2'; description = $description; target_url = $observerUrl } | ConvertTo-Json -Compress
+          Invoke-RestMethod -Method Post -Uri $statusUri -Headers $headers -Body $statusBody -ContentType 'application/json' | Out-Null
+          Get-Content -LiteralPath $env:QUALIFICATION_EVIDENCE_PATH
+          if (-not $succeeded) { throw $failureReason }
+
+      - name: Upload dynamic exact-head qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: exact-head-qualification-dynamic-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/exact-head-qualification-dynamic.json
+          if-no-files-found: warn
+          retention-days: 14

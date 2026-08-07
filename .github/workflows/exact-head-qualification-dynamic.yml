@@ -55,7 +55,7 @@ jobs:
           $observerUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
 
           try {
-            $treeUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/git/trees/$targetSha?recursive=1"
+            $treeUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/git/trees/${targetSha}?recursive=1"
             $treeResponse = Invoke-RestMethod -Method Get -Uri $treeUri -Headers $headers
             if ([bool]$treeResponse.truncated) { throw 'Exact-head Git tree was truncated; workflow discovery cannot be trusted.' }
             $closedAlphaEntries = @($treeResponse.tree | Where-Object {

@@ -31,4 +31,21 @@ jobs:
       - name: Run separate-network external ingress acceptance rehearsal
         shell: pwsh
         run: |
-          ./tools/test-closed-alpha-external-ingress.ps1
+          $logPath = "$env:RUNNER_TEMP/external-ingress-acceptance.log"
+          try {
+            ./tools/test-closed-alpha-external-ingress.ps1 *>&1 |
+              Tee-Object -FilePath $logPath
+          }
+          catch {
+            ($_ | Out-String) | Tee-Object -FilePath $logPath -Append | Write-Host
+            throw
+          }
+
+      - name: Upload bounded failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: external-ingress-acceptance-diagnostic-${{ github.sha }}
+          path: ${{ runner.temp }}/external-ingress-acceptance.log
+          if-no-files-found: error
+          retention-days: 2

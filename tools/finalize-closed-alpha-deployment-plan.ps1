@@ -33,10 +33,13 @@ Require ([IO.File]::Exists($manifestPath)) 'The release bundle is missing releas
 Require ([IO.File]::Exists($verifierPath)) 'The release bundle is missing its verifier.'
 
 $plannerSource = Join-Path $PSScriptRoot 'prepare-closed-alpha-deployment.ps1'
-Require ([IO.File]::Exists($plannerSource)) "Qualified deployment planner is missing: $plannerSource"
-$plannerSourceItem = Get-Item -LiteralPath $plannerSource
-Require ($null -eq $plannerSourceItem.LinkType) 'Qualified deployment planner cannot be a symbolic link.'
-Require ($plannerSourceItem.Length -gt 0 -and $plannerSourceItem.Length -le 2MB) 'Qualified deployment planner is empty or exceeds the 2 MiB bound.'
+$livePlannerSource = Join-Path $PSScriptRoot 'prepare-closed-alpha-live-deployment.ps1'
+foreach ($source in @($plannerSource, $livePlannerSource)) {
+    Require ([IO.File]::Exists($source)) "Qualified deployment planner is missing: $source"
+    $sourceItem = Get-Item -LiteralPath $source
+    Require ($null -eq $sourceItem.LinkType) "Qualified deployment planner cannot be a symbolic link: $source"
+    Require ($sourceItem.Length -gt 0 -and $sourceItem.Length -le 2MB) "Qualified deployment planner is empty or exceeds the 2 MiB bound: $source"
+}
 
 & $verifierPath -BundleDirectory $bundleRoot
 
@@ -70,7 +73,9 @@ $immutableIdentityBefore = [ordered]@{
 } | ConvertTo-Json -Compress -Depth 8
 
 $plannerDestination = Join-Path $bundleRoot 'prepare-closed-alpha-deployment.ps1'
+$livePlannerDestination = Join-Path $bundleRoot 'prepare-closed-alpha-live-deployment.ps1'
 Copy-Item -LiteralPath $plannerSource -Destination $plannerDestination -Force
+Copy-Item -LiteralPath $livePlannerSource -Destination $livePlannerDestination -Force
 
 $backendDirectory = Join-Path $bundleRoot 'backend'
 Require ([IO.Directory]::Exists($backendDirectory)) 'The release bundle is missing its backend directory.'
@@ -106,17 +111,12 @@ $deploymentReadme = @'
 SAFE WORLD CLOSED-ALPHA DEPLOYMENT PLAN
 =======================================
 
-This candidate contains its own byte-manifested deployment planner:
+This candidate contains two byte-manifested deployment planners:
 
   prepare-closed-alpha-deployment.ps1
+  prepare-closed-alpha-live-deployment.ps1
 
-The planner never copies secret values into its output. It validates an external
-backend environment file and generates only:
-
-  deployment-plan.json
-  Caddyfile
-  deploy-exact-candidate.sh
-  verify-public-https.sh
+Neither planner copies secret values into release artifacts or request evidence.
 
 Operator sequence
 -----------------
@@ -125,41 +125,63 @@ Operator sequence
 
    pwsh ./verify-closed-alpha-release.ps1 -BundleDirectory .
 
-2. Copy backend/deployment.env.example OUTSIDE this bundle, replace every
-   placeholder, and protect the resulting file. The first release requires an
-   unquoted semicolon-separated PostgreSQL connection string with:
+2. Bind the exact candidate to the intended first live host without contacting it:
+
+   pwsh ./prepare-closed-alpha-live-deployment.ps1 \
+     -BundleDirectory . \
+     -ExpectedPublicIpv4 <public-ipv4> \
+     -SshHostKeySha256 SHA256:<pinned-ed25519-host-key-fingerprint> \
+     -OutputPath ../live-deployment-request.json
+
+   The first acceptance topology deliberately uses the release API hostname as
+   the SSH host. The request records one globally routable IPv4, one pinned SSH
+   host key, fixed remote paths, linux/amd64, Caddy -> 127.0.0.1:8080, and the
+   rule that backend port 8080 must not be public. It contains no secret values,
+   performs no DNS/SSH side effects, and never authorizes publication.
+
+3. Copy backend/deployment.env.example OUTSIDE this bundle, replace every
+   placeholder, and protect the resulting live-host file as root-owned mode 0600.
+   The first release requires an unquoted semicolon-separated PostgreSQL
+   connection string with:
 
    SSL Mode=VerifyFull;Trust Server Certificate=false
 
-3. Generate a deployment plan from this exact bundle:
+4. On the live host, generate the exact deployment plan from this same bundle
+   and the protected environment file:
 
    pwsh ./prepare-closed-alpha-deployment.ps1 \
      -BundleDirectory . \
-     -EnvironmentFile /secure/path/backend.env \
-     -OutputDirectory ./deployment-plan \
+     -EnvironmentFile /etc/steward/backend.env \
+     -OutputDirectory /srv/steward/deployment-plans/<release-commit> \
+     -HostEnvironmentPath /etc/steward/backend.env \
      -RequireDeployable
 
    -RequireDeployable rejects reserved, local, IP-literal, and non-FQDN API
    coordinates. CI candidates using closed-alpha.example.invalid therefore remain
-   structurally valid but intentionally blocked.
+   structurally valid but intentionally blocked from a live request.
 
-4. Install deployment-plan/Caddyfile as the host Caddy configuration. Keep
-   Backend.Api on 127.0.0.1:8080 and keep port 8080 non-public.
+5. Install the generated Caddyfile as /etc/caddy/Caddyfile. Keep Backend.Api on
+   port 8080 behind the one local proxy coordinate 127.0.0.1 and keep port 8080
+   non-public in both cloud and host network policy.
 
-5. Place the protected environment at the path recorded by deployment-plan.json
-   (default /etc/steward/backend.env), then run on the Linux host:
+6. Run on the Linux host:
 
-   bash deployment-plan/deploy-exact-candidate.sh <bundle-directory>
+   bash /srv/steward/deployment-plans/<release-commit>/deploy-exact-candidate.sh \
+     /srv/steward/releases/<release-commit>
 
    The script re-hashes the backend TAR, loads it, verifies the manifest-bound
    immutable image ID and non-root app user, then runs that exact image ID.
 
-6. After DNS and public TLS are active, verify without certificate bypass:
+7. After DNS and public TLS are active, verify without certificate bypass:
 
-   bash deployment-plan/verify-public-https.sh
+   bash /srv/steward/deployment-plans/<release-commit>/verify-public-https.sh
 
-This plan does not authorize publication. The physical PC A -> PC B -> PC A Bring
-Here gate remains controlled only by release-manifest.json and the strict verifier.
+The live deployment request is a coordinate/boundary record only. DNS resolution,
+SSH fingerprint matching, remote environment permissions, tool availability,
+public 8080 rejection, deployment, and public HTTPS remain execution-time proofs.
+
+Neither plan authorizes publication. The physical PC A -> PC B -> PC A Bring Here
+gate remains controlled only by release-manifest.json and the strict verifier.
 '@
 [IO.File]::WriteAllText(
     $deploymentReadmePath,
@@ -208,17 +230,27 @@ $finalManifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
 $plannerEntries = @($finalManifest.artifacts | Where-Object {
     [string]$_.path -ceq 'prepare-closed-alpha-deployment.ps1'
 })
+$livePlannerEntries = @($finalManifest.artifacts | Where-Object {
+    [string]$_.path -ceq 'prepare-closed-alpha-live-deployment.ps1'
+})
 Require ($plannerEntries.Count -eq 1) 'Finalized release manifest does not contain exactly one deployment planner.'
+Require ($livePlannerEntries.Count -eq 1) 'Finalized release manifest does not contain exactly one live deployment request planner.'
 $expectedPlannerHash = (Get-FileHash -LiteralPath $plannerDestination -Algorithm SHA256).Hash
+$expectedLivePlannerHash = (Get-FileHash -LiteralPath $livePlannerDestination -Algorithm SHA256).Hash
 Require ([string]::Equals(
     [string]$plannerEntries[0].sha256,
     $expectedPlannerHash,
     [StringComparison]::Ordinal)) 'Finalized release manifest does not bind the deployment planner bytes.'
+Require ([string]::Equals(
+    [string]$livePlannerEntries[0].sha256,
+    $expectedLivePlannerHash,
+    [StringComparison]::Ordinal)) 'Finalized release manifest does not bind the live deployment request planner bytes.'
 
 Write-Host
-Write-Host '[OK] Closed-alpha candidate now contains its byte-exact deployment planner.'
+Write-Host '[OK] Closed-alpha candidate now contains its byte-exact deployment planners.'
 Write-Host "  Bundle: $bundleRoot"
-Write-Host "  Planner SHA-256: $expectedPlannerHash"
+Write-Host "  Deployment planner SHA-256: $expectedPlannerHash"
+Write-Host "  Live request planner SHA-256: $expectedLivePlannerHash"
 Write-Host "  Artifacts: $($finalManifest.artifacts.Count)"
 Write-Host '  Secret values copied: no'
 Write-Host '  Publish authorization changed: no'

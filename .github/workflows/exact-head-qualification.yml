@@ -90,10 +90,10 @@ jobs:
               foreach ($name in $expectedNames) {
                 if ($selected.ContainsKey($name)) {
                   $run = $selected[$name]
-                  Write-Host "  $name: $($run.status) / $($run.conclusion) / $($run.id)"
+                  Write-Host "  ${name}: $($run.status) / $($run.conclusion) / $($run.id)"
                 }
                 else {
-                  Write-Host "  $name: not registered"
+                  Write-Host "  ${name}: not registered"
                 }
               }
 

@@ -155,6 +155,8 @@ try {
     Write-Utf8 $caddyConfig @"
 {
     admin off
+    auto_https disable_redirects
+    skip_install_trust
 }
 $apiHost {
     tls internal

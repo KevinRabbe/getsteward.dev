@@ -36,7 +36,8 @@ $plannerSource = Join-Path $PSScriptRoot 'prepare-closed-alpha-deployment.ps1'
 $livePlannerSource = Join-Path $PSScriptRoot 'prepare-closed-alpha-live-deployment.ps1'
 $liveHostPreflightSource = Join-Path $PSScriptRoot 'preflight-closed-alpha-live-host.ps1'
 $livePlanStagerSource = Join-Path $PSScriptRoot 'stage-closed-alpha-live-deployment-plan.ps1'
-foreach ($source in @($plannerSource, $livePlannerSource, $liveHostPreflightSource, $livePlanStagerSource)) {
+$liveBackendDeploymentSource = Join-Path $PSScriptRoot 'deploy-closed-alpha-live-backend.ps1'
+foreach ($source in @($plannerSource, $livePlannerSource, $liveHostPreflightSource, $livePlanStagerSource, $liveBackendDeploymentSource)) {
     Require ([IO.File]::Exists($source)) "Qualified deployment tool is missing: $source"
     $sourceItem = Get-Item -LiteralPath $source
     Require ($null -eq $sourceItem.LinkType) "Qualified deployment tool cannot be a symbolic link: $source"
@@ -71,10 +72,12 @@ $plannerDestination = Join-Path $bundleRoot 'prepare-closed-alpha-deployment.ps1
 $livePlannerDestination = Join-Path $bundleRoot 'prepare-closed-alpha-live-deployment.ps1'
 $liveHostPreflightDestination = Join-Path $bundleRoot 'preflight-closed-alpha-live-host.ps1'
 $livePlanStagerDestination = Join-Path $bundleRoot 'stage-closed-alpha-live-deployment-plan.ps1'
+$liveBackendDeploymentDestination = Join-Path $bundleRoot 'deploy-closed-alpha-live-backend.ps1'
 Copy-Item -LiteralPath $plannerSource -Destination $plannerDestination -Force
 Copy-Item -LiteralPath $livePlannerSource -Destination $livePlannerDestination -Force
 Copy-Item -LiteralPath $liveHostPreflightSource -Destination $liveHostPreflightDestination -Force
 Copy-Item -LiteralPath $livePlanStagerSource -Destination $livePlanStagerDestination -Force
+Copy-Item -LiteralPath $liveBackendDeploymentSource -Destination $liveBackendDeploymentDestination -Force
 
 $backendDirectory = Join-Path $bundleRoot 'backend'
 Require ([IO.Directory]::Exists($backendDirectory)) 'The release bundle is missing its backend directory.'
@@ -110,12 +113,13 @@ $deploymentReadme = @'
 SAFE WORLD CLOSED-ALPHA DEPLOYMENT PLAN
 =======================================
 
-This candidate contains four byte-manifested deployment-boundary tools:
+This candidate contains five byte-manifested deployment-boundary tools:
 
   prepare-closed-alpha-deployment.ps1
   prepare-closed-alpha-live-deployment.ps1
   preflight-closed-alpha-live-host.ps1
   stage-closed-alpha-live-deployment-plan.ps1
+  deploy-closed-alpha-live-backend.ps1
 
 They keep protected backend-environment values on the live host. Request and
 preflight evidence contain no protected values; live plan staging allows only the
@@ -174,19 +178,34 @@ Operator sequence
    report secretValuesCopied=false. This step does not docker load, create or
    start steward-backend, occupy port 8080, or modify /etc/caddy/Caddyfile.
 
-6. Only after separate deployment authorization, install the generated Caddyfile
-   as /etc/caddy/Caddyfile and run:
+6. Within 15 minutes of successful plan staging, cross only the backend runtime
+   boundary with the byte-manifested executor:
 
-   bash /srv/steward/deployment-plans/<release-commit>/deploy-exact-candidate.sh \
-     /srv/steward/releases/<release-commit>
+   pwsh ./deploy-closed-alpha-live-backend.ps1 \
+     -BundleDirectory . \
+     -RequestPath ../live-deployment-request.json \
+     -StagingEvidencePath ../live-plan-staging.json \
+     -SshPrivateKeyPath <operator-private-key> \
+     -EvidencePath ../live-backend-deployment.json
 
-7. After DNS and public TLS are active, verify without certificate bypass:
+   It revalidates DNS, the pinned SSH host key, staged candidate/plan bytes,
+   protected-environment metadata, empty exact-image/container state, port 8080,
+   and unchanged Caddy state before loading or starting anything. It then executes
+   the generated exact-image deploy script, requires the exact image/runtime user,
+   and proves local /health/live and /health/ready. Caddy remains unchanged and
+   neither public HTTPS nor external port-8080 closure is claimed by this step.
+
+7. Only after separate public-ingress authorization, install the generated Caddyfile
+   as /etc/caddy/Caddyfile and validate/reload Caddy through the host's managed-service
+   procedure. Do not expose backend port 8080 publicly.
+
+8. After DNS and public TLS are active, verify without certificate bypass:
 
    bash /srv/steward/deployment-plans/<release-commit>/verify-public-https.sh
 
-None of these planning/staging steps authorizes publication. Physical PC A ->
-PC B -> PC A Bring Here remains controlled only by release-manifest.json and the
-strict release verifier.
+None of these preparation, staging, backend-deployment, or ingress steps authorizes
+publication. Physical PC A -> PC B -> PC A Bring Here remains controlled only by
+release-manifest.json and the strict release verifier.
 '@
 [IO.File]::WriteAllText(
     $deploymentReadmePath,
@@ -236,7 +255,8 @@ $toolBindings = @(
     @{ Path = 'prepare-closed-alpha-deployment.ps1'; Destination = $plannerDestination; Label = 'deployment planner' },
     @{ Path = 'prepare-closed-alpha-live-deployment.ps1'; Destination = $livePlannerDestination; Label = 'live deployment request planner' },
     @{ Path = 'preflight-closed-alpha-live-host.ps1'; Destination = $liveHostPreflightDestination; Label = 'live-host preflight' },
-    @{ Path = 'stage-closed-alpha-live-deployment-plan.ps1'; Destination = $livePlanStagerDestination; Label = 'live plan stager' }
+    @{ Path = 'stage-closed-alpha-live-deployment-plan.ps1'; Destination = $livePlanStagerDestination; Label = 'live plan stager' },
+    @{ Path = 'deploy-closed-alpha-live-backend.ps1'; Destination = $liveBackendDeploymentDestination; Label = 'live backend executor' }
 )
 $toolHashes = @{}
 foreach ($binding in $toolBindings) {
@@ -254,6 +274,7 @@ Write-Host "  Deployment planner SHA-256: $($toolHashes['prepare-closed-alpha-de
 Write-Host "  Live request planner SHA-256: $($toolHashes['prepare-closed-alpha-live-deployment.ps1'])"
 Write-Host "  Live-host preflight SHA-256: $($toolHashes['preflight-closed-alpha-live-host.ps1'])"
 Write-Host "  Live plan stager SHA-256: $($toolHashes['stage-closed-alpha-live-deployment-plan.ps1'])"
+Write-Host "  Live backend executor SHA-256: $($toolHashes['deploy-closed-alpha-live-backend.ps1'])"
 Write-Host "  Artifacts: $($finalManifest.artifacts.Count)"
 Write-Host '  Protected values copied into candidate: no'
 Write-Host '  Publish authorization changed: no'

@@ -70,6 +70,7 @@ services:
       ObjectStorage__AccessKeyId: ${STEWARD_MINIO_ACCESS_KEY}
       ObjectStorage__SecretAccessKey: ${STEWARD_MINIO_SECRET_KEY}
       ObjectStorage__ForcePathStyle: "true"
+      ObjectStorage__AllowInsecurePrivateNetwork: "true"
       FriendsBuild__Enabled: "true"
       FriendsBuild__Identities__0__Id: ${STEWARD_FRIEND_0_ID}
       FriendsBuild__Identities__0__DisplayName: ${STEWARD_FRIEND_0_NAME}

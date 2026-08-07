@@ -1,0 +1,121 @@
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE}
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: steward
+      POSTGRES_USER: steward
+      POSTGRES_PASSWORD: ${STEWARD_POSTGRES_PASSWORD}
+    volumes:
+      - steward-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U steward -d steward"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks:
+      steward-beta:
+        ipv4_address: 172.30.0.30
+
+  minio:
+    image: ${MINIO_IMAGE}
+    pull_policy: never
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${STEWARD_MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${STEWARD_MINIO_SECRET_KEY}
+    volumes:
+      - steward-objects:/data
+    networks:
+      steward-beta:
+        ipv4_address: 172.30.0.40
+
+  minio-init:
+    image: ${MINIO_MC_IMAGE}
+    pull_policy: never
+    restart: "no"
+    depends_on:
+      - minio
+    environment:
+      MINIO_ROOT_USER: ${STEWARD_MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${STEWARD_MINIO_SECRET_KEY}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        until mc alias set steward http://172.30.0.40:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" >/dev/null 2>&1; do sleep 2; done;
+        mc mb --ignore-existing steward/steward-beta >/dev/null;
+        mc anonymous set none steward/steward-beta >/dev/null;
+        echo "Steward private object bucket ready."
+    networks:
+      steward-beta:
+        ipv4_address: 172.30.0.41
+
+  backend:
+    image: ${STEWARD_BACKEND_IMAGE}
+    pull_policy: never
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      PORT: "8080"
+      ConnectionStrings__Steward: "Host=172.30.0.30;Port=5432;Database=steward;Username=steward;Password=${STEWARD_POSTGRES_PASSWORD};SSL Mode=Disable"
+      ObjectStorage__ServiceUrl: "http://172.30.0.40:9000"
+      ObjectStorage__AuthenticationRegion: "us-east-1"
+      ObjectStorage__BucketName: "steward-beta"
+      ObjectStorage__AccessKeyId: ${STEWARD_MINIO_ACCESS_KEY}
+      ObjectStorage__SecretAccessKey: ${STEWARD_MINIO_SECRET_KEY}
+      ObjectStorage__ForcePathStyle: "true"
+      ObjectStorage__AllowInsecurePrivateNetwork: "true"
+      FriendsBuild__Enabled: "true"
+      FriendsBuild__Identities__0__Id: ${STEWARD_FRIEND_0_ID}
+      FriendsBuild__Identities__0__DisplayName: ${STEWARD_FRIEND_0_NAME}
+      FriendsBuild__Identities__0__CredentialSha256: ${STEWARD_FRIEND_0_HASH}
+      FriendsBuild__Identities__1__Id: ${STEWARD_FRIEND_1_ID}
+      FriendsBuild__Identities__1__DisplayName: ${STEWARD_FRIEND_1_NAME}
+      FriendsBuild__Identities__1__CredentialSha256: ${STEWARD_FRIEND_1_HASH}
+      ReverseProxy__KnownProxyIp: "172.30.0.10"
+      Cleanup__IntervalMinutes: "15"
+      Cleanup__VerifiedCandidateRetentionDays: "7"
+      Cleanup__BatchSize: "100"
+    expose:
+      - "8080"
+    networks:
+      steward-beta:
+        ipv4_address: 172.30.0.20
+
+  caddy:
+    image: ${CADDY_IMAGE}
+    pull_policy: never
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      STEWARD_BETA_DOMAIN: ${STEWARD_BETA_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - steward-caddy-data:/data
+      - steward-caddy-config:/config
+    networks:
+      steward-beta:
+        ipv4_address: 172.30.0.10
+
+volumes:
+  steward-postgres:
+  steward-objects:
+  steward-caddy-data:
+  steward-caddy-config:
+
+networks:
+  steward-beta:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24

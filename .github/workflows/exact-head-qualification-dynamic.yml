@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   qualify:
-    name: Aggregate exact-head closed-alpha qualification dynamically
+    name: Aggregate exact-head product qualification dynamically
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -58,16 +58,18 @@ jobs:
             $treeUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/git/trees/${targetSha}?recursive=1"
             $treeResponse = Invoke-RestMethod -Method Get -Uri $treeUri -Headers $headers
             if ([bool]$treeResponse.truncated) { throw 'Exact-head Git tree was truncated; workflow discovery cannot be trusted.' }
-            $closedAlphaEntries = @($treeResponse.tree | Where-Object {
+            $productEntries = @($treeResponse.tree | Where-Object {
+              $path = [string]$_.path
               [string]$_.type -ceq 'blob' -and
-              ([string]$_.path).StartsWith('.github/workflows/closed-alpha-', [StringComparison]::Ordinal) -and
-              (([string]$_.path).EndsWith('.yml', [StringComparison]::OrdinalIgnoreCase) -or
-               ([string]$_.path).EndsWith('.yaml', [StringComparison]::OrdinalIgnoreCase))
+              ($path.StartsWith('.github/workflows/closed-alpha-', [StringComparison]::Ordinal) -or
+               $path.StartsWith('.github/workflows/closed-beta-', [StringComparison]::Ordinal)) -and
+              ($path.EndsWith('.yml', [StringComparison]::OrdinalIgnoreCase) -or
+               $path.EndsWith('.yaml', [StringComparison]::OrdinalIgnoreCase))
             } | Sort-Object path)
-            if ($closedAlphaEntries.Count -eq 0) { throw 'No closed-alpha workflow files were discovered from the exact-head Git tree.' }
+            if ($productEntries.Count -eq 0) { throw 'No closed-alpha or closed-beta workflow files were discovered from the exact-head Git tree.' }
 
-            $closedAlphaNames = @()
-            foreach ($entry in $closedAlphaEntries) {
+            $productNames = @()
+            foreach ($entry in $productEntries) {
               $blobSha = [string]$entry.sha
               if ($blobSha -notmatch '^[0-9a-f]{40}$') { throw "Workflow '$($entry.path)' has a malformed blob SHA." }
               $blobUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/git/blobs/$blobSha"
@@ -83,9 +85,9 @@ jobs:
 
               $pullRequestTrigger = [Text.RegularExpressions.Regex]::IsMatch($yaml, '(?m)^\s{2}pull_request\s*:') -or
                                     [Text.RegularExpressions.Regex]::IsMatch($yaml, '(?m)^on:\s*\[[^\]]*pull_request[^\]]*\]\s*$')
-              if (-not $pullRequestTrigger) { throw "Closed-alpha workflow '$($entry.path)' is not registered for pull_request qualification." }
+              if (-not $pullRequestTrigger) { throw "Product workflow '$($entry.path)' is not registered for pull_request qualification." }
 
-              $closedAlphaNames += $workflowName
+              $productNames += $workflowName
               $discoveredFiles += [ordered]@{
                 file = [string]$entry.path
                 blobSha = $blobSha
@@ -93,10 +95,10 @@ jobs:
               }
             }
 
-            $duplicates = @($closedAlphaNames | Group-Object | Where-Object Count -gt 1)
-            if ($duplicates.Count -gt 0) { throw "Duplicate closed-alpha workflow names: $($duplicates.Name -join ', ')" }
-            $expectedNames = @($fixedNames + $closedAlphaNames | Sort-Object -Unique)
-            if ($expectedNames.Count -ne ($fixedNames.Count + $closedAlphaNames.Count)) { throw 'A closed-alpha workflow name collides with a fixed regression workflow name.' }
+            $duplicates = @($productNames | Group-Object | Where-Object Count -gt 1)
+            if ($duplicates.Count -gt 0) { throw "Duplicate product workflow names: $($duplicates.Name -join ', ')" }
+            $expectedNames = @($fixedNames + $productNames | Sort-Object -Unique)
+            if ($expectedNames.Count -ne ($fixedNames.Count + $productNames.Count)) { throw 'A product workflow name collides with a fixed regression workflow name.' }
             $expectedCount = $expectedNames.Count
 
             $pendingBody = [ordered]@{
@@ -185,14 +187,14 @@ jobs:
           $succeeded = [string]::IsNullOrWhiteSpace($failureReason)
           $evidence = [ordered]@{
             documentType = 'steward.exact-head-qualification-dynamic'
-            schemaVersion = 2
+            schemaVersion = 3
             observedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
             repository = $env:GITHUB_REPOSITORY
             event = $targetEvent
             headSha = $targetSha
             observerRunId = [int64]$env:GITHUB_RUN_ID
-            discoveryRule = 'exact-head-git-tree-fixed-regressions-plus-all-closed-alpha-pull-request-workflows'
-            closedAlphaWorkflowFiles = $discoveredFiles
+            discoveryRule = 'exact-head-git-tree-fixed-regressions-plus-all-closed-alpha-and-closed-beta-pull-request-workflows'
+            productWorkflowFiles = $discoveredFiles
             expectedWorkflowGroupCount = $expectedCount
             allPresent = ($expectedCount -gt 0 -and $selected.Count -eq $expectedCount)
             allCompleted = ($expectedCount -gt 0 -and $selected.Count -eq $expectedCount -and @($selected.Values | Where-Object { [string]$_.status -cne 'completed' }).Count -eq 0)

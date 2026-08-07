@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "apiBaseUrl": "https://beta.example.com/",
+  "authMode": "friends-build"
+}

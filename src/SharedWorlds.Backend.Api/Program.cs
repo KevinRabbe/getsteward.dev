@@ -31,6 +31,9 @@ var objectStorageBucket = RequireConfiguration(builder.Configuration, "ObjectSto
 var objectStorageAccessKey = RequireConfiguration(builder.Configuration, "ObjectStorage:AccessKeyId");
 var objectStorageSecretKey = RequireConfiguration(builder.Configuration, "ObjectStorage:SecretAccessKey");
 var objectStorageForcePathStyle = builder.Configuration.GetValue("ObjectStorage:ForcePathStyle", false);
+var objectStorageAllowInsecurePrivateNetwork = builder.Configuration.GetValue(
+    "ObjectStorage:AllowInsecurePrivateNetwork",
+    false);
 
 var cleanupIntervalMinutes = ParseBoundedInt32(
     builder.Configuration,
@@ -125,7 +128,8 @@ builder.Services.AddSingleton<IPrivateImmutableObjectStore>(_ =>
         objectStorageBucket,
         objectStorageAccessKey,
         objectStorageSecretKey,
-        objectStorageForcePathStyle)));
+        objectStorageForcePathStyle,
+        objectStorageAllowInsecurePrivateNetwork)));
 
 builder.Services.AddSingleton(services =>
 {

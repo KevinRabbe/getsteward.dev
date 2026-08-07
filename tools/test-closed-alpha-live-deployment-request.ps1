@@ -40,6 +40,7 @@ try {
     Copy-Item (Join-Path $PSScriptRoot 'verify-closed-alpha-release.ps1') (Join-Path $bundle 'verify-closed-alpha-release.ps1')
     Copy-Item (Join-Path $PSScriptRoot 'prepare-closed-alpha-deployment.ps1') (Join-Path $bundle 'prepare-closed-alpha-deployment.ps1')
     Copy-Item (Join-Path $PSScriptRoot 'prepare-closed-alpha-live-deployment.ps1') (Join-Path $bundle 'prepare-closed-alpha-live-deployment.ps1')
+    Copy-Item (Join-Path $PSScriptRoot 'preflight-closed-alpha-live-host.ps1') (Join-Path $bundle 'preflight-closed-alpha-live-host.ps1')
 
     Write-Utf8 (Join-Path $bundle 'desktop/friends.zip') 'synthetic desktop bytes'
     Write-Utf8 (Join-Path $bundle 'backend/steward-backend.tar') 'synthetic backend image bytes'
@@ -89,7 +90,7 @@ try {
 
     $bundledPlanner = Join-Path $bundle 'prepare-closed-alpha-live-deployment.ps1'
     $requestPath = Join-Path $work 'live-deployment-request.json'
-    $fingerprint = 'SHA256:' + ([Convert]::ToBase64String([byte[]]::new(32)).TrimEnd('='))
+    $fingerprint = 'SHA256:' + ([Convert]::ToBase64String([byte[]]::new(32)))
 
     & $bundledPlanner `
         -BundleDirectory $bundle `
@@ -108,12 +109,19 @@ try {
     Require ([string]$request.host.apiHost -ceq 'alpha.getsteward.dev') 'Live deployment request changed the API host.'
     Require ([string]$request.host.sshHost -ceq 'alpha.getsteward.dev') 'First live topology must use the API hostname as the SSH host.'
     Require ([string]$request.host.expectedPublicIpv4 -ceq '1.1.1.1') 'Live deployment request changed the expected public IPv4.'
+    Require ([string]$request.host.sshHostKeySha256 -match '^SHA256:[A-Za-z0-9+/]{43}$') 'Live deployment request did not canonicalize the SSH host-key fingerprint.'
+    Require (-not ([string]$request.host.sshHostKeySha256).EndsWith('=', [StringComparison]::Ordinal)) 'Canonical SSH host-key fingerprint must not include base64 padding.'
     Require ([string]$request.host.remoteEnvironmentPath -ceq '/etc/steward/backend.env') 'Live deployment request changed the protected environment path.'
     Require ([string]$request.host.remoteReleaseDirectory -ceq '/srv/steward/releases/1111111111111111111111111111111111111111') 'Live deployment request changed the release directory.'
     Require ([int]$request.network.publicTlsPort -eq 443) 'Live deployment request changed the TLS port.'
     Require ([int]$request.network.forbiddenPublicBackendPort -eq 8080) 'Live deployment request did not forbid public backend port 8080.'
     Require ([string]$request.network.caddyUpstream -ceq '127.0.0.1:8080') 'Live deployment request changed the one-proxy upstream.'
     Require ([string]$request.network.backendKnownProxyIp -ceq '127.0.0.1') 'Live deployment request widened proxy trust.'
+    Require ([string]$request.executionContract.liveHostPreflight.path -ceq 'preflight-closed-alpha-live-host.ps1') 'Live deployment request did not bind the live-host preflight tool.'
+    $preflightEntry = @($manifest.artifacts | Where-Object { [string]$_.path -ceq 'preflight-closed-alpha-live-host.ps1' })
+    Require ($preflightEntry.Count -eq 1) 'Synthetic candidate must manifest the live-host preflight exactly once.'
+    Require ([int64]$request.executionContract.liveHostPreflight.byteSize -eq [int64]$preflightEntry[0].byteSize) 'Live-host preflight binding has the wrong byte size.'
+    Require ([string]$request.executionContract.liveHostPreflight.sha256 -ceq [string]$preflightEntry[0].sha256) 'Live-host preflight binding has the wrong SHA-256.'
     Require ([bool]$request.executionContract.plannerRunsOnLiveHost) 'Deployment planner must run on the live host beside its protected environment.'
     Require ([bool]$request.executionContract.environmentNeverLeavesLiveHost) 'Protected environment must remain on the live host.'
     Require (-not [bool]$request.secretBoundary.secretValuesPresent) 'Live deployment request cannot contain protected values.'

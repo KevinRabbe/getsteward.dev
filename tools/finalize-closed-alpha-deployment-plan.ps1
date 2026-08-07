@@ -269,3 +269,7 @@ Write-Host "  Live-host evidence finalizer SHA-256: $($toolHashes['finalize-clos
 Write-Host "  Artifacts: $($finalManifest.artifacts.Count)"
 Write-Host '  Protected values copied into candidate: no'
 Write-Host '  Publish authorization changed: no'
+
+$publicationBoundaryFinalizer = Join-Path $PSScriptRoot 'finalize-closed-alpha-publication-boundary.ps1'
+Require ([IO.File]::Exists($publicationBoundaryFinalizer)) 'Publication-boundary finalizer is missing.'
+& $publicationBoundaryFinalizer -BundleDirectory $bundleRoot

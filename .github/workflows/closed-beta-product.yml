@@ -15,6 +15,10 @@ env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   STEWARD_BETA_VERSION: 2.0.0-beta.1
+  POSTGRES_IMAGE: postgres:17@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+  MINIO_IMAGE: minio/minio:latest@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+  MINIO_MC_IMAGE: minio/mc:latest@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+  CADDY_IMAGE: caddy:2@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9
 
 jobs:
   client:
@@ -176,6 +180,9 @@ jobs:
           if ($root.Count -ne 1) { throw 'Closed-beta product root is ambiguous.' }
           "BETA_ROOT=$($root[0].FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+          $cmdLauncher = Join-Path $root[0].FullName 'client/Start-Steward.cmd'
+          if (-not [IO.File]::Exists($cmdLauncher)) { throw 'One-click Windows client launcher is missing.' }
+
           $config = [ordered]@{ schemaVersion = 1; apiBaseUrl = 'https://localhost/'; authMode = 'friends-build' }
           [IO.File]::WriteAllText(
             (Join-Path $root[0].FullName 'client/steward-beta.json'),
@@ -191,18 +198,19 @@ jobs:
           docker load --input (Join-Path $server 'backend/steward-backend.tar')
           if ($LASTEXITCODE -ne 0) { throw 'Could not load packaged backend image.' }
 
-          foreach ($image in @('postgres:17', 'minio/minio:latest', 'minio/mc:latest', 'caddy:2')) {
+          $dependencyImages = @($env:POSTGRES_IMAGE, $env:MINIO_IMAGE, $env:MINIO_MC_IMAGE, $env:CADDY_IMAGE)
+          foreach ($image in $dependencyImages) {
             docker pull $image
-            if ($LASTEXITCODE -ne 0) { throw "Could not pull $image." }
+            if ($LASTEXITCODE -ne 0) { throw "Could not pull digest-pinned dependency $image." }
           }
 
           $envLines = @(
             'STEWARD_BETA_DOMAIN=localhost',
             "STEWARD_BACKEND_IMAGE=$($metadata.imageTag)",
-            'POSTGRES_IMAGE=postgres:17',
-            'MINIO_IMAGE=minio/minio:latest',
-            'MINIO_MC_IMAGE=minio/mc:latest',
-            'CADDY_IMAGE=caddy:2',
+            "POSTGRES_IMAGE=$env:POSTGRES_IMAGE",
+            "MINIO_IMAGE=$env:MINIO_IMAGE",
+            "MINIO_MC_IMAGE=$env:MINIO_MC_IMAGE",
+            "CADDY_IMAGE=$env:CADDY_IMAGE",
             'STEWARD_POSTGRES_PASSWORD=ci-postgres-password',
             'STEWARD_MINIO_ACCESS_KEY=stewardbeta',
             'STEWARD_MINIO_SECRET_KEY=ci-minio-secret-password',

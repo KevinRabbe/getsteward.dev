@@ -127,6 +127,12 @@ Require ([string]::Equals($selfPath, $bundledSelfPath, [StringComparison]::Ordin
 
 $manifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
 $artifacts = @($manifest.artifacts)
+$selfArtifact = Get-ArtifactByPath $artifacts 'stage-closed-alpha-live-deployment-plan.ps1'
+$selfItem = Get-Item -LiteralPath $selfPath
+Require ($null -eq $selfItem.LinkType) 'Live plan stager cannot be a symbolic link.'
+Require ($selfItem.Length -eq [int64]$selfArtifact.byteSize) 'Live plan stager byte size does not match the release manifest.'
+Require ((Get-FileHash -LiteralPath $selfPath -Algorithm SHA256).Hash -ceq [string]$selfArtifact.sha256) 'Live plan stager SHA-256 does not match the release manifest.'
+
 $version = [string]$manifest.version
 $commitSha = [string]$manifest.commitSha
 $apiBaseUrl = [string]$manifest.deployment.apiBaseUrl
@@ -162,9 +168,9 @@ Require-ExactProperties $request.network @(
 ) 'Live deployment request network'
 Require-ExactProperties $request.executionContract @(
     'certificateBypassAllowed', 'deployScriptName', 'deploymentPlanner', 'environmentNeverLeavesLiveHost',
-    'environmentTemplate', 'exactImageIdRequired', 'liveHostPreflight', 'livePlanStager',
-    'liveRequestPlanner', 'plannerRequireDeployable', 'plannerRunsOnLiveHost',
-    'publicTlsVerificationRequired', 'publicVerifierName', 'releaseVerifier'
+    'environmentTemplate', 'exactImageIdRequired', 'liveHostPreflight', 'liveRequestPlanner',
+    'plannerRequireDeployable', 'plannerRunsOnLiveHost', 'publicTlsVerificationRequired',
+    'publicVerifierName', 'releaseVerifier'
 ) 'Live deployment request execution contract'
 Require-ExactProperties $request.secretBoundary @(
     'remoteEnvironmentPath', 'requiredRemoteMode', 'requiredRemoteOwner', 'secretEnvironmentBundled',
@@ -186,7 +192,6 @@ Require-BindingMatchesArtifact $request.executionContract.releaseVerifier $artif
 Require-BindingMatchesArtifact $request.executionContract.deploymentPlanner $artifacts 'prepare-closed-alpha-deployment.ps1' 'Request deployment planner binding'
 Require-BindingMatchesArtifact $request.executionContract.liveRequestPlanner $artifacts 'prepare-closed-alpha-live-deployment.ps1' 'Request live request planner binding'
 Require-BindingMatchesArtifact $request.executionContract.liveHostPreflight $artifacts 'preflight-closed-alpha-live-host.ps1' 'Request live-host preflight binding'
-Require-BindingMatchesArtifact $request.executionContract.livePlanStager $artifacts 'stage-closed-alpha-live-deployment-plan.ps1' 'Request live-plan stager binding'
 Require-BindingMatchesArtifact $request.executionContract.environmentTemplate $artifacts 'backend/deployment.env.example' 'Request environment template binding'
 
 $apiUri = $null
@@ -243,11 +248,11 @@ $observedAt = [DateTimeOffset]::MinValue
 Require ([DateTimeOffset]::TryParse(
     [string]$preflight.observedAtUtc,
     [Globalization.CultureInfo]::InvariantCulture,
-    [Globalization.DateTimeStyles]::RoundtripKind,
+    [Globalization.DateTimeStyles]::None,
     [ref]$observedAt)) 'Preflight evidence observedAtUtc is malformed.'
 $now = [DateTimeOffset]::UtcNow
 $age = $now - $observedAt.ToUniversalTime()
-Require ($age -ge -$MaximumClockSkew) 'Preflight evidence timestamp is too far in the future.'
+Require ($age -ge $MaximumClockSkew.Negate()) 'Preflight evidence timestamp is too far in the future.'
 Require ($age -le $MaximumPreflightAge) 'Preflight evidence is stale; run the live-host preflight again before transfer.'
 $preflightAgeSeconds = [Math]::Max(0, [int][Math]::Floor($age.TotalSeconds))
 $preflightEvidenceSha256 = (Get-FileHash -LiteralPath $preflightFile.FullPath -Algorithm SHA256).Hash.ToUpperInvariant()
@@ -337,18 +342,9 @@ env_size="$(stat -Lc '%s' "${env_path}")"
 [[ "${env_size}" =~ ^[0-9]+$ && "${env_size}" -gt 0 && "${env_size}" -le 65536 ]] || { echo 'protected backend environment size is outside the supported bound' >&2; exit 1; }
 [[ ! -e "${release_dir}" ]] || { echo 'exact release directory appeared after preflight' >&2; exit 1; }
 [[ ! -e "${plan_dir}" ]] || { echo 'exact deployment-plan directory appeared after preflight' >&2; exit 1; }
-if docker container inspect steward-backend >/dev/null 2>&1; then
-  echo 'steward-backend container appeared after preflight' >&2
-  exit 1
-fi
-if docker image inspect "${image_id}" >/dev/null 2>&1; then
-  echo 'exact backend image unexpectedly preexists before live plan staging' >&2
-  exit 1
-fi
-if ss -ltnH 'sport = :8080' | grep -q .; then
-  echo 'backend port 8080 became occupied after preflight' >&2
-  exit 1
-fi
+if docker container inspect steward-backend >/dev/null 2>&1; then echo 'steward-backend container appeared after preflight' >&2; exit 1; fi
+if docker image inspect "${image_id}" >/dev/null 2>&1; then echo 'exact backend image unexpectedly preexists before live plan staging' >&2; exit 1; fi
+if ss -ltnH 'sport = :8080' | grep -q .; then echo 'backend port 8080 became occupied after preflight' >&2; exit 1; fi
 if [[ -e "${caddy_path}" ]]; then
   [[ -f "${caddy_path}" && ! -L "${caddy_path}" ]] || { echo 'Caddy configuration path is not a regular non-symlink file' >&2; exit 1; }
   caddy_state="sha256:$(sha256sum "${caddy_path}" | awk '{print toupper($1)}')"
@@ -367,7 +363,7 @@ printf 'backendImagePreexisting=false\n'
         $backendImageId,
         [string]$request.host.caddyConfigurationPath
     ) | ForEach-Object { ConvertTo-ShellSingleQuoted ([string]$_) }
-    $freshCommand = 'bash -s -- ' + ($freshArgs -join ' ')
+    $freshCommand = 'sudo -n bash -s -- ' + ($freshArgs -join ' ')
     $freshOutput = @($freshCheckScript | & ssh @sshOptions $remoteTarget $freshCommand 2>&1)
     if ($LASTEXITCODE -ne 0) {
         throw "Fresh live-host recheck failed before candidate transfer. $(($freshOutput -join [Environment]::NewLine).Trim())"
@@ -425,8 +421,8 @@ cleanup() {
   rm -f "${archive_path}" >/dev/null 2>&1 || true
   rm -rf "${release_tmp}" "${plan_tmp}" >/dev/null 2>&1 || true
   if [[ "${success}" != '1' ]]; then
-    [[ "${created_release}" == '1' ]] && rm -rf "${release_dir}" >/dev/null 2>&1 || true
-    [[ "${created_plan}" == '1' ]] && rm -rf "${plan_dir}" >/dev/null 2>&1 || true
+    if [[ "${created_release}" == '1' ]]; then rm -rf "${release_dir}" >/dev/null 2>&1 || true; fi
+    if [[ "${created_plan}" == '1' ]]; then rm -rf "${plan_dir}" >/dev/null 2>&1 || true; fi
   fi
 }
 trap cleanup EXIT
@@ -435,38 +431,31 @@ actual_archive_sha256="$(sha256sum "${archive_path}" | awk '{print tolower($1)}'
 [[ "${actual_archive_sha256}" == "${archive_sha256}" ]] || { echo 'candidate archive SHA-256 mismatch after transfer' >&2; exit 1; }
 [[ ! -e "${release_dir}" ]] || { echo 'exact release directory is no longer absent' >&2; exit 1; }
 [[ ! -e "${plan_dir}" ]] || { echo 'exact deployment-plan directory is no longer absent' >&2; exit 1; }
-if docker image inspect "${image_id}" >/dev/null 2>&1; then
-  echo 'exact backend image unexpectedly preexists before remote plan generation' >&2
-  exit 1
-fi
-if docker container inspect steward-backend >/dev/null 2>&1; then
-  echo 'steward-backend container exists before remote plan generation' >&2
-  exit 1
-fi
-if ss -ltnH 'sport = :8080' | grep -q .; then
-  echo 'backend port 8080 is occupied before remote plan generation' >&2
-  exit 1
-fi
+if docker image inspect "${image_id}" >/dev/null 2>&1; then echo 'exact backend image unexpectedly preexists before remote plan generation' >&2; exit 1; fi
+if docker container inspect steward-backend >/dev/null 2>&1; then echo 'steward-backend container exists before remote plan generation' >&2; exit 1; fi
+if ss -ltnH 'sport = :8080' | grep -q .; then echo 'backend port 8080 is occupied before remote plan generation' >&2; exit 1; fi
 [[ -f "${env_path}" && ! -L "${env_path}" ]] || { echo 'protected backend environment is missing, not regular, or is a symlink' >&2; exit 1; }
 [[ "$(stat -Lc '%u' "${env_path}")" == '0' ]] || { echo 'protected backend environment is not root-owned' >&2; exit 1; }
 [[ "$(stat -Lc '%a' "${env_path}")" == '600' ]] || { echo 'protected backend environment mode is not 0600' >&2; exit 1; }
-if [[ -e "${caddy_path}" ]]; then
-  current_caddy_state="sha256:$(sha256sum "${caddy_path}" | awk '{print toupper($1)}')"
-else
-  current_caddy_state='absent'
-fi
-[[ "${current_caddy_state}" == "${caddy_state_before}" ]] || { echo 'Caddy configuration changed before remote plan generation' >&2; exit 1; }
+if [[ -e "${caddy_path}" ]]; then caddy_state_now="sha256:$(sha256sum "${caddy_path}" | awk '{print toupper($1)}')"; else caddy_state_now='absent'; fi
+[[ "${caddy_state_now}" == "${caddy_state_before}" ]] || { echo 'Caddy configuration changed before remote plan generation' >&2; exit 1; }
 
 install -d -m 0755 -o root -g root "$(dirname "${release_dir}")" "$(dirname "${plan_dir}")"
 mkdir "${release_tmp}" "${plan_tmp}"
 tar -xf "${archive_path}" -C "${release_tmp}"
-pwsh -NoLogo -NoProfile -File "${release_tmp}/verify-closed-alpha-release.ps1" -BundleDirectory "${release_tmp}"
-pwsh -NoLogo -NoProfile -File "${release_tmp}/prepare-closed-alpha-deployment.ps1" \
+if ! pwsh -NoLogo -NoProfile -File "${release_tmp}/verify-closed-alpha-release.ps1" -BundleDirectory "${release_tmp}" >/dev/null 2>&1; then
+  echo 'remote release verification failed' >&2
+  exit 1
+fi
+if ! pwsh -NoLogo -NoProfile -File "${release_tmp}/prepare-closed-alpha-deployment.ps1" \
   -BundleDirectory "${release_tmp}" \
   -EnvironmentFile "${env_path}" \
   -OutputDirectory "${plan_tmp}" \
   -HostEnvironmentPath "${env_path}" \
-  -RequireDeployable
+  -RequireDeployable >/dev/null 2>&1; then
+  echo 'remote deployment planner rejected the protected environment or release coordinates' >&2
+  exit 1
+fi
 
 export STEWARD_PLAN_PATH="${plan_tmp}/deployment-plan.json"
 export STEWARD_PLAN_DIR="${plan_tmp}"
@@ -475,7 +464,7 @@ export STEWARD_EXPECTED_COMMIT="${release_commit}"
 export STEWARD_EXPECTED_API="${api_base_url}"
 export STEWARD_EXPECTED_IMAGE="${image_id}"
 export STEWARD_EXPECTED_ENV="${env_path}"
-pwsh -NoLogo -NoProfile -Command '
+if ! pwsh -NoLogo -NoProfile -Command '
 $ErrorActionPreference = "Stop"
 $planPath = $env:STEWARD_PLAN_PATH
 if (-not [IO.File]::Exists($planPath)) { throw "deployment-plan.json is missing" }
@@ -504,25 +493,15 @@ foreach ($entry in $generated) {
   $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
   if ($hash -cne [string]$entry.sha256) { throw "generated file hash mismatch: $name" }
 }
-'
+' >/dev/null 2>&1; then
+  echo 'generated deployment-plan validation failed' >&2
+  exit 1
+fi
 
-if docker image inspect "${image_id}" >/dev/null 2>&1; then
-  echo 'live plan staging unexpectedly loaded the backend image' >&2
-  exit 1
-fi
-if docker container inspect steward-backend >/dev/null 2>&1; then
-  echo 'live plan staging unexpectedly created the backend container' >&2
-  exit 1
-fi
-if ss -ltnH 'sport = :8080' | grep -q .; then
-  echo 'live plan staging unexpectedly occupied backend port 8080' >&2
-  exit 1
-fi
-if [[ -e "${caddy_path}" ]]; then
-  caddy_state_after="sha256:$(sha256sum "${caddy_path}" | awk '{print toupper($1)}')"
-else
-  caddy_state_after='absent'
-fi
+if docker image inspect "${image_id}" >/dev/null 2>&1; then echo 'live plan staging unexpectedly loaded the backend image' >&2; exit 1; fi
+if docker container inspect steward-backend >/dev/null 2>&1; then echo 'live plan staging unexpectedly created the backend container' >&2; exit 1; fi
+if ss -ltnH 'sport = :8080' | grep -q .; then echo 'live plan staging unexpectedly occupied backend port 8080' >&2; exit 1; fi
+if [[ -e "${caddy_path}" ]]; then caddy_state_after="sha256:$(sha256sum "${caddy_path}" | awk '{print toupper($1)}')"; else caddy_state_after='absent'; fi
 [[ "${caddy_state_after}" == "${caddy_state_before}" ]] || { echo 'live plan staging modified the Caddy configuration' >&2; exit 1; }
 
 mv "${release_tmp}" "${release_dir}"
@@ -551,17 +530,12 @@ printf 'releaseDirectory=%s\n' "${release_dir}"
 printf 'deploymentPlanDirectory=%s\n' "${plan_dir}"
 '@
     $stageArgs = @(
-        $remoteArchive,
-        $archiveSha256,
+        $remoteArchive, $archiveSha256,
         [string]$request.host.remoteReleaseDirectory,
         [string]$request.host.remoteDeploymentPlanDirectory,
         [string]$request.host.remoteEnvironmentPath,
-        $backendImageId,
-        $version,
-        $commitSha,
-        $apiBaseUrl,
-        [string]$request.host.caddyConfigurationPath,
-        $caddyStateBefore
+        $backendImageId, $version, $commitSha, $apiBaseUrl,
+        [string]$request.host.caddyConfigurationPath, $caddyStateBefore
     ) | ForEach-Object { ConvertTo-ShellSingleQuoted ([string]$_) }
     $stageCommand = 'sudo -n bash -s -- ' + ($stageArgs -join ' ')
     $stageOutput = @($remoteStageScript | & ssh @sshOptions $remoteTarget $stageCommand 2>&1)
@@ -575,25 +549,18 @@ printf 'deploymentPlanDirectory=%s\n' "${plan_dir}"
         $line = ([string]$lineObject).Trim()
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         $separator = $line.IndexOf('=')
-        if ($separator -le 0) {
-            Write-Host $line
-            continue
-        }
+        Require ($separator -gt 0) "Remote staging emitted an unexpected line."
         $name = $line.Substring(0, $separator)
         $value = $line.Substring($separator + 1)
-        if ($name -in @(
+        Require ($name -in @(
             'candidateArchiveSha256', 'remoteBundleVerified', 'deploymentPlanGenerated', 'deploymentPlanSha256',
             'protectedEnvironmentReadOnHost', 'protectedEnvironmentTransferred', 'deploymentPlanSecretValuesCopied',
             'backendImagePreexisting', 'backendImageLoaded', 'backendContainerStarted', 'deploymentStarted',
             'backendPort8080Clear', 'caddyStateBefore', 'caddyStateAfter', 'caddyModified', 'releaseDirectory',
             'deploymentPlanDirectory'
-        )) {
-            Require (-not $remoteValues.ContainsKey($name)) "Remote staging emitted duplicate evidence key '$name'."
-            $remoteValues[$name] = $value
-        }
-        else {
-            Write-Host $line
-        }
+        )) "Remote staging emitted an unexpected evidence key '$name'."
+        Require (-not $remoteValues.ContainsKey($name)) "Remote staging emitted duplicate evidence key '$name'."
+        $remoteValues[$name] = $value
     }
     $expectedRemoteKeys = @(
         'backendContainerStarted', 'backendImageLoaded', 'backendImagePreexisting', 'backendPort8080Clear',

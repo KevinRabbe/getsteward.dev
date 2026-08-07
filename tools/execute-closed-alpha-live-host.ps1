@@ -125,10 +125,9 @@ $preflightEvidence = Join-Path $evidenceRoot '01-live-host-preflight.json'
 $stagingEvidence = Join-Path $evidenceRoot '02-live-plan-staging.json'
 $backendEvidence = Join-Path $evidenceRoot '03-live-backend-deployment.json'
 $ingressEvidence = Join-Path $evidenceRoot '04-live-ingress-activation.json'
-$externalEvidence = Join-Path $evidenceRoot '05-external-ingress-acceptance.json'
-$chainEvidence = Join-Path $evidenceRoot 'execution-chain.json'
+$handoffEvidence = Join-Path $evidenceRoot 'deployment-handoff.json'
 
-Write-Host '[1/5] Read-only live-host preflight'
+Write-Host '[1/4] Read-only live-host preflight'
 & ([string]$tools['preflight-closed-alpha-live-host.ps1'].Path) `
     -BundleDirectory $bundleRoot `
     -RequestPath $requestFullPath `
@@ -136,7 +135,7 @@ Write-Host '[1/5] Read-only live-host preflight'
     -EvidencePath $preflightEvidence
 $preflightBinding = Get-EvidenceBinding $preflightEvidence 'steward.closed-alpha-live-host-preflight'
 
-Write-Host '[2/5] Exact candidate and deployment-plan staging'
+Write-Host '[2/4] Exact candidate and deployment-plan staging'
 & ([string]$tools['stage-closed-alpha-live-deployment-plan.ps1'].Path) `
     -BundleDirectory $bundleRoot `
     -RequestPath $requestFullPath `
@@ -145,7 +144,7 @@ Write-Host '[2/5] Exact candidate and deployment-plan staging'
     -EvidencePath $stagingEvidence
 $stagingBinding = Get-EvidenceBinding $stagingEvidence 'steward.closed-alpha-live-plan-staging'
 
-Write-Host '[3/5] Exact backend deployment'
+Write-Host '[3/4] Exact backend deployment'
 & ([string]$tools['deploy-closed-alpha-live-backend.ps1'].Path) `
     -BundleDirectory $bundleRoot `
     -RequestPath $requestFullPath `
@@ -154,7 +153,7 @@ Write-Host '[3/5] Exact backend deployment'
     -EvidencePath $backendEvidence
 $backendBinding = Get-EvidenceBinding $backendEvidence 'steward.closed-alpha-live-backend-deployment'
 
-Write-Host '[4/5] Managed Caddy ingress activation'
+Write-Host '[4/4] Managed Caddy ingress activation'
 & ([string]$tools['activate-closed-alpha-live-ingress.ps1'].Path) `
     -BundleDirectory $bundleRoot `
     -RequestPath $requestFullPath `
@@ -163,21 +162,13 @@ Write-Host '[4/5] Managed Caddy ingress activation'
     -EvidencePath $ingressEvidence
 $ingressBinding = Get-EvidenceBinding $ingressEvidence 'steward.closed-alpha-live-ingress-activation'
 
-Write-Host '[5/5] Read-only external HTTPS and backend-port acceptance'
-& ([string]$tools['verify-closed-alpha-external-ingress.ps1'].Path) `
-    -BundleDirectory $bundleRoot `
-    -RequestPath $requestFullPath `
-    -IngressActivationEvidencePath $ingressEvidence `
-    -EvidencePath $externalEvidence
-$externalBinding = Get-EvidenceBinding $externalEvidence 'steward.closed-alpha-external-ingress-acceptance'
-
 $toolBindings = @($toolNames | ForEach-Object {
     $binding = $tools[$_]
     [ordered]@{ path=$binding.RelativePath; byteSize=$binding.ByteSize; sha256=$binding.Sha256 }
 })
-$stageEvidence = @($preflightBinding,$stagingBinding,$backendBinding,$ingressBinding,$externalBinding)
-$chain = [ordered]@{
-    documentType = 'steward.closed-alpha-live-host-execution-chain'
+$stageEvidence = @($preflightBinding,$stagingBinding,$backendBinding,$ingressBinding)
+$handoff = [ordered]@{
+    documentType = 'steward.closed-alpha-live-host-deployment-handoff'
     schemaVersion = 1
     completedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
     releaseVersion = [string]$manifest.version
@@ -185,30 +176,33 @@ $chain = [ordered]@{
     requestSha256 = $requestSha256
     tools = $toolBindings
     stageEvidence = $stageEvidence
-    stageCount = 5
-    allStagesSucceeded = $true
+    deploymentStageCount = 4
+    allDeploymentStagesSucceeded = $true
     partialStageEvidencePreservedOnFailure = $true
     automaticCrossStageRollback = $false
     sshCredentialPathRecorded = $false
     sshCredentialCopied = $false
-    externalAcceptanceUsedSsh = $false
     protectedEnvironmentCopiedToOperator = $false
+    externalAcceptancePerformed = $false
+    externalAcceptanceRequiresSeparateObserver = $true
+    externalObserverMustReceiveSshCredential = $false
     publishAllowed = $false
     physicalBringHere = 'deferred'
     publicationAuthorizationChanged = $false
 }
-$chainText = $chain | ConvertTo-Json -Depth 8
-Require ($chainText.Length -gt 0 -and $chainText.Length -le 128KB) 'Live-host execution-chain evidence is empty or exceeds 128 KiB.'
-[IO.File]::WriteAllText($chainEvidence,$chainText,[Text.UTF8Encoding]::new($false))
+$handoffText = $handoff | ConvertTo-Json -Depth 8
+Require ($handoffText.Length -gt 0 -and $handoffText.Length -le 128KB) 'Live-host deployment-handoff evidence is empty or exceeds 128 KiB.'
+[IO.File]::WriteAllText($handoffEvidence,$handoffText,[Text.UTF8Encoding]::new($false))
 
 Write-Host
-Write-Host '[OK] Exact closed-alpha live-host execution chain completed.'
+Write-Host '[OK] Exact closed-alpha live-host deployment stages completed.'
 Write-Host "  Release: $([string]$manifest.version) ($([string]$manifest.commitSha))"
 Write-Host "  Request SHA-256: $requestSha256"
 Write-Host "  Evidence directory: $evidenceRoot"
-Write-Host '  Stages: 5/5 succeeded'
-Write-Host '  Final external acceptance: passed'
+Write-Host '  Deployment stages: 4/4 succeeded'
 Write-Host '  SSH credential copied/recorded: no'
+Write-Host '  External acceptance performed here: no'
+Write-Host '  External acceptance requires a separate credential-free observer'
 Write-Host '  Cross-stage atomic rollback claimed: no'
 Write-Host '  Publication authorization changed: no'
 Write-Host '  Physical Bring Here: deferred'

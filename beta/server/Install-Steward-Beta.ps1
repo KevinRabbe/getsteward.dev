@@ -224,7 +224,12 @@ $credentialDirectory = Join-Path $outputRoot 'credentials'
 [IO.Directory]::CreateDirectory($credentialDirectory) | Out-Null
 [IO.File]::WriteAllText((Join-Path $credentialDirectory 'owner.txt'), $friend0.Credential, [Text.UTF8Encoding]::new($false))
 [IO.File]::WriteAllText((Join-Path $credentialDirectory 'friend.txt'), $friend1.Credential, [Text.UTF8Encoding]::new($false))
-if ($IsLinux -or $IsMacOS) { & chmod 700 $credentialDirectory; & chmod 600 (Join-Path $credentialDirectory '*.txt') }
+if ($IsLinux -or $IsMacOS) {
+    & chmod 700 $credentialDirectory
+    foreach ($credentialFile in Get-ChildItem -LiteralPath $credentialDirectory -File) {
+        & chmod 600 $credentialFile.FullName
+    }
+}
 
 Write-Host
 Write-Host '[OK] Steward Closed Beta is live.'

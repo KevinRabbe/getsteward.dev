@@ -315,7 +315,7 @@ HTTPServer(('93.184.216.34', 8080), Handler).serve_forever()
     Require (-not $externalProcess.HasExited) 'Externally reachable 8080 fixture failed to start.'
     Expect-Failure {
         Invoke-Observer $observerPrefix $observerTool $bundle $requestPath $ingressPath $openPortEvidence
-    } 'externally reachable backend port is rejected' 'Backend port 8080 is externally reachable; external acceptance fails closed.'
+    } 'externally reachable backend port is rejected' 'Backend port 8080 is externally reachable'
     Stop-Process -Id $externalProcess.Id -Force -ErrorAction SilentlyContinue
     $externalProcess.WaitForExit(5000) | Out-Null
     $externalProcess = $null

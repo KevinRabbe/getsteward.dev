@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$ConfigurationPath = (Join-Path $PSScriptRoot 'steward-beta.json')
+    [string]$ConfigurationPath = (Join-Path $PSScriptRoot 'steward-beta.json'),
+    [switch]$VerifyOnly
 )
 
 Set-StrictMode -Version Latest
@@ -122,5 +123,10 @@ Remove-Item Env:STEWARD_STEAM_APP_ID -ErrorAction SilentlyContinue
 Remove-Item Env:STEWARD_STEAM_WEB_API_IDENTITY -ErrorAction SilentlyContinue
 
 Write-Host "Steward Closed Beta -> $apiBaseUrl"
+if ($VerifyOnly.IsPresent) {
+    Write-Host '[OK] Closed-beta client configuration and immutable app package are valid.'
+    return
+}
+
 Write-Host 'Launching Steward...'
 Start-Process -FilePath $desktopExecutable -WorkingDirectory $appRoot

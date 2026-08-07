@@ -235,6 +235,7 @@ PubkeyAuthentication yes
 AllowUsers steward
 UsePAM no
 StrictModes yes
+Subsystem sftp internal-sftp
 LogLevel VERBOSE
 "@
     Write-Utf8 $sshdConfig $sshdText

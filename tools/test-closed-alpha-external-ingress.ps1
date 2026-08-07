@@ -153,6 +153,9 @@ try {
     $requestSha = (Get-FileHash -LiteralPath $requestPath -Algorithm SHA256).Hash.ToUpperInvariant()
 
     Write-Utf8 $caddyConfig @"
+{
+    admin off
+}
 $apiHost {
     tls internal
     reverse_proxy 127.0.0.1:8080

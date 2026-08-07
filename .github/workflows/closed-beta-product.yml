@@ -1,0 +1,262 @@
+name: Closed beta product
+
+on:
+  push:
+    branches:
+      - main
+      - "agent/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  STEWARD_BETA_VERSION: 2.0.0-beta.1
+
+jobs:
+  client:
+    name: Build deploy-time-configured Windows client
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build immutable client app without embedded endpoint
+        shell: pwsh
+        run: |
+          ./tools/e4-build-desktop.ps1 `
+            -Configuration Release `
+            -Runtime win-x64 `
+            -OutputDirectory "$env:RUNNER_TEMP/client-app" `
+            -BuildVersion $env:STEWARD_BETA_VERSION `
+            -ReleaseContentOnly
+
+          if (Test-Path "$env:RUNNER_TEMP/client-app/steward-friends-build.json") {
+            throw 'Closed-beta client unexpectedly contains a build-time Friends Build endpoint.'
+          }
+          if (Test-Path "$env:RUNNER_TEMP/client-app/steward-steam-release.json") {
+            throw 'Closed-beta client unexpectedly contains a Steam release endpoint.'
+          }
+
+      - name: Upload client app
+        uses: actions/upload-artifact@v6
+        with:
+          name: closed-beta-client-app
+          path: ${{ runner.temp }}/client-app
+          if-no-files-found: error
+          retention-days: 2
+
+  backend:
+    name: Build exact closed-beta Linux backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build and save backend image
+        shell: pwsh
+        run: |
+          $version = $env:STEWARD_BETA_VERSION
+          $tagVersion = $version.ToLowerInvariant()
+          $imageTag = "steward-backend:$tagVersion"
+          $output = "$env:RUNNER_TEMP/backend-input"
+          New-Item -ItemType Directory -Force -Path $output | Out-Null
+
+          docker build `
+            --platform linux/amd64 `
+            --file src/SharedWorlds.Backend.Api/Dockerfile `
+            --tag $imageTag `
+            --label "org.opencontainers.image.revision=${{ github.sha }}" `
+            --label "org.opencontainers.image.version=$version" `
+            .
+          if ($LASTEXITCODE -ne 0) { throw 'Backend image build failed.' }
+
+          $imageId = (docker image inspect $imageTag --format '{{.Id}}').Trim().ToLowerInvariant()
+          $runtimeUser = (docker image inspect $imageTag --format '{{.Config.User}}').Trim()
+          $platform = (docker image inspect $imageTag --format '{{.Os}}/{{.Architecture}}').Trim().ToLowerInvariant()
+          if ($imageId -notmatch '^sha256:[0-9a-f]{64}$') { throw 'Backend image ID is malformed.' }
+          if ($runtimeUser -cne 'app') { throw "Backend image runtime user is '$runtimeUser', expected app." }
+          if ($platform -cne 'linux/amd64') { throw "Backend image platform is '$platform', expected linux/amd64." }
+
+          docker save --output "$output/steward-backend.tar" $imageTag
+          if ($LASTEXITCODE -ne 0) { throw 'Backend image save failed.' }
+          $metadata = [ordered]@{
+            imageTag = $imageTag
+            imageId = $imageId
+            version = $version
+            commitSha = '${{ github.sha }}'
+            platform = $platform
+            runtimeUser = $runtimeUser
+          }
+          [IO.File]::WriteAllText(
+            "$output/backend-metadata.json",
+            ($metadata | ConvertTo-Json -Compress),
+            [Text.UTF8Encoding]::new($false))
+
+      - name: Upload backend image
+        uses: actions/upload-artifact@v6
+        with:
+          name: closed-beta-backend-input
+          path: ${{ runner.temp }}/backend-input
+          if-no-files-found: error
+          retention-days: 2
+
+  assemble:
+    name: Assemble runnable closed-beta product
+    needs: [client, backend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download client
+        uses: actions/download-artifact@v6
+        with:
+          name: closed-beta-client-app
+          path: ${{ runner.temp }}/client-app
+
+      - name: Download backend
+        uses: actions/download-artifact@v6
+        with:
+          name: closed-beta-backend-input
+          path: ${{ runner.temp }}/backend-input
+
+      - name: Assemble product ZIP
+        shell: pwsh
+        run: |
+          ./tools/build-closed-beta-product.ps1 `
+            -ClientAppDirectory "$env:RUNNER_TEMP/client-app" `
+            -BackendInputDirectory "$env:RUNNER_TEMP/backend-input" `
+            -Version $env:STEWARD_BETA_VERSION `
+            -OutputDirectory "$env:RUNNER_TEMP/product"
+
+      - name: Upload closed-beta product
+        uses: actions/upload-artifact@v6
+        with:
+          name: steward-closed-beta-product-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/product/*.zip
+            ${{ runner.temp }}/product/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  smoke:
+    name: Boot packaged beta stack end to end
+    needs: assemble
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download product
+        uses: actions/download-artifact@v6
+        with:
+          name: steward-closed-beta-product-${{ github.sha }}
+          path: ${{ runner.temp }}/product
+
+      - name: Expand product and verify generic client
+        shell: pwsh
+        run: |
+          $zip = @(Get-ChildItem "$env:RUNNER_TEMP/product" -Filter '*.zip')
+          if ($zip.Count -ne 1) { throw 'Expected exactly one closed-beta product ZIP.' }
+          Expand-Archive -LiteralPath $zip[0].FullName -DestinationPath "$env:RUNNER_TEMP/expanded"
+          $root = @(Get-ChildItem "$env:RUNNER_TEMP/expanded" -Directory)
+          if ($root.Count -ne 1) { throw 'Closed-beta product root is ambiguous.' }
+          "BETA_ROOT=$($root[0].FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+          $config = [ordered]@{ schemaVersion = 1; apiBaseUrl = 'https://localhost/'; authMode = 'friends-build' }
+          [IO.File]::WriteAllText(
+            (Join-Path $root[0].FullName 'client/steward-beta.json'),
+            ($config | ConvertTo-Json),
+            [Text.UTF8Encoding]::new($false))
+          & (Join-Path $root[0].FullName 'client/Start-Steward.ps1') -VerifyOnly
+          if ($LASTEXITCODE -ne 0) { throw 'Generic closed-beta client verification failed.' }
+
+      - name: Boot packaged PostgreSQL, MinIO, backend, and Caddy
+        shell: pwsh
+        run: |
+          $server = Join-Path $env:BETA_ROOT 'server'
+          $metadata = Get-Content (Join-Path $server 'backend/backend-metadata.json') -Raw | ConvertFrom-Json
+          docker load --input (Join-Path $server 'backend/steward-backend.tar')
+          if ($LASTEXITCODE -ne 0) { throw 'Could not load packaged backend image.' }
+
+          foreach ($image in @('postgres:17', 'minio/minio:latest', 'minio/mc:latest', 'caddy:2')) {
+            docker pull $image
+            if ($LASTEXITCODE -ne 0) { throw "Could not pull $image." }
+          }
+
+          $envLines = @(
+            'STEWARD_BETA_DOMAIN="localhost"',
+            "STEWARD_BACKEND_IMAGE=\"$($metadata.imageTag)\"",
+            'POSTGRES_IMAGE="postgres:17"',
+            'MINIO_IMAGE="minio/minio:latest"',
+            'MINIO_MC_IMAGE="minio/mc:latest"',
+            'CADDY_IMAGE="caddy:2"',
+            'STEWARD_POSTGRES_PASSWORD="ci-postgres-password"',
+            'STEWARD_MINIO_ACCESS_KEY="stewardbeta"',
+            'STEWARD_MINIO_SECRET_KEY="ci-minio-secret-password"',
+            'STEWARD_FRIEND_0_ID="friend-ci-0"',
+            'STEWARD_FRIEND_0_NAME="CI Owner"',
+            "STEWARD_FRIEND_0_HASH=\"$('A' * 64)\"",
+            'STEWARD_FRIEND_1_ID="friend-ci-1"',
+            'STEWARD_FRIEND_1_NAME="CI Friend"',
+            "STEWARD_FRIEND_1_HASH=\"$('B' * 64)\""
+          )
+          [IO.File]::WriteAllLines((Join-Path $server '.env'), $envLines, [Text.UTF8Encoding]::new($false))
+
+          Push-Location $server
+          try {
+            docker compose --env-file .env config --quiet
+            if ($LASTEXITCODE -ne 0) { throw 'Packaged Compose file is invalid.' }
+            docker compose --env-file .env up -d
+            if ($LASTEXITCODE -ne 0) { throw 'Packaged beta stack failed to start.' }
+
+            $deadline = [DateTimeOffset]::UtcNow.AddMinutes(4)
+            $ready = $false
+            do {
+              try {
+                $response = Invoke-WebRequest 'http://172.30.0.20:8080/health/ready' -TimeoutSec 5
+                if ($response.StatusCode -eq 200) { $ready = $true; break }
+              }
+              catch { Start-Sleep -Seconds 4 }
+            } while ([DateTimeOffset]::UtcNow -lt $deadline)
+            if (-not $ready) {
+              docker compose --env-file .env logs backend postgres minio minio-init
+              throw 'Packaged backend never became ready against packaged PostgreSQL/MinIO.'
+            }
+
+            $httpsReady = $false
+            $deadline = [DateTimeOffset]::UtcNow.AddMinutes(2)
+            do {
+              & curl --fail --silent --show-error --insecure https://localhost/health/ready | Out-Null
+              if ($LASTEXITCODE -eq 0) { $httpsReady = $true; break }
+              Start-Sleep -Seconds 3
+            } while ([DateTimeOffset]::UtcNow -lt $deadline)
+            if (-not $httpsReady) { throw 'Packaged Caddy HTTPS ingress never became ready.' }
+
+            & curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8080/health/live | Out-Null
+            if ($LASTEXITCODE -eq 0) { throw 'Backend port 8080 is unexpectedly exposed on the host.' }
+
+            Write-Host '[OK] Packaged closed-beta product booted end to end.'
+            Write-Host '  PostgreSQL: ready'
+            Write-Host '  Private object storage: ready'
+            Write-Host '  Backend.Api: ready'
+            Write-Host '  HTTPS ingress: ready'
+            Write-Host '  Host port 8080: closed'
+          }
+          finally {
+            docker compose --env-file .env down --volumes --remove-orphans
+            Pop-Location
+          }

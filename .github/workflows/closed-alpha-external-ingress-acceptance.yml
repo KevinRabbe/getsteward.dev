@@ -1,0 +1,34 @@
+name: Closed alpha external ingress acceptance CI
+
+on:
+  push:
+    branches:
+      - main
+      - "agent/**"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  external-ingress-acceptance:
+    name: Prove HTTPS trust and externally closed backend port from separate network namespace
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install external-observer dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends caddy ca-certificates curl iproute2 python3
+          caddy version
+          curl --version
+
+      - name: Run separate-network external ingress acceptance rehearsal
+        shell: pwsh
+        run: |
+          ./tools/test-closed-alpha-external-ingress.ps1

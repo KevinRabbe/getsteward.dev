@@ -281,7 +281,8 @@ HTTPServer(('127.0.0.1', 8080), Handler).serve_forever()
     $rootCertificate = Join-Path $caddyData 'caddy/pki/authorities/local/root.crt'
     $rootReady = $false
     for ($attempt=1;$attempt -le 60;$attempt++) {
-        if ([IO.File]::Exists($rootCertificate)) { $rootReady = $true; break }
+        & sudo test -f $rootCertificate
+        if ($LASTEXITCODE -eq 0) { $rootReady = $true; break }
         Start-Sleep -Milliseconds 250
     }
     if (-not $rootReady) {

@@ -197,21 +197,21 @@ jobs:
           }
 
           $envLines = @(
-            'STEWARD_BETA_DOMAIN="localhost"',
-            "STEWARD_BACKEND_IMAGE=\"$($metadata.imageTag)\"",
-            'POSTGRES_IMAGE="postgres:17"',
-            'MINIO_IMAGE="minio/minio:latest"',
-            'MINIO_MC_IMAGE="minio/mc:latest"',
-            'CADDY_IMAGE="caddy:2"',
-            'STEWARD_POSTGRES_PASSWORD="ci-postgres-password"',
-            'STEWARD_MINIO_ACCESS_KEY="stewardbeta"',
-            'STEWARD_MINIO_SECRET_KEY="ci-minio-secret-password"',
-            'STEWARD_FRIEND_0_ID="friend-ci-0"',
+            'STEWARD_BETA_DOMAIN=localhost',
+            "STEWARD_BACKEND_IMAGE=$($metadata.imageTag)",
+            'POSTGRES_IMAGE=postgres:17',
+            'MINIO_IMAGE=minio/minio:latest',
+            'MINIO_MC_IMAGE=minio/mc:latest',
+            'CADDY_IMAGE=caddy:2',
+            'STEWARD_POSTGRES_PASSWORD=ci-postgres-password',
+            'STEWARD_MINIO_ACCESS_KEY=stewardbeta',
+            'STEWARD_MINIO_SECRET_KEY=ci-minio-secret-password',
+            'STEWARD_FRIEND_0_ID=friend-ci-0',
             'STEWARD_FRIEND_0_NAME="CI Owner"',
-            "STEWARD_FRIEND_0_HASH=\"$('A' * 64)\"",
-            'STEWARD_FRIEND_1_ID="friend-ci-1"',
+            "STEWARD_FRIEND_0_HASH=$('A' * 64)",
+            'STEWARD_FRIEND_1_ID=friend-ci-1',
             'STEWARD_FRIEND_1_NAME="CI Friend"',
-            "STEWARD_FRIEND_1_HASH=\"$('B' * 64)\""
+            "STEWARD_FRIEND_1_HASH=$('B' * 64)"
           )
           [IO.File]::WriteAllLines((Join-Path $server '.env'), $envLines, [Text.UTF8Encoding]::new($false))
 

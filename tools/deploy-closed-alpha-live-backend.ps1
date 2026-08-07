@@ -176,7 +176,7 @@ Require-ExactProperties $staging @(
     'deploymentPlanGenerated','deploymentPlanSecretValuesCopied','deploymentPlanSha256','deploymentStarted','dnsReverified',
     'documentType','physicalBringHere','preflightAgeSecondsAtStart','preflightEvidenceSha256','preflightFresh',
     'preflightObservedAtUtc','protectedEnvironmentReadOnHost','protectedEnvironmentTransferred','publicationAuthorizationChanged',
-    'publishAllowed','releaseCommitSha','releaseVersion','remoteDeploymentPlanDirectory','remoteEnvironmentPath',
+    'publishAllowed','releaseCommitSha','releaseVersion','remoteBundleVerified','remoteDeploymentPlanDirectory','remoteEnvironmentPath',
     'remoteReleaseDirectory','requestSha256','resolvedPublicIpv4','schemaVersion','sshHostKeyReverified','sshHostKeySha256',
     'sshPort','sshUser'
 ) 'Live plan staging evidence'

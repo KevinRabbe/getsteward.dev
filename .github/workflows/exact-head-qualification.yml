@@ -39,6 +39,7 @@ jobs:
             'Closed alpha release candidate',
             'Closed alpha live deployment request CI',
             'Closed alpha live host preflight CI',
+            'Closed alpha live plan staging CI',
             'CI',
             'Bring Here disposable end-to-end',
             'Bring Here two-PC test kit',

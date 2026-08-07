@@ -1,5 +1,7 @@
 [CmdletBinding()]
-param()
+param(
+    [switch]$RunPlanStaging
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -59,7 +61,8 @@ function Write-SyntheticCandidate([string]$Bundle, [string]$ApiBaseUrl) {
         'verify-closed-alpha-release.ps1',
         'prepare-closed-alpha-deployment.ps1',
         'prepare-closed-alpha-live-deployment.ps1',
-        'preflight-closed-alpha-live-host.ps1'
+        'preflight-closed-alpha-live-host.ps1',
+        'stage-closed-alpha-live-deployment-plan.ps1'
     )) {
         Copy-Item (Join-Path $PSScriptRoot $name) (Join-Path $Bundle $name)
     }
@@ -102,7 +105,7 @@ function Write-SyntheticCandidate([string]$Bundle, [string]$ApiBaseUrl) {
             evidenceSha256 = $null
             physicalBringHere = 'deferred'
             publishAllowed = $false
-            reason = 'Synthetic live-host preflight rehearsal; physical Bring Here remains deferred.'
+            reason = 'Synthetic live-host rehearsal; physical Bring Here remains deferred.'
         }
         artifacts = $artifactEntries
     }
@@ -124,12 +127,20 @@ $sshdLog = Join-Path $work 'sshd.log'
 $sshdPid = Join-Path $work 'sshd.pid'
 $hostsBackup = Join-Path $work 'hosts.backup'
 $requestPath = Join-Path $work 'live-deployment-request.json'
-$evidencePath = Join-Path $work 'live-host-preflight.json'
+$preflightEvidencePath = Join-Path $work 'live-host-preflight.json'
 $wrongRequestPath = Join-Path $work 'wrong-host-key-request.json'
 $modeFailureEvidencePath = Join-Path $work 'mode-failure-evidence.json'
+$stalePreflightPath = Join-Path $work 'stale-preflight.json'
+$stagingEvidencePath = Join-Path $work 'live-plan-staging.json'
 $apiHost = 'alpha-preflight.getsteward.dev'
 $publicIpv4 = '93.184.216.34'
 $sshPort = 32222
+$releaseCommit = '2222222222222222222222222222222222222222'
+$remoteReleaseDirectory = "/srv/steward/releases/$releaseCommit"
+$remotePlanDirectory = "/srv/steward/deployment-plans/$releaseCommit"
+$syntheticPostgresPassword = 'SyntheticPostgresPassword-1234567890'
+$syntheticStorageAccessKey = 'SYNTHETICACCESSKEY12345'
+$syntheticStorageSecretKey = 'SyntheticObjectStorageSecretKey-1234567890'
 $createdCaddyStub = $false
 $aliasAdded = $false
 $hostModified = $false
@@ -148,13 +159,11 @@ try {
     $hostFingerprint = $hostFingerprintMatch.Value
 
     Copy-Item -LiteralPath '/etc/hosts' -Destination $hostsBackup
-    $hostLine = "$publicIpv4 $apiHost"
     $hostLinePath = Join-Path $work 'hosts.line'
-    Write-Utf8 $hostLinePath ($hostLine + "`n")
+    Write-Utf8 $hostLinePath ("$publicIpv4 $apiHost`n")
     Invoke-Native -Tool 'sudo' -Arguments @('sh', '-c', "cat '$hostLinePath' >> /etc/hosts") -Context 'Temporary hosts entry installation'
     $hostModified = $true
 
-    & ip address show dev lo | Out-Null
     Invoke-Native -Tool 'sudo' -Arguments @('ip', 'address', 'add', "$publicIpv4/32", 'dev', 'lo') -Context 'Temporary public IPv4 loopback alias'
     $aliasAdded = $true
 
@@ -167,9 +176,7 @@ try {
     Invoke-Native -Tool 'sudo' -Arguments @('passwd', '-d', 'steward') -Context 'Enable public-key-only steward account'
     Invoke-Native -Tool 'sudo' -Arguments @('usermod', '--append', '--groups', 'docker', 'steward') -Context 'Grant disposable steward user Docker socket group'
 
-    $authorizedKeyDirectory = Join-Path $work 'authorized'
-    [IO.Directory]::CreateDirectory($authorizedKeyDirectory) | Out-Null
-    $authorizedKeyPath = Join-Path $authorizedKeyDirectory 'authorized_keys'
+    $authorizedKeyPath = Join-Path $work 'authorized_keys'
     Copy-Item -LiteralPath "$clientKey.pub" -Destination $authorizedKeyPath
     Invoke-Native -Tool 'sudo' -Arguments @('install', '-d', '-m', '0700', '-o', 'steward', '-g', 'steward', '/home/steward/.ssh') -Context 'Create disposable authorized-keys directory'
     Invoke-Native -Tool 'sudo' -Arguments @('install', '-m', '0600', '-o', 'steward', '-g', 'steward', $authorizedKeyPath, '/home/steward/.ssh/authorized_keys') -Context 'Install disposable authorized key'
@@ -186,11 +193,29 @@ try {
     }
 
     $environmentSource = Join-Path $work 'backend.env'
-    Write-Utf8 $environmentSource "PORT=8080`n"
+    $environmentText = @"
+PORT=8080
+ConnectionStrings__Steward=Host=db.alpha.getsteward.dev;Port=5432;Database=steward;Username=steward;Password=$syntheticPostgresPassword;SSL Mode=VerifyFull;Trust Server Certificate=false
+ObjectStorage__ServiceUrl=https://s3.alpha.getsteward.dev/
+ObjectStorage__AuthenticationRegion=fr-par
+ObjectStorage__BucketName=steward-private
+ObjectStorage__AccessKeyId=$syntheticStorageAccessKey
+ObjectStorage__SecretAccessKey=$syntheticStorageSecretKey
+ObjectStorage__ForcePathStyle=false
+FriendsBuild__Enabled=true
+FriendsBuild__Identities__0__Id=friend-alpha
+FriendsBuild__Identities__0__DisplayName=Alpha Friend
+FriendsBuild__Identities__0__CredentialSha256=$('c' * 64)
+ReverseProxy__KnownProxyIp=127.0.0.1
+Cleanup__IntervalMinutes=15
+Cleanup__VerifiedCandidateRetentionDays=7
+Cleanup__BatchSize=100
+"@
+    Write-Utf8 $environmentSource $environmentText
     Invoke-Native -Tool 'sudo' -Arguments @('install', '-d', '-m', '0755', '-o', 'root', '-g', 'root', '/etc/steward') -Context 'Create disposable Steward configuration directory'
-    Invoke-Native -Tool 'sudo' -Arguments @('install', '-m', '0600', '-o', 'root', '-g', 'root', $environmentSource, '/etc/steward/backend.env') -Context 'Install protected environment metadata fixture'
+    Invoke-Native -Tool 'sudo' -Arguments @('install', '-m', '0600', '-o', 'root', '-g', 'root', $environmentSource, '/etc/steward/backend.env') -Context 'Install protected environment fixture'
 
-    Invoke-Native -Tool 'sudo' -Arguments @('rm', '-rf', '/srv/steward/releases/2222222222222222222222222222222222222222', '/srv/steward/deployment-plans/2222222222222222222222222222222222222222') -Context 'Clear exact target paths'
+    Invoke-Native -Tool 'sudo' -Arguments @('rm', '-rf', $remoteReleaseDirectory, $remotePlanDirectory) -Context 'Clear exact target paths'
     & docker rm --force steward-backend *> $null
     $port8080 = @(& ss -ltnH 'sport = :8080' 2>$null)
     Require ($port8080.Count -eq 0) 'Port 8080 is unexpectedly occupied before the integration rehearsal.'
@@ -210,6 +235,7 @@ PubkeyAuthentication yes
 AllowUsers steward
 UsePAM no
 StrictModes yes
+Subsystem sftp internal-sftp
 LogLevel VERBOSE
 "@
     Write-Utf8 $sshdConfig $sshdText
@@ -241,17 +267,16 @@ LogLevel VERBOSE
         -BundleDirectory $bundle `
         -RequestPath $requestPath `
         -SshPrivateKeyPath $clientKey `
-        -EvidencePath $evidencePath
+        -EvidencePath $preflightEvidencePath
 
-    Require ([IO.File]::Exists($evidencePath)) 'Live-host preflight did not write evidence.'
-    $evidenceText = [IO.File]::ReadAllText($evidencePath)
+    Require ([IO.File]::Exists($preflightEvidencePath)) 'Live-host preflight did not write evidence.'
+    $evidenceText = [IO.File]::ReadAllText($preflightEvidencePath)
     Require ($evidenceText.Length -gt 0 -and $evidenceText.Length -le 64KB) 'Live-host preflight evidence is empty or too large.'
     $evidence = $evidenceText | ConvertFrom-Json
     Require ([string]$evidence.documentType -ceq 'steward.closed-alpha-live-host-preflight') 'Live-host preflight evidence has the wrong document type.'
     Require ([int]$evidence.schemaVersion -eq 1) 'Live-host preflight evidence has the wrong schema version.'
-    Require ([string]$evidence.releaseCommitSha -ceq '2222222222222222222222222222222222222222') 'Live-host preflight evidence lost release identity.'
-    Require ([string]$evidence.apiHost -ceq $apiHost) 'Live-host preflight evidence has the wrong API host.'
-    Require ([string]$evidence.resolvedPublicIpv4 -ceq $publicIpv4) 'Live-host preflight evidence has the wrong DNS address.'
+    Require ([string]$evidence.releaseCommitSha -ceq $releaseCommit) 'Live-host preflight evidence lost release identity.'
+    Require ([string]$evidence.apiHost -ceq $apiHost -and [string]$evidence.resolvedPublicIpv4 -ceq $publicIpv4) 'Live-host preflight evidence has the wrong DNS identity.'
     Require ([string]$evidence.sshHostKeySha256 -ceq $hostFingerprint) 'Live-host preflight evidence has the wrong SSH host key.'
     Require ([string]$evidence.remoteOs -ceq 'Linux' -and [string]$evidence.remoteArchitecture -ceq 'x86_64') 'Live-host preflight evidence has the wrong platform.'
     Require ([bool]$evidence.requiredToolsPresent -and [bool]$evidence.sudoNonInteractive -and [bool]$evidence.dockerServerAccessible) 'Live-host preflight did not prove remote tool/sudo/Docker readiness.'
@@ -267,9 +292,7 @@ LogLevel VERBOSE
     Write-Utf8 $wrongRequestPath ($wrongRequest | ConvertTo-Json -Depth 8)
     Expect-Failure {
         & (Join-Path $bundle 'preflight-closed-alpha-live-host.ps1') `
-            -BundleDirectory $bundle `
-            -RequestPath $wrongRequestPath `
-            -SshPrivateKeyPath $clientKey `
+            -BundleDirectory $bundle -RequestPath $wrongRequestPath -SshPrivateKeyPath $clientKey `
             -EvidencePath (Join-Path $work 'wrong-host-key-evidence.json')
     } 'mismatched observed SSH host key is rejected' 'Observed SSH host key does not match the request-bound fingerprint.'
 
@@ -277,9 +300,7 @@ LogLevel VERBOSE
     try {
         Expect-Failure {
             & (Join-Path $bundle 'preflight-closed-alpha-live-host.ps1') `
-                -BundleDirectory $bundle `
-                -RequestPath $requestPath `
-                -SshPrivateKeyPath $clientKey `
+                -BundleDirectory $bundle -RequestPath $requestPath -SshPrivateKeyPath $clientKey `
                 -EvidencePath $modeFailureEvidencePath
         } 'world-readable protected environment is rejected' 'protected backend environment mode is not 0600'
     }
@@ -288,8 +309,79 @@ LogLevel VERBOSE
     }
 
     Write-Host '[OK] Live-host preflight integration rehearsal and refusal cases passed.'
+
+    if ($RunPlanStaging.IsPresent) {
+        $staleEvidence = [IO.File]::ReadAllText($preflightEvidencePath) | ConvertFrom-Json
+        $staleEvidence.observedAtUtc = [DateTimeOffset]::UtcNow.AddMinutes(-20).ToString('O')
+        Write-Utf8 $stalePreflightPath ($staleEvidence | ConvertTo-Json -Depth 8)
+        Expect-Failure {
+            & (Join-Path $bundle 'stage-closed-alpha-live-deployment-plan.ps1') `
+                -BundleDirectory $bundle -RequestPath $requestPath -PreflightEvidencePath $stalePreflightPath `
+                -SshPrivateKeyPath $clientKey -EvidencePath (Join-Path $work 'stale-staging.json')
+        } 'stale preflight evidence is rejected before transfer' 'Preflight evidence is stale; run the live-host preflight again before transfer.'
+
+        Invoke-Native -Tool 'sudo' -Arguments @('mkdir', '-p', $remoteReleaseDirectory) -Context 'Introduce post-preflight target drift'
+        try {
+            Expect-Failure {
+                & (Join-Path $bundle 'stage-closed-alpha-live-deployment-plan.ps1') `
+                    -BundleDirectory $bundle -RequestPath $requestPath -PreflightEvidencePath $preflightEvidencePath `
+                    -SshPrivateKeyPath $clientKey -EvidencePath (Join-Path $work 'drift-staging.json')
+            } 'post-preflight target drift is rejected before transfer' 'Fresh live-host recheck failed before candidate transfer.'
+        }
+        finally {
+            Invoke-Native -Tool 'sudo' -Arguments @('rm', '-rf', $remoteReleaseDirectory) -Context 'Remove post-preflight target drift fixture'
+        }
+
+        & (Join-Path $bundle 'stage-closed-alpha-live-deployment-plan.ps1') `
+            -BundleDirectory $bundle `
+            -RequestPath $requestPath `
+            -PreflightEvidencePath $preflightEvidencePath `
+            -SshPrivateKeyPath $clientKey `
+            -EvidencePath $stagingEvidencePath
+
+        Require ([IO.File]::Exists($stagingEvidencePath)) 'Live plan staging did not write evidence.'
+        $stagingText = [IO.File]::ReadAllText($stagingEvidencePath)
+        Require ($stagingText.Length -gt 0 -and $stagingText.Length -le 64KB) 'Live plan staging evidence is empty or too large.'
+        $staging = $stagingText | ConvertFrom-Json
+        Require ([string]$staging.documentType -ceq 'steward.closed-alpha-live-plan-staging' -and [int]$staging.schemaVersion -eq 1) 'Live plan staging evidence identity is invalid.'
+        Require ([string]$staging.releaseCommitSha -ceq $releaseCommit -and [string]$staging.apiHost -ceq $apiHost -and [string]$staging.resolvedPublicIpv4 -ceq $publicIpv4) 'Live plan staging evidence lost the release/host identity.'
+        Require ([bool]$staging.preflightFresh -and [bool]$staging.dnsReverified -and [bool]$staging.sshHostKeyReverified) 'Live plan staging did not revalidate fresh host identity.'
+        Require ([bool]$staging.candidateTransferred -and [bool]$staging.remoteBundleVerified -and [bool]$staging.deploymentPlanGenerated) 'Live plan staging did not complete the intended mutation boundary.'
+        Require ([bool]$staging.protectedEnvironmentReadOnHost -and -not [bool]$staging.protectedEnvironmentTransferred -and -not [bool]$staging.deploymentPlanSecretValuesCopied) 'Live plan staging crossed the protected-value boundary.'
+        Require (-not [bool]$staging.backendImagePreexisting -and -not [bool]$staging.backendImageLoaded -and -not [bool]$staging.backendContainerStarted -and -not [bool]$staging.deploymentStarted) 'Live plan staging crossed the deployment boundary.'
+        Require ([bool]$staging.backendPort8080Clear -and -not [bool]$staging.caddyModified) 'Live plan staging changed runtime/Caddy state.'
+        Require (-not [bool]$staging.publishAllowed -and [string]$staging.physicalBringHere -ceq 'deferred' -and -not [bool]$staging.publicationAuthorizationChanged) 'Live plan staging changed publication state.'
+        Require ([IO.Directory]::Exists($remoteReleaseDirectory) -and [IO.Directory]::Exists($remotePlanDirectory)) 'Live plan staging did not materialize the exact remote release and plan directories.'
+        Require ([IO.File]::Exists((Join-Path $remotePlanDirectory 'deployment-plan.json'))) 'Remote deployment-plan.json is missing.'
+        Require ([IO.File]::Exists((Join-Path $remotePlanDirectory 'Caddyfile'))) 'Generated Caddyfile is missing.'
+        Require ([IO.File]::Exists((Join-Path $remotePlanDirectory 'deploy-exact-candidate.sh'))) 'Generated deploy script is missing.'
+        Require ([IO.File]::Exists((Join-Path $remotePlanDirectory 'verify-public-https.sh'))) 'Generated public verifier is missing.'
+
+        $generatedText = @(
+            [IO.File]::ReadAllText((Join-Path $remotePlanDirectory 'deployment-plan.json')),
+            [IO.File]::ReadAllText((Join-Path $remotePlanDirectory 'Caddyfile')),
+            [IO.File]::ReadAllText((Join-Path $remotePlanDirectory 'deploy-exact-candidate.sh')),
+            [IO.File]::ReadAllText((Join-Path $remotePlanDirectory 'verify-public-https.sh'))
+        ) -join "`n"
+        foreach ($protectedValue in @($syntheticPostgresPassword, $syntheticStorageAccessKey, $syntheticStorageSecretKey)) {
+            Require (-not $generatedText.Contains($protectedValue, [StringComparison]::Ordinal)) 'Generated deployment-plan files copied a protected synthetic value.'
+        }
+
+        & docker image inspect ('sha256:' + ('b' * 64)) *> $null
+        Require ($LASTEXITCODE -ne 0) 'Live plan staging unexpectedly loaded the synthetic backend image.'
+        & docker container inspect steward-backend *> $null
+        Require ($LASTEXITCODE -ne 0) 'Live plan staging unexpectedly created steward-backend.'
+        Require (@(& ss -ltnH 'sport = :8080' 2>$null).Count -eq 0) 'Live plan staging unexpectedly occupied port 8080.'
+        Require (-not [IO.File]::Exists('/etc/caddy/Caddyfile')) 'Live plan staging unexpectedly materialized the live Caddyfile.'
+        $envMode = (Invoke-Native -Tool 'sudo' -Arguments @('stat', '-Lc', '%a', '/etc/steward/backend.env') -Context 'Verify protected environment mode after staging' -Capture).Trim()
+        $envUid = (Invoke-Native -Tool 'sudo' -Arguments @('stat', '-Lc', '%u', '/etc/steward/backend.env') -Context 'Verify protected environment owner after staging' -Capture).Trim()
+        Require ($envMode -ceq '600' -and $envUid -ceq '0') 'Live plan staging changed protected environment metadata.'
+
+        Write-Host '[OK] Fresh preflight gated exact candidate transfer and live deployment-plan generation without deployment.'
+    }
 }
 finally {
+    & sudo rm -rf $remoteReleaseDirectory $remotePlanDirectory *> $null
     if ($sshdStarted -and [IO.File]::Exists($sshdPid)) {
         $pidText = [IO.File]::ReadAllText($sshdPid).Trim()
         $pidValue = 0

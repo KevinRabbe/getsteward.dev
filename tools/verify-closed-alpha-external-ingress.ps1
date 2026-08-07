@@ -12,9 +12,6 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-if (Test-Path Variable:PSNativeCommandUseErrorActionPreference) {
-    $PSNativeCommandUseErrorActionPreference = $false
-}
 
 $MaximumIngressActivationAge = [TimeSpan]::FromMinutes(15)
 $MaximumClockSkew = [TimeSpan]::FromMinutes(2)
@@ -37,6 +34,14 @@ function Get-ArtifactByPath([object[]]$Artifacts,[string]$Path) {
     $matches = @($Artifacts | Where-Object { [string]$_.path -ceq $Path })
     Require ($matches.Count -eq 1) "Release artifact '$Path' must appear exactly once."
     return $matches[0]
+}
+
+function Require-BindingMatchesArtifact([object]$Binding,[object[]]$Artifacts,[string]$ExpectedPath,[string]$Context) {
+    Require-ExactProperties $Binding @('byteSize','path','sha256') $Context
+    Require ([string]$Binding.path -ceq $ExpectedPath) "$Context has the wrong path."
+    $artifact = Get-ArtifactByPath $Artifacts $ExpectedPath
+    Require ([int64]$Binding.byteSize -eq [int64]$artifact.byteSize) "$Context byte size does not match the release manifest."
+    Require ([string]$Binding.sha256 -ceq [string]$artifact.sha256) "$Context SHA-256 does not match the release manifest."
 }
 
 function Read-BoundedJson([string]$Path,[int64]$MaximumBytes,[string]$Context) {
@@ -66,6 +71,41 @@ function Test-PublicIpv4([Net.IPAddress]$Address) {
     return $true
 }
 
+function Invoke-ExactProcess([string]$FilePath,[string[]]$Arguments,[string]$Context) {
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in $Arguments) {
+        [void]$startInfo.ArgumentList.Add([string]$argument)
+    }
+
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        Require ($process.Start()) "$Context could not start '$FilePath'."
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        if ($process.ExitCode -ne 0) {
+            $details = @($stderr.Trim(),$stdout.Trim()) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+            throw "$Context failed with exit code $($process.ExitCode). $(($details -join [Environment]::NewLine).Trim())"
+        }
+        return [ordered]@{
+            ExitCode = $process.ExitCode
+            StdOut = $stdout
+            StdErr = $stderr
+        }
+    }
+    finally {
+        $process.Dispose()
+    }
+}
+
 function Invoke-CurlHealth(
     [string]$CurlPath,
     [string]$ApiHost,
@@ -84,17 +124,17 @@ function Invoke-CurlHealth(
         '--write-out','%{http_code}\t%{remote_ip}\t%{ssl_verify_result}\t%{scheme}',
         $Uri.AbsoluteUri
     )
-    $output = @(& $CurlPath @arguments 2>&1)
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Context failed with exit code $LASTEXITCODE. $(($output -join [Environment]::NewLine).Trim())"
-    }
-    $text = ($output -join [Environment]::NewLine).Trim()
+    $result = Invoke-ExactProcess $CurlPath $arguments $Context
+    Require ([string]::IsNullOrWhiteSpace([string]$result.StdErr)) "$Context emitted unexpected stderr on a successful transfer: $([string]$result.StdErr)."
+    $text = ([string]$result.StdOut).Trim()
     $match = [Text.RegularExpressions.Regex]::Match($text,'^(?<status>[0-9]{3})\t(?<remote>[^\t\r\n]+)\t(?<verify>-?[0-9]+)\t(?<scheme>[A-Za-z]+)$')
     Require $match.Success "$Context returned malformed curl evidence: '$text'."
     Require ($match.Groups['status'].Value -ceq '200') "$Context returned HTTP $($match.Groups['status'].Value), expected 200."
     Require ($match.Groups['remote'].Value -ceq $ExpectedIpv4) "$Context connected to '$($match.Groups['remote'].Value)', expected '$ExpectedIpv4'."
     Require ($match.Groups['verify'].Value -ceq '0') "$Context did not pass certificate verification. curl ssl_verify_result=$($match.Groups['verify'].Value)."
     Require ([string]::Equals($match.Groups['scheme'].Value,'https',[StringComparison]::OrdinalIgnoreCase)) "$Context did not use HTTPS."
+    $outputItem = Get-Item -LiteralPath $OutputPath
+    Require ($null -eq $outputItem.LinkType -and $outputItem.Length -le 1MB) "$Context response body is unsafe or exceeds 1 MiB."
     return [ordered]@{
         statusCode = 200
         remoteIpv4 = $ExpectedIpv4
@@ -158,6 +198,7 @@ Require ($version -match '^[0-9A-Za-z][0-9A-Za-z.-]{0,63}$') 'Release version is
 Require ($commitSha -match '^[0-9a-f]{40}$') 'Release commit SHA is malformed.'
 Require ($imageId -match '^sha256:[0-9a-f]{64}$') 'Release backend image ID is malformed.'
 Require ([string]$manifest.deployment.targetPlatform -ceq 'linux/amd64') 'External ingress verification expects the linux/amd64 release topology.'
+Require ([string]$manifest.deployment.backendRuntimeUser -ceq 'app') 'External ingress verification requires runtime user app.'
 Require (-not [bool]$manifest.publishAuthorization.publishAllowed) 'External ingress verification cannot use a publish-authorized candidate.'
 Require ([string]$manifest.publishAuthorization.physicalBringHere -ceq 'deferred') 'External ingress verification expects physical Bring Here to remain deferred.'
 
@@ -169,17 +210,29 @@ Require-ExactProperties $request.release @('apiBaseUrl','backendImageId','backen
 Require-ExactProperties $request.host @('apiHost','caddyConfigurationPath','expectedPublicIpv4','remoteDeploymentPlanDirectory','remoteEnvironmentPath','remoteReleaseDirectory','requiredTools','sshHost','sshHostKeySha256','sshPort','sshUser','targetPlatform','topology') 'Live deployment request host'
 Require-ExactProperties $request.network @('backendKnownProxyIp','backendPort','caddyUpstream','forbiddenPublicBackendPort','publicBackendPortMustFailClosed','publicCertificateBootstrapPort','publicTlsPort','restrictedAdministrativePort') 'Live deployment request network'
 Require-ExactProperties $request.publication @('authorizationChanged','physicalBringHere','publishAllowed','requestAuthorizesPublication') 'Live deployment request publication'
+Require-ExactProperties $request.secretBoundary @('remoteEnvironmentPath','requiredRemoteMode','requiredRemoteOwner','secretEnvironmentBundled','secretEnvironmentTransferredByRequest','secretValuesPresent') 'Live deployment request secret boundary'
+Require-ExactProperties $request.executionContract @('certificateBypassAllowed','deployScriptName','deploymentPlanner','environmentNeverLeavesLiveHost','environmentTemplate','exactImageIdRequired','liveHostPreflight','liveRequestPlanner','plannerRequireDeployable','plannerRunsOnLiveHost','publicTlsVerificationRequired','publicVerifierName','releaseVerifier') 'Live deployment request execution contract'
 Require ([string]$request.release.version -ceq $version -and [string]$request.release.commitSha -ceq $commitSha) 'Request release identity does not match the candidate.'
-Require ([string]$request.release.apiBaseUrl -ceq $apiBaseUrl -and [string]$request.release.backendImageId -ceq $imageId) 'Request deployment identity does not match the candidate.'
-Require ([string]$request.host.topology -ceq 'single-linux-amd64-host') 'Unsupported live-host topology.'
+Require ([string]$request.release.apiBaseUrl -ceq $apiBaseUrl -and [string]$request.release.backendImageId -ceq $imageId -and [string]$request.release.backendImageTag -ceq [string]$manifest.deployment.backendImageTag) 'Request deployment identity does not match the candidate.'
+Require-BindingMatchesArtifact $request.executionContract.releaseVerifier $artifacts 'verify-closed-alpha-release.ps1' 'Request release verifier binding'
+Require-BindingMatchesArtifact $request.executionContract.deploymentPlanner $artifacts 'prepare-closed-alpha-deployment.ps1' 'Request deployment planner binding'
+Require-BindingMatchesArtifact $request.executionContract.liveRequestPlanner $artifacts 'prepare-closed-alpha-live-deployment.ps1' 'Request live request planner binding'
+Require-BindingMatchesArtifact $request.executionContract.liveHostPreflight $artifacts 'preflight-closed-alpha-live-host.ps1' 'Request live-host preflight binding'
+Require-BindingMatchesArtifact $request.executionContract.environmentTemplate $artifacts 'backend/deployment.env.example' 'Request environment template binding'
+Require ([string]$request.host.topology -ceq 'single-linux-amd64-host' -and [string]$request.host.targetPlatform -ceq 'linux/amd64') 'Unsupported live-host topology.'
 Require ([int]$request.network.publicTlsPort -eq 443 -and [int]$request.network.backendPort -eq 8080 -and [int]$request.network.forbiddenPublicBackendPort -eq 8080) 'Request public/backend port contract changed.'
 Require ([bool]$request.network.publicBackendPortMustFailClosed) 'Request no longer requires backend port 8080 to fail closed externally.'
-Require ([string]$request.network.caddyUpstream -ceq '127.0.0.1:8080') 'Request one-proxy upstream contract changed.'
+Require ([string]$request.network.caddyUpstream -ceq '127.0.0.1:8080' -and [string]$request.network.backendKnownProxyIp -ceq '127.0.0.1') 'Request one-proxy contract changed.'
+Require (-not [bool]$request.secretBoundary.secretValuesPresent -and -not [bool]$request.secretBoundary.secretEnvironmentBundled -and -not [bool]$request.secretBoundary.secretEnvironmentTransferredByRequest) 'Request crossed the protected environment boundary.'
+Require ([string]$request.secretBoundary.remoteEnvironmentPath -ceq '/etc/steward/backend.env' -and [string]$request.secretBoundary.requiredRemoteOwner -ceq 'root' -and [string]$request.secretBoundary.requiredRemoteMode -ceq '0600') 'Request protected environment contract changed.'
 Require (-not [bool]$request.publication.publishAllowed -and [string]$request.publication.physicalBringHere -ceq 'deferred' -and -not [bool]$request.publication.authorizationChanged -and -not [bool]$request.publication.requestAuthorizesPublication) 'Request publication state changed.'
+Require (-not [bool]$request.executionContract.certificateBypassAllowed -and [bool]$request.executionContract.publicTlsVerificationRequired) 'Request external TLS verification contract changed.'
 
 $apiUri = $null
 Require ([Uri]::TryCreate($apiBaseUrl,[UriKind]::Absolute,[ref]$apiUri)) 'Candidate API base URL is malformed.'
 Require ([string]$apiUri.Scheme -ceq 'https' -and $apiUri.IsDefaultPort) 'External ingress verification requires the default HTTPS port.'
+Require ([string]::IsNullOrWhiteSpace($apiUri.UserInfo) -and [string]::IsNullOrWhiteSpace($apiUri.Query) -and [string]::IsNullOrWhiteSpace($apiUri.Fragment)) 'External ingress verification does not accept API URL user-info, query, or fragment.'
+Require ($apiUri.AbsolutePath -ceq '/') 'External ingress verification requires an API base URL rooted at /. '
 $apiHost = $apiUri.DnsSafeHost.TrimEnd('.').ToLowerInvariant()
 Require ([string]$request.host.apiHost -ceq $apiHost) 'Request API host does not match the candidate API host.'
 
@@ -202,6 +255,8 @@ Require ([string]$ingress.requestSha256 -ceq $requestSha256) 'Ingress activation
 Require ([string]$ingress.releaseVersion -ceq $version -and [string]$ingress.releaseCommitSha -ceq $commitSha) 'Ingress activation evidence does not bind the exact release.'
 Require ([string]$ingress.apiBaseUrl -ceq $apiBaseUrl -and [string]$ingress.apiHost -ceq $apiHost) 'Ingress activation API identity changed.'
 Require ([string]$ingress.resolvedPublicIpv4 -ceq [string]$request.host.expectedPublicIpv4) 'Ingress activation DNS address does not match the request.'
+Require ([string]$ingress.sshUser -ceq [string]$request.host.sshUser -and [int]$ingress.sshPort -eq [int]$request.host.sshPort -and [string]$ingress.sshHostKeySha256 -ceq [string]$request.host.sshHostKeySha256) 'Ingress activation SSH identity does not match the request.'
+Require ([string]$ingress.remoteReleaseDirectory -ceq [string]$request.host.remoteReleaseDirectory -and [string]$ingress.remoteDeploymentPlanDirectory -ceq [string]$request.host.remoteDeploymentPlanDirectory -and [string]$ingress.remoteEnvironmentPath -ceq [string]$request.host.remoteEnvironmentPath) 'Ingress activation remote paths changed.'
 Require ([bool]$ingress.backendDeploymentFresh -and [bool]$ingress.dnsReverified -and [bool]$ingress.sshHostKeyReverified) 'Ingress activation evidence did not prove fresh host identity.'
 Require ([bool]$ingress.remoteBundleReverified -and [bool]$ingress.deploymentPlanReverified -and [string]$ingress.deploymentPlanSha256 -match '^[0-9A-F]{64}$') 'Ingress activation evidence did not preserve exact staged bytes.'
 Require ([string]$ingress.backendImageId -ceq $imageId -and [string]$ingress.backendRuntimeUser -ceq 'app' -and [bool]$ingress.backendContainerRunning) 'Ingress activation evidence lost exact backend runtime identity.'
@@ -311,7 +366,13 @@ try {
 }
 finally {
     foreach ($name in $environmentNames) {
-        [Environment]::SetEnvironmentVariable($name,[string]$environmentBackup[$name])
+        $originalValue = $environmentBackup[$name]
+        if ($null -eq $originalValue) {
+            [Environment]::SetEnvironmentVariable($name,$null)
+        }
+        else {
+            [Environment]::SetEnvironmentVariable($name,[string]$originalValue)
+        }
     }
     if ([IO.Directory]::Exists($workRoot)) { Remove-Item -LiteralPath $workRoot -Recurse -Force -ErrorAction SilentlyContinue }
 }

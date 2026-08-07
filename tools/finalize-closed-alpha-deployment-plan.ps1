@@ -37,9 +37,12 @@ $livePlanStagerSource = Join-Path $PSScriptRoot 'stage-closed-alpha-live-deploym
 $liveBackendDeploymentSource = Join-Path $PSScriptRoot 'deploy-closed-alpha-live-backend.ps1'
 $liveIngressActivationSource = Join-Path $PSScriptRoot 'activate-closed-alpha-live-ingress.ps1'
 $externalIngressVerifierSource = Join-Path $PSScriptRoot 'verify-closed-alpha-external-ingress.ps1'
+$liveHostExecutionSource = Join-Path $PSScriptRoot 'execute-closed-alpha-live-host.ps1'
+$liveHostExecutionFinalizerSource = Join-Path $PSScriptRoot 'finalize-closed-alpha-live-host-execution.ps1'
 foreach ($source in @(
     $plannerSource,$livePlannerSource,$liveHostPreflightSource,$livePlanStagerSource,
-    $liveBackendDeploymentSource,$liveIngressActivationSource,$externalIngressVerifierSource)) {
+    $liveBackendDeploymentSource,$liveIngressActivationSource,$externalIngressVerifierSource,
+    $liveHostExecutionSource,$liveHostExecutionFinalizerSource)) {
     Require ([IO.File]::Exists($source)) "Qualified deployment tool is missing: $source"
     $sourceItem = Get-Item -LiteralPath $source
     Require ($null -eq $sourceItem.LinkType) "Qualified deployment tool cannot be a symbolic link: $source"
@@ -77,6 +80,8 @@ $livePlanStagerDestination = Join-Path $bundleRoot 'stage-closed-alpha-live-depl
 $liveBackendDeploymentDestination = Join-Path $bundleRoot 'deploy-closed-alpha-live-backend.ps1'
 $liveIngressActivationDestination = Join-Path $bundleRoot 'activate-closed-alpha-live-ingress.ps1'
 $externalIngressVerifierDestination = Join-Path $bundleRoot 'verify-closed-alpha-external-ingress.ps1'
+$liveHostExecutionDestination = Join-Path $bundleRoot 'execute-closed-alpha-live-host.ps1'
+$liveHostExecutionFinalizerDestination = Join-Path $bundleRoot 'finalize-closed-alpha-live-host-execution.ps1'
 Copy-Item -LiteralPath $plannerSource -Destination $plannerDestination -Force
 Copy-Item -LiteralPath $livePlannerSource -Destination $livePlannerDestination -Force
 Copy-Item -LiteralPath $liveHostPreflightSource -Destination $liveHostPreflightDestination -Force
@@ -84,6 +89,8 @@ Copy-Item -LiteralPath $livePlanStagerSource -Destination $livePlanStagerDestina
 Copy-Item -LiteralPath $liveBackendDeploymentSource -Destination $liveBackendDeploymentDestination -Force
 Copy-Item -LiteralPath $liveIngressActivationSource -Destination $liveIngressActivationDestination -Force
 Copy-Item -LiteralPath $externalIngressVerifierSource -Destination $externalIngressVerifierDestination -Force
+Copy-Item -LiteralPath $liveHostExecutionSource -Destination $liveHostExecutionDestination -Force
+Copy-Item -LiteralPath $liveHostExecutionFinalizerSource -Destination $liveHostExecutionFinalizerDestination -Force
 
 $backendDirectory = Join-Path $bundleRoot 'backend'
 Require ([IO.Directory]::Exists($backendDirectory)) 'The release bundle is missing its backend directory.'
@@ -116,7 +123,7 @@ $deploymentReadme = @'
 SAFE WORLD CLOSED-ALPHA DEPLOYMENT PLAN
 =======================================
 
-This candidate contains seven byte-manifested deployment-boundary tools:
+This candidate contains nine byte-manifested deployment-boundary tools:
 
   prepare-closed-alpha-deployment.ps1
   prepare-closed-alpha-live-deployment.ps1
@@ -125,19 +132,16 @@ This candidate contains seven byte-manifested deployment-boundary tools:
   deploy-closed-alpha-live-backend.ps1
   activate-closed-alpha-live-ingress.ps1
   verify-closed-alpha-external-ingress.ps1
+  execute-closed-alpha-live-host.ps1
+  finalize-closed-alpha-live-host-execution.ps1
 
-Protected backend-environment values remain on the live host. Request and
-preflight evidence contain no protected values; live plan staging allows only the
-bundled deployment planner to read the protected file on that host.
+The deployment and external-observer trust domains stay separate by design.
 
-Operator sequence
------------------
-
-1. Verify this candidate:
+1. Verify the exact candidate:
 
    pwsh ./verify-closed-alpha-release.ps1 -BundleDirectory .
 
-2. Bind the exact candidate to the intended first live host without contacting it:
+2. Create the exact live deployment request:
 
    pwsh ./prepare-closed-alpha-live-deployment.ps1 \
      -BundleDirectory . \
@@ -145,71 +149,56 @@ Operator sequence
      -SshHostKeySha256 SHA256:<pinned-ed25519-host-key-fingerprint> \
      -OutputPath ../live-deployment-request.json
 
-3. Put the completed backend environment on the live host only at
-   /etc/steward/backend.env. It must be a regular non-symlink file, root-owned,
-   mode 0600. Provision Caddy as a managed service with a valid root:root mode
-   0644 baseline /etc/caddy/Caddyfile before preflight; that baseline is the
-   fail-closed rollback target for later ingress activation.
+3. Prepare the live host: /etc/steward/backend.env must remain host-only,
+   root-owned mode 0600, and Caddy must have a known-good managed baseline.
 
-4. Run the byte-manifested read-only host preflight:
+4. On the SSH-capable operator machine, run only the four deployment stages:
 
-   pwsh ./preflight-closed-alpha-live-host.ps1 \
+   pwsh ./execute-closed-alpha-live-host.ps1 \
      -BundleDirectory . \
      -RequestPath ../live-deployment-request.json \
      -SshPrivateKeyPath <operator-private-key> \
-     -EvidencePath ../live-host-preflight.json
+     -EvidenceDirectory ../live-deployment-evidence
 
-5. Within 15 minutes, stage the exact candidate and generate the deployment plan:
+   This runs preflight -> staging -> backend -> ingress. It stops on the first
+   failure, preserves successful prior evidence, does not claim cross-stage atomic
+   rollback, and writes deployment-handoff.json only after all four stages pass.
+   It deliberately does NOT run external acceptance.
 
-   pwsh ./stage-closed-alpha-live-deployment-plan.ps1 \
-     -BundleDirectory . \
-     -RequestPath ../live-deployment-request.json \
-     -PreflightEvidencePath ../live-host-preflight.json \
-     -SshPrivateKeyPath <operator-private-key> \
-     -EvidencePath ../live-plan-staging.json
+5. Move only the verified candidate, live-deployment-request.json and
+   04-live-ingress-activation.json to a separate external observer. Do NOT place
+   the operator SSH private key or protected backend environment on that observer.
 
-6. Within 15 minutes, deploy only the exact backend runtime:
-
-   pwsh ./deploy-closed-alpha-live-backend.ps1 \
-     -BundleDirectory . \
-     -RequestPath ../live-deployment-request.json \
-     -StagingEvidencePath ../live-plan-staging.json \
-     -SshPrivateKeyPath <operator-private-key> \
-     -EvidencePath ../live-backend-deployment.json
-
-7. Within 15 minutes of backend deployment, activate the exact generated Caddyfile:
-
-   pwsh ./activate-closed-alpha-live-ingress.ps1 \
-     -BundleDirectory . \
-     -RequestPath ../live-deployment-request.json \
-     -BackendDeploymentEvidencePath ../live-backend-deployment.json \
-     -SshPrivateKeyPath <operator-private-key> \
-     -EvidencePath ../live-ingress-activation.json
-
-   This atomically activates the byte-bound generated Caddyfile while preserving
-   the exact backend. It still does not claim public certificate trust or that
-   backend port 8080 is externally unreachable.
-
-8. Within 15 minutes, from a separate external observer with NO SSH credentials,
-   run the byte-manifested read-only acceptance verifier:
+6. On that external observer, within the ingress freshness window, run:
 
    pwsh ./verify-closed-alpha-external-ingress.ps1 \
      -BundleDirectory . \
      -RequestPath ../live-deployment-request.json \
-     -IngressActivationEvidencePath ../live-ingress-activation.json \
+     -IngressActivationEvidencePath ../04-live-ingress-activation.json \
      -EvidencePath ../external-ingress-acceptance.json
 
-   The verifier re-resolves the bound hostname, disables curl configuration-file,
-   proxy and custom-CA environment influence, connects directly to the bound IPv4
-   while retaining hostname/SNI, requires normal system-trust certificate
-   validation and HTTP 200 from /health/live and /health/ready, then separately
-   proves TCP port 8080 is connection-refused or timed out from the same observer.
-   It does not use SSH, inspect protected environment values, or mutate the host.
+   This verifier accepts no SSH input, uses normal system trust with no certificate
+   bypass, requires public liveness/readiness HTTP 200, and proves backend port
+   8080 is connection-refused or timed out from the same observer.
 
-None of these preparation, staging, backend-deployment, ingress-activation or
-external-acceptance steps authorizes publication. Physical PC A -> PC B -> PC A
-Bring Here remains controlled only by release-manifest.json and the strict release
-verifier.
+7. Return only external-ingress-acceptance.json to the operator/evidence store and
+   bind the complete evidence chain with the no-SSH finalizer:
+
+   pwsh ./finalize-closed-alpha-live-host-execution.ps1 \
+     -BundleDirectory . \
+     -RequestPath ../live-deployment-request.json \
+     -DeploymentEvidenceDirectory ../live-deployment-evidence \
+     -ExternalIngressAcceptanceEvidencePath ../external-ingress-acceptance.json \
+     -EvidencePath ../live-host-execution-chain.json
+
+   The finalizer recomputes and verifies every existing evidence SHA link. It does
+   not use SSH. The final chain records that credential-free observer separation is
+   an operator requirement, not a machine-attested fact.
+
+The individual preflight, staging, backend, ingress and external tools remain
+available for deliberate diagnosis/recovery. None of these operations authorizes
+publication. Physical PC A -> PC B -> PC A Bring Here remains deferred and is
+controlled only by release-manifest.json and the strict release verifier.
 '@
 [IO.File]::WriteAllText($deploymentReadmePath,$deploymentReadme.Replace("`r`n","`n"),[Text.UTF8Encoding]::new($false))
 
@@ -252,7 +241,9 @@ $toolBindings = @(
     @{ Path='stage-closed-alpha-live-deployment-plan.ps1'; Destination=$livePlanStagerDestination; Label='live plan stager' },
     @{ Path='deploy-closed-alpha-live-backend.ps1'; Destination=$liveBackendDeploymentDestination; Label='live backend executor' },
     @{ Path='activate-closed-alpha-live-ingress.ps1'; Destination=$liveIngressActivationDestination; Label='live ingress activator' },
-    @{ Path='verify-closed-alpha-external-ingress.ps1'; Destination=$externalIngressVerifierDestination; Label='external ingress acceptance verifier' }
+    @{ Path='verify-closed-alpha-external-ingress.ps1'; Destination=$externalIngressVerifierDestination; Label='external ingress acceptance verifier' },
+    @{ Path='execute-closed-alpha-live-host.ps1'; Destination=$liveHostExecutionDestination; Label='live-host deployment orchestrator' },
+    @{ Path='finalize-closed-alpha-live-host-execution.ps1'; Destination=$liveHostExecutionFinalizerDestination; Label='live-host evidence-chain finalizer' }
 )
 $toolHashes = @{}
 foreach ($binding in $toolBindings) {
@@ -273,6 +264,8 @@ Write-Host "  Live plan stager SHA-256: $($toolHashes['stage-closed-alpha-live-d
 Write-Host "  Live backend executor SHA-256: $($toolHashes['deploy-closed-alpha-live-backend.ps1'])"
 Write-Host "  Live ingress activator SHA-256: $($toolHashes['activate-closed-alpha-live-ingress.ps1'])"
 Write-Host "  External ingress verifier SHA-256: $($toolHashes['verify-closed-alpha-external-ingress.ps1'])"
+Write-Host "  Live-host deployment orchestrator SHA-256: $($toolHashes['execute-closed-alpha-live-host.ps1'])"
+Write-Host "  Live-host evidence finalizer SHA-256: $($toolHashes['finalize-closed-alpha-live-host-execution.ps1'])"
 Write-Host "  Artifacts: $($finalManifest.artifacts.Count)"
 Write-Host '  Protected values copied into candidate: no'
 Write-Host '  Publish authorization changed: no'

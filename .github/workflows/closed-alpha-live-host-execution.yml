@@ -1,0 +1,25 @@
+name: Closed alpha live host execution CI
+
+on:
+  push:
+    branches:
+      - main
+      - "agent/**"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  live-host-execution:
+    name: Prove exact five-stage live-host execution composition
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run live-host execution composition tests
+        shell: pwsh
+        run: |
+          ./tools/test-closed-alpha-live-host-execution.ps1

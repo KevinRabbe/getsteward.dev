@@ -50,41 +50,45 @@ function Test-ReservedDnsHost([string]$HostName) {
     return -not $normalized.Contains('.', [StringComparison]::Ordinal)
 }
 
-function ConvertTo-Ipv4UInt32([Net.IPAddress]$Address) {
-    $bytes = $Address.GetAddressBytes()
-    Require ($bytes.Length -eq 4) 'Expected one IPv4 address.'
-    return ([uint32]$bytes[0] -shl 24) -bor
-        ([uint32]$bytes[1] -shl 16) -bor
-        ([uint32]$bytes[2] -shl 8) -bor
-        [uint32]$bytes[3]
-}
-
 function Test-PublicIpv4([Net.IPAddress]$Address) {
     if ($Address.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) {
         return $false
     }
 
-    [uint32]$value = ConvertTo-Ipv4UInt32 $Address
-    $blocked = @(
-        @{ Network = [uint32]0x00000000; Mask = [uint32]0xFF000000 }, # 0.0.0.0/8
-        @{ Network = [uint32]0x0A000000; Mask = [uint32]0xFF000000 }, # 10.0.0.0/8
-        @{ Network = [uint32]0x64400000; Mask = [uint32]0xFFC00000 }, # 100.64.0.0/10
-        @{ Network = [uint32]0x7F000000; Mask = [uint32]0xFF000000 }, # 127.0.0.0/8
-        @{ Network = [uint32]0xA9FE0000; Mask = [uint32]0xFFFF0000 }, # 169.254.0.0/16
-        @{ Network = [uint32]0xAC100000; Mask = [uint32]0xFFF00000 }, # 172.16.0.0/12
-        @{ Network = [uint32]0xC0000000; Mask = [uint32]0xFFFFFF00 }, # 192.0.0.0/24
-        @{ Network = [uint32]0xC0000200; Mask = [uint32]0xFFFFFF00 }, # 192.0.2.0/24
-        @{ Network = [uint32]0xC0A80000; Mask = [uint32]0xFFFF0000 }, # 192.168.0.0/16
-        @{ Network = [uint32]0xC6120000; Mask = [uint32]0xFFFE0000 }, # 198.18.0.0/15
-        @{ Network = [uint32]0xC6336400; Mask = [uint32]0xFFFFFF00 }, # 198.51.100.0/24
-        @{ Network = [uint32]0xCB007100; Mask = [uint32]0xFFFFFF00 }, # 203.0.113.0/24
-        @{ Network = [uint32]0xE0000000; Mask = [uint32]0xF0000000 }, # 224.0.0.0/4
-        @{ Network = [uint32]0xF0000000; Mask = [uint32]0xF0000000 }  # 240.0.0.0/4
-    )
-    foreach ($range in $blocked) {
-        if (($value -band $range.Mask) -eq $range.Network) {
-            return $false
-        }
+    $bytes = $Address.GetAddressBytes()
+    if ($bytes.Length -ne 4) {
+        return $false
+    }
+    $a = [int]$bytes[0]
+    $b = [int]$bytes[1]
+    $c = [int]$bytes[2]
+
+    if ($a -eq 0 -or $a -eq 10 -or $a -eq 127 -or $a -ge 224) {
+        return $false
+    }
+    if ($a -eq 100 -and $b -ge 64 -and $b -le 127) {
+        return $false
+    }
+    if ($a -eq 169 -and $b -eq 254) {
+        return $false
+    }
+    if ($a -eq 172 -and $b -ge 16 -and $b -le 31) {
+        return $false
+    }
+    if ($a -eq 192 -and $b -eq 0 -and ($c -eq 0 -or $c -eq 2)) {
+        return $false
+    }
+    if ($a -eq 192 -and $b -eq 168) {
+        return $false
+    }
+    if ($a -eq 198 -and ($b -eq 18 -or $b -eq 19)) {
+        return $false
+    }
+    if ($a -eq 198 -and $b -eq 51 -and $c -eq 100) {
+        return $false
+    }
+    if ($a -eq 203 -and $b -eq 0 -and $c -eq 113) {
+        return $false
     }
     return $true
 }

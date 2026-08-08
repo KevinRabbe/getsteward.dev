@@ -77,12 +77,30 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementTests : IAsync
         Assert.Equal("retirement-device", retired.RetiredInstallationId);
         Assert.Equal(reservation.SessionId, retired.RetiredSessionId);
         Assert.Equal(reservation.Generation, retired.RetiredGeneration);
+        Assert.Equal(_world.CurrentStateRevisionId, retired.RetiredStateRevisionId);
+        Assert.Equal(_world.CurrentEnvironmentRevisionId, retired.RetiredEnvironmentRevisionId);
         Assert.Equal(StartedAt.AddSeconds(1), retired.RetiredAt);
         Assert.Null(await _authority.GetReservationAsync(
             _holder.Subject,
             _world.WorldId,
             StartedAt.AddSeconds(2),
             Options));
+
+        var readBack = await _retirement.GetAsync(
+            _holder.Subject,
+            _world.WorldId);
+        Assert.NotNull(readBack);
+        Assert.Equal(LegacySharedWorldAuthorityRetirementStatus.AlreadyRetired, readBack.Status);
+        Assert.Equal(retired.RetiredHolder, readBack.RetiredHolder);
+        Assert.Equal(retired.RetiredInstallationId, readBack.RetiredInstallationId);
+        Assert.Equal(retired.RetiredSessionId, readBack.RetiredSessionId);
+        Assert.Equal(retired.RetiredGeneration, readBack.RetiredGeneration);
+        Assert.Equal(retired.RetiredStateRevisionId, readBack.RetiredStateRevisionId);
+        Assert.Equal(retired.RetiredEnvironmentRevisionId, readBack.RetiredEnvironmentRevisionId);
+        Assert.Equal(retired.RetiredAt, readBack.RetiredAt);
+
+        var other = new ExternalIdentityRef("steam", "76561198999990499");
+        Assert.Null(await _retirement.GetAsync(other, _world.WorldId));
 
         var retry = await _retirement.RetireAsync(
             _holder.Subject,
@@ -93,7 +111,7 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementTests : IAsync
             StartedAt.AddSeconds(3),
             Options);
         Assert.Equal(LegacySharedWorldAuthorityRetirementStatus.AlreadyRetired, retry.Status);
-        Assert.Equal(retired.RetiredAt, retry.RetiredAt);
+        Assert.Equal(readBack, retry);
     }
 
     [Fact]

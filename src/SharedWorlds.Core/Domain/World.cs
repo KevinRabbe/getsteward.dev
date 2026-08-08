@@ -55,6 +55,16 @@ public enum StartYourOwnPolicy
 }
 
 /// <summary>
+/// Persistent writable-authority fence for a peer-hosted shared World. Steam lobby ownership is
+/// ephemeral; this record survives while the World is inactive and identifies the only participant
+/// allowed to create the next authoritative lobby. Generation increases exactly once per deliberate
+/// host handoff so stale replicated metadata can be detected rather than silently regaining authority.
+/// </summary>
+public sealed record WorldPeerAuthority(
+    UserIdentity Holder,
+    ulong Generation);
+
+/// <summary>
 /// Lightweight attribution for a World that began as an independent copy of a published snapshot.
 /// It never creates synchronization, ancestry, merge, or ownership semantics between Worlds.
 /// </summary>
@@ -91,7 +101,7 @@ public sealed record World(
 
     /// <summary>
     /// Existing and newly imported Worlds keep their exact known-good game version by default.
-    /// Allowing update candidates never mutates the current EnvironmentRevision automatically.
+    /// Allowing update candidates never mutates the current EnvironmentRevision or StateRevision automatically.
     /// </summary>
     public WorldGameVersionPolicy GameVersionPolicy { get; init; } = WorldGameVersionPolicy.KeepExact;
 
@@ -111,6 +121,13 @@ public sealed record World(
     /// writing to this World's canonical history.
     /// </summary>
     public StartYourOwnPolicy StartYourOwnPolicy { get; init; } = StartYourOwnPolicy.Disabled;
+
+    /// <summary>
+    /// Persistent peer-host authority for the same shared World identity. Null is intentional for
+    /// LocalOnly Worlds and for older shared Worlds that have not yet been explicitly migrated to
+    /// peer authority; peer hosting must fail closed rather than inventing a holder for null data.
+    /// </summary>
+    public WorldPeerAuthority? PeerAuthority { get; init; }
 
     /// <summary>
     /// Optional source attribution for a copied/published World. This is presentation metadata only;

@@ -33,7 +33,8 @@ public interface IPeerWorldRevisionExchange
 
 /// <summary>
 /// Concrete IPeerWorldRevisionTransfer implementation. It exports only the exact current committed
-/// revision, proves the local payload while hashing it, and requires an exact receipt from the peer.
+/// revision plus the prospective next persistent authority generation, proves the local payload while
+/// hashing it, and requires an exact receipt from the peer before live lobby ownership may move.
 /// </summary>
 public sealed class PeerWorldRevisionTransferService : IPeerWorldRevisionTransfer
 {
@@ -67,6 +68,28 @@ public sealed class PeerWorldRevisionTransferService : IPeerWorldRevisionTransfe
         {
             throw new InvalidDataException(
                 $"World '{worldId}' canonical head is '{world.CurrentStateRevisionId}', not committed handoff revision '{committedStateRevision}'.");
+        }
+
+        var authority = world.PeerAuthority
+            ?? throw new InvalidDataException(
+                $"World '{worldId}' has no persistent peer authority to hand off.");
+        if (authority.Generation == 0)
+        {
+            throw new InvalidDataException(
+                $"World '{worldId}' has invalid zero peer-authority generation.");
+        }
+
+        if (!ContainsStableMember(world.Members, authority.Holder) ||
+            !ContainsStableMember(world.Members, targetHost))
+        {
+            throw new InvalidDataException(
+                $"World '{worldId}' peer authority holder and handoff target must both be canonical members.");
+        }
+
+        if (SameUser(authority.Holder, targetHost))
+        {
+            throw new InvalidOperationException(
+                "Peer revision handoff target already owns persistent World authority.");
         }
 
         var stateRevision = await _storage.LoadStateRevisionAsync(
@@ -109,12 +132,18 @@ public sealed class PeerWorldRevisionTransferService : IPeerWorldRevisionTransfe
                 $"Environment revision '{environmentRevisionId}' does not match canonical World '{worldId}'.");
         }
 
+        var prospectiveWorld = world with
+        {
+            PeerAuthority = new WorldPeerAuthority(
+                targetHost,
+                checked(authority.Generation + 1))
+        };
         var digest = await ComputePayloadDigestAsync(
             worldId,
             committedStateRevision,
             cancellationToken);
         var offer = new PeerWorldRevisionOffer(
-            world,
+            prospectiveWorld,
             environmentRevision,
             stateRevision,
             digest.Length,
@@ -171,4 +200,13 @@ public sealed class PeerWorldRevisionTransferService : IPeerWorldRevisionTransfe
 
         return (length, Convert.ToHexString(hash.GetHashAndReset()));
     }
+
+    private static bool ContainsStableMember(
+        IReadOnlyList<UserIdentity> members,
+        UserIdentity expected)
+        => members.Any(member => SameUser(member, expected));
+
+    private static bool SameUser(UserIdentity left, UserIdentity right)
+        => string.Equals(left.Provider, right.Provider, StringComparison.OrdinalIgnoreCase) &&
+           string.Equals(left.ExternalId, right.ExternalId, StringComparison.Ordinal);
 }

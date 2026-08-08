@@ -23,6 +23,8 @@ public sealed record LegacySharedWorldAuthorityRetirementResult(
     string? RetiredInstallationId,
     Guid? RetiredSessionId,
     long? RetiredGeneration,
+    RevisionId? RetiredStateRevisionId,
+    RevisionId? RetiredEnvironmentRevisionId,
     DateTimeOffset? RetiredAt);
 
 /// <summary>

@@ -75,8 +75,6 @@ public sealed class PeerWorldSessionCoordinatorTests
             formerHolder,
             [formerHolder, currentHolder]);
 
-        // Simulates an old local World file on another PC of the same Steam account. The independent
-        // durable account fence has already observed the later handoff and therefore wins.
         SeedFence(
             fences,
             worldId,
@@ -253,7 +251,6 @@ public sealed class PeerWorldSessionCoordinatorTests
         Assert.Equal(committedRevision, fence.StateRevisionId);
         Assert.Equal(0, lobby.TransferOwnershipCount);
 
-        // The old holder may not restart or release authority after relinquishment began.
         await Assert.ThrowsAsync<WorldSessionConflictException>(
             () => coordinator.AcquireHostAsync(worldId, source));
         await Assert.ThrowsAsync<WorldSessionConflictException>(
@@ -581,6 +578,7 @@ public sealed class PeerWorldSessionCoordinatorTests
         public Task<PeerWorldLobbySnapshot> CreateOrGetAsync(
             WorldId worldId,
             UserIdentity proposedOwner,
+            ulong authorityGeneration,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -589,6 +587,7 @@ public sealed class PeerWorldSessionCoordinatorTests
                 CreateOrGetCount++;
                 if (_worlds.TryGetValue(worldId, out var existing))
                 {
+                    RequireGeneration(existing, authorityGeneration, worldId);
                     return Task.FromResult(existing);
                 }
 
@@ -596,7 +595,9 @@ public sealed class PeerWorldSessionCoordinatorTests
                     worldId,
                     proposedOwner,
                     OwnerConfirmed: true,
-                    AuthorityGeneration: ForceLegacyZeroGeneration ? 0UL : 1UL,
+                    AuthorityGeneration: ForceLegacyZeroGeneration
+                        ? 0UL
+                        : authorityGeneration,
                     RequestedHost: null,
                     LastCommittedRevision: null,
                     UpdatedAt: DateTimeOffset.UtcNow);
@@ -608,13 +609,17 @@ public sealed class PeerWorldSessionCoordinatorTests
         public Task<PeerWorldLobbySnapshot> RequestHandoffAsync(
             WorldId worldId,
             UserIdentity expectedOwner,
+            ulong expectedAuthorityGeneration,
             UserIdentity requestedHost,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             lock (_gate)
             {
-                var current = RequireOwned(worldId, expectedOwner);
+                var current = RequireOwned(
+                    worldId,
+                    expectedOwner,
+                    expectedAuthorityGeneration);
                 var updated = current with
                 {
                     RequestedHost = requestedHost,
@@ -628,14 +633,27 @@ public sealed class PeerWorldSessionCoordinatorTests
         public Task<PeerWorldLobbySnapshot> TransferOwnershipAsync(
             WorldId worldId,
             UserIdentity expectedOwner,
+            ulong expectedAuthorityGeneration,
             UserIdentity newOwner,
+            ulong newAuthorityGeneration,
             RevisionId committedRevision,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             lock (_gate)
             {
-                var current = RequireOwned(worldId, expectedOwner);
+                var current = RequireOwned(
+                    worldId,
+                    expectedOwner,
+                    expectedAuthorityGeneration);
+                if (expectedAuthorityGeneration == ulong.MaxValue ||
+                    newAuthorityGeneration != expectedAuthorityGeneration + 1)
+                {
+                    throw new WorldSessionConflictException(
+                        worldId,
+                        "The requested authority generation transition is invalid.");
+                }
+
                 if (current.RequestedHost is null ||
                     !SameUser(current.RequestedHost, newOwner))
                 {
@@ -644,17 +662,13 @@ public sealed class PeerWorldSessionCoordinatorTests
                         "The requested host changed before transfer.");
                 }
 
-                var nextGeneration = checked(current.AuthorityGeneration + 1);
                 TransferOwnershipCount++;
                 if (FailTransfer)
                 {
-                    // Mirrors the generation-aware Steam adapter's fail-closed contract after durable
-                    // authority has already moved: live platform ownership remains old, but generation
-                    // advances and confirmation breaks so nobody may continue writing from this lobby.
                     _worlds[worldId] = current with
                     {
                         OwnerConfirmed = false,
-                        AuthorityGeneration = nextGeneration,
+                        AuthorityGeneration = newAuthorityGeneration,
                         RequestedHost = null,
                         LastCommittedRevision = committedRevision,
                         UpdatedAt = DateTimeOffset.UtcNow
@@ -666,7 +680,7 @@ public sealed class PeerWorldSessionCoordinatorTests
                 {
                     Owner = newOwner,
                     OwnerConfirmed = true,
-                    AuthorityGeneration = nextGeneration,
+                    AuthorityGeneration = newAuthorityGeneration,
                     RequestedHost = null,
                     LastCommittedRevision = committedRevision,
                     UpdatedAt = DateTimeOffset.UtcNow
@@ -679,12 +693,16 @@ public sealed class PeerWorldSessionCoordinatorTests
         public Task LeaveAsync(
             WorldId worldId,
             UserIdentity expectedOwner,
+            ulong expectedAuthorityGeneration,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             lock (_gate)
             {
-                _ = RequireOwned(worldId, expectedOwner);
+                _ = RequireOwned(
+                    worldId,
+                    expectedOwner,
+                    expectedAuthorityGeneration);
                 _worlds.Remove(worldId);
                 return Task.CompletedTask;
             }
@@ -709,7 +727,8 @@ public sealed class PeerWorldSessionCoordinatorTests
 
         private PeerWorldLobbySnapshot RequireOwned(
             WorldId worldId,
-            UserIdentity expectedOwner)
+            UserIdentity expectedOwner,
+            ulong expectedAuthorityGeneration)
         {
             if (!_worlds.TryGetValue(worldId, out var current) ||
                 !SameUser(current.Owner, expectedOwner) ||
@@ -720,7 +739,22 @@ public sealed class PeerWorldSessionCoordinatorTests
                     "The expected peer-lobby owner is no longer current.");
             }
 
+            RequireGeneration(current, expectedAuthorityGeneration, worldId);
             return current;
+        }
+
+        private static void RequireGeneration(
+            PeerWorldLobbySnapshot current,
+            ulong expectedAuthorityGeneration,
+            WorldId worldId)
+        {
+            if (expectedAuthorityGeneration == 0 ||
+                current.AuthorityGeneration != expectedAuthorityGeneration)
+            {
+                throw new WorldSessionConflictException(
+                    worldId,
+                    "The expected peer-lobby authority generation is no longer current.");
+            }
         }
 
         private static bool SameUser(

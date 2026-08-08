@@ -13,51 +13,24 @@ public sealed record PeerWorldLobbySnapshot(
     ulong AuthorityGeneration,
     UserIdentity? RequestedHost,
     RevisionId? LastCommittedRevision,
-    DateTimeOffset UpdatedAt)
-{
-    /// <summary>
-    /// Compatibility shape for schema-v1 lobby implementations that predate persistent authority
-    /// generations. They intentionally surface generation zero so generation-bound peer exchange
-    /// refuses to send World bytes rather than treating the legacy lobby as current authority.
-    /// Parameter casing intentionally matches the former positional record contract so existing
-    /// named-argument callers remain source-compatible.
-    /// </summary>
-    public PeerWorldLobbySnapshot(
-        WorldId WorldId,
-        UserIdentity Owner,
-        bool OwnerConfirmed,
-        UserIdentity? RequestedHost,
-        RevisionId? LastCommittedRevision,
-        DateTimeOffset UpdatedAt)
-        : this(
-            WorldId,
-            Owner,
-            OwnerConfirmed,
-            AuthorityGeneration: 0,
-            RequestedHost,
-            LastCommittedRevision,
-            UpdatedAt)
-    {
-    }
-}
+    DateTimeOffset UpdatedAt);
 
 /// <summary>
 /// Narrow platform boundary required by peer-hosted Steward sessions. A Steam implementation can map
 /// this contract onto one Steam lobby and its owner-transfer primitive without making Core depend on
 /// Steamworks or a permanent Steward backend.
 ///
+/// Every mutation is generation-fenced. The caller supplies the exact persistent World authority
+/// generation it expects the live lobby to represent. Implementations must fail closed when owner or
+/// generation no longer matches. A graceful ownership transfer is the only mutation allowed to move
+/// the lobby generation, and it must move exactly from N to N+1.
+///
 /// Platform ownership changes are not sufficient by themselves to establish writable World authority.
 /// Implementations report whether the observed owner matches Steward's explicitly confirmed authority;
 /// an automatic platform owner change must therefore surface as recovery-pending until Steward verifies
 /// a usable World revision and deliberately confirms the replacement host.
 ///
-/// AuthorityGeneration is the live lobby's claim about persistent WorldPeerAuthority.Generation.
-/// Generation-aware peer exchange code requires it to be non-zero and exact. Legacy/schema-v1 lobby
-/// implementations intentionally surface zero so they fail closed rather than being mistaken for
-/// generation-fenced authority.
-///
-/// Implementations must fail closed when the expected owner no longer owns the platform lobby during
-/// a mutation. Durable World bytes and revision publication are intentionally outside this boundary.
+/// Durable World bytes and revision publication are intentionally outside this boundary.
 /// </summary>
 public interface IPeerWorldLobby
 {
@@ -65,36 +38,36 @@ public interface IPeerWorldLobby
         WorldId worldId,
         CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Creates the active lobby when none exists, or returns the already-observed lobby. The caller
-    /// decides whether an existing owner is acceptable; this prevents the transport from inventing
-    /// writable World authority.
-    /// </summary>
     Task<PeerWorldLobbySnapshot> CreateOrGetAsync(
         WorldId worldId,
         UserIdentity proposedOwner,
+        ulong authorityGeneration,
         CancellationToken cancellationToken = default);
 
     Task<PeerWorldLobbySnapshot> RequestHandoffAsync(
         WorldId worldId,
         UserIdentity expectedOwner,
+        ulong expectedAuthorityGeneration,
         UserIdentity requestedHost,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Transfers platform-lobby ownership only after Steward has committed the final outgoing-host
-    /// revision supplied here. The committed revision is handoff evidence, not mutable lobby storage
-    /// for the World itself.
+    /// Transfers platform-lobby ownership only after Steward has committed and replicated the final
+    /// outgoing-host revision. expectedAuthorityGeneration is the current live generation and
+    /// newAuthorityGeneration must equal expectedAuthorityGeneration + 1.
     /// </summary>
     Task<PeerWorldLobbySnapshot> TransferOwnershipAsync(
         WorldId worldId,
         UserIdentity expectedOwner,
+        ulong expectedAuthorityGeneration,
         UserIdentity newOwner,
+        ulong newAuthorityGeneration,
         RevisionId committedRevision,
         CancellationToken cancellationToken = default);
 
     Task LeaveAsync(
         WorldId worldId,
         UserIdentity expectedOwner,
+        ulong expectedAuthorityGeneration,
         CancellationToken cancellationToken = default);
 }

@@ -12,14 +12,16 @@ internal sealed record SteamJoinedWorldLobby(
 /// <summary>
 /// Handles the platform half of accepting a Steam World invitation. Joining a Steam lobby does not
 /// itself grant writable World authority or launch a game. The lobby must prove its Steward protocol,
-/// World identity, and confirmed host before it is attached to the peer coordinator.
+/// World identity, confirmed host, and nonzero authority generation before it is attached to the peer
+/// coordinator.
 /// </summary>
 internal sealed class SteamPeerWorldLobbyJoinService : IDisposable
 {
     private const string SchemaKey = "steward.schema";
-    private const string SchemaVersion = "1";
+    private const string SchemaVersion = "2";
     private const string WorldIdKey = "steward.world";
     private const string AuthorityOwnerKey = "steward.authority-owner";
+    private const string AuthorityGenerationKey = "steward.authority-generation";
     private const string RequestedHostKey = "steward.requested-host";
     private const uint SuccessfulLobbyEnterResponse = 1;
     private static readonly TimeSpan JoinTimeout = TimeSpan.FromSeconds(20);
@@ -118,6 +120,20 @@ internal sealed class SteamPeerWorldLobbyJoinService : IDisposable
             {
                 throw new InvalidDataException(
                     $"Steam lobby for World '{worldId}' does not currently have confirmed Steward host authority.");
+            }
+
+            var generationText = SteamMatchmaking.GetLobbyData(
+                lobbyId,
+                AuthorityGenerationKey);
+            if (!ulong.TryParse(
+                    generationText,
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out var authorityGeneration) ||
+                authorityGeneration == 0)
+            {
+                throw new InvalidDataException(
+                    $"Steam lobby for World '{worldId}' does not contain a valid Steward authority generation.");
             }
 
             if (!string.IsNullOrEmpty(

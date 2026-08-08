@@ -91,6 +91,7 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         var snapshot = await _lobby.CreateOrGetAsync(
             worldId,
             user,
+            expectedGeneration,
             cancellationToken);
         EnsureWorld(snapshot, worldId);
         EnsureLobbyGeneration(snapshot, expectedGeneration, worldId);
@@ -161,6 +162,7 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         var updated = await _lobby.RequestHandoffAsync(
             worldId,
             _localUser,
+            expectedGeneration,
             requestedHost,
             cancellationToken);
         EnsureWorld(updated, worldId);
@@ -274,7 +276,9 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         var transferred = await _lobby.TransferOwnershipAsync(
             worldId,
             _localUser,
+            currentAuthority.Generation,
             newHost,
+            nextGeneration,
             committedRevision,
             cancellationToken);
         EnsureWorld(transferred, worldId);
@@ -331,7 +335,11 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
                 "The pending host handoff must resolve before leaving.");
         }
 
-        await _lobby.LeaveAsync(worldId, user, cancellationToken);
+        await _lobby.LeaveAsync(
+            worldId,
+            user,
+            expectedGeneration,
+            cancellationToken);
     }
 
     private async Task<(World World, PeerAuthorityFence Fence)> RequireActiveAuthorityAsync(

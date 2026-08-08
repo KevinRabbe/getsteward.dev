@@ -5,12 +5,12 @@ namespace SharedWorlds.Desktop.AcceptanceTests;
 public sealed class SteamPeerWorldLobbyCompositionTests
 {
     [Fact]
-    public void LobbyUsesSteamOwnerButRequiresSeparateStewardAuthorityConfirmation()
+    public void LobbyUsesSchemaTwoOwnerAndGenerationAuthorityMetadata()
     {
         var source = ReadLobby();
 
         Assert.Contains(
-            "var owner = SteamMatchmaking.GetLobbyOwner(lobbyId);",
+            "private const string SchemaVersion = \"2\";",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -18,40 +18,143 @@ public sealed class SteamPeerWorldLobbyCompositionTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
+            "private const string AuthorityGenerationKey = \"steward.authority-generation\";",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "var owner = SteamMatchmaking.GetLobbyOwner(lobbyId);",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "OwnerConfirmed: observedOwner == authorityOwner",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
-            "all surviving clients observe RecoveryPending",
+            "AuthorityGeneration: authorityGeneration",
             source,
             StringComparison.Ordinal);
     }
 
     [Fact]
-    public void GracefulTransferPublishesCommittedRevisionBeforeChangingSteamOwner()
+    public void GracefulTransferInvalidatesOldOwnerBeforePublishingGenerationRevisionAndSteamOwnerMove()
     {
         var source = ReadLobby();
         var method = RequiredIndex(source, "private PeerWorldLobbySnapshot TransferOwnershipCore(");
-        var committedRevision = RequiredIndex(
-            source,
-            "CommittedRevisionKey,\n            committedRevision.ToString(),",
-            method);
         var authorityOwner = RequiredIndex(
             source,
-            "AuthorityOwnerKey,\n            SteamIdText(newOwnerSteamId),",
-            committedRevision);
+            "AuthorityOwnerKey,\n                SteamIdText(newOwnerSteamId),",
+            method);
+        var authorityGeneration = RequiredIndex(
+            source,
+            "AuthorityGenerationKey,\n                GenerationText(newAuthorityGeneration),",
+            authorityOwner);
+        var committedRevision = RequiredIndex(
+            source,
+            "CommittedRevisionKey,\n                committedRevision.ToString(),",
+            authorityGeneration);
         var ownerTransfer = RequiredIndex(
             source,
-            "SteamMatchmaking.SetLobbyOwner(lobbyId, newOwnerSteamId)",
-            authorityOwner);
+            "SteamMatchmaking.SetLobbyOwner(",
+            committedRevision);
         var verifyOwner = RequiredIndex(
             source,
             "var observedOwner = SteamMatchmaking.GetLobbyOwner(lobbyId);",
             ownerTransfer);
 
-        Assert.True(committedRevision < authorityOwner);
-        Assert.True(authorityOwner < ownerTransfer);
+        Assert.True(authorityOwner < authorityGeneration);
+        Assert.True(authorityGeneration < committedRevision);
+        Assert.True(committedRevision < ownerTransfer);
         Assert.True(ownerTransfer < verifyOwner);
+    }
+
+    [Fact]
+    public void AnyCommittedHandoffPublicationFailureMakesSourceAbandonLiveLobby()
+    {
+        var source = ReadLobby();
+        var method = RequiredIndex(source, "private PeerWorldLobbySnapshot TransferOwnershipCore(");
+        var mutationTry = RequiredIndex(source, "        try\n        {", method);
+        var abandonCall = RequiredIndex(
+            source,
+            "AbandonCommittedHandoffLobby(lobbyId, worldId);",
+            mutationTry);
+        var abandonMethod = RequiredIndex(
+            source,
+            "private void AbandonCommittedHandoffLobby(",
+            abandonCall);
+        var stopJoin = RequiredIndex(
+            source,
+            "SteamMatchmaking.SetLobbyJoinable(lobbyId, false)",
+            abandonMethod);
+        var steamLeave = RequiredIndex(
+            source,
+            "SteamMatchmaking.LeaveLobby(lobbyId);",
+            stopJoin);
+        var detach = RequiredIndex(
+            source,
+            "_knownLobbies.Remove(worldId);",
+            steamLeave);
+
+        Assert.DoesNotContain("RestoreLobbyData", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("previousAuthority", source, StringComparison.Ordinal);
+        Assert.True(mutationTry < abandonCall);
+        Assert.True(abandonCall < abandonMethod);
+        Assert.True(abandonMethod < stopJoin);
+        Assert.True(stopJoin < steamLeave);
+        Assert.True(steamLeave < detach);
+    }
+
+    [Fact]
+    public void EveryAuthorityMutationAcceptsExplicitGenerationFence()
+    {
+        var source = ReadLobby();
+
+        Assert.Contains(
+            "UserIdentity proposedOwner,\n        ulong authorityGeneration,",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "UserIdentity expectedOwner,\n        ulong expectedAuthorityGeneration,\n        UserIdentity requestedHost,",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ulong expectedAuthorityGeneration,\n        UserIdentity newOwner,\n        ulong newAuthorityGeneration,",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "UserIdentity expectedOwner,\n        ulong expectedAuthorityGeneration,\n        CancellationToken cancellationToken",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "newGeneration != expectedGeneration + 1",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HandoffMutationGateCannotOverwriteTargetOrLeavePendingTransfer()
+    {
+        var source = ReadLobby();
+        var request = RequiredIndex(source, "public async Task<PeerWorldLobbySnapshot> RequestHandoffAsync(");
+        var conflictingRequest = RequiredIndex(
+            source,
+            "current.RequestedHost is not null &&\n                        !SameUser(current.RequestedHost, requestedHost)",
+            request);
+        var requestWrite = RequiredIndex(
+            source,
+            "RequestedHostKey,\n                        SteamIdText(requestedSteamId),",
+            conflictingRequest);
+        Assert.True(conflictingRequest < requestWrite);
+
+        var leave = RequiredIndex(source, "public async Task LeaveAsync(");
+        var pendingGuard = RequiredIndex(
+            source,
+            "if (current.RequestedHost is not null)",
+            leave);
+        var steamLeave = RequiredIndex(
+            source,
+            "SteamMatchmaking.LeaveLobby(lobbyId);",
+            pendingGuard);
+        Assert.True(pendingGuard < steamLeave);
     }
 
     [Fact]
@@ -86,7 +189,7 @@ public sealed class SteamPeerWorldLobbyCompositionTests
         Assert.DoesNotContain("StatePackage", source, StringComparison.Ordinal);
         Assert.DoesNotContain("StoreRevision", source, StringComparison.Ordinal);
         Assert.DoesNotContain("OpenRevision", source, StringComparison.Ordinal);
-        Assert.Contains("Durable World bytes never live in lobby metadata.", source, StringComparison.Ordinal);
+        Assert.Contains("Durable World bytes never live in lobby data.", source, StringComparison.Ordinal);
     }
 
     [Fact]

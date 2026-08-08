@@ -18,7 +18,7 @@ public sealed class SteamPeerWorldLobbyJoinCompositionTests
     }
 
     [Fact]
-    public void JoinValidatesStewardLobbyBeforeAttachingIt()
+    public void JoinValidatesSchemaWorldOwnerGenerationAndNoHandoffBeforeAttach()
     {
         var source = ReadJoinService();
         var join = RequiredIndex(source, "public async Task<SteamJoinedWorldLobby> JoinAsync(");
@@ -26,14 +26,33 @@ public sealed class SteamPeerWorldLobbyJoinCompositionTests
         var world = RequiredIndex(source, "Guid.TryParseExact(worldText, \"N\"", schema);
         var owner = RequiredIndex(source, "SteamMatchmaking.GetLobbyOwner(lobbyId)", world);
         var authority = RequiredIndex(source, "observedOwner.m_SteamID != authorityOwner", owner);
-        var handoff = RequiredIndex(source, "SteamMatchmaking.GetLobbyData(lobbyId, RequestedHostKey)", authority);
+        var generation = RequiredIndex(source, "AuthorityGenerationKey", authority);
+        var generationGuard = RequiredIndex(source, "authorityGeneration == 0", generation);
+        var handoff = RequiredIndex(source, "SteamMatchmaking.GetLobbyData(lobbyId, RequestedHostKey)", generationGuard);
         var attach = RequiredIndex(source, "await _lobby.AttachJoinedLobbyAsync(", handoff);
 
+        Assert.Contains("private const string SchemaVersion = \"2\";", source, StringComparison.Ordinal);
         Assert.True(schema < world);
         Assert.True(world < owner);
         Assert.True(owner < authority);
-        Assert.True(authority < handoff);
+        Assert.True(authority < generation);
+        Assert.True(generation < generationGuard);
+        Assert.True(generationGuard < handoff);
         Assert.True(handoff < attach);
+    }
+
+    [Fact]
+    public void JoinedLobbyResultRemainsSourceCompatible()
+    {
+        var source = ReadJoinService();
+        var record = RequiredIndex(source, "internal sealed record SteamJoinedWorldLobby(");
+        var service = RequiredIndex(source, "internal sealed class SteamPeerWorldLobbyJoinService", record);
+        var recordSource = source[record..service];
+
+        Assert.Contains("WorldId WorldId", recordSource, StringComparison.Ordinal);
+        Assert.Contains("CSteamID LobbyId", recordSource, StringComparison.Ordinal);
+        Assert.Contains("CSteamID ConfirmedHostSteamId", recordSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("AuthorityGeneration", recordSource, StringComparison.Ordinal);
     }
 
     [Fact]

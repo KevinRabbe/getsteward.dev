@@ -63,15 +63,18 @@ public sealed class SteamPeerWorldRevisionExchangeCompositionTests
         var noHandoff = RequiredIndex(source, "if (snapshot.RequestedHost is not null)", bootstrap);
         var membership = RequiredIndex(
             source,
-            "PeerWorldBootstrapTransferService.ContainsStableMember(",
+            "offer.World.Members.Any(member =>",
             noHandoff);
-        var localUser = RequiredIndex(source, "_platform.LocalUser", membership);
-        var ready = RequiredIndex(source, "MessageKind.Ready", localUser);
+        var stableSteamIdentity = RequiredIndex(
+            source,
+            "SameSteamUser(member, _platform.LocalSteamId.m_SteamID)",
+            membership);
+        var ready = RequiredIndex(source, "MessageKind.Ready", stableSteamIdentity);
 
         Assert.True(bootstrap < noHandoff);
         Assert.True(noHandoff < membership);
-        Assert.True(membership < localUser);
-        Assert.True(localUser < ready);
+        Assert.True(membership < stableSteamIdentity);
+        Assert.True(stableSteamIdentity < ready);
     }
 
     [Fact]

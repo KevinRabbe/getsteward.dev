@@ -88,7 +88,7 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizerTests
         Assert.Equal(2, retirement.GetCalls);
         Assert.Equal(1, retirement.RetireCalls);
         Assert.Null(registry.Get(world.Id));
-        Assert.Equal(["get", "acquire", "retire", "get"], events);
+        Assert.Equal(new[] { "get", "acquire", "retire", "get" }, events);
     }
 
     [Fact]

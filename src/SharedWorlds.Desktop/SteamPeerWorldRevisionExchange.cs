@@ -11,13 +11,18 @@ using Steamworks;
 namespace SharedWorlds.Desktop;
 
 /// <summary>
-/// Identity-preserving peer revision transport over Steam Networking Sockets. One connection carries
-/// one handoff transaction. Steam authenticates the peer identity; Steward additionally requires the
-/// remote peer to be the confirmed lobby host and this PC to be the requested handoff target.
+/// Identity-preserving World transfer over Steam Networking Sockets. One authenticated P2P engine
+/// carries both first-time Bootstrap and stricter HandoffRevision transactions. The purpose is part
+/// of the protocol and selects the corresponding receiver installer; transport never decides host
+/// authority. Steam authenticates the peer identity and Steward additionally authorizes the transfer
+/// against the already-attached active World lobby.
 /// </summary>
-internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchange, IDisposable
+internal sealed class SteamPeerWorldRevisionExchange :
+    IPeerWorldRevisionExchange,
+    IPeerWorldBootstrapExchange,
+    IDisposable
 {
-    private const int ProtocolVersion = 1;
+    private const int ProtocolVersion = 2;
     private const int VirtualPort = 71;
     private const int PayloadChunkBytes = 64 * 1024;
     private const int ReceiveBatchSize = 16;
@@ -25,7 +30,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
     private const int MaxOfferBytes = 256 * 1024;
     private const int MaxControlBytes = 64 * 1024;
     private const int MaxRejectTextBytes = 4096;
-    private const int MaxQueuedPayloadChunks = 16;
+    private const int MaxQueuedPayloadChunks = 64;
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(25);
     private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ReceiptTimeout = TimeSpan.FromMinutes(15);
@@ -33,7 +38,8 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
 
     private readonly SteamPlatformRuntime _platform;
     private readonly SteamPeerWorldLobby _lobby;
-    private readonly PeerWorldRevisionReplicaInstaller _installer;
+    private readonly PeerWorldRevisionReplicaInstaller _revisionInstaller;
+    private readonly PeerWorldBootstrapInstaller _bootstrapInstaller;
     private readonly Callback<SteamNetConnectionStatusChangedCallback_t> _connectionCallback;
     private readonly DispatcherTimer _receiveTimer;
     private readonly SemaphoreSlim _outgoingGate = new(1, 1);
@@ -44,20 +50,23 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
     public SteamPeerWorldRevisionExchange(
         SteamPlatformRuntime platform,
         SteamPeerWorldLobby lobby,
-        PeerWorldRevisionReplicaInstaller installer)
+        PeerWorldRevisionReplicaInstaller revisionInstaller,
+        PeerWorldBootstrapInstaller bootstrapInstaller)
     {
         ArgumentNullException.ThrowIfNull(platform);
         ArgumentNullException.ThrowIfNull(lobby);
-        ArgumentNullException.ThrowIfNull(installer);
+        ArgumentNullException.ThrowIfNull(revisionInstaller);
+        ArgumentNullException.ThrowIfNull(bootstrapInstaller);
         if (!platform.Dispatcher.CheckAccess())
         {
             throw new InvalidOperationException(
-                "Steam peer revision exchange must be created on Steward's Steam dispatcher.");
+                "Steam peer World exchange must be created on Steward's Steam dispatcher.");
         }
 
         _platform = platform;
         _lobby = lobby;
-        _installer = installer;
+        _revisionInstaller = revisionInstaller;
+        _bootstrapInstaller = bootstrapInstaller;
         SteamNetworkingUtils.InitRelayNetworkAccess();
         _listenSocket = SteamNetworkingSockets.CreateListenSocketP2P(
             VirtualPort,
@@ -66,7 +75,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
         if (_listenSocket == HSteamListenSocket.Invalid)
         {
             throw new InvalidOperationException(
-                "Steam could not create Steward's peer revision listen socket.");
+                "Steam could not create Steward's peer World listen socket.");
         }
 
         _connectionCallback = Callback<SteamNetConnectionStatusChangedCallback_t>.Create(
@@ -79,25 +88,50 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
         _receiveTimer.Start();
     }
 
-    public async Task<PeerWorldRevisionReceipt> TransferAsync(
+    public Task<PeerWorldRevisionReceipt> TransferAsync(
         UserIdentity targetHost,
         PeerWorldRevisionOffer offer,
         Stream statePayload,
         CancellationToken cancellationToken = default)
+        => TransferCoreAsync(
+            targetHost,
+            offer,
+            statePayload,
+            TransferPurpose.HandoffRevision,
+            cancellationToken);
+
+    public Task<PeerWorldRevisionReceipt> TransferBootstrapAsync(
+        UserIdentity targetMember,
+        PeerWorldRevisionOffer offer,
+        Stream statePayload,
+        CancellationToken cancellationToken = default)
+        => TransferCoreAsync(
+            targetMember,
+            offer,
+            statePayload,
+            TransferPurpose.Bootstrap,
+            cancellationToken);
+
+    private async Task<PeerWorldRevisionReceipt> TransferCoreAsync(
+        UserIdentity targetPeer,
+        PeerWorldRevisionOffer offer,
+        Stream statePayload,
+        TransferPurpose purpose,
+        CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(targetHost);
+        ArgumentNullException.ThrowIfNull(targetPeer);
         ArgumentNullException.ThrowIfNull(offer);
         ArgumentNullException.ThrowIfNull(statePayload);
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (!statePayload.CanRead)
         {
-            throw new ArgumentException("Peer revision payload must be readable.", nameof(statePayload));
+            throw new ArgumentException("Peer World payload must be readable.", nameof(statePayload));
         }
 
-        var targetSteamId = ParseSteamIdentity(targetHost);
+        var targetSteamId = ParseSteamIdentity(targetPeer);
         if (targetSteamId == _platform.LocalSteamId)
         {
-            throw new InvalidOperationException("Steward cannot transfer a World revision to itself.");
+            throw new InvalidOperationException("Steward cannot transfer a World to itself.");
         }
 
         await _outgoingGate.WaitAsync(cancellationToken);
@@ -115,20 +149,24 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
             await WaitWithTimeoutAsync(
                 outgoing.Connected.Task,
                 ConnectTimeout,
-                "Steam did not establish the peer revision connection in time.",
+                "Steam did not establish the peer World connection in time.",
                 cancellationToken);
 
             var offerMessage = EncodeJson(
                 MessageKind.Offer,
-                new OfferEnvelope(ProtocolVersion, transferId, offer),
+                new OfferEnvelope(
+                    ProtocolVersion,
+                    transferId,
+                    purpose,
+                    offer),
                 MaxOfferBytes,
-                "peer revision offer");
+                "peer World offer");
             await SendReliableAsync(connection, offerMessage, cancellationToken);
 
             await WaitWithTimeoutAsync(
                 outgoing.Ready.Task,
                 ReadyTimeout,
-                "The target did not authorize the peer revision handoff in time.",
+                "The target did not authorize the peer World transfer in time.",
                 cancellationToken);
 
             var buffer = new byte[PayloadChunkBytes];
@@ -170,7 +208,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
                     MessageKind.Complete,
                     new TransferControlEnvelope(ProtocolVersion, transferId),
                     MaxControlBytes,
-                    "peer revision completion"),
+                    "peer World completion"),
                 cancellationToken);
             await InvokeSteamAsync(
                 () => SteamNetworkingSockets.FlushMessagesOnConnection(connection),
@@ -179,14 +217,14 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
             return await WaitWithTimeoutAsync(
                 outgoing.Receipt.Task,
                 ReceiptTimeout,
-                "The target did not acknowledge the installed World revision in time.",
+                "The target did not acknowledge the installed World in time.",
                 cancellationToken);
         }
         finally
         {
             if (connection != HSteamNetConnection.Invalid)
             {
-                await CloseConnectionAsync(connection, "Steward peer revision transfer complete");
+                await CloseConnectionAsync(connection, "Steward peer World transfer complete");
             }
 
             _outgoingGate.Release();
@@ -245,7 +283,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
                 if (connection == HSteamNetConnection.Invalid)
                 {
                     throw new IOException(
-                        "Steam rejected the peer revision P2P connection request.");
+                        "Steam rejected the peer World P2P connection request.");
                 }
 
                 var outgoing = new OutgoingConnectionContext(transferId);
@@ -294,7 +332,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
             ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ProblemDetectedLocally)
         {
             var exception = new IOException(
-                $"Steam peer revision connection ended: {change.m_info.m_szEndDebug}");
+                $"Steam peer World connection ended: {change.m_info.m_szEndDebug}");
             RemoveConnection(connection, exception);
             SteamNetworkingSockets.CloseConnection(connection, 0, "Connection ended", false);
         }
@@ -364,44 +402,50 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
 
     private void DrainConnectionMessages(ConnectionContext context)
     {
-        var pointers = new IntPtr[ReceiveBatchSize];
-        while (true)
+        var maximumMessages = ReceiveBatchSize;
+        if (context.Incoming?.Chunks is { } chunks && chunks.Reader.CanCount)
         {
-            var count = SteamNetworkingSockets.ReceiveMessagesOnConnection(
-                context.Connection,
-                pointers,
-                pointers.Length);
-            if (count < 0)
-            {
-                throw new IOException("Steam reported an invalid peer revision connection while receiving.");
-            }
-
-            if (count == 0)
+            var availablePayloadSlots = MaxQueuedPayloadChunks - chunks.Reader.Count;
+            if (availablePayloadSlots <= 0)
             {
                 return;
             }
 
-            for (var index = 0; index < count; index++)
-            {
-                var pointer = pointers[index];
-                try
-                {
-                    var native = SteamNetworkingMessage_t.FromIntPtr(pointer);
-                    if (native.m_cbSize <= 0 || native.m_cbSize > Constants.k_cbMaxSteamNetworkingSocketsMessageSizeSend)
-                    {
-                        throw new InvalidDataException(
-                            "Steam peer revision message had an invalid size.");
-                    }
+            maximumMessages = Math.Min(maximumMessages, availablePayloadSlots);
+        }
 
-                    var bytes = new byte[native.m_cbSize];
-                    Marshal.Copy(native.m_pData, bytes, 0, bytes.Length);
-                    DispatchMessage(context, bytes);
-                }
-                finally
+        var pointers = new IntPtr[maximumMessages];
+        var count = SteamNetworkingSockets.ReceiveMessagesOnConnection(
+            context.Connection,
+            pointers,
+            pointers.Length);
+        if (count < 0)
+        {
+            throw new IOException(
+                "Steam reported an invalid peer World connection while receiving.");
+        }
+
+        for (var index = 0; index < count; index++)
+        {
+            var pointer = pointers[index];
+            try
+            {
+                var native = SteamNetworkingMessage_t.FromIntPtr(pointer);
+                if (native.m_cbSize <= 0 ||
+                    native.m_cbSize > Constants.k_cbMaxSteamNetworkingSocketsMessageSizeSend)
                 {
-                    SteamNetworkingMessage_t.Release(pointer);
-                    pointers[index] = IntPtr.Zero;
+                    throw new InvalidDataException(
+                        "Steam peer World message had an invalid size.");
                 }
+
+                var bytes = new byte[native.m_cbSize];
+                Marshal.Copy(native.m_pData, bytes, 0, bytes.Length);
+                DispatchMessage(context, bytes);
+            }
+            finally
+            {
+                SteamNetworkingMessage_t.Release(pointer);
+                pointers[index] = IntPtr.Zero;
             }
         }
     }
@@ -410,7 +454,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
     {
         if (message.Length == 0)
         {
-            throw new InvalidDataException("Steam peer revision message was empty.");
+            throw new InvalidDataException("Steam peer World message was empty.");
         }
 
         var kind = (MessageKind)message[0];
@@ -422,7 +466,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
 
         if (context.Incoming is null)
         {
-            throw new InvalidOperationException("Steam peer revision connection has no direction state.");
+            throw new InvalidOperationException("Steam peer World connection has no direction state.");
         }
 
         DispatchIncomingMessage(context, kind, message);
@@ -441,7 +485,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
                 var ready = DecodeJson<TransferControlEnvelope>(
                     message,
                     MaxControlBytes,
-                    "peer revision ready");
+                    "peer World ready");
                 EnsureControl(ready.ProtocolVersion, ready.TransferId, outgoing.TransferId);
                 outgoing.Ready.TrySetResult(true);
                 break;
@@ -451,7 +495,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
                 var receipt = DecodeJson<ReceiptEnvelope>(
                     message,
                     MaxControlBytes,
-                    "peer revision receipt");
+                    "peer World receipt");
                 EnsureControl(receipt.ProtocolVersion, receipt.TransferId, outgoing.TransferId);
                 outgoing.Receipt.TrySetResult(receipt.Receipt);
                 break;
@@ -461,11 +505,11 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
                 var rejection = DecodeJson<RejectEnvelope>(
                     message,
                     MaxControlBytes,
-                    "peer revision rejection");
+                    "peer World rejection");
                 EnsureControl(rejection.ProtocolVersion, rejection.TransferId, outgoing.TransferId);
                 var exception = new InvalidOperationException(
                     string.IsNullOrWhiteSpace(rejection.Reason)
-                        ? "The target rejected the peer revision transfer."
+                        ? "The target rejected the peer World transfer."
                         : rejection.Reason);
                 outgoing.Ready.TrySetException(exception);
                 outgoing.Receipt.TrySetException(exception);
@@ -473,7 +517,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
             }
             default:
                 throw new InvalidDataException(
-                    $"Unexpected Steam peer revision response kind '{kind}'.");
+                    $"Unexpected Steam peer World response kind '{kind}'.");
         }
     }
 
@@ -490,13 +534,17 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
                 var envelope = DecodeJson<OfferEnvelope>(
                     message,
                     MaxOfferBytes,
-                    "peer revision offer");
-                if (envelope.ProtocolVersion != ProtocolVersion || envelope.TransferId == Guid.Empty)
+                    "peer World offer");
+                if (envelope.ProtocolVersion != ProtocolVersion ||
+                    envelope.TransferId == Guid.Empty ||
+                    !Enum.IsDefined(envelope.Purpose))
                 {
-                    throw new InvalidDataException("Peer revision offer uses an unsupported protocol version or transfer ID.");
+                    throw new InvalidDataException(
+                        "Peer World offer uses an unsupported protocol version, transfer ID, or purpose.");
                 }
 
                 incoming.TransferId = envelope.TransferId;
+                incoming.Purpose = envelope.Purpose;
                 incoming.Offer = envelope.Offer;
                 incoming.State = IncomingState.Authorizing;
                 _ = AuthorizeIncomingOfferAsync(context, envelope);
@@ -506,14 +554,14 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
             {
                 if (message.Length <= 1 || message.Length > PayloadChunkBytes + 1)
                 {
-                    throw new InvalidDataException("Peer revision payload chunk has an invalid size.");
+                    throw new InvalidDataException("Peer World payload chunk has an invalid size.");
                 }
 
                 var chunk = message.AsSpan(1).ToArray();
                 if (!incoming.Chunks!.Writer.TryWrite(chunk))
                 {
                     throw new IOException(
-                        "Peer revision receiver could not keep up with bounded incoming payload buffering.");
+                        "Peer World receiver could not preserve bounded payload backpressure.");
                 }
 
                 break;
@@ -523,7 +571,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
                 var complete = DecodeJson<TransferControlEnvelope>(
                     message,
                     MaxControlBytes,
-                    "peer revision completion");
+                    "peer World completion");
                 EnsureControl(complete.ProtocolVersion, complete.TransferId, incoming.TransferId);
                 incoming.State = IncomingState.Installing;
                 incoming.Chunks!.Writer.TryComplete();
@@ -532,7 +580,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
             }
             default:
                 throw new InvalidDataException(
-                    $"Unexpected Steam peer revision message kind '{kind}' while receiver is '{incoming.State}'.");
+                    $"Unexpected Steam peer World message kind '{kind}' while receiver is '{incoming.State}'.");
         }
     }
 
@@ -547,18 +595,52 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
                 offer.PayloadLength > PeerWorldRevisionReplicaInstaller.DefaultMaximumPayloadBytes)
             {
                 throw new InvalidDataException(
-                    "Peer revision offer exceeds Steward's payload safety bound.");
+                    "Peer World offer exceeds Steward's payload safety bound.");
             }
 
             var snapshot = await _lobby.GetAsync(offer.World.Id);
             if (snapshot is null ||
                 !snapshot.OwnerConfirmed ||
-                !SameSteamUser(snapshot.Owner, context.RemoteSteamId) ||
-                snapshot.RequestedHost is null ||
-                !SameSteamUser(snapshot.RequestedHost, _platform.LocalSteamId.m_SteamID))
+                !SameSteamUser(snapshot.Owner, context.RemoteSteamId))
             {
                 throw new InvalidOperationException(
-                    "Peer revision transfer is not authorized by the active Steward lobby handoff.");
+                    "Peer World transfer is not authorized by the active Steward lobby host.");
+            }
+
+            switch (envelope.Purpose)
+            {
+                case TransferPurpose.HandoffRevision:
+                    if (snapshot.RequestedHost is null ||
+                        !SameSteamUser(
+                            snapshot.RequestedHost,
+                            _platform.LocalSteamId.m_SteamID))
+                    {
+                        throw new InvalidOperationException(
+                            "Peer handoff revision transfer is not addressed to this Steward participant.");
+                    }
+
+                    break;
+
+                case TransferPurpose.Bootstrap:
+                    if (snapshot.RequestedHost is not null)
+                    {
+                        throw new InvalidOperationException(
+                            "Peer bootstrap is not allowed while the World is changing hosts.");
+                    }
+
+                    if (!PeerWorldBootstrapTransferService.ContainsStableMember(
+                            offer.World.Members,
+                            _platform.LocalUser))
+                    {
+                        throw new InvalidOperationException(
+                            "Peer bootstrap does not include the local Steam identity in canonical World membership.");
+                    }
+
+                    break;
+
+                default:
+                    throw new InvalidDataException(
+                        $"Unsupported peer World transfer purpose '{envelope.Purpose}'.");
             }
 
             if (!_connections.TryGetValue(context.Connection, out var current) ||
@@ -586,7 +668,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
                     MessageKind.Ready,
                     new TransferControlEnvelope(ProtocolVersion, envelope.TransferId),
                     MaxControlBytes,
-                    "peer revision ready"),
+                    "peer World ready"),
                 CancellationToken.None);
         }
         catch (Exception exception)
@@ -609,7 +691,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
                 if (incoming.Offer is null || incoming.ReceivedBytes > incoming.Offer.PayloadLength)
                 {
                     throw new InvalidDataException(
-                        "Peer revision payload exceeded the offered byte length.");
+                        "Peer World payload exceeded the offered byte length.");
                 }
 
                 await incoming.Buffer!.WriteAsync(chunk, incoming.Cancellation.Token);
@@ -634,19 +716,31 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
             }
 
             var offer = incoming.Offer
-                ?? throw new InvalidDataException("Peer revision receiver lost its offer metadata.");
+                ?? throw new InvalidDataException("Peer World receiver lost its offer metadata.");
             if (incoming.ReceivedBytes != offer.PayloadLength)
             {
                 throw new InvalidDataException(
-                    $"Peer revision receiver got {incoming.ReceivedBytes} payload bytes, expected {offer.PayloadLength}.");
+                    $"Peer World receiver got {incoming.ReceivedBytes} payload bytes, expected {offer.PayloadLength}.");
             }
 
             await incoming.Buffer!.FlushAsync();
             incoming.Buffer.Position = 0;
-            var receipt = await _installer.InstallAsync(
-                offer,
-                incoming.Buffer,
-                incoming.Cancellation.Token);
+
+            var receipt = incoming.Purpose switch
+            {
+                TransferPurpose.HandoffRevision =>
+                    await _revisionInstaller.InstallAsync(
+                        offer,
+                        incoming.Buffer,
+                        incoming.Cancellation.Token),
+                TransferPurpose.Bootstrap =>
+                    await _bootstrapInstaller.InstallAsync(
+                        offer,
+                        incoming.Buffer,
+                        incoming.Cancellation.Token),
+                _ => throw new InvalidDataException(
+                    $"Unsupported peer World transfer purpose '{incoming.Purpose}'.")
+            };
 
             await SendReliableAsync(
                 context.Connection,
@@ -657,7 +751,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
                         incoming.TransferId,
                         receipt),
                     MaxControlBytes,
-                    "peer revision receipt"),
+                    "peer World receipt"),
                 CancellationToken.None);
             await InvokeSteamAsync(
                 () => SteamNetworkingSockets.FlushMessagesOnConnection(context.Connection),
@@ -666,7 +760,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
             incoming.State = IncomingState.Completed;
             await CloseConnectionAsync(
                 context.Connection,
-                "Steward peer revision installed",
+                "Steward peer World installed",
                 linger: true);
         }
         catch (Exception exception)
@@ -710,7 +804,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
                             incoming.TransferId,
                             safeReason),
                         MaxControlBytes,
-                        "peer revision rejection"),
+                        "peer World rejection"),
                     CancellationToken.None);
                 await InvokeSteamAsync(
                     () => SteamNetworkingSockets.FlushMessagesOnConnection(context.Connection),
@@ -729,10 +823,11 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
         byte[] message,
         CancellationToken cancellationToken)
     {
-        if (message.Length <= 0 || message.Length > Constants.k_cbMaxSteamNetworkingSocketsMessageSizeSend)
+        if (message.Length <= 0 ||
+            message.Length > Constants.k_cbMaxSteamNetworkingSocketsMessageSizeSend)
         {
             throw new InvalidDataException(
-                $"Steward peer revision message length '{message.Length}' is outside Steam's supported range.");
+                $"Steward peer World message length '{message.Length}' is outside Steam's supported range.");
         }
 
         while (true)
@@ -753,7 +848,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
             }
 
             throw new IOException(
-                $"Steam rejected a reliable Steward peer revision message: {result}.");
+                $"Steam rejected a reliable Steward peer World message: {result}.");
         }
     }
 
@@ -794,7 +889,9 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
                 SteamNetworkingSockets.CloseConnection(
                     connection,
                     0,
-                    BoundUtf8(reason, Constants.k_cchSteamNetworkingMaxConnectionCloseReason - 1),
+                    BoundUtf8(
+                        reason,
+                        Constants.k_cchSteamNetworkingMaxConnectionCloseReason - 1),
                     linger);
             },
             CancellationToken.None);
@@ -851,7 +948,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
         var root = Path.Combine(
             Path.GetTempPath(),
             "SharedWorlds",
-            "peer-revision-transfer");
+            "peer-world-transfer");
         Directory.CreateDirectory(root);
         var path = Path.Combine(root, $"{Guid.NewGuid():N}.tmp");
         return new FileStream(
@@ -929,7 +1026,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
             steamId == 0)
         {
             throw new ArgumentException(
-                "A valid Steam UserIdentity is required for Steam peer revision transfer.",
+                "A valid Steam UserIdentity is required for Steam peer World transfer.",
                 nameof(user));
         }
 
@@ -996,14 +1093,14 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
         if (protocolVersion != ProtocolVersion || actualTransferId != expectedTransferId)
         {
             throw new InvalidDataException(
-                "Steam peer revision control message does not match the active transfer.");
+                "Steam peer World control message does not match the active transfer.");
         }
     }
 
     private static string BoundUtf8(string? text, int maximumBytes)
     {
         var value = string.IsNullOrWhiteSpace(text)
-            ? "Steward peer revision transfer failed."
+            ? "Steward peer World transfer failed."
             : text.Trim();
         if (Encoding.UTF8.GetByteCount(value) <= maximumBytes)
         {
@@ -1025,7 +1122,15 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
             usedBytes += runeBytes;
         }
 
-        return builder.Length == 0 ? "Steward peer transfer failed." : builder.ToString();
+        return builder.Length == 0
+            ? "Steward peer transfer failed."
+            : builder.ToString();
+    }
+
+    private enum TransferPurpose : byte
+    {
+        HandoffRevision = 1,
+        Bootstrap = 2
     }
 
     private enum MessageKind : byte
@@ -1051,6 +1156,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
     private sealed record OfferEnvelope(
         int ProtocolVersion,
         Guid TransferId,
+        TransferPurpose Purpose,
         PeerWorldRevisionOffer Offer);
 
     private sealed record TransferControlEnvelope(
@@ -1114,6 +1220,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
     {
         public IncomingState State { get; set; } = IncomingState.AwaitingOffer;
         public Guid TransferId { get; set; }
+        public TransferPurpose Purpose { get; set; }
         public PeerWorldRevisionOffer? Offer { get; set; }
         public FileStream? Buffer { get; set; }
         public Channel<byte[]>? Chunks { get; set; }

@@ -53,13 +53,10 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         }
 
         EnsureWorld(snapshot, worldId);
-        var ownerConfirmed = snapshot.OwnerConfirmed;
-        if (ownerConfirmed && SameUser(snapshot.Owner, _localUser))
-        {
-            ownerConfirmed = await LocalFenceConfirmsActiveAuthorityAsync(
-                worldId,
-                cancellationToken);
-        }
+        var ownerConfirmed = snapshot.OwnerConfirmed &&
+                             await LocalReplicaConfirmsLobbyAuthorityAsync(
+                                 snapshot,
+                                 cancellationToken);
 
         var state = !ownerConfirmed
             ? SessionState.RecoveryPending
@@ -85,16 +82,18 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         // Both checks occur before Steam lobby creation. A stale former-host replica may still contain
         // old World metadata, but its durable account fence records the later relinquishment and blocks
         // resurrection before any platform-visible authority is created.
-        _ = await RequireActiveAuthorityAsync(
+        var activeAuthority = await RequireActiveAuthorityAsync(
             worldId,
             user,
             cancellationToken);
+        var expectedGeneration = activeAuthority.World.PeerAuthority!.Generation;
 
         var snapshot = await _lobby.CreateOrGetAsync(
             worldId,
             user,
             cancellationToken);
         EnsureWorld(snapshot, worldId);
+        EnsureLobbyGeneration(snapshot, expectedGeneration, worldId);
         if (!snapshot.OwnerConfirmed)
         {
             throw new WorldSessionConflictException(
@@ -141,6 +140,7 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
             _localUser,
             cancellationToken);
         var world = authority.World;
+        var expectedGeneration = world.PeerAuthority!.Generation;
         if (!ContainsStableMember(world.Members, requestedHost))
         {
             throw new WorldSessionConflictException(
@@ -149,6 +149,7 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         }
 
         var current = await RequireOwnedLobbyAsync(worldId, cancellationToken);
+        EnsureLobbyGeneration(current, expectedGeneration, worldId);
         if (current.RequestedHost is not null &&
             !SameUser(current.RequestedHost, requestedHost))
         {
@@ -163,6 +164,7 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
             requestedHost,
             cancellationToken);
         EnsureWorld(updated, worldId);
+        EnsureLobbyGeneration(updated, expectedGeneration, worldId);
         if (!updated.OwnerConfirmed ||
             !SameUser(updated.Owner, _localUser) ||
             updated.RequestedHost is null ||
@@ -180,10 +182,6 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(newHost);
-        _ = await RequireMatchingHandoffAsync(
-            worldId,
-            newHost,
-            cancellationToken);
 
         var before = await RequireWorldAuthorityHolderAsync(
             worldId,
@@ -197,6 +195,15 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         }
 
         var currentAuthority = before.PeerAuthority!;
+        var pendingLobby = await RequireMatchingHandoffAsync(
+            worldId,
+            newHost,
+            cancellationToken);
+        EnsureLobbyGeneration(
+            pendingLobby,
+            currentAuthority.Generation,
+            worldId);
+
         var nextGeneration = checked(currentAuthority.Generation + 1);
         var proposedAuthority = new WorldPeerAuthority(
             newHost,
@@ -241,10 +248,14 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
             nextGeneration,
             committedRevision,
             cancellationToken);
-        _ = await RequireMatchingHandoffAsync(
+        var stillPendingLobby = await RequireMatchingHandoffAsync(
             worldId,
             newHost,
             cancellationToken);
+        EnsureLobbyGeneration(
+            stillPendingLobby,
+            currentAuthority.Generation,
+            worldId);
 
         // The target ACK means it has already durably installed generation N+1. From here forward
         // rollback to generation N is forbidden. Publish the same generation locally and record that
@@ -267,6 +278,7 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
             committedRevision,
             cancellationToken);
         EnsureWorld(transferred, worldId);
+        EnsureLobbyGeneration(transferred, nextGeneration, worldId);
         if (!transferred.OwnerConfirmed ||
             !SameUser(transferred.Owner, newHost) ||
             transferred.RequestedHost is not null ||
@@ -284,10 +296,11 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
     {
         ArgumentNullException.ThrowIfNull(user);
         EnsureLocalUser(user);
-        _ = await RequireActiveAuthorityAsync(
+        var activeAuthority = await RequireActiveAuthorityAsync(
             worldId,
             user,
             cancellationToken);
+        var expectedGeneration = activeAuthority.World.PeerAuthority!.Generation;
 
         var current = await _lobby.GetAsync(worldId, cancellationToken);
         if (current is null)
@@ -296,6 +309,7 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         }
 
         EnsureWorld(current, worldId);
+        EnsureLobbyGeneration(current, expectedGeneration, worldId);
         if (!current.OwnerConfirmed)
         {
             throw new WorldSessionConflictException(
@@ -391,6 +405,35 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         }
 
         return world;
+    }
+
+    private async Task<bool> LocalReplicaConfirmsLobbyAuthorityAsync(
+        PeerWorldLobbySnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        if (snapshot.AuthorityGeneration == 0)
+        {
+            return false;
+        }
+
+        var world = await _storage.LoadWorldAsync(snapshot.WorldId, cancellationToken);
+        if (world is null ||
+            world.SharingMode != WorldSharingMode.Shared ||
+            world.PeerAuthority is not { } authority ||
+            authority.Generation != snapshot.AuthorityGeneration ||
+            !SameUser(authority.Holder, snapshot.Owner))
+        {
+            return false;
+        }
+
+        if (!SameUser(snapshot.Owner, _localUser))
+        {
+            return true;
+        }
+
+        return await LocalFenceConfirmsActiveAuthorityAsync(
+            snapshot.WorldId,
+            cancellationToken);
     }
 
     private async Task EnsureRelinquishingFenceAsync(
@@ -527,6 +570,21 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         {
             throw new InvalidOperationException(
                 "Peer session coordination can act only for the local user.");
+        }
+    }
+
+    private static void EnsureLobbyGeneration(
+        PeerWorldLobbySnapshot snapshot,
+        ulong expectedGeneration,
+        WorldId worldId)
+    {
+        if (expectedGeneration == 0 ||
+            snapshot.AuthorityGeneration == 0 ||
+            snapshot.AuthorityGeneration != expectedGeneration)
+        {
+            throw new WorldSessionConflictException(
+                worldId,
+                $"Live peer lobby authority generation '{snapshot.AuthorityGeneration}' does not match persistent World generation '{expectedGeneration}'.");
         }
     }
 

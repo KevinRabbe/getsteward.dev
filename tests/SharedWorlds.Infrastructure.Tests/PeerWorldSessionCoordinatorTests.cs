@@ -14,8 +14,14 @@ public sealed class PeerWorldSessionCoordinatorTests
         var worldId = WorldId.New();
         var first = new UserIdentity("steam", "first");
         var second = new UserIdentity("steam", "second");
-        var firstCoordinator = new PeerWorldSessionCoordinator(lobby, first);
-        var secondCoordinator = new PeerWorldSessionCoordinator(lobby, second);
+        var firstCoordinator = new PeerWorldSessionCoordinator(
+            lobby,
+            first,
+            new RecordingRevisionTransfer());
+        var secondCoordinator = new PeerWorldSessionCoordinator(
+            lobby,
+            second,
+            new RecordingRevisionTransfer());
 
         var hosted = await firstCoordinator.AcquireHostAsync(worldId, first);
 
@@ -26,14 +32,18 @@ public sealed class PeerWorldSessionCoordinatorTests
     }
 
     [Fact]
-    public async Task GracefulHandoff_TransfersLobbyOnlyAfterCommittedRevision()
+    public async Task GracefulHandoff_VerifiesCommittedRevisionBeforeTransferringLobby()
     {
         var lobby = new InMemoryPeerWorldLobby();
+        var transfer = new RecordingRevisionTransfer();
         var worldId = WorldId.New();
         var first = new UserIdentity("steam", "first");
         var second = new UserIdentity("steam", "second");
-        var firstCoordinator = new PeerWorldSessionCoordinator(lobby, first);
-        var secondCoordinator = new PeerWorldSessionCoordinator(lobby, second);
+        var firstCoordinator = new PeerWorldSessionCoordinator(lobby, first, transfer);
+        var secondCoordinator = new PeerWorldSessionCoordinator(
+            lobby,
+            second,
+            new RecordingRevisionTransfer());
         var committedRevision = RevisionId.New();
 
         await firstCoordinator.AcquireHostAsync(worldId, first);
@@ -46,9 +56,15 @@ public sealed class PeerWorldSessionCoordinatorTests
 
         await firstCoordinator.CompleteHandoffAsync(worldId, second, committedRevision);
 
+        Assert.Equal(1, transfer.EnsureCount);
+        Assert.Equal(worldId, transfer.LastWorldId);
+        Assert.Equal(committedRevision, transfer.LastRevision);
+        Assert.Equal(second.ExternalId, transfer.LastTarget?.ExternalId);
+        Assert.Equal(1, lobby.TransferOwnershipCount);
+
         var hostedBySecond = await secondCoordinator.GetSessionAsync(worldId);
         Assert.Equal(SessionState.Hosting, hostedBySecond.State);
-        Assert.Equal(second, hostedBySecond.ActiveHost);
+        Assert.Equal(second.ExternalId, hostedBySecond.ActiveHost?.ExternalId);
         Assert.Null(hostedBySecond.RequestedHost);
 
         var lobbyState = await lobby.GetAsync(worldId);
@@ -58,21 +74,81 @@ public sealed class PeerWorldSessionCoordinatorTests
     }
 
     [Fact]
+    public async Task Handoff_DoesNotTransferOwnership_WhenRevisionTransferFails()
+    {
+        var lobby = new InMemoryPeerWorldLobby();
+        var transfer = new RecordingRevisionTransfer { Fail = true };
+        var worldId = WorldId.New();
+        var first = new UserIdentity("steam", "first");
+        var second = new UserIdentity("steam", "second");
+        var coordinator = new PeerWorldSessionCoordinator(lobby, first, transfer);
+        var committedRevision = RevisionId.New();
+
+        await coordinator.AcquireHostAsync(worldId, first);
+        await coordinator.RequestHandoffAsync(worldId, second);
+
+        await Assert.ThrowsAsync<IOException>(
+            () => coordinator.CompleteHandoffAsync(worldId, second, committedRevision));
+
+        Assert.Equal(1, transfer.EnsureCount);
+        Assert.Equal(0, lobby.TransferOwnershipCount);
+        var current = await lobby.GetAsync(worldId);
+        Assert.NotNull(current);
+        Assert.Equal(first.ExternalId, current.Owner.ExternalId);
+        Assert.Equal(second.ExternalId, current.RequestedHost?.ExternalId);
+        Assert.Null(current.LastCommittedRevision);
+    }
+
+    [Fact]
+    public async Task Handoff_RevalidatesAuthorityAfterRevisionTransfer()
+    {
+        var lobby = new InMemoryPeerWorldLobby();
+        var worldId = WorldId.New();
+        var first = new UserIdentity("steam", "first");
+        var second = new UserIdentity("steam", "second");
+        var third = new UserIdentity("steam", "third");
+        var transfer = new RecordingRevisionTransfer
+        {
+            AfterEnsure = () => lobby.SimulateAutomaticOwnerChange(worldId, third)
+        };
+        var coordinator = new PeerWorldSessionCoordinator(lobby, first, transfer);
+
+        await coordinator.AcquireHostAsync(worldId, first);
+        await coordinator.RequestHandoffAsync(worldId, second);
+
+        await Assert.ThrowsAsync<WorldSessionConflictException>(
+            () => coordinator.CompleteHandoffAsync(worldId, second, RevisionId.New()));
+
+        Assert.Equal(1, transfer.EnsureCount);
+        Assert.Equal(0, lobby.TransferOwnershipCount);
+        var current = await lobby.GetAsync(worldId);
+        Assert.NotNull(current);
+        Assert.False(current.OwnerConfirmed);
+        Assert.Equal(third.ExternalId, current.Owner.ExternalId);
+    }
+
+    [Fact]
     public async Task AutomaticPlatformOwnerChange_IsRecoveryPendingUntilStewardConfirmsIt()
     {
         var lobby = new InMemoryPeerWorldLobby();
         var worldId = WorldId.New();
         var first = new UserIdentity("steam", "first");
         var second = new UserIdentity("steam", "second");
-        var firstCoordinator = new PeerWorldSessionCoordinator(lobby, first);
-        var secondCoordinator = new PeerWorldSessionCoordinator(lobby, second);
+        var firstCoordinator = new PeerWorldSessionCoordinator(
+            lobby,
+            first,
+            new RecordingRevisionTransfer());
+        var secondCoordinator = new PeerWorldSessionCoordinator(
+            lobby,
+            second,
+            new RecordingRevisionTransfer());
 
         await firstCoordinator.AcquireHostAsync(worldId, first);
         lobby.SimulateAutomaticOwnerChange(worldId, second);
 
         var observed = await secondCoordinator.GetSessionAsync(worldId);
         Assert.Equal(SessionState.RecoveryPending, observed.State);
-        Assert.Equal(second, observed.ActiveHost);
+        Assert.Equal(second.ExternalId, observed.ActiveHost?.ExternalId);
         await Assert.ThrowsAsync<WorldSessionConflictException>(
             () => secondCoordinator.AcquireHostAsync(worldId, second));
     }
@@ -83,7 +159,10 @@ public sealed class PeerWorldSessionCoordinatorTests
         var lobby = new InMemoryPeerWorldLobby();
         var worldId = WorldId.New();
         var host = new UserIdentity("steam", "host");
-        var coordinator = new PeerWorldSessionCoordinator(lobby, host);
+        var coordinator = new PeerWorldSessionCoordinator(
+            lobby,
+            host,
+            new RecordingRevisionTransfer());
 
         await coordinator.AcquireHostAsync(worldId, host);
         await coordinator.ReleaseHostAsync(worldId, host);
@@ -101,8 +180,14 @@ public sealed class PeerWorldSessionCoordinatorTests
         var host = new UserIdentity("steam", "host");
         var other = new UserIdentity("steam", "other");
         var next = new UserIdentity("steam", "next");
-        var hostCoordinator = new PeerWorldSessionCoordinator(lobby, host);
-        var otherCoordinator = new PeerWorldSessionCoordinator(lobby, other);
+        var hostCoordinator = new PeerWorldSessionCoordinator(
+            lobby,
+            host,
+            new RecordingRevisionTransfer());
+        var otherCoordinator = new PeerWorldSessionCoordinator(
+            lobby,
+            other,
+            new RecordingRevisionTransfer());
 
         await hostCoordinator.AcquireHostAsync(worldId, host);
 
@@ -110,10 +195,42 @@ public sealed class PeerWorldSessionCoordinatorTests
             () => otherCoordinator.RequestHandoffAsync(worldId, next));
     }
 
+    private sealed class RecordingRevisionTransfer : IPeerWorldRevisionTransfer
+    {
+        public int EnsureCount { get; private set; }
+        public WorldId? LastWorldId { get; private set; }
+        public RevisionId? LastRevision { get; private set; }
+        public UserIdentity? LastTarget { get; private set; }
+        public bool Fail { get; init; }
+        public Action? AfterEnsure { get; init; }
+
+        public Task EnsureAvailableAsync(
+            WorldId worldId,
+            RevisionId committedStateRevision,
+            UserIdentity targetHost,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            EnsureCount++;
+            LastWorldId = worldId;
+            LastRevision = committedStateRevision;
+            LastTarget = targetHost;
+            if (Fail)
+            {
+                throw new IOException("Injected peer revision transfer failure.");
+            }
+
+            AfterEnsure?.Invoke();
+            return Task.CompletedTask;
+        }
+    }
+
     private sealed class InMemoryPeerWorldLobby : IPeerWorldLobby
     {
         private readonly object _gate = new();
         private readonly Dictionary<WorldId, PeerWorldLobbySnapshot> _worlds = [];
+
+        public int TransferOwnershipCount { get; private set; }
 
         public Task<PeerWorldLobbySnapshot?> GetAsync(
             WorldId worldId,
@@ -183,11 +300,13 @@ public sealed class PeerWorldSessionCoordinatorTests
             lock (_gate)
             {
                 var current = RequireOwned(worldId, expectedOwner);
-                if (current.RequestedHost != newOwner)
+                if (current.RequestedHost is null ||
+                    !SameUser(current.RequestedHost, newOwner))
                 {
                     throw new WorldSessionConflictException(worldId, "The requested host changed before transfer.");
                 }
 
+                TransferOwnershipCount++;
                 var updated = current with
                 {
                     Owner = newOwner,
@@ -233,7 +352,7 @@ public sealed class PeerWorldSessionCoordinatorTests
         private PeerWorldLobbySnapshot RequireOwned(WorldId worldId, UserIdentity expectedOwner)
         {
             if (!_worlds.TryGetValue(worldId, out var current) ||
-                current.Owner != expectedOwner ||
+                !SameUser(current.Owner, expectedOwner) ||
                 !current.OwnerConfirmed)
             {
                 throw new WorldSessionConflictException(worldId, "The expected peer-lobby owner is no longer current.");
@@ -241,5 +360,9 @@ public sealed class PeerWorldSessionCoordinatorTests
 
             return current;
         }
+
+        private static bool SameUser(UserIdentity left, UserIdentity right)
+            => string.Equals(left.Provider, right.Provider, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(left.ExternalId, right.ExternalId, StringComparison.Ordinal);
     }
 }

@@ -25,6 +25,7 @@ internal sealed class SteamPlatformRuntime : IDisposable
         AppId = appId;
         LocalSteamId = localSteamId;
         LocalUser = localUser;
+        Dispatcher = dispatcher;
         _callbackTimer = new DispatcherTimer(DispatcherPriority.Background, dispatcher)
         {
             Interval = CallbackPumpInterval
@@ -36,6 +37,7 @@ internal sealed class SteamPlatformRuntime : IDisposable
     public uint AppId { get; }
     public CSteamID LocalSteamId { get; }
     public UserIdentity LocalUser { get; }
+    public Dispatcher Dispatcher { get; }
 
     public static bool TryCreate(
         Dispatcher dispatcher,

@@ -7,8 +7,8 @@ namespace SharedWorlds.Infrastructure.Sessions;
 
 /// <summary>
 /// Installs one handoff delta onto a participant that already owns the active World's exact base.
-/// This is intentionally not the public portable-copy import path: World/revision identities remain
-/// unchanged, and the canonical World head is advanced only after immutable payload verification.
+/// The incoming World metadata is authoritative only when it advances persistent peer authority by
+/// exactly one generation to this local identity and the state revision is the direct canonical child.
 /// </summary>
 public sealed class PeerWorldRevisionReplicaInstaller
 {
@@ -16,19 +16,23 @@ public sealed class PeerWorldRevisionReplicaInstaller
     private const int HashBufferBytes = 128 * 1024;
 
     private readonly IWorldStorage _storage;
+    private readonly UserIdentity _localUser;
     private readonly long _maximumPayloadBytes;
 
     public PeerWorldRevisionReplicaInstaller(
         IWorldStorage storage,
+        UserIdentity localUser,
         long maximumPayloadBytes = DefaultMaximumPayloadBytes)
     {
         ArgumentNullException.ThrowIfNull(storage);
+        ArgumentNullException.ThrowIfNull(localUser);
         if (maximumPayloadBytes <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(maximumPayloadBytes));
         }
 
         _storage = storage;
+        _localUser = localUser;
         _maximumPayloadBytes = maximumPayloadBytes;
     }
 
@@ -41,7 +45,9 @@ public sealed class PeerWorldRevisionReplicaInstaller
         ArgumentNullException.ThrowIfNull(statePayload);
         if (!statePayload.CanRead)
         {
-            throw new ArgumentException("Peer World state payload must be readable.", nameof(statePayload));
+            throw new ArgumentException(
+                "Peer World state payload must be readable.",
+                nameof(statePayload));
         }
 
         ValidateOffer(offer);
@@ -51,15 +57,18 @@ public sealed class PeerWorldRevisionReplicaInstaller
             cancellationToken)
             ?? throw new InvalidDataException(
                 $"Peer handoff cannot create World '{offer.World.Id}' from nothing. The target must already have the active World base.");
-        ValidateExistingWorldBase(existingWorld, offer);
+        var idempotent = existingWorld.CurrentStateRevisionId == offer.StateRevision.Id;
+        ValidateExistingAuthorityBase(existingWorld, offer, idempotent);
 
         var existingEnvironment = await _storage.LoadEnvironmentRevisionAsync(
             offer.World.Id,
             offer.EnvironmentRevision.Id,
             cancellationToken)
             ?? throw new InvalidDataException(
-                $"Peer handoff target is missing required base environment revision '{offer.EnvironmentRevision.Id}'.");
-        if (!EquivalentEnvironmentRevision(existingEnvironment, offer.EnvironmentRevision))
+                $"Peer handoff target is missing required environment revision '{offer.EnvironmentRevision.Id}'.");
+        if (!EquivalentEnvironmentRevision(
+                existingEnvironment,
+                offer.EnvironmentRevision))
         {
             throw new InvalidDataException(
                 $"Peer handoff target has conflicting metadata for environment revision '{offer.EnvironmentRevision.Id}'.");
@@ -71,7 +80,7 @@ public sealed class PeerWorldRevisionReplicaInstaller
             offer.StateRevision.Id,
             cancellationToken);
 
-        if (existingWorld.CurrentStateRevisionId == offer.StateRevision.Id)
+        if (idempotent)
         {
             if (existingCandidate is null ||
                 !EquivalentStateRevision(existingCandidate, offer.StateRevision))
@@ -86,6 +95,10 @@ public sealed class PeerWorldRevisionReplicaInstaller
                 expectedHash,
                 cancellationToken);
             await VerifyStoredPayloadAsync(offer, cancellationToken);
+
+            // Retry after the target already installed this generation. The confirmed outgoing host
+            // may safely resend the same mutable World metadata fenced by the same authority record.
+            await _storage.SaveWorldAsync(offer.World, cancellationToken);
             return Receipt(offer);
         }
 
@@ -125,9 +138,8 @@ public sealed class PeerWorldRevisionReplicaInstaller
             await VerifyStoredPayloadAsync(offer, cancellationToken);
         }
 
-        // Canonical metadata is the transaction boundary and is written last. If any transfer,
-        // digest, immutable-revision, or storage verification fails, the target never becomes the
-        // new canonical owner of this state revision.
+        // Canonical metadata and the new persistent authority generation are written last. Any
+        // payload/storage failure leaves the target on its previous state head and previous holder.
         await _storage.SaveWorldAsync(offer.World, cancellationToken);
         return Receipt(offer);
     }
@@ -164,28 +176,81 @@ public sealed class PeerWorldRevisionReplicaInstaller
             throw new InvalidDataException(
                 "Peer World offer contains mismatched game-adapter identities.");
         }
+
+        var authority = offer.World.PeerAuthority
+            ?? throw new InvalidDataException(
+                "Peer handoff offer is missing persistent World authority.");
+        if (authority.Generation == 0 ||
+            !SameUser(authority.Holder, _localUser))
+        {
+            throw new InvalidDataException(
+                "Peer handoff offer does not assign a valid persistent authority generation to the local participant.");
+        }
+
+        if (!ContainsStableMember(offer.World.Members, _localUser))
+        {
+            throw new InvalidDataException(
+                "Peer handoff offer assigns authority to a local identity outside canonical World membership.");
+        }
     }
 
-    private static void ValidateExistingWorldBase(
+    private void ValidateExistingAuthorityBase(
         World existing,
-        PeerWorldRevisionOffer offer)
+        PeerWorldRevisionOffer offer,
+        bool idempotent)
     {
         var incoming = offer.World;
         if (existing.Id != incoming.Id ||
-            !string.Equals(existing.Name, incoming.Name, StringComparison.Ordinal) ||
-            !string.Equals(existing.GameAdapterId, incoming.GameAdapterId, StringComparison.Ordinal) ||
-            existing.CurrentEnvironmentRevisionId != incoming.CurrentEnvironmentRevisionId ||
-            existing.SharingMode != incoming.SharingMode ||
-            existing.GameVersionPolicy != incoming.GameVersionPolicy ||
-            existing.Visibility != incoming.Visibility ||
-            existing.JoinPolicy != incoming.JoinPolicy ||
-            existing.StartYourOwnPolicy != incoming.StartYourOwnPolicy ||
-            !EquivalentUsers(existing.Members, incoming.Members) ||
-            !EquivalentProvenance(existing.StartedFrom, incoming.StartedFrom) ||
-            !EquivalentCheckpoints(existing.Checkpoints, incoming.Checkpoints))
+            !string.Equals(
+                existing.GameAdapterId,
+                incoming.GameAdapterId,
+                StringComparison.Ordinal) ||
+            existing.CurrentEnvironmentRevisionId != incoming.CurrentEnvironmentRevisionId)
         {
             throw new InvalidDataException(
-                $"Peer handoff target has divergent canonical metadata for World '{incoming.Id}'.");
+                $"Peer handoff target has incompatible canonical identity/environment metadata for World '{incoming.Id}'.");
+        }
+
+        var existingAuthority = existing.PeerAuthority
+            ?? throw new InvalidDataException(
+                $"Peer handoff target World '{incoming.Id}' has no persistent authority base.");
+        var incomingAuthority = incoming.PeerAuthority!;
+        if (existingAuthority.Generation == 0)
+        {
+            throw new InvalidDataException(
+                $"Peer handoff target World '{incoming.Id}' has invalid zero authority generation.");
+        }
+
+        if (idempotent)
+        {
+            if (incomingAuthority.Generation != existingAuthority.Generation ||
+                !SameUser(incomingAuthority.Holder, existingAuthority.Holder) ||
+                !SameUser(incomingAuthority.Holder, _localUser))
+            {
+                throw new InvalidDataException(
+                    "Idempotent handoff retry does not match the already-installed persistent authority generation.");
+            }
+
+            return;
+        }
+
+        ulong expectedGeneration;
+        try
+        {
+            expectedGeneration = checked(existingAuthority.Generation + 1);
+        }
+        catch (OverflowException exception)
+        {
+            throw new InvalidDataException(
+                "Peer World authority generation cannot advance beyond UInt64.MaxValue.",
+                exception);
+        }
+
+        if (incomingAuthority.Generation != expectedGeneration ||
+            !SameUser(incomingAuthority.Holder, _localUser))
+        {
+            throw new InvalidDataException(
+                $"Peer handoff must advance authority exactly from generation {existingAuthority.Generation} to {expectedGeneration} and assign it to the local participant.");
         }
     }
 
@@ -245,7 +310,8 @@ public sealed class PeerWorldRevisionReplicaInstaller
         var actualHash = hash.GetHashAndReset();
         if (!CryptographicOperations.FixedTimeEquals(actualHash, expectedHash))
         {
-            throw new InvalidDataException("Peer World payload SHA-256 verification failed.");
+            throw new InvalidDataException(
+                "Peer World payload SHA-256 verification failed.");
         }
     }
 
@@ -253,7 +319,8 @@ public sealed class PeerWorldRevisionReplicaInstaller
     {
         if (string.IsNullOrWhiteSpace(text))
         {
-            throw new InvalidDataException("Peer World payload SHA-256 is missing.");
+            throw new InvalidDataException(
+                "Peer World payload SHA-256 is missing.");
         }
 
         byte[] hash;
@@ -263,12 +330,15 @@ public sealed class PeerWorldRevisionReplicaInstaller
         }
         catch (FormatException exception)
         {
-            throw new InvalidDataException("Peer World payload SHA-256 is malformed.", exception);
+            throw new InvalidDataException(
+                "Peer World payload SHA-256 is malformed.",
+                exception);
         }
 
         if (hash.Length != SHA256.HashSizeInBytes)
         {
-            throw new InvalidDataException("Peer World payload SHA-256 has the wrong length.");
+            throw new InvalidDataException(
+                "Peer World payload SHA-256 has the wrong length.");
         }
 
         return hash;
@@ -281,7 +351,9 @@ public sealed class PeerWorldRevisionReplicaInstaller
             offer.PayloadLength,
             offer.PayloadSha256.ToUpperInvariant());
 
-    private static bool EquivalentStateRevision(StateRevision left, StateRevision right)
+    private static bool EquivalentStateRevision(
+        StateRevision left,
+        StateRevision right)
         => left.Id == right.Id &&
            left.WorldId == right.WorldId &&
            left.ParentRevisionId == right.ParentRevisionId &&
@@ -301,7 +373,9 @@ public sealed class PeerWorldRevisionReplicaInstaller
            EquivalentUser(left.CreatedBy, right.CreatedBy) &&
            EquivalentManifest(left.Manifest, right.Manifest);
 
-    private static bool EquivalentManifest(EnvironmentManifest left, EnvironmentManifest right)
+    private static bool EquivalentManifest(
+        EnvironmentManifest left,
+        EnvironmentManifest right)
     {
         if (left.SchemaVersion != right.SchemaVersion ||
             !string.Equals(left.AdapterId, right.AdapterId, StringComparison.Ordinal) ||
@@ -355,27 +429,14 @@ public sealed class PeerWorldRevisionReplicaInstaller
         return true;
     }
 
-    private static bool EquivalentUsers(
-        IReadOnlyList<UserIdentity> left,
-        IReadOnlyList<UserIdentity> right)
-    {
-        if (left.Count != right.Count)
-        {
-            return false;
-        }
+    private static bool ContainsStableMember(
+        IReadOnlyList<UserIdentity> members,
+        UserIdentity expected)
+        => members.Any(member => SameUser(member, expected));
 
-        for (var index = 0; index < left.Count; index++)
-        {
-            if (!EquivalentUser(left[index], right[index]))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private static bool EquivalentUser(UserIdentity? left, UserIdentity? right)
+    private static bool EquivalentUser(
+        UserIdentity? left,
+        UserIdentity? right)
     {
         if (ReferenceEquals(left, right))
         {
@@ -384,51 +445,20 @@ public sealed class PeerWorldRevisionReplicaInstaller
 
         return left is not null &&
                right is not null &&
-               string.Equals(left.Provider, right.Provider, StringComparison.OrdinalIgnoreCase) &&
-               string.Equals(left.ExternalId, right.ExternalId, StringComparison.Ordinal);
+               SameUser(left, right);
     }
 
-    private static bool EquivalentProvenance(WorldProvenance? left, WorldProvenance? right)
-    {
-        if (ReferenceEquals(left, right))
-        {
-            return true;
-        }
-
-        return left is not null && right is not null && left == right;
-    }
-
-    private static bool EquivalentCheckpoints(
-        IReadOnlyList<WorldCheckpoint> left,
-        IReadOnlyList<WorldCheckpoint> right)
-    {
-        if (left.Count != right.Count)
-        {
-            return false;
-        }
-
-        for (var index = 0; index < left.Count; index++)
-        {
-            var a = left[index];
-            var b = right[index];
-            if (a.StateRevisionId != b.StateRevisionId ||
-                !string.Equals(a.Name, b.Name, StringComparison.Ordinal) ||
-                a.CreatedAt != b.CreatedAt ||
-                !EquivalentUser(a.CreatedBy, b.CreatedBy))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
+    private static bool SameUser(UserIdentity left, UserIdentity right)
+        => string.Equals(left.Provider, right.Provider, StringComparison.OrdinalIgnoreCase) &&
+           string.Equals(left.ExternalId, right.ExternalId, StringComparison.Ordinal);
 
     private sealed class DigestVerifyingReadStream : Stream
     {
         private readonly Stream _inner;
         private readonly long _expectedLength;
         private readonly byte[] _expectedHash;
-        private readonly IncrementalHash _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        private readonly IncrementalHash _hash = IncrementalHash.CreateHash(
+            HashAlgorithmName.SHA256);
         private long _length;
         private bool _completed;
         private bool _disposed;
@@ -480,11 +510,14 @@ public sealed class PeerWorldRevisionReplicaInstaller
             }
         }
 
-        private void Observe(ReadOnlySpan<byte> bytes, bool endOfStream)
+        private void Observe(
+            ReadOnlySpan<byte> bytes,
+            bool endOfStream)
         {
             if (_completed && bytes.Length > 0)
             {
-                throw new InvalidDataException("Peer World payload produced bytes after end-of-stream verification.");
+                throw new InvalidDataException(
+                    "Peer World payload produced bytes after end-of-stream verification.");
             }
 
             if (bytes.Length > 0)
@@ -496,7 +529,8 @@ public sealed class PeerWorldRevisionReplicaInstaller
 
                 if (_length > _expectedLength)
                 {
-                    throw new InvalidDataException("Peer World payload exceeded its declared byte length.");
+                    throw new InvalidDataException(
+                        "Peer World payload exceeded its declared byte length.");
                 }
 
                 _hash.AppendData(bytes);
@@ -516,7 +550,8 @@ public sealed class PeerWorldRevisionReplicaInstaller
             var actualHash = _hash.GetHashAndReset();
             if (!CryptographicOperations.FixedTimeEquals(actualHash, _expectedHash))
             {
-                throw new InvalidDataException("Peer World payload SHA-256 verification failed.");
+                throw new InvalidDataException(
+                    "Peer World payload SHA-256 verification failed.");
             }
 
             _completed = true;
@@ -541,8 +576,11 @@ public sealed class PeerWorldRevisionReplicaInstaller
         }
 
         public override void Flush() => throw new NotSupportedException();
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
     }
 }

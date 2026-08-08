@@ -7,30 +7,35 @@ namespace SharedWorlds.Infrastructure.Sessions;
 
 /// <summary>
 /// Maps Steward's host/handoff contract onto one ephemeral peer lobby while fencing lobby creation
-/// with persistent WorldPeerAuthority. Steam ownership proves the active host only while a lobby
-/// exists; the persisted holder is the only participant allowed to create the next lobby later.
+/// with both canonical WorldPeerAuthority and a durable per-account authority fence. Steam lobby
+/// ownership proves the live host only while a lobby exists; the account fence prevents a former
+/// holder's stale local replica from resurrecting authority after a later handoff.
 /// </summary>
 public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
 {
     private readonly IPeerWorldLobby _lobby;
     private readonly IPeerWorldRevisionTransfer _revisionTransfer;
     private readonly IWorldStorage _storage;
+    private readonly IPeerAuthorityFenceStore _authorityFences;
     private readonly UserIdentity _localUser;
 
     public PeerWorldSessionCoordinator(
         IPeerWorldLobby lobby,
         UserIdentity localUser,
         IPeerWorldRevisionTransfer revisionTransfer,
-        IWorldStorage storage)
+        IWorldStorage storage,
+        IPeerAuthorityFenceStore authorityFences)
     {
         ArgumentNullException.ThrowIfNull(lobby);
         ArgumentNullException.ThrowIfNull(localUser);
         ArgumentNullException.ThrowIfNull(revisionTransfer);
         ArgumentNullException.ThrowIfNull(storage);
+        ArgumentNullException.ThrowIfNull(authorityFences);
         _lobby = lobby;
         _localUser = localUser;
         _revisionTransfer = revisionTransfer;
         _storage = storage;
+        _authorityFences = authorityFences;
     }
 
     public async Task<WorldSession> GetSessionAsync(
@@ -48,7 +53,15 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         }
 
         EnsureWorld(snapshot, worldId);
-        var state = !snapshot.OwnerConfirmed
+        var ownerConfirmed = snapshot.OwnerConfirmed;
+        if (ownerConfirmed && SameUser(snapshot.Owner, _localUser))
+        {
+            ownerConfirmed = await LocalFenceConfirmsActiveAuthorityAsync(
+                worldId,
+                cancellationToken);
+        }
+
+        var state = !ownerConfirmed
             ? SessionState.RecoveryPending
             : snapshot.RequestedHost is null
                 ? SessionState.Hosting
@@ -69,9 +82,10 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         ArgumentNullException.ThrowIfNull(user);
         EnsureLocalUser(user);
 
-        // This check occurs before Steam lobby creation. A stale member replica therefore cannot
-        // become writable merely because the previous lobby is inactive or unreachable.
-        _ = await RequirePersistentAuthorityAsync(
+        // Both checks occur before Steam lobby creation. A stale former-host replica may still contain
+        // old World metadata, but its durable account fence records the later relinquishment and blocks
+        // resurrection before any platform-visible authority is created.
+        _ = await RequireActiveAuthorityAsync(
             worldId,
             user,
             cancellationToken);
@@ -122,10 +136,11 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
                 "The active host cannot hand the World to itself.");
         }
 
-        var world = await RequirePersistentAuthorityAsync(
+        var authority = await RequireActiveAuthorityAsync(
             worldId,
             _localUser,
             cancellationToken);
+        var world = authority.World;
         if (!ContainsStableMember(world.Members, requestedHost))
         {
             throw new WorldSessionConflictException(
@@ -170,7 +185,7 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
             newHost,
             cancellationToken);
 
-        var before = await RequirePersistentAuthorityAsync(
+        var before = await RequireWorldAuthorityHolderAsync(
             worldId,
             _localUser,
             cancellationToken);
@@ -182,22 +197,33 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         }
 
         var currentAuthority = before.PeerAuthority!;
+        var nextGeneration = checked(currentAuthority.Generation + 1);
         var proposedAuthority = new WorldPeerAuthority(
             newHost,
-            checked(currentAuthority.Generation + 1));
+            nextGeneration);
         var proposedWorld = before with { PeerAuthority = proposedAuthority };
 
-        // The revision-transfer service publishes the exact committed state plus the prospective
-        // authority generation to the target before any local or Steam authority moves.
+        // Relinquishment is deliberately durable before any bytes move. Once this write succeeds the
+        // old account can no longer start the World, even from another PC with stale local World data.
+        // A retry of the same interrupted handoff reuses the existing Relinquishing fence.
+        await EnsureRelinquishingFenceAsync(
+            before,
+            newHost,
+            nextGeneration,
+            committedRevision,
+            cancellationToken);
+
         await _revisionTransfer.EnsureAvailableAsync(
             worldId,
             committedRevision,
             newHost,
             cancellationToken);
 
-        // Transfer may take time. Revalidate both persistent and live authority before changing any
-        // local authority fence.
-        var stillAuthoritative = await RequirePersistentAuthorityAsync(
+        // Transfer may take time. The canonical World must still describe the original holder and
+        // exact committed state, while the local account fence must still describe this same pending
+        // handoff. We intentionally do not require an Active fence anymore because relinquishment is
+        // irreversible once begun.
+        var stillAuthoritative = await RequireWorldAuthorityHolderAsync(
             worldId,
             _localUser,
             cancellationToken);
@@ -209,55 +235,45 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
                 "Persistent World authority changed while Steward was transferring the committed revision.");
         }
 
+        await RequireMatchingRelinquishingFenceAsync(
+            worldId,
+            newHost,
+            nextGeneration,
+            committedRevision,
+            cancellationToken);
         _ = await RequireMatchingHandoffAsync(
             worldId,
             newHost,
             cancellationToken);
 
-        // Persist the new holder locally before Steam ownership changes. If this process disappears
-        // after this write but before SetLobbyOwner, the old host cannot later restart from a stale
-        // local authority claim. A confirmed Steam rejection may safely roll this write back.
+        // The target ACK means it has already durably installed generation N+1. From here forward
+        // rollback to generation N is forbidden. Publish the same generation locally and record that
+        // this account has observed the new holder before touching Steam lobby ownership.
         await _storage.SaveWorldAsync(proposedWorld, cancellationToken);
-
-        try
-        {
-            var transferred = await _lobby.TransferOwnershipAsync(
+        await _authorityFences.SaveAsync(
+            new PeerAuthorityFence(
                 worldId,
-                _localUser,
                 newHost,
+                nextGeneration,
                 committedRevision,
-                cancellationToken);
-            EnsureWorld(transferred, worldId);
-            if (!transferred.OwnerConfirmed ||
-                !SameUser(transferred.Owner, newHost) ||
-                transferred.RequestedHost is not null ||
-                transferred.LastCommittedRevision != committedRevision)
-            {
-                throw new InvalidDataException(
-                    "The peer lobby did not complete the host transfer correctly.");
-            }
-        }
-        catch
-        {
-            // Roll back only when Steam still proves the old local user is the confirmed owner.
-            // Ambiguous/automatic owner changes stay fail-closed with the prospective new holder.
-            var observed = await _lobby.GetAsync(worldId, CancellationToken.None);
-            if (observed is not null &&
-                observed.OwnerConfirmed &&
-                SameUser(observed.Owner, _localUser))
-            {
-                try
-                {
-                    await _storage.SaveWorldAsync(before, CancellationToken.None);
-                }
-                catch
-                {
-                    // Leaving the prospective authority fence is safer than restoring the old holder
-                    // without proving that rollback was durably written.
-                }
-            }
+                PeerAuthorityFenceState.Observed,
+                DateTimeOffset.UtcNow),
+            cancellationToken);
 
-            throw;
+        var transferred = await _lobby.TransferOwnershipAsync(
+            worldId,
+            _localUser,
+            newHost,
+            committedRevision,
+            cancellationToken);
+        EnsureWorld(transferred, worldId);
+        if (!transferred.OwnerConfirmed ||
+            !SameUser(transferred.Owner, newHost) ||
+            transferred.RequestedHost is not null ||
+            transferred.LastCommittedRevision != committedRevision)
+        {
+            throw new InvalidDataException(
+                "The peer lobby did not complete the host transfer correctly.");
         }
     }
 
@@ -268,7 +284,7 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
     {
         ArgumentNullException.ThrowIfNull(user);
         EnsureLocalUser(user);
-        _ = await RequirePersistentAuthorityAsync(
+        _ = await RequireActiveAuthorityAsync(
             worldId,
             user,
             cancellationToken);
@@ -304,7 +320,38 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         await _lobby.LeaveAsync(worldId, user, cancellationToken);
     }
 
-    private async Task<World> RequirePersistentAuthorityAsync(
+    private async Task<(World World, PeerAuthorityFence Fence)> RequireActiveAuthorityAsync(
+        WorldId worldId,
+        UserIdentity expectedHolder,
+        CancellationToken cancellationToken)
+    {
+        var world = await RequireWorldAuthorityHolderAsync(
+            worldId,
+            expectedHolder,
+            cancellationToken);
+        var stateRevision = world.CurrentStateRevisionId
+            ?? throw new InvalidDataException(
+                $"World '{worldId}' has no canonical state revision for peer authority.");
+        var fence = await _authorityFences.LoadAsync(worldId, cancellationToken)
+            ?? throw new WorldSessionConflictException(
+                worldId,
+                "The local account has no durable peer-authority fence for this World.");
+        var authority = world.PeerAuthority!;
+        if (fence.WorldId != worldId ||
+            fence.State != PeerAuthorityFenceState.Active ||
+            fence.Generation != authority.Generation ||
+            fence.StateRevisionId != stateRevision ||
+            !SameUser(fence.Holder, expectedHolder))
+        {
+            throw new WorldSessionConflictException(
+                worldId,
+                "The local account's durable peer-authority fence does not confirm this replica as the active holder.");
+        }
+
+        return (world, fence);
+    }
+
+    private async Task<World> RequireWorldAuthorityHolderAsync(
         WorldId worldId,
         UserIdentity expectedHolder,
         CancellationToken cancellationToken)
@@ -344,6 +391,91 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         }
 
         return world;
+    }
+
+    private async Task EnsureRelinquishingFenceAsync(
+        World world,
+        UserIdentity newHost,
+        ulong nextGeneration,
+        RevisionId committedRevision,
+        CancellationToken cancellationToken)
+    {
+        var current = await _authorityFences.LoadAsync(world.Id, cancellationToken);
+        var authority = world.PeerAuthority!;
+        var currentState = world.CurrentStateRevisionId
+            ?? throw new InvalidDataException(
+                $"World '{world.Id}' has no canonical state revision for handoff.");
+
+        if (current is not null &&
+            current.State == PeerAuthorityFenceState.Relinquishing &&
+            current.Generation == nextGeneration &&
+            current.StateRevisionId == committedRevision &&
+            SameUser(current.Holder, newHost))
+        {
+            return;
+        }
+
+        if (current is null ||
+            current.State != PeerAuthorityFenceState.Active ||
+            current.Generation != authority.Generation ||
+            current.StateRevisionId != currentState ||
+            !SameUser(current.Holder, _localUser))
+        {
+            throw new WorldSessionConflictException(
+                world.Id,
+                "The local account cannot begin this host handoff because its durable authority fence is missing, stale, or already committed to a different transition.");
+        }
+
+        await _authorityFences.SaveAsync(
+            new PeerAuthorityFence(
+                world.Id,
+                newHost,
+                nextGeneration,
+                committedRevision,
+                PeerAuthorityFenceState.Relinquishing,
+                DateTimeOffset.UtcNow),
+            cancellationToken);
+    }
+
+    private async Task RequireMatchingRelinquishingFenceAsync(
+        WorldId worldId,
+        UserIdentity newHost,
+        ulong generation,
+        RevisionId committedRevision,
+        CancellationToken cancellationToken)
+    {
+        var fence = await _authorityFences.LoadAsync(worldId, cancellationToken)
+            ?? throw new WorldSessionConflictException(
+                worldId,
+                "The durable handoff fence disappeared while the World revision was transferring.");
+        if (fence.State != PeerAuthorityFenceState.Relinquishing ||
+            fence.Generation != generation ||
+            fence.StateRevisionId != committedRevision ||
+            !SameUser(fence.Holder, newHost))
+        {
+            throw new WorldSessionConflictException(
+                worldId,
+                "The durable handoff fence changed while the World revision was transferring.");
+        }
+    }
+
+    private async Task<bool> LocalFenceConfirmsActiveAuthorityAsync(
+        WorldId worldId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            _ = await RequireActiveAuthorityAsync(
+                worldId,
+                _localUser,
+                cancellationToken);
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is WorldSessionConflictException or InvalidDataException)
+        {
+            return false;
+        }
     }
 
     private async Task<PeerWorldLobbySnapshot> RequireMatchingHandoffAsync(

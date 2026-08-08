@@ -9,16 +9,17 @@ namespace SharedWorlds.Desktop;
 
 /// <summary>
 /// Steam-backed ephemeral coordination for one active Steward World. Steam owns lobby membership and
-/// transport-visible ownership; Steward metadata records which observed owner has actually been
-/// confirmed against World authority. Durable World bytes never live in lobby metadata.
+/// transport-visible ownership; Steward metadata records which observed owner/generation has actually
+/// been confirmed against persistent World authority. Durable World bytes never live in lobby data.
 /// </summary>
 internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
 {
     private const int MaxLobbyMembers = 250;
     private const string SchemaKey = "steward.schema";
-    private const string SchemaVersion = "1";
+    private const string SchemaVersion = "2";
     private const string WorldIdKey = "steward.world";
     private const string AuthorityOwnerKey = "steward.authority-owner";
+    private const string AuthorityGenerationKey = "steward.authority-generation";
     private const string RequestedHostKey = "steward.requested-host";
     private const string CommittedRevisionKey = "steward.committed-revision";
     private const string UpdatedAtKey = "steward.updated-at";
@@ -44,10 +45,12 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
     public async Task<PeerWorldLobbySnapshot> CreateOrGetAsync(
         WorldId worldId,
         UserIdentity proposedOwner,
+        ulong authorityGeneration,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(proposedOwner);
         EnsureLocalUser(proposedOwner);
+        EnsurePositiveGeneration(authorityGeneration, worldId);
 
         await _mutationGate.WaitAsync(cancellationToken);
         try
@@ -55,6 +58,7 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
             var existing = await GetAsync(worldId, cancellationToken);
             if (existing is not null)
             {
+                EnsureWritableOwner(existing, proposedOwner, authorityGeneration);
                 return existing;
             }
 
@@ -74,6 +78,11 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
                             worldId);
                         EnsureSetLobbyData(
                             lobbyId,
+                            AuthorityGenerationKey,
+                            GenerationText(authorityGeneration),
+                            worldId);
+                        EnsureSetLobbyData(
+                            lobbyId,
                             UpdatedAtKey,
                             TimestampText(DateTimeOffset.UtcNow),
                             worldId);
@@ -84,7 +93,9 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
                         }
 
                         _knownLobbies[worldId] = lobbyId;
-                        return ReadSnapshot(worldId, lobbyId);
+                        var created = ReadSnapshot(worldId, lobbyId);
+                        EnsureWritableOwner(created, proposedOwner, authorityGeneration);
+                        return created;
                     },
                     cancellationToken);
             }
@@ -105,12 +116,14 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
     public async Task<PeerWorldLobbySnapshot> RequestHandoffAsync(
         WorldId worldId,
         UserIdentity expectedOwner,
+        ulong expectedAuthorityGeneration,
         UserIdentity requestedHost,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(expectedOwner);
         ArgumentNullException.ThrowIfNull(requestedHost);
         EnsureLocalUser(expectedOwner);
+        EnsurePositiveGeneration(expectedAuthorityGeneration, worldId);
         var requestedSteamId = ParseSteamIdentity(requestedHost);
 
         await _mutationGate.WaitAsync(cancellationToken);
@@ -121,7 +134,18 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
                 {
                     var lobbyId = RequireKnownLobby(worldId);
                     var current = ReadSnapshot(worldId, lobbyId);
-                    EnsureWritableOwner(current, expectedOwner);
+                    EnsureWritableOwner(
+                        current,
+                        expectedOwner,
+                        expectedAuthorityGeneration);
+                    if (current.RequestedHost is not null &&
+                        !SameUser(current.RequestedHost, requestedHost))
+                    {
+                        throw new WorldSessionConflictException(
+                            worldId,
+                            "A different host handoff is already in progress.");
+                    }
+
                     EnsureLobbyMember(lobbyId, requestedSteamId, worldId);
 
                     EnsureSetLobbyData(
@@ -134,7 +158,12 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
                         UpdatedAtKey,
                         TimestampText(DateTimeOffset.UtcNow),
                         worldId);
-                    return ReadSnapshot(worldId, lobbyId);
+                    var updated = ReadSnapshot(worldId, lobbyId);
+                    EnsureWritableOwner(
+                        updated,
+                        expectedOwner,
+                        expectedAuthorityGeneration);
+                    return updated;
                 },
                 cancellationToken);
         }
@@ -147,13 +176,19 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
     public async Task<PeerWorldLobbySnapshot> TransferOwnershipAsync(
         WorldId worldId,
         UserIdentity expectedOwner,
+        ulong expectedAuthorityGeneration,
         UserIdentity newOwner,
+        ulong newAuthorityGeneration,
         RevisionId committedRevision,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(expectedOwner);
         ArgumentNullException.ThrowIfNull(newOwner);
         EnsureLocalUser(expectedOwner);
+        EnsureGenerationTransition(
+            expectedAuthorityGeneration,
+            newAuthorityGeneration,
+            worldId);
         var newOwnerSteamId = ParseSteamIdentity(newOwner);
 
         await _mutationGate.WaitAsync(cancellationToken);
@@ -163,8 +198,10 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
                 () => TransferOwnershipCore(
                     worldId,
                     expectedOwner,
+                    expectedAuthorityGeneration,
                     newOwner,
                     newOwnerSteamId,
+                    newAuthorityGeneration,
                     committedRevision),
                 cancellationToken);
         }
@@ -177,10 +214,12 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
     public async Task LeaveAsync(
         WorldId worldId,
         UserIdentity expectedOwner,
+        ulong expectedAuthorityGeneration,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(expectedOwner);
         EnsureLocalUser(expectedOwner);
+        EnsurePositiveGeneration(expectedAuthorityGeneration, worldId);
 
         await _mutationGate.WaitAsync(cancellationToken);
         try
@@ -190,12 +229,21 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
                 {
                     var lobbyId = RequireKnownLobby(worldId);
                     var current = ReadSnapshot(worldId, lobbyId);
-                    EnsureWritableOwner(current, expectedOwner);
+                    EnsureWritableOwner(
+                        current,
+                        expectedOwner,
+                        expectedAuthorityGeneration);
+                    if (current.RequestedHost is not null)
+                    {
+                        throw new WorldSessionConflictException(
+                            worldId,
+                            "The pending host handoff must resolve before leaving.");
+                    }
 
                     // A normal host exit with remaining participants must use Steward's explicit
                     // handoff path. Letting Steam choose a replacement here would create an
                     // unverified writer. Unexpected process/network loss is different: Steam may
-                    // auto-select an owner, but AuthorityOwnerKey then deliberately disagrees and
+                    // auto-select an owner, but authority-owner then deliberately disagrees and
                     // all surviving clients observe RecoveryPending.
                     if (SteamMatchmaking.GetNumLobbyMembers(lobbyId) > 1)
                     {
@@ -217,8 +265,8 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
 
     /// <summary>
     /// Registers a lobby that this Steam client has already joined through the invite/join flow.
-    /// The lobby must prove its Steward World identity before it becomes visible to the session
-    /// coordinator. Joining itself is intentionally a separate operation from authority mutation.
+    /// Schema, World identity, nonzero generation, and authority metadata are validated before the
+    /// lobby becomes visible to peer coordination.
     /// </summary>
     public async Task AttachJoinedLobbyAsync(
         WorldId worldId,
@@ -236,8 +284,7 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
             await InvokeSteamAsync(
                 () =>
                 {
-                    var snapshot = ReadSnapshot(worldId, lobbyId);
-                    _ = snapshot;
+                    _ = ReadSnapshot(worldId, lobbyId);
                     _knownLobbies[worldId] = lobbyId;
                 },
                 cancellationToken);
@@ -251,14 +298,20 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
     private PeerWorldLobbySnapshot TransferOwnershipCore(
         WorldId worldId,
         UserIdentity expectedOwner,
+        ulong expectedAuthorityGeneration,
         UserIdentity newOwner,
         CSteamID newOwnerSteamId,
+        ulong newAuthorityGeneration,
         RevisionId committedRevision)
     {
         var lobbyId = RequireKnownLobby(worldId);
         var current = ReadSnapshot(worldId, lobbyId);
-        EnsureWritableOwner(current, expectedOwner);
-        if (current.RequestedHost is null || !SameUser(current.RequestedHost, newOwner))
+        EnsureWritableOwner(
+            current,
+            expectedOwner,
+            expectedAuthorityGeneration);
+        if (current.RequestedHost is null ||
+            !SameUser(current.RequestedHost, newOwner))
         {
             throw new WorldSessionConflictException(
                 worldId,
@@ -267,74 +320,76 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
 
         EnsureLobbyMember(lobbyId, newOwnerSteamId, worldId);
 
-        var previousAuthority = SteamMatchmaking.GetLobbyData(lobbyId, AuthorityOwnerKey);
-        var previousRequestedHost = SteamMatchmaking.GetLobbyData(lobbyId, RequestedHostKey);
-        var previousCommittedRevision = SteamMatchmaking.GetLobbyData(lobbyId, CommittedRevisionKey);
-        var previousUpdatedAt = SteamMatchmaking.GetLobbyData(lobbyId, UpdatedAtKey);
-
-        // Publish the exact revision and intended authority before changing the Steam owner. Other
-        // participants may briefly observe OwnerConfirmed=false during this transition, which is
-        // intentionally safer than observing two confirmed writers.
-        EnsureSetLobbyData(
-            lobbyId,
-            CommittedRevisionKey,
-            committedRevision.ToString(),
-            worldId);
-        EnsureSetLobbyData(
-            lobbyId,
-            AuthorityOwnerKey,
-            SteamIdText(newOwnerSteamId),
-            worldId);
-        EnsureSetLobbyData(lobbyId, RequestedHostKey, string.Empty, worldId);
-        EnsureSetLobbyData(
-            lobbyId,
-            UpdatedAtKey,
-            TimestampText(DateTimeOffset.UtcNow),
-            worldId);
-
-        var transferReportedSuccess = SteamMatchmaking.SetLobbyOwner(lobbyId, newOwnerSteamId);
-        var observedOwner = SteamMatchmaking.GetLobbyOwner(lobbyId);
-        if (observedOwner == newOwnerSteamId)
+        try
         {
-            var transferred = ReadSnapshot(worldId, lobbyId);
-            if (!transferred.OwnerConfirmed || transferred.LastCommittedRevision != committedRevision)
+            // The target has already ACKed durable generation N+1 before this method is called.
+            // AuthorityOwner is deliberately the first mutation: once it succeeds the observed old
+            // Steam owner is no longer confirmed. If even this first write fails, the catch below
+            // immediately makes the source leave the live lobby so generation N cannot remain a
+            // usable confirmed writer after N+1 is durable.
+            EnsureSetLobbyData(
+                lobbyId,
+                AuthorityOwnerKey,
+                SteamIdText(newOwnerSteamId),
+                worldId);
+            EnsureSetLobbyData(
+                lobbyId,
+                AuthorityGenerationKey,
+                GenerationText(newAuthorityGeneration),
+                worldId);
+            EnsureSetLobbyData(
+                lobbyId,
+                CommittedRevisionKey,
+                committedRevision.ToString(),
+                worldId);
+            EnsureSetLobbyData(lobbyId, RequestedHostKey, string.Empty, worldId);
+            EnsureSetLobbyData(
+                lobbyId,
+                UpdatedAtKey,
+                TimestampText(DateTimeOffset.UtcNow),
+                worldId);
+
+            var transferReportedSuccess = SteamMatchmaking.SetLobbyOwner(
+                lobbyId,
+                newOwnerSteamId);
+            var observedOwner = SteamMatchmaking.GetLobbyOwner(lobbyId);
+            var transitioned = ReadSnapshot(worldId, lobbyId, observedOwner);
+
+            if (observedOwner == newOwnerSteamId)
             {
-                throw new InvalidDataException(
-                    "Steam transferred lobby ownership without preserving Steward's committed handoff metadata.");
+                if (!transitioned.OwnerConfirmed ||
+                    transitioned.AuthorityGeneration != newAuthorityGeneration ||
+                    transitioned.LastCommittedRevision != committedRevision)
+                {
+                    throw new InvalidDataException(
+                        "Steam transferred lobby ownership without preserving Steward's generation-fenced handoff metadata.");
+                }
+
+                return transitioned;
             }
 
-            return transferred;
+            throw new IOException(
+                transferReportedSuccess
+                    ? $"Steam reported host transfer success for World '{worldId}', but the generation-{newAuthorityGeneration} owner was not observable. The World is recovery-pending."
+                    : $"Steam rejected host transfer for World '{worldId}' after generation {newAuthorityGeneration} was durably committed. The World is recovery-pending.");
         }
-
-        if (observedOwner == _platform.LocalSteamId)
+        catch
         {
-            RestoreLobbyData(
-                lobbyId,
-                worldId,
-                previousAuthority,
-                previousRequestedHost,
-                previousCommittedRevision,
-                previousUpdatedAt);
+            AbandonCommittedHandoffLobby(lobbyId, worldId);
+            throw;
         }
-
-        throw new IOException(
-            transferReportedSuccess
-                ? $"Steam reported host transfer success for World '{worldId}', but the new owner was not observable."
-                : $"Steam rejected host transfer for World '{worldId}'.");
     }
 
-    private void RestoreLobbyData(
-        CSteamID lobbyId,
-        WorldId worldId,
-        string previousAuthority,
-        string previousRequestedHost,
-        string previousCommittedRevision,
-        string previousUpdatedAt)
+    private void AbandonCommittedHandoffLobby(CSteamID lobbyId, WorldId worldId)
     {
-        EnsureSetLobbyData(lobbyId, AuthorityOwnerKey, previousAuthority, worldId);
-        EnsureSetLobbyData(lobbyId, RequestedHostKey, previousRequestedHost, worldId);
-        EnsureSetLobbyData(lobbyId, CommittedRevisionKey, previousCommittedRevision, worldId);
-        EnsureSetLobbyData(lobbyId, UpdatedAtKey, previousUpdatedAt, worldId);
+        // After the target ACKs N+1 the source has already relinquished durable authority. This is
+        // not a normal LeaveAsync operation and therefore must not require the now-obsolete source
+        // generation. Best-effort joinability shutdown reduces new admissions while Steam resolves
+        // ownership; leaving ensures this installation cannot keep presenting itself as the live N
+        // owner if metadata publication or SetLobbyOwner fails partway through.
+        _ = SteamMatchmaking.SetLobbyJoinable(lobbyId, false);
+        SteamMatchmaking.LeaveLobby(lobbyId);
+        _knownLobbies.Remove(worldId);
     }
 
     private PeerWorldLobbySnapshot? TryReadKnownLobby(WorldId worldId)
@@ -372,6 +427,13 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
         CSteamID lobbyId,
         CSteamID observedOwner)
     {
+        if (observedOwner.m_SteamID == 0)
+        {
+            throw new WorldSessionConflictException(
+                worldId,
+                "The Steam lobby no longer has an observable owner.");
+        }
+
         var schema = SteamMatchmaking.GetLobbyData(lobbyId, SchemaKey);
         if (!string.Equals(schema, SchemaVersion, StringComparison.Ordinal))
         {
@@ -390,9 +452,12 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
         if (!TryParseSteamId(authorityOwnerText, out var authorityOwner))
         {
             throw new InvalidDataException(
-                $"Steam lobby for World '{worldId}' has invalid Steward authority metadata.");
+                $"Steam lobby for World '{worldId}' has invalid Steward authority-owner metadata.");
         }
 
+        var authorityGeneration = ParseAuthorityGeneration(
+            SteamMatchmaking.GetLobbyData(lobbyId, AuthorityGenerationKey),
+            worldId);
         var requestedHost = ParseOptionalUser(
             SteamMatchmaking.GetLobbyData(lobbyId, RequestedHostKey),
             worldId,
@@ -408,9 +473,10 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
             worldId,
             ToUser(observedOwner),
             OwnerConfirmed: observedOwner == authorityOwner,
-            requestedHost,
-            committedRevision,
-            updatedAt);
+            AuthorityGeneration: authorityGeneration,
+            RequestedHost: requestedHost,
+            LastCommittedRevision: committedRevision,
+            UpdatedAt: updatedAt);
     }
 
     private async Task<CSteamID> CreateLobbyAsync(CancellationToken cancellationToken)
@@ -480,13 +546,19 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
         return lobbyId;
     }
 
-    private void EnsureWritableOwner(PeerWorldLobbySnapshot snapshot, UserIdentity expectedOwner)
+    private void EnsureWritableOwner(
+        PeerWorldLobbySnapshot snapshot,
+        UserIdentity expectedOwner,
+        ulong expectedAuthorityGeneration)
     {
-        if (!snapshot.OwnerConfirmed || !SameUser(snapshot.Owner, expectedOwner))
+        if (expectedAuthorityGeneration == 0 ||
+            snapshot.AuthorityGeneration != expectedAuthorityGeneration ||
+            !snapshot.OwnerConfirmed ||
+            !SameUser(snapshot.Owner, expectedOwner))
         {
             throw new WorldSessionConflictException(
                 snapshot.WorldId,
-                "The local Steam user is not the confirmed Steward host for this World.");
+                "The local Steam user/generation is not the confirmed Steward authority for this World.");
         }
 
         EnsureObservedOwner(
@@ -579,6 +651,22 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
         return ToUser(steamId);
     }
 
+    private static ulong ParseAuthorityGeneration(string value, WorldId worldId)
+    {
+        if (!ulong.TryParse(
+                value,
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out var generation) ||
+            generation == 0)
+        {
+            throw new InvalidDataException(
+                $"Steam lobby has invalid authority-generation metadata for World '{worldId}'.");
+        }
+
+        return generation;
+    }
+
     private static RevisionId? ParseOptionalRevision(string value, WorldId worldId)
     {
         if (string.IsNullOrEmpty(value))
@@ -643,8 +731,36 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
         return false;
     }
 
+    private static void EnsurePositiveGeneration(ulong generation, WorldId worldId)
+    {
+        if (generation == 0)
+        {
+            throw new WorldSessionConflictException(
+                worldId,
+                "Peer authority generation must be nonzero.");
+        }
+    }
+
+    private static void EnsureGenerationTransition(
+        ulong expectedGeneration,
+        ulong newGeneration,
+        WorldId worldId)
+    {
+        EnsurePositiveGeneration(expectedGeneration, worldId);
+        if (expectedGeneration == ulong.MaxValue ||
+            newGeneration != expectedGeneration + 1)
+        {
+            throw new WorldSessionConflictException(
+                worldId,
+                $"Peer lobby authority must advance exactly one generation from {expectedGeneration}.");
+        }
+    }
+
     private static string SteamIdText(CSteamID steamId)
         => steamId.m_SteamID.ToString(CultureInfo.InvariantCulture);
+
+    private static string GenerationText(ulong generation)
+        => generation.ToString(CultureInfo.InvariantCulture);
 
     private static string TimestampText(DateTimeOffset value)
         => value.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture);

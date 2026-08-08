@@ -271,12 +271,14 @@ public sealed class GenerationBoundPeerWorldExchangeTests
         public Task<PeerWorldLobbySnapshot> CreateOrGetAsync(
             WorldId worldId,
             UserIdentity proposedOwner,
+            ulong authorityGeneration,
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<PeerWorldLobbySnapshot> RequestHandoffAsync(
             WorldId worldId,
             UserIdentity expectedOwner,
+            ulong expectedAuthorityGeneration,
             UserIdentity requestedHost,
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
@@ -284,7 +286,9 @@ public sealed class GenerationBoundPeerWorldExchangeTests
         public Task<PeerWorldLobbySnapshot> TransferOwnershipAsync(
             WorldId worldId,
             UserIdentity expectedOwner,
+            ulong expectedAuthorityGeneration,
             UserIdentity newOwner,
+            ulong newAuthorityGeneration,
             RevisionId committedRevision,
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
@@ -292,6 +296,7 @@ public sealed class GenerationBoundPeerWorldExchangeTests
         public Task LeaveAsync(
             WorldId worldId,
             UserIdentity expectedOwner,
+            ulong expectedAuthorityGeneration,
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }

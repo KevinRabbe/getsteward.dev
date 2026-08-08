@@ -22,13 +22,13 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
     private const int PayloadChunkBytes = 64 * 1024;
     private const int ReceiveBatchSize = 16;
     private const int MaxIncomingConnections = 4;
-    private const int MaxOfferBytes = 1024 * 1024;
+    private const int MaxOfferBytes = 256 * 1024;
     private const int MaxControlBytes = 64 * 1024;
     private const int MaxRejectTextBytes = 4096;
     private const int MaxQueuedPayloadChunks = 16;
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(25);
     private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan ReceiptTimeout = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan ReceiptTimeout = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan SendBackpressureDelay = TimeSpan.FromMilliseconds(10);
 
     private readonly SteamPlatformRuntime _platform;
@@ -102,14 +102,15 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
 
         await _outgoingGate.WaitAsync(cancellationToken);
         HSteamNetConnection connection = HSteamNetConnection.Invalid;
-        OutgoingConnectionContext? outgoing = null;
         try
         {
             var transferId = Guid.NewGuid();
-            (connection, outgoing) = await CreateOutgoingConnectionAsync(
+            var created = await CreateOutgoingConnectionAsync(
                 targetSteamId,
                 transferId,
                 cancellationToken);
+            connection = created.Connection;
+            var outgoing = created.Context;
 
             await WaitWithTimeoutAsync(
                 outgoing.Connected.Task,
@@ -124,15 +125,11 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
                 "peer revision offer");
             await SendReliableAsync(connection, offerMessage, cancellationToken);
 
-            var ready = await WaitWithTimeoutAsync(
+            await WaitWithTimeoutAsync(
                 outgoing.Ready.Task,
                 ReadyTimeout,
                 "The target did not authorize the peer revision handoff in time.",
                 cancellationToken);
-            if (!ready)
-            {
-                throw new InvalidOperationException("The target rejected the peer revision handoff.");
-            }
 
             var buffer = new byte[PayloadChunkBytes];
             long sent = 0;
@@ -530,7 +527,7 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
                 EnsureControl(complete.ProtocolVersion, complete.TransferId, incoming.TransferId);
                 incoming.State = IncomingState.Installing;
                 incoming.Chunks!.Writer.TryComplete();
-                _ = FinishIncomingAsync(context);
+                _ = Task.Run(() => FinishIncomingAsync(context));
                 break;
             }
             default:
@@ -578,9 +575,9 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
             {
                 SingleReader = true,
                 SingleWriter = true,
-                FullMode = BoundedChannelFullMode.DropWrite
+                FullMode = BoundedChannelFullMode.Wait
             });
-            incoming.WriterTask = WriteIncomingChunksAsync(incoming);
+            incoming.WriterTask = Task.Run(() => WriteIncomingChunksAsync(incoming));
             incoming.State = IncomingState.Receiving;
 
             await SendReliableAsync(
@@ -1014,15 +1011,18 @@ internal sealed class SteamPeerWorldRevisionExchange : IPeerWorldRevisionExchang
         }
 
         var builder = new StringBuilder();
+        var usedBytes = 0;
         foreach (var rune in value.EnumerateRunes())
         {
             var runeText = rune.ToString();
-            if (Encoding.UTF8.GetByteCount(builder.ToString()) + Encoding.UTF8.GetByteCount(runeText) > maximumBytes)
+            var runeBytes = Encoding.UTF8.GetByteCount(runeText);
+            if (usedBytes + runeBytes > maximumBytes)
             {
                 break;
             }
 
             builder.Append(runeText);
+            usedBytes += runeBytes;
         }
 
         return builder.Length == 0 ? "Steward peer transfer failed." : builder.ToString();

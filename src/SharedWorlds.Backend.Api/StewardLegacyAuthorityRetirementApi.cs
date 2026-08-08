@@ -103,6 +103,7 @@ public static class StewardLegacyAuthorityRetirementApi
     {
         if (result.RetiredSessionId is null ||
             result.RetiredGeneration is null ||
+            result.RetiredStateRevisionId is null ||
             result.RetiredAt is null)
         {
             throw new InvalidDataException(
@@ -116,6 +117,8 @@ public static class StewardLegacyAuthorityRetirementApi
                 result.WorldId.Value,
                 result.RetiredSessionId.Value,
                 result.RetiredGeneration.Value,
+                result.RetiredStateRevisionId.Value.Value,
+                result.RetiredEnvironmentRevisionId?.Value,
                 result.RetiredAt.Value));
     }
 
@@ -148,6 +151,8 @@ public static class StewardLegacyAuthorityRetirementApi
         Guid WorldId,
         Guid SessionId,
         long Generation,
+        Guid StateRevisionId,
+        Guid? EnvironmentRevisionId,
         DateTimeOffset RetiredAt);
 
     public sealed record LegacyAuthorityRetirementResponse(

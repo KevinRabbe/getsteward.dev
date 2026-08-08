@@ -293,7 +293,7 @@ internal sealed class SteamPeerWorldRevisionExchange :
                         connection,
                         targetSteamId.m_SteamID,
                         outgoing,
-                        Incoming: null));
+                        incoming: null));
                 return (connection, outgoing);
             },
             cancellationToken);
@@ -376,7 +376,7 @@ internal sealed class SteamPeerWorldRevisionExchange :
         _connections[change.m_hConn] = new ConnectionContext(
             change.m_hConn,
             remoteSteamId,
-            Outgoing: null,
+            outgoing: null,
             new IncomingConnectionContext());
     }
 
@@ -628,9 +628,8 @@ internal sealed class SteamPeerWorldRevisionExchange :
                             "Peer bootstrap is not allowed while the World is changing hosts.");
                     }
 
-                    if (!PeerWorldBootstrapTransferService.ContainsStableMember(
-                            offer.World.Members,
-                            _platform.LocalUser))
+                    if (!offer.World.Members.Any(member =>
+                            SameSteamUser(member, _platform.LocalSteamId.m_SteamID)))
                     {
                         throw new InvalidOperationException(
                             "Peer bootstrap does not include the local Steam identity in canonical World membership.");

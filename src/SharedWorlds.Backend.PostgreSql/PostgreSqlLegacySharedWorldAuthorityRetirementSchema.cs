@@ -16,6 +16,8 @@ public static class PostgreSqlLegacySharedWorldAuthorityRetirementSchema
             installation_id text NOT NULL,
             session_id uuid NOT NULL,
             generation bigint NOT NULL CHECK (generation > 0),
+            state_revision_id uuid NOT NULL,
+            environment_revision_id uuid NULL,
             retired_at timestamptz NOT NULL
         );
 

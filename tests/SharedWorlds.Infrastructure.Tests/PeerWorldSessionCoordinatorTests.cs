@@ -170,6 +170,13 @@ public sealed class PeerWorldSessionCoordinatorTests
         {
             CurrentStateRevisionId = committedRevision
         };
+        SeedFence(
+            sourceFences,
+            worldId,
+            source,
+            1,
+            committedRevision,
+            PeerAuthorityFenceState.Active);
 
         await sourceCoordinator.CompleteHandoffAsync(
             worldId,

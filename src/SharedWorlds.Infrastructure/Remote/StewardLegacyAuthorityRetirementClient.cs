@@ -10,6 +10,8 @@ public sealed record StewardLegacyAuthorityRetirementEvidence(
     WorldId WorldId,
     Guid SessionId,
     long Generation,
+    RevisionId StateRevisionId,
+    RevisionId? EnvironmentRevisionId,
     DateTimeOffset RetiredAt);
 
 /// <summary>
@@ -135,6 +137,7 @@ public sealed class StewardLegacyAuthorityRetirementClient
         if (data.WorldId != expectedWorldId.Value ||
             data.SessionId == Guid.Empty ||
             data.Generation <= 0 ||
+            data.StateRevisionId == Guid.Empty ||
             data.RetiredAt == default)
         {
             throw new InvalidDataException("Steward returned malformed legacy authority retirement evidence.");
@@ -144,6 +147,10 @@ public sealed class StewardLegacyAuthorityRetirementClient
             expectedWorldId,
             data.SessionId,
             data.Generation,
+            new RevisionId(data.StateRevisionId),
+            data.EnvironmentRevisionId is { } environment
+                ? new RevisionId(environment)
+                : null,
             data.RetiredAt);
     }
 
@@ -215,6 +222,8 @@ public sealed class StewardLegacyAuthorityRetirementClient
         Guid WorldId,
         Guid SessionId,
         long Generation,
+        Guid StateRevisionId,
+        Guid? EnvironmentRevisionId,
         DateTimeOffset RetiredAt);
 
     private sealed record ApiResponse(

@@ -30,9 +30,7 @@ public sealed class PeerWorldBootstrapTests : IDisposable
 
         var copied = await fixture.Target.LoadWorldAsync(fixture.World.Id);
         Assert.NotNull(copied);
-        Assert.Equal(fixture.World.Id, copied.Id);
-        Assert.Equal(fixture.World.CurrentStateRevisionId, copied.CurrentStateRevisionId);
-        Assert.Equal(fixture.World.CurrentEnvironmentRevisionId, copied.CurrentEnvironmentRevisionId);
+        AssertEquivalentWorld(fixture.World, copied);
         Assert.Contains(
             copied.Members,
             member => member.Provider == fixture.TargetUser.Provider &&
@@ -135,7 +133,8 @@ public sealed class PeerWorldBootstrapTests : IDisposable
 
         Assert.Equal(fixture.World.Id, receipt.WorldId);
         var published = await fixture.Target.LoadWorldAsync(fixture.World.Id);
-        Assert.Equal(fixture.World, published);
+        Assert.NotNull(published);
+        AssertEquivalentWorld(fixture.World, published);
     }
 
     [Fact]
@@ -160,7 +159,9 @@ public sealed class PeerWorldBootstrapTests : IDisposable
         var receipt = await installer.InstallAsync(offer, retry);
 
         Assert.Equal(fixture.State.Id, receipt.StateRevisionId);
-        Assert.Equal(fixture.World, await fixture.Target.LoadWorldAsync(fixture.World.Id));
+        var installed = await fixture.Target.LoadWorldAsync(fixture.World.Id);
+        Assert.NotNull(installed);
+        AssertEquivalentWorld(fixture.World, installed);
     }
 
     [Fact]
@@ -181,7 +182,9 @@ public sealed class PeerWorldBootstrapTests : IDisposable
             offer,
             payload));
 
-        Assert.Equal(divergent, await fixture.Target.LoadWorldAsync(fixture.World.Id));
+        var unchanged = await fixture.Target.LoadWorldAsync(fixture.World.Id);
+        Assert.NotNull(unchanged);
+        AssertEquivalentWorld(divergent, unchanged);
     }
 
     private async Task<Fixture> CreateFixtureAsync()
@@ -253,6 +256,37 @@ public sealed class PeerWorldBootstrapTests : IDisposable
             fixture.State,
             bytes.LongLength,
             hash);
+    }
+
+    private static void AssertEquivalentWorld(World expected, World actual)
+    {
+        Assert.Equal(expected.Id, actual.Id);
+        Assert.Equal(expected.Name, actual.Name);
+        Assert.Equal(expected.GameAdapterId, actual.GameAdapterId);
+        Assert.Equal(expected.CurrentEnvironmentRevisionId, actual.CurrentEnvironmentRevisionId);
+        Assert.Equal(expected.CurrentStateRevisionId, actual.CurrentStateRevisionId);
+        Assert.Equal(expected.SharingMode, actual.SharingMode);
+        Assert.Equal(expected.GameVersionPolicy, actual.GameVersionPolicy);
+        Assert.Equal(expected.Visibility, actual.Visibility);
+        Assert.Equal(expected.JoinPolicy, actual.JoinPolicy);
+        Assert.Equal(expected.StartYourOwnPolicy, actual.StartYourOwnPolicy);
+        Assert.Equal(expected.StartedFrom, actual.StartedFrom);
+        Assert.Equal(expected.Members.Count, actual.Members.Count);
+        for (var index = 0; index < expected.Members.Count; index++)
+        {
+            Assert.Equal(expected.Members[index].Provider, actual.Members[index].Provider);
+            Assert.Equal(expected.Members[index].ExternalId, actual.Members[index].ExternalId);
+            Assert.Equal(expected.Members[index].DisplayName, actual.Members[index].DisplayName);
+        }
+
+        Assert.Equal(expected.Checkpoints.Count, actual.Checkpoints.Count);
+        for (var index = 0; index < expected.Checkpoints.Count; index++)
+        {
+            Assert.Equal(expected.Checkpoints[index].StateRevisionId, actual.Checkpoints[index].StateRevisionId);
+            Assert.Equal(expected.Checkpoints[index].Name, actual.Checkpoints[index].Name);
+            Assert.Equal(expected.Checkpoints[index].CreatedAt, actual.Checkpoints[index].CreatedAt);
+            Assert.Equal(expected.Checkpoints[index].CreatedBy, actual.Checkpoints[index].CreatedBy);
+        }
     }
 
     public void Dispose()

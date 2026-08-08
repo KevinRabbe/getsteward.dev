@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.IO;
 using SharedWorlds.Core.Domain;
 using Steamworks;
@@ -8,74 +7,19 @@ namespace SharedWorlds.Desktop;
 internal sealed class SteamWebApiTicketSource : IDisposable
 {
     private static readonly TimeSpan TicketTimeout = TimeSpan.FromSeconds(15);
-    private static readonly TimeSpan CallbackPumpInterval = TimeSpan.FromMilliseconds(25);
 
+    private readonly SteamPlatformRuntime _platform;
     private readonly SemaphoreSlim _requestGate = new(1, 1);
     private readonly Callback<GetTicketForWebApiResponse_t> _ticketCallback;
     private TaskCompletionSource<GetTicketForWebApiResponse_t>? _pendingCompletion;
     private HAuthTicket _pendingHandle = HAuthTicket.Invalid;
     private bool _disposed;
 
-    private SteamWebApiTicketSource()
+    public SteamWebApiTicketSource(SteamPlatformRuntime platform)
     {
+        ArgumentNullException.ThrowIfNull(platform);
+        _platform = platform;
         _ticketCallback = Callback<GetTicketForWebApiResponse_t>.Create(OnTicketResponse);
-    }
-
-    public static bool TryCreate(
-        uint expectedAppId,
-        out SteamWebApiTicketSource? source,
-        out string? problem)
-    {
-        if (expectedAppId == 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(expectedAppId));
-        }
-
-        bool initialized;
-        try
-        {
-            initialized = SteamAPI.Init();
-        }
-        catch (Exception exception) when (
-            exception is DllNotFoundException or
-            EntryPointNotFoundException or
-            BadImageFormatException or
-            TypeInitializationException)
-        {
-            source = null;
-            problem = $"Steamworks could not be loaded: {exception.Message}";
-            return false;
-        }
-
-        if (!initialized)
-        {
-            source = null;
-            problem =
-                "Steam could not initialize. Start Steward through the configured Steam app with the Steam client running.";
-            return false;
-        }
-
-        try
-        {
-            var actualAppId = SteamUtils.GetAppID().m_AppId;
-            if (actualAppId != expectedAppId)
-            {
-                SteamAPI.Shutdown();
-                source = null;
-                problem =
-                    $"Steam initialized AppID {actualAppId}, but Steward is configured for AppID {expectedAppId}.";
-                return false;
-            }
-
-            source = new SteamWebApiTicketSource();
-            problem = null;
-            return true;
-        }
-        catch
-        {
-            SteamAPI.Shutdown();
-            throw;
-        }
     }
 
     public async Task<SteamWebApiTicketLease> RequestAsync(
@@ -104,21 +48,16 @@ internal sealed class SteamWebApiTicketSource : IDisposable
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TicketTimeout);
 
+            GetTicketForWebApiResponse_t response;
             try
             {
-                while (!completion.Task.IsCompleted)
-                {
-                    timeout.Token.ThrowIfCancellationRequested();
-                    SteamAPI.RunCallbacks();
-                    await Task.Delay(CallbackPumpInterval, timeout.Token);
-                }
+                response = await completion.Task.WaitAsync(timeout.Token);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 throw new TimeoutException("Steam did not return a Web API authentication ticket in time.");
             }
 
-            var response = await completion.Task;
             if (response.m_eResult != EResult.k_EResultOK)
             {
                 throw new InvalidOperationException(
@@ -132,22 +71,13 @@ internal sealed class SteamWebApiTicketSource : IDisposable
                 throw new InvalidDataException("Steam returned an invalid Web API authentication ticket payload.");
             }
 
-            var steamId = SteamUser.GetSteamID().m_SteamID;
-            if (steamId == 0)
-            {
-                throw new InvalidDataException("Steam returned an invalid local SteamID64.");
-            }
-
-            var externalId = steamId.ToString(CultureInfo.InvariantCulture);
-            var displayName = SteamFriends.GetPersonaName();
-            var user = new UserIdentity(
-                "steam",
-                externalId,
-                string.IsNullOrWhiteSpace(displayName) ? externalId : displayName);
             var ticketHex = Convert.ToHexString(
                 response.m_rgubTicket.AsSpan(0, response.m_cubTicket));
 
-            var lease = new SteamWebApiTicketLease(issuedHandle, ticketHex, user);
+            var lease = new SteamWebApiTicketLease(
+                issuedHandle,
+                ticketHex,
+                _platform.LocalUser);
             issuedHandle = HAuthTicket.Invalid;
             return lease;
         }
@@ -180,7 +110,6 @@ internal sealed class SteamWebApiTicketSource : IDisposable
             new ObjectDisposedException(nameof(SteamWebApiTicketSource)));
         _ticketCallback.Dispose();
         _requestGate.Dispose();
-        SteamAPI.Shutdown();
     }
 
     private void OnTicketResponse(GetTicketForWebApiResponse_t response)

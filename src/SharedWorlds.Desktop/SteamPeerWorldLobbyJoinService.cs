@@ -58,6 +58,12 @@ internal sealed class SteamPeerWorldLobbyJoinService : IDisposable
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!_platform.Dispatcher.CheckAccess())
+        {
+            throw new InvalidOperationException(
+                "Steam lobby admission must run on Steward's Steam dispatcher.");
+        }
+
         if (lobbyId.m_SteamID == 0)
         {
             throw new ArgumentException("A valid Steam lobby ID is required.", nameof(lobbyId));
@@ -194,6 +200,23 @@ internal sealed class SteamPeerWorldLobbyJoinService : IDisposable
             return;
         }
 
-        JoinRequested?.Invoke(request.m_steamIDLobby);
+        var subscribers = JoinRequested;
+        if (subscribers is null)
+        {
+            return;
+        }
+
+        foreach (var subscriber in subscribers.GetInvocationList().Cast<Action<CSteamID>>())
+        {
+            try
+            {
+                subscriber(request.m_steamIDLobby);
+            }
+            catch
+            {
+                // A presentation subscriber must not break Steam's callback pump. Joining is still
+                // explicit through JoinAsync, so ignoring a subscriber failure cannot mutate a World.
+            }
+        }
     }
 }

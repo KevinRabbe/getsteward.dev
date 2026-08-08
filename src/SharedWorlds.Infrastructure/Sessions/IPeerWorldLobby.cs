@@ -10,10 +10,34 @@ public sealed record PeerWorldLobbySnapshot(
     WorldId WorldId,
     UserIdentity Owner,
     bool OwnerConfirmed,
+    ulong AuthorityGeneration,
     UserIdentity? RequestedHost,
     RevisionId? LastCommittedRevision,
-    DateTimeOffset UpdatedAt,
-    ulong AuthorityGeneration = 0);
+    DateTimeOffset UpdatedAt)
+{
+    /// <summary>
+    /// Compatibility shape for schema-v1 lobby implementations that predate persistent authority
+    /// generations. They intentionally surface generation zero so generation-bound peer exchange
+    /// refuses to send World bytes rather than treating the legacy lobby as current authority.
+    /// </summary>
+    public PeerWorldLobbySnapshot(
+        WorldId worldId,
+        UserIdentity owner,
+        bool ownerConfirmed,
+        UserIdentity? requestedHost,
+        RevisionId? lastCommittedRevision,
+        DateTimeOffset updatedAt)
+        : this(
+            worldId,
+            owner,
+            ownerConfirmed,
+            AuthorityGeneration: 0,
+            requestedHost,
+            lastCommittedRevision,
+            updatedAt)
+    {
+    }
+}
 
 /// <summary>
 /// Narrow platform boundary required by peer-hosted Steward sessions. A Steam implementation can map
@@ -27,8 +51,8 @@ public sealed record PeerWorldLobbySnapshot(
 ///
 /// AuthorityGeneration is the live lobby's claim about persistent WorldPeerAuthority.Generation.
 /// Generation-aware peer exchange code requires it to be non-zero and exact. Legacy/schema-v1 lobby
-/// implementations intentionally surface the default zero value so they fail closed rather than being
-/// mistaken for generation-fenced authority.
+/// implementations intentionally surface zero so they fail closed rather than being mistaken for
+/// generation-fenced authority.
 ///
 /// Implementations must fail closed when the expected owner no longer owns the platform lobby during
 /// a mutation. Durable World bytes and revision publication are intentionally outside this boundary.

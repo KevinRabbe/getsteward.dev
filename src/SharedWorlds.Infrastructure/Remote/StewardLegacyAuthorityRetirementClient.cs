@@ -12,6 +12,7 @@ public sealed record StewardLegacyAuthorityRetirementEvidence(
     long Generation,
     RevisionId StateRevisionId,
     RevisionId? EnvironmentRevisionId,
+    string ActiveMembersFingerprint,
     DateTimeOffset RetiredAt);
 
 public interface IStewardLegacyAuthorityRetirementClient
@@ -155,6 +156,7 @@ public sealed class StewardLegacyAuthorityRetirementClient :
             data.SessionId == Guid.Empty ||
             data.Generation <= 0 ||
             data.StateRevisionId == Guid.Empty ||
+            !StableIdentitySetFingerprint.IsCanonicalFingerprint(data.ActiveMembersFingerprint) ||
             data.RetiredAt == default)
         {
             throw new InvalidDataException("Steward returned malformed legacy authority retirement evidence.");
@@ -168,6 +170,7 @@ public sealed class StewardLegacyAuthorityRetirementClient :
             data.EnvironmentRevisionId is { } environment
                 ? new RevisionId(environment)
                 : null,
+            data.ActiveMembersFingerprint,
             data.RetiredAt);
     }
 
@@ -244,6 +247,7 @@ public sealed class StewardLegacyAuthorityRetirementClient :
         long Generation,
         Guid StateRevisionId,
         Guid? EnvironmentRevisionId,
+        string ActiveMembersFingerprint,
         DateTimeOffset RetiredAt);
 
     private sealed record ApiResponse(

@@ -14,12 +14,26 @@ public sealed record StewardLegacyAuthorityRetirementEvidence(
     RevisionId? EnvironmentRevisionId,
     DateTimeOffset RetiredAt);
 
+public interface IStewardLegacyAuthorityRetirementClient
+{
+    Task<StewardLegacyAuthorityRetirementEvidence?> GetAsync(
+        WorldId worldId,
+        CancellationToken cancellationToken = default);
+
+    Task<StewardLegacyAuthorityRetirementEvidence> RetireAsync(
+        WorldId worldId,
+        Guid sessionId,
+        long generation,
+        CancellationToken cancellationToken = default);
+}
+
 /// <summary>
 /// Temporary typed client for the one-way Backend.Api retirement boundary used during peer-authority
 /// migration. The access token identifies the caller and the backend derives the installation from
 /// that authenticated session; no identity or installation is accepted from this client as payload.
 /// </summary>
-public sealed class StewardLegacyAuthorityRetirementClient
+public sealed class StewardLegacyAuthorityRetirementClient :
+    IStewardLegacyAuthorityRetirementClient
 {
     private readonly HttpClient _apiClient;
     private readonly IStewardAccessTokenProvider _accessTokens;

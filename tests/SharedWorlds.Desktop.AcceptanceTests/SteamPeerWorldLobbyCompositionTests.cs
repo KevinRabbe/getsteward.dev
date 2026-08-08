@@ -86,7 +86,6 @@ public sealed class SteamPeerWorldLobbyCompositionTests
         Assert.DoesNotContain("StatePackage", source, StringComparison.Ordinal);
         Assert.DoesNotContain("StoreRevision", source, StringComparison.Ordinal);
         Assert.DoesNotContain("OpenRevision", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("world bytes", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Durable World bytes never live in lobby metadata.", source, StringComparison.Ordinal);
     }
 

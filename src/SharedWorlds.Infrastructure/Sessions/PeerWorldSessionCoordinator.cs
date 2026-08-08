@@ -61,7 +61,7 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
                 "The platform selected a lobby owner that Steward has not confirmed against a valid World revision.");
         }
 
-        if (snapshot.Owner != user)
+        if (!SameUser(snapshot.Owner, user))
         {
             throw new WorldSessionConflictException(worldId, "Another participant already hosts this World.");
         }
@@ -80,13 +80,14 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(requestedHost);
-        if (requestedHost == _localUser)
+        if (SameUser(requestedHost, _localUser))
         {
             throw new WorldSessionConflictException(worldId, "The active host cannot hand the World to itself.");
         }
 
         var current = await RequireOwnedLobbyAsync(worldId, cancellationToken);
-        if (current.RequestedHost is not null && current.RequestedHost != requestedHost)
+        if (current.RequestedHost is not null &&
+            !SameUser(current.RequestedHost, requestedHost))
         {
             throw new WorldSessionConflictException(worldId, "A different host handoff is already in progress.");
         }
@@ -98,8 +99,9 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
             cancellationToken);
         EnsureWorld(updated, worldId);
         if (!updated.OwnerConfirmed ||
-            updated.Owner != _localUser ||
-            updated.RequestedHost != requestedHost)
+            !SameUser(updated.Owner, _localUser) ||
+            updated.RequestedHost is null ||
+            !SameUser(updated.RequestedHost, requestedHost))
         {
             throw new InvalidDataException("The peer lobby did not preserve the requested host handoff.");
         }
@@ -113,7 +115,8 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
     {
         ArgumentNullException.ThrowIfNull(newHost);
         var current = await RequireOwnedLobbyAsync(worldId, cancellationToken);
-        if (current.RequestedHost != newHost)
+        if (current.RequestedHost is null ||
+            !SameUser(current.RequestedHost, newHost))
         {
             throw new WorldSessionConflictException(worldId, "There is no matching host handoff request.");
         }
@@ -126,7 +129,7 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
             cancellationToken);
         EnsureWorld(transferred, worldId);
         if (!transferred.OwnerConfirmed ||
-            transferred.Owner != newHost ||
+            !SameUser(transferred.Owner, newHost) ||
             transferred.RequestedHost is not null ||
             transferred.LastCommittedRevision != committedRevision)
         {
@@ -155,7 +158,7 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
                 "The current platform owner is recovery-pending and is not confirmed as the Steward host.");
         }
 
-        if (current.Owner != user)
+        if (!SameUser(current.Owner, user))
         {
             throw new WorldSessionConflictException(worldId, "Only the current host may close the peer lobby.");
         }
@@ -182,7 +185,7 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
                 "The current platform owner is recovery-pending and cannot change Steward host authority.");
         }
 
-        if (current.Owner != _localUser)
+        if (!SameUser(current.Owner, _localUser))
         {
             throw new WorldSessionConflictException(worldId, "Only the current host may change host ownership.");
         }
@@ -192,11 +195,15 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
 
     private void EnsureLocalUser(UserIdentity user)
     {
-        if (user != _localUser)
+        if (!SameUser(user, _localUser))
         {
             throw new InvalidOperationException("Peer session coordination can act only for the local user.");
         }
     }
+
+    private static bool SameUser(UserIdentity left, UserIdentity right)
+        => string.Equals(left.Provider, right.Provider, StringComparison.OrdinalIgnoreCase) &&
+           string.Equals(left.ExternalId, right.ExternalId, StringComparison.Ordinal);
 
     private static void EnsureWorld(PeerWorldLobbySnapshot snapshot, WorldId expectedWorldId)
     {

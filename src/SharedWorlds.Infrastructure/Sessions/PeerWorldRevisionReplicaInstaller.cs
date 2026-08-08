@@ -9,6 +9,7 @@ namespace SharedWorlds.Infrastructure.Sessions;
 /// Installs one handoff delta onto a participant that already owns the active World's exact base.
 /// The incoming World metadata is authoritative only when it advances persistent peer authority by
 /// exactly one generation to this local identity and the state revision is the direct canonical child.
+/// A durable per-account fence is activated before the new World head is published.
 /// </summary>
 public sealed class PeerWorldRevisionReplicaInstaller
 {
@@ -17,15 +18,18 @@ public sealed class PeerWorldRevisionReplicaInstaller
 
     private readonly IWorldStorage _storage;
     private readonly UserIdentity _localUser;
+    private readonly IPeerAuthorityFenceStore _authorityFences;
     private readonly long _maximumPayloadBytes;
 
     public PeerWorldRevisionReplicaInstaller(
         IWorldStorage storage,
         UserIdentity localUser,
+        IPeerAuthorityFenceStore authorityFences,
         long maximumPayloadBytes = DefaultMaximumPayloadBytes)
     {
         ArgumentNullException.ThrowIfNull(storage);
         ArgumentNullException.ThrowIfNull(localUser);
+        ArgumentNullException.ThrowIfNull(authorityFences);
         if (maximumPayloadBytes <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(maximumPayloadBytes));
@@ -33,6 +37,7 @@ public sealed class PeerWorldRevisionReplicaInstaller
 
         _storage = storage;
         _localUser = localUser;
+        _authorityFences = authorityFences;
         _maximumPayloadBytes = maximumPayloadBytes;
     }
 
@@ -59,6 +64,11 @@ public sealed class PeerWorldRevisionReplicaInstaller
                 $"Peer handoff cannot create World '{offer.World.Id}' from nothing. The target must already have the active World base.");
         var idempotent = existingWorld.CurrentStateRevisionId == offer.StateRevision.Id;
         ValidateExistingAuthorityBase(existingWorld, offer, idempotent);
+        await RequireReceiverFenceBaseAsync(
+            existingWorld,
+            offer,
+            idempotent,
+            cancellationToken);
 
         var existingEnvironment = await _storage.LoadEnvironmentRevisionAsync(
             offer.World.Id,
@@ -95,6 +105,7 @@ public sealed class PeerWorldRevisionReplicaInstaller
                 expectedHash,
                 cancellationToken);
             await VerifyStoredPayloadAsync(offer, cancellationToken);
+            await SaveIncomingActiveFenceAsync(offer, cancellationToken);
 
             // Retry after the target already installed this generation. The confirmed outgoing host
             // may safely resend the same mutable World metadata fenced by the same authority record.
@@ -138,8 +149,10 @@ public sealed class PeerWorldRevisionReplicaInstaller
             await VerifyStoredPayloadAsync(offer, cancellationToken);
         }
 
-        // Canonical metadata and the new persistent authority generation are written last. Any
-        // payload/storage failure leaves the target on its previous state head and previous holder.
+        // The account fence becomes Active N+1 after every immutable byte is verified but before
+        // canonical World metadata advances. If the subsequent World write fails, a retry may resume
+        // from this exact Active fence; ordinary hosting remains impossible until both agree.
+        await SaveIncomingActiveFenceAsync(offer, cancellationToken);
         await _storage.SaveWorldAsync(offer.World, cancellationToken);
         return Receipt(offer);
     }
@@ -252,6 +265,94 @@ public sealed class PeerWorldRevisionReplicaInstaller
             throw new InvalidDataException(
                 $"Peer handoff must advance authority exactly from generation {existingAuthority.Generation} to {expectedGeneration} and assign it to the local participant.");
         }
+    }
+
+    private async Task RequireReceiverFenceBaseAsync(
+        World existingWorld,
+        PeerWorldRevisionOffer offer,
+        bool idempotent,
+        CancellationToken cancellationToken)
+    {
+        var fence = await _authorityFences.LoadAsync(
+            offer.World.Id,
+            cancellationToken)
+            ?? throw new InvalidDataException(
+                "Peer handoff target has no durable account fence for its existing World replica.");
+        var incomingAuthority = offer.World.PeerAuthority!;
+
+        if (idempotent)
+        {
+            if (!FenceMatches(
+                    fence,
+                    PeerAuthorityFenceState.Active,
+                    incomingAuthority.Holder,
+                    incomingAuthority.Generation,
+                    offer.StateRevision.Id))
+            {
+                throw new InvalidDataException(
+                    "Idempotent peer handoff retry does not match the target account's active authority fence.");
+            }
+
+            return;
+        }
+
+        var existingAuthority = existingWorld.PeerAuthority!;
+        var existingState = existingWorld.CurrentStateRevisionId
+            ?? throw new InvalidDataException(
+                "Peer handoff target has no canonical state revision for its existing authority fence.");
+        var normalObservedBase = FenceMatches(
+            fence,
+            PeerAuthorityFenceState.Observed,
+            existingAuthority.Holder,
+            existingAuthority.Generation,
+            existingState);
+        var resumedActiveTarget = FenceMatches(
+            fence,
+            PeerAuthorityFenceState.Active,
+            incomingAuthority.Holder,
+            incomingAuthority.Generation,
+            offer.StateRevision.Id);
+        if (!normalObservedBase && !resumedActiveTarget)
+        {
+            throw new InvalidDataException(
+                "Peer handoff target account fence is stale, conflicting, or belongs to a different authority transition.");
+        }
+    }
+
+    private async Task SaveIncomingActiveFenceAsync(
+        PeerWorldRevisionOffer offer,
+        CancellationToken cancellationToken)
+    {
+        var authority = offer.World.PeerAuthority!;
+        var current = await _authorityFences.LoadAsync(
+            offer.World.Id,
+            cancellationToken);
+        if (current is not null &&
+            current.Generation > authority.Generation)
+        {
+            throw new InvalidDataException(
+                "Peer handoff would overwrite a newer durable authority fence on the target account.");
+        }
+
+        if (current is not null &&
+            current.Generation == authority.Generation &&
+            current.State == PeerAuthorityFenceState.Active &&
+            (!SameUser(current.Holder, authority.Holder) ||
+             current.StateRevisionId != offer.StateRevision.Id))
+        {
+            throw new InvalidDataException(
+                "Peer handoff conflicts with an existing active authority fence at the same generation.");
+        }
+
+        await _authorityFences.SaveAsync(
+            new PeerAuthorityFence(
+                offer.World.Id,
+                authority.Holder,
+                authority.Generation,
+                offer.StateRevision.Id,
+                PeerAuthorityFenceState.Active,
+                DateTimeOffset.UtcNow),
+            cancellationToken);
     }
 
     private async Task VerifyStoredPayloadAsync(
@@ -433,6 +534,17 @@ public sealed class PeerWorldRevisionReplicaInstaller
         IReadOnlyList<UserIdentity> members,
         UserIdentity expected)
         => members.Any(member => SameUser(member, expected));
+
+    private static bool FenceMatches(
+        PeerAuthorityFence fence,
+        PeerAuthorityFenceState state,
+        UserIdentity holder,
+        ulong generation,
+        RevisionId stateRevisionId)
+        => fence.State == state &&
+           fence.Generation == generation &&
+           fence.StateRevisionId == stateRevisionId &&
+           SameUser(fence.Holder, holder);
 
     private static bool EquivalentUser(
         UserIdentity? left,

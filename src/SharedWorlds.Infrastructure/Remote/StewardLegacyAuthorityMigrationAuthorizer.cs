@@ -15,13 +15,13 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizer :
 {
     private readonly IWorldSessionCoordinator _legacyCoordinator;
     private readonly StewardWritableReservationRegistry _reservations;
-    private readonly StewardLegacyAuthorityRetirementClient _retirement;
+    private readonly IStewardLegacyAuthorityRetirementClient _retirement;
     private readonly UserIdentity _authenticatedUser;
 
     public StewardLegacyAuthorityMigrationAuthorizer(
         IWorldSessionCoordinator legacyCoordinator,
         StewardWritableReservationRegistry reservations,
-        StewardLegacyAuthorityRetirementClient retirement,
+        IStewardLegacyAuthorityRetirementClient retirement,
         UserIdentity authenticatedUser)
     {
         ArgumentNullException.ThrowIfNull(legacyCoordinator);

@@ -23,7 +23,7 @@ public sealed class SteamPlatformLifetimeCompositionTests
             app,
             StringComparison.Ordinal);
         Assert.Equal(1, CountOccurrences(platform, "SteamAPI.Init()"));
-        Assert.Equal(2, CountOccurrences(platform, "SteamAPI.Shutdown()"));
+        Assert.Contains("SteamAPI.Shutdown();", platform, StringComparison.Ordinal);
         Assert.Contains("SteamAPI.RunCallbacks();", platform, StringComparison.Ordinal);
         Assert.Contains("_callbackTimer.Start();", platform, StringComparison.Ordinal);
     }

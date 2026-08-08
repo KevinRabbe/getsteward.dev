@@ -258,7 +258,7 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
         var lobbyId = RequireKnownLobby(worldId);
         var current = ReadSnapshot(worldId, lobbyId);
         EnsureWritableOwner(current, expectedOwner);
-        if (current.RequestedHost != newOwner)
+        if (current.RequestedHost is null || !SameUser(current.RequestedHost, newOwner))
         {
             throw new WorldSessionConflictException(
                 worldId,
@@ -482,7 +482,7 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
 
     private void EnsureWritableOwner(PeerWorldLobbySnapshot snapshot, UserIdentity expectedOwner)
     {
-        if (!snapshot.OwnerConfirmed || snapshot.Owner != expectedOwner)
+        if (!snapshot.OwnerConfirmed || !SameUser(snapshot.Owner, expectedOwner))
         {
             throw new WorldSessionConflictException(
                 snapshot.WorldId,
@@ -543,7 +543,7 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
 
     private void EnsureLocalUser(UserIdentity user)
     {
-        if (user != _platform.LocalUser)
+        if (!SameUser(user, _platform.LocalUser))
         {
             throw new InvalidOperationException(
                 "Steam lobby authority can be changed only for Steward's local Steam identity.");
@@ -625,6 +625,10 @@ internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
         var externalId = SteamIdText(steamId);
         return new UserIdentity("steam", externalId, externalId);
     }
+
+    private static bool SameUser(UserIdentity left, UserIdentity right)
+        => string.Equals(left.Provider, right.Provider, StringComparison.OrdinalIgnoreCase) &&
+           string.Equals(left.ExternalId, right.ExternalId, StringComparison.Ordinal);
 
     private static bool TryParseSteamId(string value, out CSteamID steamId)
     {

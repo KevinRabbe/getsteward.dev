@@ -7,6 +7,8 @@ namespace SharedWorlds.Desktop;
 
 public partial class App : Application
 {
+    private SteamPlatformRuntime? _steamPlatformRuntime;
+
     protected override async void OnStartup(StartupEventArgs e)
     {
         DispatcherUnhandledException += OnDispatcherUnhandledException;
@@ -54,8 +56,52 @@ public partial class App : Application
         await CompletePrimaryDesktopStartupAsync(window);
     }
 
+    internal bool TryGetOrCreateSteamPlatformRuntime(
+        uint expectedAppId,
+        out SteamPlatformRuntime? runtime,
+        out string? problem)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            throw new InvalidOperationException(
+                "Steam platform access must run on Steward's UI dispatcher.");
+        }
+
+        var existing = _steamPlatformRuntime;
+        if (existing is not null)
+        {
+            if (existing.AppId != expectedAppId)
+            {
+                runtime = null;
+                problem =
+                    $"Steam is already initialized for AppID {existing.AppId}, but Steward requested AppID {expectedAppId}.";
+                return false;
+            }
+
+            runtime = existing;
+            problem = null;
+            return true;
+        }
+
+        if (!SteamPlatformRuntime.TryCreate(
+                Dispatcher,
+                expectedAppId,
+                out var created,
+                out problem))
+        {
+            runtime = null;
+            return false;
+        }
+
+        _steamPlatformRuntime = created;
+        runtime = created;
+        return true;
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
+        _steamPlatformRuntime?.Dispose();
+        _steamPlatformRuntime = null;
         DisposeDesktopSingleInstance();
         DispatcherUnhandledException -= OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException -= OnAppDomainUnhandledException;

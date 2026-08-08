@@ -85,17 +85,18 @@ public partial class MainWindow
             ?? throw new InvalidOperationException("Steam authentication mode is missing its Web API identity.");
 
         StatusText.Text = "Authenticating Steward with Steam...";
-        if (!SteamWebApiTicketSource.TryCreate(
+        if (System.Windows.Application.Current is not App app ||
+            !app.TryGetOrCreateSteamPlatformRuntime(
                 steamAppId,
-                out var ticketSource,
+                out var steamPlatform,
                 out var steamProblem))
         {
             StatusText.Text =
-                $"Shared Worlds are unavailable on this launch. {steamProblem} Local Worlds remain available.";
+                $"Shared Worlds are unavailable on this launch. {steamProblem ?? "Steam platform runtime is unavailable."} Local Worlds remain available.";
             return;
         }
 
-        using var steamTickets = ticketSource!;
+        using var steamTickets = new SteamWebApiTicketSource(steamPlatform!);
         using var ticket = await steamTickets.RequestAsync(
             steamIdentity,
             cancellationToken);

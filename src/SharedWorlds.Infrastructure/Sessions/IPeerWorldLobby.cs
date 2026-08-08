@@ -18,9 +18,8 @@ public sealed record PeerWorldLobbySnapshot(
 /// this contract onto one Steam lobby and its owner-transfer primitive without making Core depend on
 /// Steamworks or a permanent Steward backend.
 ///
-/// Implementations must fail closed if <paramref name="expectedOwner"/> no longer owns the platform
-/// lobby when a mutation is attempted. Durable World bytes and revision publication are intentionally
-/// outside this boundary.
+/// Implementations must fail closed when the expected owner no longer owns the platform lobby during
+/// a mutation. Durable World bytes and revision publication are intentionally outside this boundary.
 /// </summary>
 public interface IPeerWorldLobby
 {

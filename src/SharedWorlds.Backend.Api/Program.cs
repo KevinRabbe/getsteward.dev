@@ -243,6 +243,7 @@ app.MapFriendsBuildAuthApiV1();
 app.MapStewardAccessApiV1();
 app.MapStewardRevisionMetadataApiV1();
 app.MapStewardAuthorityApiV1();
+app.MapStewardLegacyAuthorityRetirementApiV1();
 app.MapStewardReservationAbandonApiV1();
 app.MapStewardHostPresenceApiV1();
 app.MapStewardWorldPlayerPresenceApiV1();

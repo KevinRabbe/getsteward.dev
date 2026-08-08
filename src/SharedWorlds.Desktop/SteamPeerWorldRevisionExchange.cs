@@ -12,14 +12,15 @@ namespace SharedWorlds.Desktop;
 
 /// <summary>
 /// Identity-preserving World transfer over Steam Networking Sockets. One authenticated P2P engine
-/// carries both first-time Bootstrap and stricter HandoffRevision transactions. The purpose is part
-/// of the protocol and selects the corresponding receiver installer; transport never decides host
-/// authority. Steam authenticates the peer identity and Steward additionally authorizes the transfer
-/// against the already-attached active World lobby.
+/// carries first-time Bootstrap, strict HandoffRevision, and non-authoritative ObserverSync
+/// transactions. The purpose is part of the protocol and selects the corresponding receiver installer;
+/// transport never decides host authority. Steam authenticates the peer identity and Steward additionally
+/// authorizes the transfer against the already-attached active World lobby and its exact generation.
 /// </summary>
 internal sealed class SteamPeerWorldRevisionExchange :
     IPeerWorldRevisionExchange,
     IPeerWorldBootstrapExchange,
+    IPeerWorldObserverSyncExchange,
     IDisposable
 {
     private const int ProtocolVersion = 2;
@@ -40,6 +41,7 @@ internal sealed class SteamPeerWorldRevisionExchange :
     private readonly SteamPeerWorldLobby _lobby;
     private readonly PeerWorldRevisionReplicaInstaller _revisionInstaller;
     private readonly PeerWorldBootstrapInstaller _bootstrapInstaller;
+    private readonly PeerWorldObserverSyncInstaller _observerSyncInstaller;
     private readonly Callback<SteamNetConnectionStatusChangedCallback_t> _connectionCallback;
     private readonly DispatcherTimer _receiveTimer;
     private readonly SemaphoreSlim _outgoingGate = new(1, 1);
@@ -51,12 +53,14 @@ internal sealed class SteamPeerWorldRevisionExchange :
         SteamPlatformRuntime platform,
         SteamPeerWorldLobby lobby,
         PeerWorldRevisionReplicaInstaller revisionInstaller,
-        PeerWorldBootstrapInstaller bootstrapInstaller)
+        PeerWorldBootstrapInstaller bootstrapInstaller,
+        PeerWorldObserverSyncInstaller observerSyncInstaller)
     {
         ArgumentNullException.ThrowIfNull(platform);
         ArgumentNullException.ThrowIfNull(lobby);
         ArgumentNullException.ThrowIfNull(revisionInstaller);
         ArgumentNullException.ThrowIfNull(bootstrapInstaller);
+        ArgumentNullException.ThrowIfNull(observerSyncInstaller);
         if (!platform.Dispatcher.CheckAccess())
         {
             throw new InvalidOperationException(
@@ -67,6 +71,7 @@ internal sealed class SteamPeerWorldRevisionExchange :
         _lobby = lobby;
         _revisionInstaller = revisionInstaller;
         _bootstrapInstaller = bootstrapInstaller;
+        _observerSyncInstaller = observerSyncInstaller;
         SteamNetworkingUtils.InitRelayNetworkAccess();
         _listenSocket = SteamNetworkingSockets.CreateListenSocketP2P(
             VirtualPort,
@@ -110,6 +115,18 @@ internal sealed class SteamPeerWorldRevisionExchange :
             offer,
             statePayload,
             TransferPurpose.Bootstrap,
+            cancellationToken);
+
+    public Task<PeerWorldRevisionReceipt> TransferObserverRevisionAsync(
+        UserIdentity targetMember,
+        PeerWorldRevisionOffer offer,
+        Stream statePayload,
+        CancellationToken cancellationToken = default)
+        => TransferCoreAsync(
+            targetMember,
+            offer,
+            statePayload,
+            TransferPurpose.ObserverSync,
             cancellationToken);
 
     private async Task<PeerWorldRevisionReceipt> TransferCoreAsync(
@@ -601,10 +618,21 @@ internal sealed class SteamPeerWorldRevisionExchange :
             var snapshot = await _lobby.GetAsync(offer.World.Id);
             if (snapshot is null ||
                 !snapshot.OwnerConfirmed ||
+                snapshot.AuthorityGeneration == 0 ||
                 !SameSteamUser(snapshot.Owner, context.RemoteSteamId))
             {
                 throw new InvalidOperationException(
-                    "Peer World transfer is not authorized by the active Steward lobby host.");
+                    "Peer World transfer is not authorized by the active Steward lobby host and generation.");
+            }
+
+            var authority = offer.World.PeerAuthority
+                ?? throw new InvalidDataException(
+                    "Peer World transfer offer is missing persistent authority.");
+            if (authority.Generation == 0 ||
+                !offer.World.Members.Any(member => SameUser(member, authority.Holder)))
+            {
+                throw new InvalidDataException(
+                    "Peer World transfer offer contains invalid persistent authority.");
             }
 
             switch (envelope.Purpose)
@@ -619,22 +647,25 @@ internal sealed class SteamPeerWorldRevisionExchange :
                             "Peer handoff revision transfer is not addressed to this Steward participant.");
                     }
 
+                    if (snapshot.AuthorityGeneration == ulong.MaxValue ||
+                        authority.Generation != snapshot.AuthorityGeneration + 1 ||
+                        !SameSteamUser(authority.Holder, _platform.LocalSteamId.m_SteamID) ||
+                        !SameUser(authority.Holder, snapshot.RequestedHost))
+                    {
+                        throw new InvalidOperationException(
+                            "Peer handoff revision does not carry the requested next holder at exactly the next authority generation.");
+                    }
+
                     break;
 
                 case TransferPurpose.Bootstrap:
-                    if (snapshot.RequestedHost is not null)
-                    {
-                        throw new InvalidOperationException(
-                            "Peer bootstrap is not allowed while the World is changing hosts.");
-                    }
+                    EnsureCurrentAuthorityOffer(snapshot, authority, "bootstrap");
+                    EnsureObserverAdmission(snapshot, offer, "bootstrap");
+                    break;
 
-                    if (!offer.World.Members.Any(member =>
-                            SameSteamUser(member, _platform.LocalSteamId.m_SteamID)))
-                    {
-                        throw new InvalidOperationException(
-                            "Peer bootstrap does not include the local Steam identity in canonical World membership.");
-                    }
-
+                case TransferPurpose.ObserverSync:
+                    EnsureCurrentAuthorityOffer(snapshot, authority, "observer synchronization");
+                    EnsureObserverAdmission(snapshot, offer, "observer synchronization");
                     break;
 
                 default:
@@ -673,6 +704,38 @@ internal sealed class SteamPeerWorldRevisionExchange :
         catch (Exception exception)
         {
             await RejectAndCloseIncomingAsync(context, exception.Message);
+        }
+    }
+
+    private void EnsureCurrentAuthorityOffer(
+        PeerWorldLobbySnapshot snapshot,
+        WorldPeerAuthority authority,
+        string purpose)
+    {
+        if (authority.Generation != snapshot.AuthorityGeneration ||
+            !SameUser(authority.Holder, snapshot.Owner))
+        {
+            throw new InvalidOperationException(
+                $"Peer {purpose} offer does not match the confirmed live holder and authority generation.");
+        }
+    }
+
+    private void EnsureObserverAdmission(
+        PeerWorldLobbySnapshot snapshot,
+        PeerWorldRevisionOffer offer,
+        string purpose)
+    {
+        if (snapshot.RequestedHost is not null)
+        {
+            throw new InvalidOperationException(
+                $"Peer {purpose} is not allowed while the World is changing hosts.");
+        }
+
+        if (!offer.World.Members.Any(member =>
+                SameSteamUser(member, _platform.LocalSteamId.m_SteamID)))
+        {
+            throw new InvalidOperationException(
+                $"Peer {purpose} does not include the local Steam identity in canonical World membership.");
         }
     }
 
@@ -734,6 +797,11 @@ internal sealed class SteamPeerWorldRevisionExchange :
                         incoming.Cancellation.Token),
                 TransferPurpose.Bootstrap =>
                     await _bootstrapInstaller.InstallAsync(
+                        offer,
+                        incoming.Buffer,
+                        incoming.Cancellation.Token),
+                TransferPurpose.ObserverSync =>
+                    await _observerSyncInstaller.InstallAsync(
                         offer,
                         incoming.Buffer,
                         incoming.Cancellation.Token),
@@ -1041,6 +1109,10 @@ internal sealed class SteamPeerWorldRevisionExchange :
                out var parsed) &&
            parsed == steamId;
 
+    private static bool SameUser(UserIdentity left, UserIdentity right)
+        => string.Equals(left.Provider, right.Provider, StringComparison.OrdinalIgnoreCase) &&
+           string.Equals(left.ExternalId, right.ExternalId, StringComparison.Ordinal);
+
     private static byte[] EncodeJson<T>(
         MessageKind kind,
         T value,
@@ -1129,7 +1201,8 @@ internal sealed class SteamPeerWorldRevisionExchange :
     private enum TransferPurpose : byte
     {
         HandoffRevision = 1,
-        Bootstrap = 2
+        Bootstrap = 2,
+        ObserverSync = 3
     }
 
     private enum MessageKind : byte

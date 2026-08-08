@@ -19,62 +19,147 @@ public sealed class SteamPeerWorldRevisionExchangeCompositionTests
     }
 
     [Fact]
-    public void OneSocketEngineImplementsBootstrapAndHandoffTransfers()
+    public void OneSocketEngineImplementsBootstrapHandoffAndObserverTransfers()
     {
         var source = ReadExchange();
 
         Assert.Contains("IPeerWorldRevisionExchange,", source, StringComparison.Ordinal);
         Assert.Contains("IPeerWorldBootstrapExchange,", source, StringComparison.Ordinal);
+        Assert.Contains("IPeerWorldObserverSyncExchange,", source, StringComparison.Ordinal);
         Assert.Contains("TransferPurpose.HandoffRevision", source, StringComparison.Ordinal);
         Assert.Contains("TransferPurpose.Bootstrap", source, StringComparison.Ordinal);
+        Assert.Contains("TransferPurpose.ObserverSync", source, StringComparison.Ordinal);
+        Assert.Contains("TransferObserverRevisionAsync(", source, StringComparison.Ordinal);
         Assert.Contains("await _revisionInstaller.InstallAsync(", source, StringComparison.Ordinal);
         Assert.Contains("await _bootstrapInstaller.InstallAsync(", source, StringComparison.Ordinal);
+        Assert.Contains("await _observerSyncInstaller.InstallAsync(", source, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void IncomingHandoffMustMatchConfirmedLobbyTargetBeforeReady()
+    public void IncomingOfferMustComeFromConfirmedLiveHostAndCarryPersistentAuthority()
     {
         var source = ReadExchange();
         var authorize = RequiredIndex(source, "private async Task AuthorizeIncomingOfferAsync(");
         var snapshot = RequiredIndex(source, "var snapshot = await _lobby.GetAsync(offer.World.Id);", authorize);
         var confirmed = RequiredIndex(source, "!snapshot.OwnerConfirmed", snapshot);
-        var remoteHost = RequiredIndex(source, "!SameSteamUser(snapshot.Owner, context.RemoteSteamId)", confirmed);
-        var handoffPurpose = RequiredIndex(source, "case TransferPurpose.HandoffRevision:", remoteHost);
+        var liveGeneration = RequiredIndex(source, "snapshot.AuthorityGeneration == 0", confirmed);
+        var remoteHost = RequiredIndex(source, "!SameSteamUser(snapshot.Owner, context.RemoteSteamId)", liveGeneration);
+        var authority = RequiredIndex(source, "var authority = offer.World.PeerAuthority", remoteHost);
+        var authorityGeneration = RequiredIndex(source, "authority.Generation == 0", authority);
+        var authorityMember = RequiredIndex(source, "SameUser(member, authority.Holder)", authorityGeneration);
+
+        Assert.True(snapshot < confirmed);
+        Assert.True(confirmed < liveGeneration);
+        Assert.True(liveGeneration < remoteHost);
+        Assert.True(remoteHost < authority);
+        Assert.True(authority < authorityGeneration);
+        Assert.True(authorityGeneration < authorityMember);
+    }
+
+    [Fact]
+    public void IncomingHandoffMustMatchRequestedLocalHolderAtExactlyNextGenerationBeforeReady()
+    {
+        var source = ReadExchange();
+        var handoffPurpose = RequiredIndex(source, "case TransferPurpose.HandoffRevision:");
         var requested = RequiredIndex(source, "snapshot.RequestedHost is null", handoffPurpose);
         var localTarget = RequiredIndex(
             source,
             "snapshot.RequestedHost,\n                            _platform.LocalSteamId.m_SteamID",
             requested);
-        var ready = RequiredIndex(source, "MessageKind.Ready", localTarget);
+        var nextGeneration = RequiredIndex(
+            source,
+            "authority.Generation != snapshot.AuthorityGeneration + 1",
+            localTarget);
+        var authorityLocal = RequiredIndex(
+            source,
+            "SameSteamUser(authority.Holder, _platform.LocalSteamId.m_SteamID)",
+            nextGeneration);
+        var sameRequested = RequiredIndex(
+            source,
+            "SameUser(authority.Holder, snapshot.RequestedHost)",
+            authorityLocal);
+        var ready = RequiredIndex(source, "MessageKind.Ready", sameRequested);
 
-        Assert.True(snapshot < confirmed);
-        Assert.True(confirmed < remoteHost);
-        Assert.True(remoteHost < handoffPurpose);
         Assert.True(handoffPurpose < requested);
         Assert.True(requested < localTarget);
-        Assert.True(localTarget < ready);
+        Assert.True(localTarget < nextGeneration);
+        Assert.True(nextGeneration < authorityLocal);
+        Assert.True(authorityLocal < sameRequested);
+        Assert.True(sameRequested < ready);
     }
 
-    [Fact]
-    public void BootstrapRequiresConfirmedHostNoHandoffAndCanonicalLocalMembership()
+    [Theory]
+    [InlineData("Bootstrap")]
+    [InlineData("ObserverSync")]
+    public void BootstrapAndObserverRequireCurrentAuthorityNoHandoffAndCanonicalLocalMembership(
+        string purpose)
     {
         var source = ReadExchange();
-        var bootstrap = RequiredIndex(source, "case TransferPurpose.Bootstrap:");
-        var noHandoff = RequiredIndex(source, "if (snapshot.RequestedHost is not null)", bootstrap);
+        var purposeCase = RequiredIndex(source, $"case TransferPurpose.{purpose}:");
+        var authorityCheck = RequiredIndex(
+            source,
+            "EnsureCurrentAuthorityOffer(snapshot, authority",
+            purposeCase);
+        var admissionCheck = RequiredIndex(
+            source,
+            "EnsureObserverAdmission(snapshot, offer",
+            authorityCheck);
+        var currentAuthorityMethod = RequiredIndex(
+            source,
+            "private void EnsureCurrentAuthorityOffer(",
+            admissionCheck);
+        var exactGeneration = RequiredIndex(
+            source,
+            "authority.Generation != snapshot.AuthorityGeneration",
+            currentAuthorityMethod);
+        var exactHolder = RequiredIndex(
+            source,
+            "!SameUser(authority.Holder, snapshot.Owner)",
+            exactGeneration);
+        var admissionMethod = RequiredIndex(
+            source,
+            "private void EnsureObserverAdmission(",
+            exactHolder);
+        var noHandoff = RequiredIndex(source, "if (snapshot.RequestedHost is not null)", admissionMethod);
         var membership = RequiredIndex(
             source,
             "offer.World.Members.Any(member =>",
             noHandoff);
-        var stableSteamIdentity = RequiredIndex(
+        var localIdentity = RequiredIndex(
             source,
             "SameSteamUser(member, _platform.LocalSteamId.m_SteamID)",
             membership);
-        var ready = RequiredIndex(source, "MessageKind.Ready", stableSteamIdentity);
 
-        Assert.True(bootstrap < noHandoff);
+        Assert.True(purposeCase < authorityCheck);
+        Assert.True(authorityCheck < admissionCheck);
+        Assert.True(currentAuthorityMethod < exactGeneration);
+        Assert.True(exactGeneration < exactHolder);
+        Assert.True(admissionMethod < noHandoff);
         Assert.True(noHandoff < membership);
-        Assert.True(membership < stableSteamIdentity);
-        Assert.True(stableSteamIdentity < ready);
+        Assert.True(membership < localIdentity);
+    }
+
+    [Fact]
+    public void ObserverInstallerIsRequiredBySocketEngineConstruction()
+    {
+        var source = ReadExchange();
+        var constructor = RequiredIndex(source, "public SteamPeerWorldRevisionExchange(");
+        var parameter = RequiredIndex(
+            source,
+            "PeerWorldObserverSyncInstaller observerSyncInstaller",
+            constructor);
+        var nullGuard = RequiredIndex(
+            source,
+            "ArgumentNullException.ThrowIfNull(observerSyncInstaller);",
+            parameter);
+        var assignment = RequiredIndex(
+            source,
+            "_observerSyncInstaller = observerSyncInstaller;",
+            nullGuard);
+
+        Assert.True(constructor < parameter);
+        Assert.True(parameter < nullGuard);
+        Assert.True(nullGuard < assignment);
     }
 
     [Fact]
@@ -130,7 +215,7 @@ public sealed class SteamPeerWorldRevisionExchangeCompositionTests
     }
 
     [Fact]
-    public void ControlMessagesAreBoundToOneProtocolAndTransferId()
+    public void ControlMessagesAreBoundToOneProtocolTransferIdAndKnownPurpose()
     {
         var source = ReadExchange();
 
@@ -138,6 +223,7 @@ public sealed class SteamPeerWorldRevisionExchangeCompositionTests
         Assert.Contains("actualTransferId != expectedTransferId", source, StringComparison.Ordinal);
         Assert.Contains("protocolVersion != ProtocolVersion", source, StringComparison.Ordinal);
         Assert.Contains("!Enum.IsDefined(envelope.Purpose)", source, StringComparison.Ordinal);
+        Assert.Contains("ObserverSync = 3", source, StringComparison.Ordinal);
         Assert.Contains("MessageKind.Receipt", source, StringComparison.Ordinal);
         Assert.Contains("MessageKind.Reject", source, StringComparison.Ordinal);
     }

@@ -33,6 +33,11 @@ public sealed record LegacySharedWorldAuthorityRetirementResult(
 /// </summary>
 public interface ILegacySharedWorldAuthorityRetirementStore
 {
+    Task<LegacySharedWorldAuthorityRetirementResult?> GetAsync(
+        ExternalIdentityRef caller,
+        WorldId worldId,
+        CancellationToken cancellationToken = default);
+
     Task<LegacySharedWorldAuthorityRetirementResult> RetireAsync(
         ExternalIdentityRef caller,
         WorldId worldId,
@@ -60,6 +65,15 @@ public sealed class LegacySharedWorldAuthorityRetirementService
         _store = store;
         _serverNow = serverNow;
         _options = options ?? SharedWorldAuthorityOptions.FirstReleaseDefaults;
+    }
+
+    public Task<LegacySharedWorldAuthorityRetirementResult?> GetAsync(
+        VerifiedExternalIdentity caller,
+        WorldId worldId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        return _store.GetAsync(caller.Subject, worldId, cancellationToken);
     }
 
     public Task<LegacySharedWorldAuthorityRetirementResult> RetireAsync(

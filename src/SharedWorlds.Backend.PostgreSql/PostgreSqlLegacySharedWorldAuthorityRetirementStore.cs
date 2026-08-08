@@ -317,7 +317,7 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
         command.Parameters.AddWithValue(
             "environment_revision_id",
             retirement.EnvironmentRevisionId is { } environment
-                ? environment.Value
+                ? (object)environment.Value
                 : DBNull.Value);
         command.Parameters.AddWithValue("retired_at", retirement.RetiredAt);
         await command.ExecuteNonQueryAsync(cancellationToken);

@@ -155,6 +155,85 @@ public sealed class WorldLifecycleServiceTests : IDisposable
         Assert.Equal(1, adapter.HostLaunchCount);
         Assert.Equal(1, sessions.AcquireCount);
         Assert.Equal(1, sessions.ReleaseCount);
+        Assert.Equal(0, sessions.CompleteHandoffCount);
+    }
+
+    [Fact]
+    public async Task HostHandoff_CompletesWithExactCommittedRevision_WithoutReleasingOldHost()
+    {
+        var storage = new InMemoryWorldStorage();
+        var sessions = new RecordingSessionCoordinator();
+        var recovery = new RecordingWorkspaceRecoveryStore();
+        var adapter = new FakeGameAdapter(_root) { HoldHostedSessionOpen = true };
+        var user = TestUser();
+        var nextHost = new UserIdentity("local", "next-host", "Next Host");
+        var world = SeedPlayableWorld(storage, adapter, user, WorldSharingMode.Shared);
+        var lifecycle = new WorldLifecycleService(storage, sessions, recovery);
+
+        var hosting = lifecycle.ContinueAsHostAsync(
+            world.Id,
+            adapter,
+            adapter.Installation,
+            user);
+        await adapter.HostStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var requested = await lifecycle.RequestHostHandoffAsync(world.Id, nextHost);
+        var updated = await hosting;
+
+        Assert.True(requested);
+        Assert.Equal(1, sessions.RequestHandoffCount);
+        Assert.Equal(1, adapter.HostStopCount);
+        Assert.Equal(1, sessions.CompleteHandoffCount);
+        Assert.Equal(0, sessions.ReleaseCount);
+        Assert.Equal(updated.CurrentStateRevisionId, sessions.LastCompletedRevision);
+        Assert.Equal(nextHost, sessions.CurrentHost);
+        Assert.Equal(SessionState.Hosting, sessions.State);
+    }
+
+    [Fact]
+    public async Task HostHandoff_DoesNotTransferOrRelease_WhenFinalCommitFails()
+    {
+        var storage = new InMemoryWorldStorage { FailStoreRevision = true };
+        var sessions = new RecordingSessionCoordinator();
+        var recovery = new RecordingWorkspaceRecoveryStore();
+        var adapter = new FakeGameAdapter(_root) { HoldHostedSessionOpen = true };
+        var user = TestUser();
+        var nextHost = new UserIdentity("local", "next-host", "Next Host");
+        var world = SeedPlayableWorld(storage, adapter, user, WorldSharingMode.Shared);
+        var originalHead = world.CurrentStateRevisionId;
+        var lifecycle = new WorldLifecycleService(storage, sessions, recovery);
+
+        var hosting = lifecycle.ContinueAsHostAsync(
+            world.Id,
+            adapter,
+            adapter.Installation,
+            user);
+        await adapter.HostStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(await lifecycle.RequestHostHandoffAsync(world.Id, nextHost));
+        await Assert.ThrowsAsync<IOException>(async () => await hosting);
+
+        Assert.Equal(1, sessions.RequestHandoffCount);
+        Assert.Equal(0, sessions.CompleteHandoffCount);
+        Assert.Equal(0, sessions.ReleaseCount);
+        Assert.Equal(SessionState.HandoffRequested, sessions.State);
+        Assert.Equal(user, sessions.CurrentHost);
+        Assert.Equal(originalHead, storage.Worlds[world.Id].CurrentStateRevisionId);
+    }
+
+    [Fact]
+    public async Task RequestHostHandoff_ReturnsFalse_WhenWorldIsNotActivelyHosted()
+    {
+        var lifecycle = new WorldLifecycleService(
+            new InMemoryWorldStorage(),
+            new RecordingSessionCoordinator(),
+            new RecordingWorkspaceRecoveryStore());
+
+        var requested = await lifecycle.RequestHostHandoffAsync(
+            WorldId.New(),
+            new UserIdentity("local", "next-host", "Next Host"));
+
+        Assert.False(requested);
     }
 
     [Fact]
@@ -287,6 +366,8 @@ public sealed class WorldLifecycleServiceTests : IDisposable
     private sealed class FakeGameAdapter : IGameAdapter
     {
         private readonly string _root;
+        private readonly TaskCompletionSource<bool> _hostSessionEnded = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
         public FakeGameAdapter(string root)
         {
@@ -312,13 +393,18 @@ public sealed class WorldLifecycleServiceTests : IDisposable
         public string DisplayName => "Fake Game";
         public GameAdapterCapabilities Capabilities =>
             GameAdapterCapabilities.AutomaticLocalLaunch |
-            GameAdapterCapabilities.AutomaticHostLaunch;
+            GameAdapterCapabilities.AutomaticHostLaunch |
+            GameAdapterCapabilities.AutomaticHostStop;
         public GameInstallation Installation { get; }
         public DetectedWorld DetectedWorld { get; }
         public EnvironmentManifest Manifest { get; }
         public bool PrepareCalled { get; private set; }
+        public bool HoldHostedSessionOpen { get; set; }
+        public TaskCompletionSource<bool> HostStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         public int LocalLaunchCount { get; private set; }
         public int HostLaunchCount { get; private set; }
+        public int HostStopCount { get; private set; }
         public string? LastCapturedPackagePath { get; private set; }
         public string? LastPreparedWorkspacePath { get; private set; }
         public PreparedWorldDisposition? LastFinalizationDisposition { get; private set; }
@@ -389,6 +475,7 @@ public sealed class WorldLifecycleServiceTests : IDisposable
             CancellationToken cancellationToken = default)
         {
             HostLaunchCount++;
+            HostStarted.TrySetResult(true);
             return Task.FromResult(new GameSessionHandle(12345, DateTimeOffset.UtcNow));
         }
 
@@ -398,10 +485,27 @@ public sealed class WorldLifecycleServiceTests : IDisposable
             CancellationToken cancellationToken = default)
             => Task.FromResult(new GameSessionHandle(12345, DateTimeOffset.UtcNow));
 
-        public Task WaitForSessionEndAsync(
+        public Task RequestHostStopAsync(
             GameSessionHandle session,
             CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            HostStopCount++;
+            _hostSessionEnded.TrySetResult(true);
+            return Task.CompletedTask;
+        }
+
+        public async Task WaitForSessionEndAsync(
+            GameSessionHandle session,
+            CancellationToken cancellationToken = default)
+        {
+            if (!HoldHostedSessionOpen)
+            {
+                return;
+            }
+
+            await _hostSessionEnded.Task.WaitAsync(cancellationToken);
+        }
 
         public Task FinalizePreparedWorldAsync(
             PreparedWorld world,
@@ -432,17 +536,26 @@ public sealed class WorldLifecycleServiceTests : IDisposable
 
     private sealed class RecordingSessionCoordinator : IWorldSessionCoordinator
     {
+        private WorldSession? _session;
+
         public int AcquireCount { get; private set; }
+        public int RequestHandoffCount { get; private set; }
+        public int CompleteHandoffCount { get; private set; }
         public int ReleaseCount { get; private set; }
+        public RevisionId? LastCompletedRevision { get; private set; }
+        public UserIdentity? CurrentHost => _session?.ActiveHost;
+        public SessionState State => _session?.State ?? SessionState.Available;
 
         public Task<WorldSession> GetSessionAsync(
             WorldId worldId,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(new WorldSession(
-                worldId,
-                SessionState.Available,
-                null,
-                DateTimeOffset.UtcNow));
+            => Task.FromResult(_session is { } current && current.WorldId == worldId
+                ? current
+                : new WorldSession(
+                    worldId,
+                    SessionState.Available,
+                    null,
+                    DateTimeOffset.UtcNow));
 
         public Task<WorldSession> AcquireHostAsync(
             WorldId worldId,
@@ -450,25 +563,45 @@ public sealed class WorldLifecycleServiceTests : IDisposable
             CancellationToken cancellationToken = default)
         {
             AcquireCount++;
-            return Task.FromResult(new WorldSession(
+            _session = new WorldSession(
                 worldId,
                 SessionState.Hosting,
                 user,
-                DateTimeOffset.UtcNow));
+                DateTimeOffset.UtcNow);
+            return Task.FromResult(_session);
         }
 
         public Task RequestHandoffAsync(
             WorldId worldId,
             UserIdentity requestedHost,
             CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+        {
+            RequestHandoffCount++;
+            var current = _session ?? throw new InvalidOperationException("No active test host.");
+            _session = current with
+            {
+                State = SessionState.HandoffRequested,
+                RequestedHost = requestedHost,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+            return Task.CompletedTask;
+        }
 
         public Task CompleteHandoffAsync(
             WorldId worldId,
             UserIdentity newHost,
             RevisionId committedRevision,
             CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+        {
+            CompleteHandoffCount++;
+            LastCompletedRevision = committedRevision;
+            _session = new WorldSession(
+                worldId,
+                SessionState.Hosting,
+                newHost,
+                DateTimeOffset.UtcNow);
+            return Task.CompletedTask;
+        }
 
         public Task ReleaseHostAsync(
             WorldId worldId,
@@ -476,6 +609,11 @@ public sealed class WorldLifecycleServiceTests : IDisposable
             CancellationToken cancellationToken = default)
         {
             ReleaseCount++;
+            _session = new WorldSession(
+                worldId,
+                SessionState.Available,
+                null,
+                DateTimeOffset.UtcNow);
             return Task.CompletedTask;
         }
     }

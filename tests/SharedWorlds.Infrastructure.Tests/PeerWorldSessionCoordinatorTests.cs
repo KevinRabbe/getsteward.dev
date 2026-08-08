@@ -29,9 +29,35 @@ public sealed class PeerWorldSessionCoordinatorTests
         Assert.Equal(SessionState.Hosting, hosted.State);
         Assert.Equal(holder, hosted.ActiveHost);
         Assert.Equal(1, lobby.CreateOrGetCount);
+        var live = await lobby.GetAsync(worldId);
+        Assert.NotNull(live);
+        Assert.Equal((ulong)1, live.AuthorityGeneration);
         await Assert.ThrowsAsync<WorldSessionConflictException>(
             () => memberCoordinator.AcquireHostAsync(worldId, member));
         Assert.Equal(1, lobby.CreateOrGetCount);
+    }
+
+    [Fact]
+    public async Task AcquireHost_RejectsLegacyZeroGenerationLobbyEvenWhenOwnerIsConfirmed()
+    {
+        var lobby = new InMemoryPeerWorldLobby { ForceLegacyZeroGeneration = true };
+        var storage = new InMemoryWorldStorage();
+        var fences = new InMemoryAuthorityFenceStore();
+        var worldId = WorldId.New();
+        var holder = new UserIdentity("steam", "holder");
+        var stateId = SeedWorld(storage, worldId, holder, [holder]);
+        SeedFence(fences, worldId, holder, 1, stateId, PeerAuthorityFenceState.Active);
+        var coordinator = Coordinator(lobby, storage, fences, holder);
+
+        await Assert.ThrowsAsync<WorldSessionConflictException>(
+            () => coordinator.AcquireHostAsync(worldId, holder));
+
+        var live = await lobby.GetAsync(worldId);
+        Assert.NotNull(live);
+        Assert.True(live.OwnerConfirmed);
+        Assert.Equal((ulong)0, live.AuthorityGeneration);
+        var session = await coordinator.GetSessionAsync(worldId);
+        Assert.Equal(SessionState.RecoveryPending, session.State);
     }
 
     [Fact]
@@ -169,6 +195,9 @@ public sealed class PeerWorldSessionCoordinatorTests
         Assert.Equal(PeerAuthorityFenceState.Active, targetFence.State);
         Assert.Equal((ulong)2, targetFence.Generation);
 
+        var live = await lobby.GetAsync(worldId);
+        Assert.NotNull(live);
+        Assert.Equal((ulong)2, live.AuthorityGeneration);
         var hostedByTarget = await targetCoordinator.GetSessionAsync(worldId);
         Assert.Equal(SessionState.Hosting, hostedByTarget.State);
         Assert.Equal(target.ExternalId, hostedByTarget.ActiveHost?.ExternalId);
@@ -278,6 +307,7 @@ public sealed class PeerWorldSessionCoordinatorTests
         Assert.NotNull(observedLobby);
         Assert.False(observedLobby.OwnerConfirmed);
         Assert.Equal(source.ExternalId, observedLobby.Owner.ExternalId);
+        Assert.Equal((ulong)2, observedLobby.AuthorityGeneration);
     }
 
     [Fact]
@@ -343,6 +373,7 @@ public sealed class PeerWorldSessionCoordinatorTests
         Assert.NotNull(current);
         Assert.False(current.OwnerConfirmed);
         Assert.Equal(third.ExternalId, current.Owner.ExternalId);
+        Assert.Equal((ulong)1, current.AuthorityGeneration);
     }
 
     [Fact]
@@ -526,6 +557,7 @@ public sealed class PeerWorldSessionCoordinatorTests
         public int CreateOrGetCount { get; private set; }
         public int TransferOwnershipCount { get; private set; }
         public bool FailTransfer { get; init; }
+        public bool ForceLegacyZeroGeneration { get; init; }
 
         public Task<PeerWorldLobbySnapshot?> GetAsync(
             WorldId worldId,
@@ -557,6 +589,7 @@ public sealed class PeerWorldSessionCoordinatorTests
                     worldId,
                     proposedOwner,
                     OwnerConfirmed: true,
+                    AuthorityGeneration: ForceLegacyZeroGeneration ? 0UL : 1UL,
                     RequestedHost: null,
                     LastCommittedRevision: null,
                     UpdatedAt: DateTimeOffset.UtcNow);
@@ -604,15 +637,17 @@ public sealed class PeerWorldSessionCoordinatorTests
                         "The requested host changed before transfer.");
                 }
 
+                var nextGeneration = checked(current.AuthorityGeneration + 1);
                 TransferOwnershipCount++;
                 if (FailTransfer)
                 {
-                    // Mirrors the real Steam adapter's fail-closed contract after durable authority
-                    // has already moved: live platform ownership remains old, but confirmation is
-                    // deliberately broken so nobody may continue writing from this lobby.
+                    // Mirrors the generation-aware Steam adapter's fail-closed contract after durable
+                    // authority has already moved: live platform ownership remains old, but generation
+                    // advances and confirmation breaks so nobody may continue writing from this lobby.
                     _worlds[worldId] = current with
                     {
                         OwnerConfirmed = false,
+                        AuthorityGeneration = nextGeneration,
                         RequestedHost = null,
                         LastCommittedRevision = committedRevision,
                         UpdatedAt = DateTimeOffset.UtcNow
@@ -624,6 +659,7 @@ public sealed class PeerWorldSessionCoordinatorTests
                 {
                     Owner = newOwner,
                     OwnerConfirmed = true,
+                    AuthorityGeneration = nextGeneration,
                     RequestedHost = null,
                     LastCommittedRevision = committedRevision,
                     UpdatedAt = DateTimeOffset.UtcNow

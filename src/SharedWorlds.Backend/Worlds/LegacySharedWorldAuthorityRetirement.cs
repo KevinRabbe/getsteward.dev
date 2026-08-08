@@ -6,14 +6,15 @@ namespace SharedWorlds.Backend.Worlds;
 /// <summary>
 /// Terminal result for the one-way cutover from the legacy Backend.Api reservation authority to
 /// peer authority. Retirement never grants peer authority itself; it only proves that Backend.Api
-/// can no longer issue or preserve a legacy writable reservation for this World.
+/// can no longer issue or preserve legacy authorization or writable reservation state for this World.
 /// </summary>
 public enum LegacySharedWorldAuthorityRetirementStatus
 {
     Retired = 0,
     AlreadyRetired = 1,
     NotFoundOrUnauthorized = 2,
-    ReservationMismatch = 3
+    ReservationMismatch = 3,
+    AccessStateNotReady = 4
 }
 
 public sealed record LegacySharedWorldAuthorityRetirementResult(
@@ -25,13 +26,14 @@ public sealed record LegacySharedWorldAuthorityRetirementResult(
     long? RetiredGeneration,
     RevisionId? RetiredStateRevisionId,
     RevisionId? RetiredEnvironmentRevisionId,
+    string? RetiredActiveMembersFingerprint,
     DateTimeOffset? RetiredAt);
 
 /// <summary>
-/// Durable persistence boundary for permanently disabling the old shared-World reservation writer.
-/// Implementations must serialize retirement against the same World row used by legacy acquire and
-/// commit, and retirement must be idempotent only for the exact holder/installation/session/generation
-/// that performed the original transition.
+/// Durable persistence boundary for permanently disabling the old shared-World authority plane.
+/// Implementations must serialize retirement against the same World row used by legacy acquire,
+/// commit, and access mutations. Retirement is idempotent only for the exact original holder and
+/// reservation tuple, and it may proceed only after transient legacy access state is resolved.
 /// </summary>
 public interface ILegacySharedWorldAuthorityRetirementStore
 {

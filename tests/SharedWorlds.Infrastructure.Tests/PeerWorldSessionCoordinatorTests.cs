@@ -53,7 +53,28 @@ public sealed class PeerWorldSessionCoordinatorTests
 
         var lobbyState = await lobby.GetAsync(worldId);
         Assert.NotNull(lobbyState);
+        Assert.True(lobbyState.OwnerConfirmed);
         Assert.Equal(committedRevision, lobbyState.LastCommittedRevision);
+    }
+
+    [Fact]
+    public async Task AutomaticPlatformOwnerChange_IsRecoveryPendingUntilStewardConfirmsIt()
+    {
+        var lobby = new InMemoryPeerWorldLobby();
+        var worldId = WorldId.New();
+        var first = new UserIdentity("steam", "first");
+        var second = new UserIdentity("steam", "second");
+        var firstCoordinator = new PeerWorldSessionCoordinator(lobby, first);
+        var secondCoordinator = new PeerWorldSessionCoordinator(lobby, second);
+
+        await firstCoordinator.AcquireHostAsync(worldId, first);
+        lobby.SimulateAutomaticOwnerChange(worldId, second);
+
+        var observed = await secondCoordinator.GetSessionAsync(worldId);
+        Assert.Equal(SessionState.RecoveryPending, observed.State);
+        Assert.Equal(second, observed.ActiveHost);
+        await Assert.ThrowsAsync<WorldSessionConflictException>(
+            () => secondCoordinator.AcquireHostAsync(worldId, second));
     }
 
     [Fact]
@@ -122,9 +143,10 @@ public sealed class PeerWorldSessionCoordinatorTests
                 var created = new PeerWorldLobbySnapshot(
                     worldId,
                     proposedOwner,
+                    OwnerConfirmed: true,
                     RequestedHost: null,
                     LastCommittedRevision: null,
-                    DateTimeOffset.UtcNow);
+                    UpdatedAt: DateTimeOffset.UtcNow);
                 _worlds.Add(worldId, created);
                 return Task.FromResult(created);
             }
@@ -169,6 +191,7 @@ public sealed class PeerWorldSessionCoordinatorTests
                 var updated = current with
                 {
                     Owner = newOwner,
+                    OwnerConfirmed = true,
                     RequestedHost = null,
                     LastCommittedRevision = committedRevision,
                     UpdatedAt = DateTimeOffset.UtcNow
@@ -192,9 +215,26 @@ public sealed class PeerWorldSessionCoordinatorTests
             }
         }
 
+        public void SimulateAutomaticOwnerChange(WorldId worldId, UserIdentity newOwner)
+        {
+            lock (_gate)
+            {
+                var current = _worlds[worldId];
+                _worlds[worldId] = current with
+                {
+                    Owner = newOwner,
+                    OwnerConfirmed = false,
+                    RequestedHost = null,
+                    UpdatedAt = DateTimeOffset.UtcNow
+                };
+            }
+        }
+
         private PeerWorldLobbySnapshot RequireOwned(WorldId worldId, UserIdentity expectedOwner)
         {
-            if (!_worlds.TryGetValue(worldId, out var current) || current.Owner != expectedOwner)
+            if (!_worlds.TryGetValue(worldId, out var current) ||
+                current.Owner != expectedOwner ||
+                !current.OwnerConfirmed)
             {
                 throw new WorldSessionConflictException(worldId, "The expected peer-lobby owner is no longer current.");
             }

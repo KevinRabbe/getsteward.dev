@@ -13,10 +13,12 @@ public sealed class PeerWorldRevisionReplicationTests : IDisposable
         $"steward-peer-replication-{Guid.NewGuid():N}");
 
     [Fact]
-    public async Task Transfer_ReplicatesExactCommittedDelta_AndAdvancesTargetHeadLast()
+    public async Task Transfer_ReplicatesExactCommittedDelta_AndAdvancesAuthorityOneGeneration()
     {
         var fixture = await CreateFixtureAsync();
-        var installer = new PeerWorldRevisionReplicaInstaller(fixture.Target);
+        var installer = new PeerWorldRevisionReplicaInstaller(
+            fixture.Target,
+            fixture.TargetUser);
         var exchange = new DirectExchange(installer);
         var transfer = new PeerWorldRevisionTransferService(fixture.Source, exchange);
 
@@ -28,6 +30,14 @@ public sealed class PeerWorldRevisionReplicationTests : IDisposable
         var targetWorld = await fixture.Target.LoadWorldAsync(fixture.World.Id);
         Assert.NotNull(targetWorld);
         Assert.Equal(fixture.CommittedRevision.Id, targetWorld.CurrentStateRevisionId);
+        Assert.NotNull(targetWorld.PeerAuthority);
+        Assert.Equal((ulong)2, targetWorld.PeerAuthority.Generation);
+        Assert.Equal(fixture.TargetUser.ExternalId, targetWorld.PeerAuthority.Holder.ExternalId);
+
+        var sourceWorld = await fixture.Source.LoadWorldAsync(fixture.World.Id);
+        Assert.NotNull(sourceWorld?.PeerAuthority);
+        Assert.Equal((ulong)1, sourceWorld.PeerAuthority.Generation);
+        Assert.Equal(fixture.SourceUser.ExternalId, sourceWorld.PeerAuthority.Holder.ExternalId);
 
         var targetRevision = await fixture.Target.LoadStateRevisionAsync(
             fixture.World.Id,
@@ -43,10 +53,12 @@ public sealed class PeerWorldRevisionReplicationTests : IDisposable
     }
 
     [Fact]
-    public async Task Transfer_IsIdempotent_WhenTargetAlreadyHasExactCommittedRevision()
+    public async Task Transfer_IsIdempotent_WhenTargetAlreadyHasExactGenerationAndRevision()
     {
         var fixture = await CreateFixtureAsync();
-        var installer = new PeerWorldRevisionReplicaInstaller(fixture.Target);
+        var installer = new PeerWorldRevisionReplicaInstaller(
+            fixture.Target,
+            fixture.TargetUser);
         var exchange = new DirectExchange(installer);
         var transfer = new PeerWorldRevisionTransferService(fixture.Source, exchange);
 
@@ -60,8 +72,9 @@ public sealed class PeerWorldRevisionReplicationTests : IDisposable
             fixture.TargetUser);
 
         var targetWorld = await fixture.Target.LoadWorldAsync(fixture.World.Id);
-        Assert.NotNull(targetWorld);
+        Assert.NotNull(targetWorld?.PeerAuthority);
         Assert.Equal(fixture.CommittedRevision.Id, targetWorld.CurrentStateRevisionId);
+        Assert.Equal((ulong)2, targetWorld.PeerAuthority.Generation);
         Assert.Equal(2, exchange.TransferCount);
     }
 
@@ -69,7 +82,9 @@ public sealed class PeerWorldRevisionReplicationTests : IDisposable
     public async Task Transfer_RejectsTargetWithoutActiveWorldBase()
     {
         var fixture = await CreateFixtureAsync(seedTargetBase: false);
-        var installer = new PeerWorldRevisionReplicaInstaller(fixture.Target);
+        var installer = new PeerWorldRevisionReplicaInstaller(
+            fixture.Target,
+            fixture.TargetUser);
         var transfer = new PeerWorldRevisionTransferService(
             fixture.Source,
             new DirectExchange(installer));
@@ -86,10 +101,12 @@ public sealed class PeerWorldRevisionReplicationTests : IDisposable
     }
 
     [Fact]
-    public async Task Transfer_RejectsCorruptedNetworkPayload_WithoutAdvancingTargetHead()
+    public async Task Transfer_RejectsCorruptedNetworkPayload_WithoutAdvancingHeadOrAuthority()
     {
         var fixture = await CreateFixtureAsync();
-        var installer = new PeerWorldRevisionReplicaInstaller(fixture.Target);
+        var installer = new PeerWorldRevisionReplicaInstaller(
+            fixture.Target,
+            fixture.TargetUser);
         var transfer = new PeerWorldRevisionTransferService(
             fixture.Source,
             new CorruptingExchange(installer));
@@ -100,8 +117,10 @@ public sealed class PeerWorldRevisionReplicationTests : IDisposable
             fixture.TargetUser));
 
         var targetWorld = await fixture.Target.LoadWorldAsync(fixture.World.Id);
-        Assert.NotNull(targetWorld);
+        Assert.NotNull(targetWorld?.PeerAuthority);
         Assert.Equal(fixture.BaseRevision.Id, targetWorld.CurrentStateRevisionId);
+        Assert.Equal((ulong)1, targetWorld.PeerAuthority.Generation);
+        Assert.Equal(fixture.SourceUser.ExternalId, targetWorld.PeerAuthority.Holder.ExternalId);
         Assert.Null(await fixture.Target.LoadStateRevisionAsync(
             fixture.World.Id,
             fixture.CommittedRevision.Id));
@@ -133,7 +152,9 @@ public sealed class PeerWorldRevisionReplicationTests : IDisposable
 
         var transfer = new PeerWorldRevisionTransferService(
             fixture.Source,
-            new DirectExchange(new PeerWorldRevisionReplicaInstaller(fixture.Target)));
+            new DirectExchange(new PeerWorldRevisionReplicaInstaller(
+                fixture.Target,
+                fixture.TargetUser)));
 
         await Assert.ThrowsAsync<InvalidDataException>(() => transfer.EnsureAvailableAsync(
             fixture.World.Id,
@@ -142,6 +163,30 @@ public sealed class PeerWorldRevisionReplicationTests : IDisposable
 
         var unchanged = await fixture.Target.LoadWorldAsync(fixture.World.Id);
         Assert.Equal(divergent.Id, unchanged!.CurrentStateRevisionId);
+        Assert.Equal((ulong)1, unchanged.PeerAuthority!.Generation);
+    }
+
+    [Fact]
+    public async Task ReceiverRejectsAuthorityGenerationThatSkipsAhead()
+    {
+        var fixture = await CreateFixtureAsync();
+        var transfer = new PeerWorldRevisionTransferService(
+            fixture.Source,
+            new MutatingAuthorityExchange(
+                new PeerWorldRevisionReplicaInstaller(
+                    fixture.Target,
+                    fixture.TargetUser),
+                generation: 3));
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => transfer.EnsureAvailableAsync(
+            fixture.World.Id,
+            fixture.CommittedRevision.Id,
+            fixture.TargetUser));
+
+        var unchanged = await fixture.Target.LoadWorldAsync(fixture.World.Id);
+        Assert.NotNull(unchanged?.PeerAuthority);
+        Assert.Equal((ulong)1, unchanged.PeerAuthority.Generation);
+        Assert.Equal(fixture.BaseRevision.Id, unchanged.CurrentStateRevisionId);
     }
 
     [Fact]
@@ -208,7 +253,8 @@ public sealed class PeerWorldRevisionReplicationTests : IDisposable
             environmentId,
             baseRevisionId)
         {
-            SharingMode = WorldSharingMode.Shared
+            SharingMode = WorldSharingMode.Shared,
+            PeerAuthority = new WorldPeerAuthority(sourceUser, 1)
         };
         var committedWorld = baseWorld with
         {
@@ -236,6 +282,7 @@ public sealed class PeerWorldRevisionReplicationTests : IDisposable
             environment,
             baseRevision,
             committedRevision,
+            sourceUser,
             targetUser);
     }
 
@@ -274,6 +321,7 @@ public sealed class PeerWorldRevisionReplicationTests : IDisposable
         EnvironmentRevision EnvironmentRevision,
         StateRevision BaseRevision,
         StateRevision CommittedRevision,
+        UserIdentity SourceUser,
         UserIdentity TargetUser);
 
     private sealed class DirectExchange : IPeerWorldRevisionExchange
@@ -292,7 +340,10 @@ public sealed class PeerWorldRevisionReplicationTests : IDisposable
             CancellationToken cancellationToken = default)
         {
             TransferCount++;
-            return await _installer.InstallAsync(offer, statePayload, cancellationToken);
+            return await _installer.InstallAsync(
+                offer,
+                statePayload,
+                cancellationToken);
         }
     }
 
@@ -314,7 +365,45 @@ public sealed class PeerWorldRevisionReplicationTests : IDisposable
             var bytes = memory.ToArray();
             bytes[0] ^= 0x5A;
             await using var corrupted = new MemoryStream(bytes, writable: false);
-            return await _installer.InstallAsync(offer, corrupted, cancellationToken);
+            return await _installer.InstallAsync(
+                offer,
+                corrupted,
+                cancellationToken);
+        }
+    }
+
+    private sealed class MutatingAuthorityExchange : IPeerWorldRevisionExchange
+    {
+        private readonly PeerWorldRevisionReplicaInstaller _installer;
+        private readonly ulong _generation;
+
+        public MutatingAuthorityExchange(
+            PeerWorldRevisionReplicaInstaller installer,
+            ulong generation)
+        {
+            _installer = installer;
+            _generation = generation;
+        }
+
+        public Task<PeerWorldRevisionReceipt> TransferAsync(
+            UserIdentity targetHost,
+            PeerWorldRevisionOffer offer,
+            Stream statePayload,
+            CancellationToken cancellationToken = default)
+        {
+            var mutated = offer with
+            {
+                World = offer.World with
+                {
+                    PeerAuthority = new WorldPeerAuthority(
+                        targetHost,
+                        _generation)
+                }
+            };
+            return _installer.InstallAsync(
+                mutated,
+                statePayload,
+                cancellationToken);
         }
     }
 

@@ -31,9 +31,14 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         }
 
         EnsureWorld(snapshot, worldId);
+        var state = !snapshot.OwnerConfirmed
+            ? SessionState.RecoveryPending
+            : snapshot.RequestedHost is null
+                ? SessionState.Hosting
+                : SessionState.HandoffRequested;
         return new WorldSession(
             worldId,
-            snapshot.RequestedHost is null ? SessionState.Hosting : SessionState.HandoffRequested,
+            state,
             snapshot.Owner,
             snapshot.UpdatedAt,
             snapshot.RequestedHost);
@@ -49,6 +54,13 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
 
         var snapshot = await _lobby.CreateOrGetAsync(worldId, user, cancellationToken);
         EnsureWorld(snapshot, worldId);
+        if (!snapshot.OwnerConfirmed)
+        {
+            throw new WorldSessionConflictException(
+                worldId,
+                "The platform selected a lobby owner that Steward has not confirmed against a valid World revision.");
+        }
+
         if (snapshot.Owner != user)
         {
             throw new WorldSessionConflictException(worldId, "Another participant already hosts this World.");
@@ -85,7 +97,9 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
             requestedHost,
             cancellationToken);
         EnsureWorld(updated, worldId);
-        if (updated.Owner != _localUser || updated.RequestedHost != requestedHost)
+        if (!updated.OwnerConfirmed ||
+            updated.Owner != _localUser ||
+            updated.RequestedHost != requestedHost)
         {
             throw new InvalidDataException("The peer lobby did not preserve the requested host handoff.");
         }
@@ -111,7 +125,8 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
             committedRevision,
             cancellationToken);
         EnsureWorld(transferred, worldId);
-        if (transferred.Owner != newHost ||
+        if (!transferred.OwnerConfirmed ||
+            transferred.Owner != newHost ||
             transferred.RequestedHost is not null ||
             transferred.LastCommittedRevision != committedRevision)
         {
@@ -133,6 +148,13 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         }
 
         EnsureWorld(current, worldId);
+        if (!current.OwnerConfirmed)
+        {
+            throw new WorldSessionConflictException(
+                worldId,
+                "The current platform owner is recovery-pending and is not confirmed as the Steward host.");
+        }
+
         if (current.Owner != user)
         {
             throw new WorldSessionConflictException(worldId, "Only the current host may close the peer lobby.");
@@ -153,6 +175,13 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         var current = await _lobby.GetAsync(worldId, cancellationToken)
             ?? throw new WorldSessionConflictException(worldId, "There is no active host lobby for this World.");
         EnsureWorld(current, worldId);
+        if (!current.OwnerConfirmed)
+        {
+            throw new WorldSessionConflictException(
+                worldId,
+                "The current platform owner is recovery-pending and cannot change Steward host authority.");
+        }
+
         if (current.Owner != _localUser)
         {
             throw new WorldSessionConflictException(worldId, "Only the current host may change host ownership.");

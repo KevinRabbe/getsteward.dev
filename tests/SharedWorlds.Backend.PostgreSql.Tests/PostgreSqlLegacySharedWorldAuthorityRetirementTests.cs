@@ -9,12 +9,18 @@ namespace SharedWorlds.Backend.PostgreSql.Tests;
 
 public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementTests : IAsyncLifetime
 {
+    private const string CandidateHash =
+        "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+
     private static readonly DateTimeOffset StartedAt =
         new(2026, 8, 8, 2, 0, 0, TimeSpan.Zero);
     private static readonly SharedWorldAuthorityOptions Options =
         SharedWorldAuthorityOptions.FirstReleaseDefaults;
 
     private NpgsqlDataSource _dataSource = null!;
+    private PostgreSqlSharedWorldStore _worldStore = null!;
+    private SharedWorldMetadataService _worlds = null!;
+    private SharedRevisionMetadataService _revisions = null!;
     private PostgreSqlSharedWorldAuthorityStore _authority = null!;
     private PostgreSqlLegacySharedWorldAuthorityRetirementStore _retirement = null!;
     private VerifiedExternalIdentity _holder = null!;
@@ -34,15 +40,16 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementTests : IAsync
         await PostgreSqlLegacySharedWorldAuthorityRetirementSchema.InitializeAsync(_dataSource);
         await ResetAsync();
 
-        var worldStore = new PostgreSqlSharedWorldStore(_dataSource);
-        var worlds = new SharedWorldMetadataService(worldStore, () => StartedAt);
+        _worldStore = new PostgreSqlSharedWorldStore(_dataSource);
+        _worlds = new SharedWorldMetadataService(_worldStore, () => StartedAt);
+        _revisions = new SharedRevisionMetadataService(_worldStore, _worldStore);
         _authority = new PostgreSqlSharedWorldAuthorityStore(_dataSource);
         _retirement = new PostgreSqlLegacySharedWorldAuthorityRetirementStore(_dataSource);
         _holder = new VerifiedExternalIdentity(
             new ExternalIdentityRef("steam", "76561198999990401"),
             "Retirement Holder");
 
-        var created = await worlds.CreateSharedWorldAsync(
+        var created = await _worlds.CreateSharedWorldAsync(
             _holder,
             new CreateSharedWorldCommand(
                 WorldId.New(),
@@ -230,6 +237,62 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementTests : IAsync
         Assert.Equal(1, Convert.ToInt64(await retirementCommand.ExecuteScalarAsync()));
     }
 
+    [Fact]
+    public async Task ConcurrentCommitAndRetirementCannotBothWinDifferentCanonicalHeads()
+    {
+        var reservation = await AcquireHolderAsync();
+        var originalHead = reservation.StartingHead;
+        var candidate = RevisionId.New();
+        await RecordStateAsync(candidate);
+
+        var commitTask = _authority.CommitAsync(
+            _holder.Subject,
+            new CommitSharedWorldCommand(
+                _world.WorldId,
+                reservation.SessionId,
+                reservation.Generation,
+                "retirement-device",
+                originalHead,
+                candidate,
+                CandidateEnvironmentRevisionId: null),
+            StartedAt.AddSeconds(1),
+            Options);
+        var retirementTask = _retirement.RetireAsync(
+            _holder.Subject,
+            _world.WorldId,
+            "retirement-device",
+            reservation.SessionId,
+            reservation.Generation,
+            StartedAt.AddSeconds(1),
+            Options);
+
+        var commit = await commitTask;
+        var retirement = await retirementTask;
+        var persisted = Assert.IsType<SharedWorldMetadata>(
+            await _worlds.GetAccessibleWorldAsync(_holder, _world.WorldId));
+
+        if (retirement.Status == LegacySharedWorldAuthorityRetirementStatus.Retired)
+        {
+            Assert.Equal(CommitSharedWorldStatus.ReservationMismatch, commit.Status);
+            Assert.Equal(originalHead.StateRevisionId, persisted.CurrentStateRevisionId);
+            Assert.Equal(originalHead.EnvironmentRevisionId, persisted.CurrentEnvironmentRevisionId);
+            Assert.Equal(originalHead.StateRevisionId, retirement.RetiredStateRevisionId);
+            Assert.Equal(originalHead.EnvironmentRevisionId, retirement.RetiredEnvironmentRevisionId);
+        }
+        else
+        {
+            Assert.Equal(LegacySharedWorldAuthorityRetirementStatus.ReservationMismatch, retirement.Status);
+            Assert.Equal(CommitSharedWorldStatus.Committed, commit.Status);
+            Assert.Equal(candidate, persisted.CurrentStateRevisionId);
+            Assert.Null(persisted.CurrentEnvironmentRevisionId);
+            Assert.Null(await _retirement.GetAsync(_holder.Subject, _world.WorldId));
+        }
+
+        Assert.False(
+            retirement.Status == LegacySharedWorldAuthorityRetirementStatus.Retired &&
+            commit.Status == CommitSharedWorldStatus.Committed);
+    }
+
     private async Task<SharedWorldReservation> AcquireHolderAsync()
     {
         var acquired = await _authority.AcquireAsync(
@@ -247,6 +310,24 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementTests : IAsync
         => new(
             _world.CurrentStateRevisionId,
             _world.CurrentEnvironmentRevisionId);
+
+    private async Task RecordStateAsync(RevisionId revisionId)
+    {
+        var status = await _revisions.RecordVerifiedStateRevisionAsync(
+            new SharedStateRevisionMetadata(
+                _world.WorldId,
+                revisionId,
+                _world.AdapterId,
+                $"packages/{_world.WorldId}/state/{revisionId}.package",
+                4096,
+                CandidateHash,
+                RequiredEnvironmentRevisionId: null,
+                _holder.Subject,
+                StartedAt));
+        Assert.True(
+            status is RecordRevisionMetadataStatus.Recorded or
+            RecordRevisionMetadataStatus.AlreadyRecorded);
+    }
 
     private async Task AddActiveMemberAsync(ExternalIdentityRef member)
     {

@@ -37,3 +37,23 @@ public interface IPeerAuthorityFenceStore
         PeerAuthorityFence fence,
         CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Narrow compare-before-write boundary used when the current peer host commits another state revision
+/// without changing authority generation. Generic SaveAsync deliberately does not permit arbitrary
+/// same-generation revision replacement: a stale replica must not be able to overwrite a newer fence.
+///
+/// Implementations must accept an exact retry when the durable fence already equals the requested next
+/// Active tuple. Otherwise the current durable fence must exactly match holder/generation/expected state
+/// and be Active before it may advance to nextStateRevisionId.
+/// </summary>
+public interface IPeerAuthorityActiveRevisionFenceStore : IPeerAuthorityFenceStore
+{
+    Task<PeerAuthorityFence> AdvanceActiveRevisionAsync(
+        WorldId worldId,
+        UserIdentity holder,
+        ulong generation,
+        RevisionId expectedStateRevisionId,
+        RevisionId nextStateRevisionId,
+        CancellationToken cancellationToken = default);
+}

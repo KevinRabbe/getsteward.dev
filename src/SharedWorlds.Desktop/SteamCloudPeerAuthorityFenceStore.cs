@@ -8,23 +8,38 @@ using Steamworks;
 namespace SharedWorlds.Desktop;
 
 /// <summary>
-/// Stores only Steward's tiny per-account peer-authority fence in Steam Cloud. World payloads,
-/// environments, history, and saves never pass through this store.
+/// Stores only Steward's tiny per-account peer-authority restart fence in Steam Cloud. Live writer
+/// authority remains fenced by the active Steam lobby owner/generation. World payloads, environments,
+/// history, and saves never pass through this store.
 /// </summary>
-internal sealed class SteamCloudPeerAuthorityFenceStore : IPeerAuthorityFenceStore
+internal sealed class SteamCloudPeerAuthorityFenceStore : IPeerAuthorityActiveRevisionFenceStore
 {
-    private const int SchemaVersion = 1;
+    private const int SchemaVersion = 2;
     private const int MaximumFenceBytes = 16 * 1024;
+    private const int MaximumInstallationIdLength = 256;
     private const string FilePrefix = "steward-authority-";
     private const string FileSuffix = ".json";
 
     private readonly SteamPlatformRuntime _platform;
+    private readonly string _installationId;
     private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
 
-    public SteamCloudPeerAuthorityFenceStore(SteamPlatformRuntime platform)
+    public SteamCloudPeerAuthorityFenceStore(
+        SteamPlatformRuntime platform,
+        string installationId)
     {
         ArgumentNullException.ThrowIfNull(platform);
+        ArgumentException.ThrowIfNullOrWhiteSpace(installationId);
+        installationId = installationId.Trim();
+        if (installationId.Length > MaximumInstallationIdLength)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(installationId),
+                $"Steward installation identity cannot exceed {MaximumInstallationIdLength} characters.");
+        }
+
         _platform = platform;
+        _installationId = installationId;
     }
 
     public Task<PeerAuthorityFence?> LoadAsync(
@@ -40,9 +55,86 @@ internal sealed class SteamCloudPeerAuthorityFenceStore : IPeerAuthorityFenceSto
     {
         ArgumentNullException.ThrowIfNull(fence);
         ValidateFenceSemantics(fence);
+
+        await InvokeSteamAsync(
+            () =>
+            {
+                EnsureCloudAvailable();
+                var current = LoadCore(fence.WorldId);
+                ValidateMonotonicTransition(current, fence);
+                WriteAndVerifyCore(fence);
+            },
+            cancellationToken);
+    }
+
+    public async Task<PeerAuthorityFence> AdvanceActiveRevisionAsync(
+        WorldId worldId,
+        UserIdentity holder,
+        ulong generation,
+        RevisionId expectedStateRevisionId,
+        RevisionId nextStateRevisionId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(holder);
+        if (generation == 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(generation),
+                "Active peer authority generation must be nonzero.");
+        }
+
+        if (expectedStateRevisionId == nextStateRevisionId)
+        {
+            throw new ArgumentException(
+                "Active peer authority revision advancement requires a different next revision.",
+                nameof(nextStateRevisionId));
+        }
+
+        var next = new PeerAuthorityFence(
+            worldId,
+            holder,
+            generation,
+            nextStateRevisionId,
+            PeerAuthorityFenceState.Active,
+            DateTimeOffset.UtcNow);
+        ValidateFenceSemantics(next);
+
+        return await InvokeSteamAsync(
+            () =>
+            {
+                EnsureCloudAvailable();
+                var current = LoadCore(worldId)
+                    ?? throw new InvalidDataException(
+                        $"Steam Cloud has no Active authority fence to advance for World '{worldId}'.");
+
+                if (EquivalentFence(current, next))
+                {
+                    return current;
+                }
+
+                if (current.State != PeerAuthorityFenceState.Active ||
+                    current.Generation != generation ||
+                    current.StateRevisionId != expectedStateRevisionId ||
+                    !SameUser(current.Holder, holder))
+                {
+                    throw new InvalidDataException(
+                        $"Steam Cloud authority fence for World '{worldId}' no longer matches the exact Active revision Steward expected to advance.");
+                }
+
+                WriteAndVerifyCore(next);
+                return LoadCore(worldId)
+                    ?? throw new IOException(
+                        $"Steam Cloud lost Steward's authority fence after advancing World '{worldId}'.");
+            },
+            cancellationToken);
+    }
+
+    private void WriteAndVerifyCore(PeerAuthorityFence fence)
+    {
         var document = new FenceDocument(
             SchemaVersion,
             _platform.LocalSteamId.m_SteamID.ToString(CultureInfo.InvariantCulture),
+            _installationId,
             fence.WorldId.ToString(),
             fence.Holder.ExternalId,
             fence.Generation,
@@ -56,30 +148,21 @@ internal sealed class SteamCloudPeerAuthorityFenceStore : IPeerAuthorityFenceSto
                 $"Steam Cloud authority fence is {bytes.Length} bytes and exceeds Steward's {MaximumFenceBytes}-byte bound.");
         }
 
-        await InvokeSteamAsync(
-            () =>
-            {
-                EnsureCloudAvailable();
-                var current = LoadCore(fence.WorldId);
-                ValidateMonotonicTransition(current, fence);
+        var fileName = GetFileName(fence.WorldId);
+        if (!SteamRemoteStorage.FileWrite(fileName, bytes, bytes.Length))
+        {
+            throw new IOException(
+                $"Steam Cloud rejected Steward's authority fence write for World '{fence.WorldId}'.");
+        }
 
-                var fileName = GetFileName(fence.WorldId);
-                if (!SteamRemoteStorage.FileWrite(fileName, bytes, bytes.Length))
-                {
-                    throw new IOException(
-                        $"Steam Cloud rejected Steward's authority fence write for World '{fence.WorldId}'.");
-                }
-
-                var verified = LoadCore(fence.WorldId)
-                    ?? throw new IOException(
-                        $"Steam Cloud did not return Steward's authority fence after writing World '{fence.WorldId}'.");
-                if (!EquivalentFence(verified, fence))
-                {
-                    throw new IOException(
-                        $"Steam Cloud authority fence verification failed after writing World '{fence.WorldId}'.");
-                }
-            },
-            cancellationToken);
+        var verified = LoadCore(fence.WorldId)
+            ?? throw new IOException(
+                $"Steam Cloud did not return Steward's authority fence after writing World '{fence.WorldId}'.");
+        if (!EquivalentFence(verified, fence))
+        {
+            throw new IOException(
+                $"Steam Cloud authority fence verification failed after writing World '{fence.WorldId}'.");
+        }
     }
 
     private PeerAuthorityFence? LoadCore(WorldId worldId)
@@ -140,6 +223,13 @@ internal sealed class SteamCloudPeerAuthorityFenceStore : IPeerAuthorityFenceSto
                 $"Steam Cloud authority fence for World '{expectedWorldId}' belongs to a different Steam account.");
         }
 
+        if (string.IsNullOrWhiteSpace(document.WriterInstallationId) ||
+            document.WriterInstallationId.Length > MaximumInstallationIdLength)
+        {
+            throw new InvalidDataException(
+                $"Steam Cloud authority fence for World '{expectedWorldId}' has invalid Steward installation identity.");
+        }
+
         if (!Guid.TryParseExact(document.WorldId, "N", out var worldGuid) ||
             new WorldId(worldGuid) != expectedWorldId)
         {
@@ -176,6 +266,16 @@ internal sealed class SteamCloudPeerAuthorityFenceStore : IPeerAuthorityFenceSto
                 $"Steam Cloud authority fence for World '{expectedWorldId}' has unsupported state '{document.State}'.");
         }
 
+        if (document.State == PeerAuthorityFenceState.Active &&
+            !string.Equals(
+                document.WriterInstallationId,
+                _installationId,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                $"Steam Cloud Active authority for World '{expectedWorldId}' belongs to a different Steward installation.");
+        }
+
         DateTimeOffset updatedAt;
         try
         {
@@ -204,13 +304,13 @@ internal sealed class SteamCloudPeerAuthorityFenceStore : IPeerAuthorityFenceSto
         if (!SteamRemoteStorage.IsCloudEnabledForAccount())
         {
             throw new InvalidOperationException(
-                "Steam Cloud is disabled for this Steam account. Steward peer authority is unavailable because stale-device fencing cannot be guaranteed.");
+                "Steam Cloud is disabled for this Steam account. Steward peer restart fencing is unavailable because stale-device state cannot be synchronized safely between sessions.");
         }
 
         if (!SteamRemoteStorage.IsCloudEnabledForApp())
         {
             throw new InvalidOperationException(
-                "Steam Cloud is disabled for Steward. Peer authority is unavailable until Cloud storage is enabled for the app.");
+                "Steam Cloud is disabled for Steward. Peer restart authority is unavailable until Cloud storage is enabled for the app.");
         }
     }
 
@@ -346,6 +446,7 @@ internal sealed class SteamCloudPeerAuthorityFenceStore : IPeerAuthorityFenceSto
     private sealed record FenceDocument(
         int SchemaVersion,
         string AccountSteamId,
+        string WriterInstallationId,
         string WorldId,
         string HolderSteamId,
         ulong Generation,

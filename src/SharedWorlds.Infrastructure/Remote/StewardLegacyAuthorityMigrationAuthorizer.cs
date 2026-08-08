@@ -7,8 +7,8 @@ namespace SharedWorlds.Infrastructure.Remote;
 /// <summary>
 /// Temporary cutover bridge for older Shared Worlds. It never grants peer authority from legacy
 /// membership alone. Instead it proves a durable Backend.Api retirement tombstone for the exact
-/// canonical head, acquiring the old writable reservation only when retirement has not happened yet.
-/// A completed tombstone is restart-resumable and no legacy reservation is reacquired afterward.
+/// canonical head and active-member set, acquiring the old writable reservation only when retirement
+/// has not happened yet. A completed tombstone is restart-resumable and is never reacquired.
 /// </summary>
 public sealed class StewardLegacyAuthorityMigrationAuthorizer :
     IPeerWorldAuthorityMigrationAuthorizer
@@ -49,7 +49,7 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizer :
         var retired = await _retirement.GetAsync(world.Id, cancellationToken);
         if (retired is not null)
         {
-            ValidateRetiredHead(world, retired);
+            ValidateRetiredWorld(world, retired);
             ResolveLocalLease(retired);
             return true;
         }
@@ -89,13 +89,13 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizer :
             throw;
         }
 
-        ValidateRetiredHead(world, retirementEvidence);
+        ValidateRetiredWorld(world, retirementEvidence);
 
         var verified = await _retirement.GetAsync(world.Id, cancellationToken)
             ?? throw new IOException(
                 "Backend acknowledged legacy authority retirement but read-back did not return the durable tombstone.");
         ValidateSameRetirement(retirementEvidence, verified);
-        ValidateRetiredHead(world, verified);
+        ValidateRetiredWorld(world, verified);
         ResolveLocalLease(verified);
         return true;
     }
@@ -130,16 +130,21 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizer :
         }
     }
 
-    private static void ValidateRetiredHead(
+    private static void ValidateRetiredWorld(
         World world,
         StewardLegacyAuthorityRetirementEvidence evidence)
     {
+        var localMembersFingerprint = StableIdentitySetFingerprint.Compute(world.Members);
         if (evidence.WorldId != world.Id ||
             world.CurrentStateRevisionId != evidence.StateRevisionId ||
-            world.CurrentEnvironmentRevisionId != evidence.EnvironmentRevisionId)
+            world.CurrentEnvironmentRevisionId != evidence.EnvironmentRevisionId ||
+            !string.Equals(
+                localMembersFingerprint,
+                evidence.ActiveMembersFingerprint,
+                StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
-                "Local World head does not match the exact backend head frozen by legacy authority retirement. Peer generation 1 remains blocked.");
+                "Local World state or membership does not match the exact backend snapshot frozen by legacy authority retirement. Peer generation 1 remains blocked.");
         }
     }
 
@@ -162,7 +167,16 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizer :
             return;
         }
 
-        if (local.SessionId != evidence.SessionId || local.Generation != evidence.Generation)
+        if (local.SessionId != evidence.SessionId ||
+            local.Generation != evidence.Generation ||
+            !string.Equals(
+                local.HolderProvider,
+                _authenticatedUser.Provider,
+                StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(
+                local.HolderExternalId,
+                _authenticatedUser.ExternalId,
+                StringComparison.Ordinal))
         {
             throw new InvalidDataException(
                 "A different local legacy reservation remains registered after backend retirement.");

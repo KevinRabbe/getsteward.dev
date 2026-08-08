@@ -17,6 +17,7 @@ public sealed class WorldLifecycleService
     private readonly ManagedWritableSessionGate _managedSessionGate;
     private readonly IWorldLifecycleObserver _observer;
     private readonly ConcurrentDictionary<WorldId, ActiveHostedSession> _activeHostedSessions = new();
+    private readonly ConcurrentDictionary<WorldId, UserIdentity> _requestedHostHandoffs = new();
 
     public WorldLifecycleService(
         IWorldStorage storage,
@@ -227,6 +228,7 @@ public sealed class WorldLifecycleService
             worldId,
             requestedHost,
             cancellationToken);
+        _requestedHostHandoffs[worldId] = requestedHost;
         await active.RequestStopAsync(cancellationToken);
         return true;
     }
@@ -671,38 +673,29 @@ public sealed class WorldLifecycleService
         Exception? operationException,
         CancellationToken cancellationToken)
     {
-        var session = await _sessionCoordinator.GetSessionAsync(worldId, cancellationToken);
-        if (session.State == SessionState.HandoffRequested)
+        if (!_requestedHostHandoffs.TryGetValue(worldId, out var requestedHost))
         {
-            if (operationException is not null ||
-                !lifecycleFinalized ||
-                committedStateRevisionId is null)
-            {
-                throw new InvalidOperationException(
-                    "Steward will not transfer host authority because the outgoing host did not finish a safe canonical commit and finalization.");
-            }
-
-            var requestedHost = session.RequestedHost
-                ?? throw new InvalidDataException(
-                    "The session reports a host handoff without identifying the requested next host.");
-            await _sessionCoordinator.CompleteHandoffAsync(
+            await _sessionCoordinator.ReleaseHostAsync(
                 worldId,
-                requestedHost,
-                committedStateRevisionId.Value,
+                user,
                 cancellationToken);
             return true;
         }
 
-        if (session.State == SessionState.RecoveryPending)
+        if (operationException is not null ||
+            !lifecycleFinalized ||
+            committedStateRevisionId is null)
         {
             throw new InvalidOperationException(
-                "Steward will not release writable authority while the World is recovery-pending.");
+                "Steward will not transfer or release host authority because the outgoing host did not finish a safe canonical commit and finalization.");
         }
 
-        await _sessionCoordinator.ReleaseHostAsync(
+        await _sessionCoordinator.CompleteHandoffAsync(
             worldId,
-            user,
+            requestedHost,
+            committedStateRevisionId.Value,
             cancellationToken);
+        _requestedHostHandoffs.TryRemove(worldId, out _);
         return true;
     }
 

@@ -69,6 +69,10 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementTests : IAsync
     public async Task ExactLiveReservationRetiresOnceAndDeletesLegacyWriter()
     {
         var reservation = await AcquireHolderAsync();
+        var expectedMembership = StableIdentitySetFingerprint.Compute(
+        [
+            (_holder.Subject.Provider, _holder.Subject.ExternalId)
+        ]);
 
         var retired = await _retirement.RetireAsync(
             _holder.Subject,
@@ -86,6 +90,7 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementTests : IAsync
         Assert.Equal(reservation.Generation, retired.RetiredGeneration);
         Assert.Equal(_world.CurrentStateRevisionId, retired.RetiredStateRevisionId);
         Assert.Equal(_world.CurrentEnvironmentRevisionId, retired.RetiredEnvironmentRevisionId);
+        Assert.Equal(expectedMembership, retired.RetiredActiveMembersFingerprint);
         Assert.Equal(StartedAt.AddSeconds(1), retired.RetiredAt);
         Assert.Null(await _authority.GetReservationAsync(
             _holder.Subject,
@@ -104,6 +109,7 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementTests : IAsync
         Assert.Equal(retired.RetiredGeneration, readBack.RetiredGeneration);
         Assert.Equal(retired.RetiredStateRevisionId, readBack.RetiredStateRevisionId);
         Assert.Equal(retired.RetiredEnvironmentRevisionId, readBack.RetiredEnvironmentRevisionId);
+        Assert.Equal(retired.RetiredActiveMembersFingerprint, readBack.RetiredActiveMembersFingerprint);
         Assert.Equal(retired.RetiredAt, readBack.RetiredAt);
 
         var other = new ExternalIdentityRef("steam", "76561198999990499");
@@ -122,10 +128,51 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementTests : IAsync
     }
 
     [Fact]
-    public async Task FutureLegacyAcquireIsRejectedByDatabaseAndGenerationRollsBack()
+    public async Task OrdinaryActiveMemberCannotRetireEvenWhileHoldingLegacyHostReservation()
     {
+        var member = new VerifiedExternalIdentity(
+            new ExternalIdentityRef("steam", "76561198999990402"),
+            "Member Host");
+        await AddActiveMemberAsync(member.Subject);
+        var acquired = await _authority.AcquireAsync(
+            member.Subject,
+            _world.WorldId,
+            "member-device",
+            Head(),
+            StartedAt,
+            Options);
+        Assert.Equal(AcquireSharedWorldReservationStatus.Acquired, acquired.Status);
+        var reservation = Assert.IsType<SharedWorldReservation>(acquired.Reservation);
+
+        var result = await _retirement.RetireAsync(
+            member.Subject,
+            _world.WorldId,
+            "member-device",
+            reservation.SessionId,
+            reservation.Generation,
+            StartedAt.AddSeconds(1),
+            Options);
+
+        Assert.Equal(
+            LegacySharedWorldAuthorityRetirementStatus.NotFoundOrUnauthorized,
+            result.Status);
+        Assert.Null(await _retirement.GetAsync(member.Subject, _world.WorldId));
+        var stillHeld = await _authority.GetReservationAsync(
+            member.Subject,
+            _world.WorldId,
+            StartedAt.AddSeconds(2),
+            Options);
+        Assert.NotNull(stillHeld);
+        Assert.Equal(reservation.SessionId, stillHeld.SessionId);
+    }
+
+    [Fact]
+    public async Task PendingLegacyInvitationBlocksRetirementUntilAccessStateIsResolved()
+    {
+        await AddPendingInvitationAsync();
         var reservation = await AcquireHolderAsync();
-        var retired = await _retirement.RetireAsync(
+
+        var result = await _retirement.RetireAsync(
             _holder.Subject,
             _world.WorldId,
             "retirement-device",
@@ -133,6 +180,23 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementTests : IAsync
             reservation.Generation,
             StartedAt.AddSeconds(1),
             Options);
+
+        Assert.Equal(
+            LegacySharedWorldAuthorityRetirementStatus.AccessStateNotReady,
+            result.Status);
+        Assert.Null(await _retirement.GetAsync(_holder.Subject, _world.WorldId));
+        Assert.NotNull(await _authority.GetReservationAsync(
+            _holder.Subject,
+            _world.WorldId,
+            StartedAt.AddSeconds(2),
+            Options));
+    }
+
+    [Fact]
+    public async Task FutureLegacyAcquireIsRejectedByDatabaseAndGenerationRollsBack()
+    {
+        var reservation = await AcquireHolderAsync();
+        var retired = await RetireHolderAsync(reservation);
         Assert.Equal(LegacySharedWorldAuthorityRetirementStatus.Retired, retired.Status);
 
         var exception = await Assert.ThrowsAsync<PostgresException>(() =>
@@ -144,7 +208,7 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementTests : IAsync
                 StartedAt.AddSeconds(2),
                 Options));
         Assert.Equal("55000", exception.SqlState);
-        Assert.Contains("legacy writable authority is permanently retired", exception.MessageText);
+        Assert.Contains("legacy authority is permanently retired", exception.MessageText);
 
         await using var generationCommand = _dataSource.CreateCommand(
             "SELECT reservation_generation FROM steward_shared_worlds WHERE world_id = @world_id;");
@@ -155,6 +219,43 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementTests : IAsync
             "SELECT COUNT(*) FROM steward_world_reservations WHERE world_id = @world_id;");
         reservationCommand.Parameters.AddWithValue("world_id", _world.WorldId.Value);
         Assert.Equal(0, Convert.ToInt64(await reservationCommand.ExecuteScalarAsync()));
+    }
+
+    [Fact]
+    public async Task RetirementAlsoFreezesLegacyWorldAndMembershipMutations()
+    {
+        var reservation = await AcquireHolderAsync();
+        Assert.Equal(
+            LegacySharedWorldAuthorityRetirementStatus.Retired,
+            (await RetireHolderAsync(reservation)).Status);
+
+        var worldUpdate = await Assert.ThrowsAsync<PostgresException>(async () =>
+        {
+            await using var command = _dataSource.CreateCommand(
+                "UPDATE steward_shared_worlds SET updated_at = @updated_at WHERE world_id = @world_id;");
+            command.Parameters.AddWithValue("updated_at", StartedAt.AddMinutes(1));
+            command.Parameters.AddWithValue("world_id", _world.WorldId.Value);
+            await command.ExecuteNonQueryAsync();
+        });
+        Assert.Equal("55000", worldUpdate.SqlState);
+
+        var memberInsert = await Assert.ThrowsAsync<PostgresException>(async () =>
+        {
+            await using var command = _dataSource.CreateCommand(
+                """
+                INSERT INTO steward_world_members (
+                    world_id, provider, external_id, status, added_at)
+                VALUES (
+                    @world_id, @provider, @external_id, @status, @added_at);
+                """);
+            command.Parameters.AddWithValue("world_id", _world.WorldId.Value);
+            command.Parameters.AddWithValue("provider", "steam");
+            command.Parameters.AddWithValue("external_id", "76561198999990488");
+            command.Parameters.AddWithValue("status", (short)SharedWorldMemberStatus.Active);
+            command.Parameters.AddWithValue("added_at", StartedAt.AddMinutes(1));
+            await command.ExecuteNonQueryAsync();
+        });
+        Assert.Equal("55000", memberInsert.SqlState);
     }
 
     [Fact]
@@ -197,7 +298,7 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementTests : IAsync
     {
         var reservation = await AcquireHolderAsync();
         var other = new VerifiedExternalIdentity(
-            new ExternalIdentityRef("steam", "76561198999990402"),
+            new ExternalIdentityRef("steam", "76561198999990403"),
             "Other Member");
         await AddActiveMemberAsync(other.Subject);
 
@@ -293,6 +394,17 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementTests : IAsync
             commit.Status == CommitSharedWorldStatus.Committed);
     }
 
+    private async Task<LegacySharedWorldAuthorityRetirementResult> RetireHolderAsync(
+        SharedWorldReservation reservation)
+        => await _retirement.RetireAsync(
+            _holder.Subject,
+            _world.WorldId,
+            "retirement-device",
+            reservation.SessionId,
+            reservation.Generation,
+            StartedAt.AddSeconds(1),
+            Options);
+
     private async Task<SharedWorldReservation> AcquireHolderAsync()
     {
         var acquired = await _authority.AcquireAsync(
@@ -351,6 +463,42 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementTests : IAsync
         command.Parameters.AddWithValue("external_id", member.ExternalId);
         command.Parameters.AddWithValue("status", (short)SharedWorldMemberStatus.Active);
         command.Parameters.AddWithValue("added_at", StartedAt);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private async Task AddPendingInvitationAsync()
+    {
+        const string sql = """
+            INSERT INTO steward_world_invitations (
+                invitation_id,
+                world_id,
+                invited_provider,
+                invited_external_id,
+                invited_by_provider,
+                invited_by_external_id,
+                status,
+                created_at,
+                responded_at)
+            VALUES (
+                @invitation_id,
+                @world_id,
+                @invited_provider,
+                @invited_external_id,
+                @invited_by_provider,
+                @invited_by_external_id,
+                @status,
+                @created_at,
+                NULL);
+            """;
+        await using var command = _dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("invitation_id", Guid.NewGuid());
+        command.Parameters.AddWithValue("world_id", _world.WorldId.Value);
+        command.Parameters.AddWithValue("invited_provider", "steam");
+        command.Parameters.AddWithValue("invited_external_id", "76561198999990477");
+        command.Parameters.AddWithValue("invited_by_provider", _holder.Subject.Provider);
+        command.Parameters.AddWithValue("invited_by_external_id", _holder.Subject.ExternalId);
+        command.Parameters.AddWithValue("status", (short)WorldAccessInvitationStatus.Pending);
+        command.Parameters.AddWithValue("created_at", StartedAt);
         await command.ExecuteNonQueryAsync();
     }
 

@@ -12,14 +12,20 @@ namespace SharedWorlds.Infrastructure.Sessions;
 public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
 {
     private readonly IPeerWorldLobby _lobby;
+    private readonly IPeerWorldRevisionTransfer _revisionTransfer;
     private readonly UserIdentity _localUser;
 
-    public PeerWorldSessionCoordinator(IPeerWorldLobby lobby, UserIdentity localUser)
+    public PeerWorldSessionCoordinator(
+        IPeerWorldLobby lobby,
+        UserIdentity localUser,
+        IPeerWorldRevisionTransfer revisionTransfer)
     {
         ArgumentNullException.ThrowIfNull(lobby);
         ArgumentNullException.ThrowIfNull(localUser);
+        ArgumentNullException.ThrowIfNull(revisionTransfer);
         _lobby = lobby;
         _localUser = localUser;
+        _revisionTransfer = revisionTransfer;
     }
 
     public async Task<WorldSession> GetSessionAsync(WorldId worldId, CancellationToken cancellationToken = default)
@@ -114,12 +120,26 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(newHost);
-        var current = await RequireOwnedLobbyAsync(worldId, cancellationToken);
-        if (current.RequestedHost is null ||
-            !SameUser(current.RequestedHost, newHost))
-        {
-            throw new WorldSessionConflictException(worldId, "There is no matching host handoff request.");
-        }
+        var current = await RequireMatchingHandoffAsync(
+            worldId,
+            newHost,
+            cancellationToken);
+        _ = current;
+
+        // World data moves before authority. Returning from this boundary means the proposed host can
+        // independently load and verify the exact committed revision and its referenced environment.
+        await _revisionTransfer.EnsureAvailableAsync(
+            worldId,
+            committedRevision,
+            newHost,
+            cancellationToken);
+
+        // Transfer may take a while. Re-read lobby authority after it finishes so an owner change,
+        // cancellation, or replacement handoff cannot be converted into stale writable authority.
+        await RequireMatchingHandoffAsync(
+            worldId,
+            newHost,
+            cancellationToken);
 
         var transferred = await _lobby.TransferOwnershipAsync(
             worldId,
@@ -169,6 +189,21 @@ public sealed class PeerWorldSessionCoordinator : IWorldSessionCoordinator
         }
 
         await _lobby.LeaveAsync(worldId, user, cancellationToken);
+    }
+
+    private async Task<PeerWorldLobbySnapshot> RequireMatchingHandoffAsync(
+        WorldId worldId,
+        UserIdentity requestedHost,
+        CancellationToken cancellationToken)
+    {
+        var current = await RequireOwnedLobbyAsync(worldId, cancellationToken);
+        if (current.RequestedHost is null ||
+            !SameUser(current.RequestedHost, requestedHost))
+        {
+            throw new WorldSessionConflictException(worldId, "There is no matching host handoff request.");
+        }
+
+        return current;
     }
 
     private async Task<PeerWorldLobbySnapshot> RequireOwnedLobbyAsync(

@@ -8,8 +8,8 @@ namespace SharedWorlds.Backend.PostgreSql;
 /// <summary>
 /// One-way PostgreSQL cutover from the legacy shared-World reservation writer. The transaction locks
 /// the canonical World row first, matching legacy acquire/commit lock order, then proves the exact
-/// still-live reservation, persists the retirement tombstone, and removes that reservation before
-/// commit. The database trigger prevents any later reservation INSERT/UPDATE for the World.
+/// still-live reservation, persists the retirement tombstone plus exact canonical head, and removes
+/// that reservation before commit. The database trigger prevents any later reservation INSERT/UPDATE.
 /// </summary>
 public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
     ILegacySharedWorldAuthorityRetirementStore
@@ -67,7 +67,8 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
-        if (!await LockWorldAsync(connection, transaction, worldId, cancellationToken))
+        var world = await LockWorldAsync(connection, transaction, worldId, cancellationToken);
+        if (world is null)
         {
             await transaction.RollbackAsync(cancellationToken);
             return Result(
@@ -143,6 +144,8 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
             installationId,
             sessionId,
             generation,
+            world.StateRevisionId,
+            world.EnvironmentRevisionId,
             serverNow);
         await InsertRetirementAsync(
             connection,
@@ -164,21 +167,34 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
             retirement);
     }
 
-    private static async Task<bool> LockWorldAsync(
+    private static async Task<WorldHeadRow?> LockWorldAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         WorldId worldId,
         CancellationToken cancellationToken)
     {
         const string sql = """
-            SELECT 1
+            SELECT
+                current_state_revision_id,
+                current_environment_revision_id
             FROM steward_shared_worlds
             WHERE world_id = @world_id
             FOR UPDATE;
             """;
         await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("world_id", worldId.Value);
-        return await command.ExecuteScalarAsync(cancellationToken) is not null;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var environmentOrdinal = reader.GetOrdinal("current_environment_revision_id");
+        return new WorldHeadRow(
+            new RevisionId(reader.GetGuid(reader.GetOrdinal("current_state_revision_id"))),
+            reader.IsDBNull(environmentOrdinal)
+                ? null
+                : new RevisionId(reader.GetGuid(environmentOrdinal)));
     }
 
     private static async Task<RetirementRow?> LoadRetirementAsync(
@@ -194,6 +210,8 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
                 installation_id,
                 session_id,
                 generation,
+                state_revision_id,
+                environment_revision_id,
                 retired_at
             FROM steward_legacy_authority_retirements
             WHERE world_id = @world_id;
@@ -206,6 +224,7 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
             return null;
         }
 
+        var environmentOrdinal = reader.GetOrdinal("environment_revision_id");
         return new RetirementRow(
             new ExternalIdentityRef(
                 reader.GetString(reader.GetOrdinal("holder_provider")),
@@ -213,6 +232,10 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
             reader.GetString(reader.GetOrdinal("installation_id")),
             reader.GetGuid(reader.GetOrdinal("session_id")),
             reader.GetInt64(reader.GetOrdinal("generation")),
+            new RevisionId(reader.GetGuid(reader.GetOrdinal("state_revision_id"))),
+            reader.IsDBNull(environmentOrdinal)
+                ? null
+                : new RevisionId(reader.GetGuid(environmentOrdinal)),
             reader.GetFieldValue<DateTimeOffset>(reader.GetOrdinal("retired_at")));
     }
 
@@ -269,6 +292,8 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
                 installation_id,
                 session_id,
                 generation,
+                state_revision_id,
+                environment_revision_id,
                 retired_at)
             VALUES (
                 @world_id,
@@ -277,6 +302,8 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
                 @installation_id,
                 @session_id,
                 @generation,
+                @state_revision_id,
+                @environment_revision_id,
                 @retired_at);
             """;
         await using var command = new NpgsqlCommand(sql, connection, transaction);
@@ -286,6 +313,12 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
         command.Parameters.AddWithValue("installation_id", retirement.InstallationId);
         command.Parameters.AddWithValue("session_id", retirement.SessionId);
         command.Parameters.AddWithValue("generation", retirement.Generation);
+        command.Parameters.AddWithValue("state_revision_id", retirement.StateRevisionId.Value);
+        command.Parameters.AddWithValue(
+            "environment_revision_id",
+            retirement.EnvironmentRevisionId is { } environment
+                ? environment.Value
+                : DBNull.Value);
         command.Parameters.AddWithValue("retired_at", retirement.RetiredAt);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -331,6 +364,8 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
             retirement?.InstallationId,
             retirement?.SessionId,
             retirement?.Generation,
+            retirement?.StateRevisionId,
+            retirement?.EnvironmentRevisionId,
             retirement?.RetiredAt);
 
     private static void Validate(
@@ -365,6 +400,10 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
         ArgumentNullException.ThrowIfNull(options);
     }
 
+    private sealed record WorldHeadRow(
+        RevisionId StateRevisionId,
+        RevisionId? EnvironmentRevisionId);
+
     private sealed record ReservationRow(
         Guid SessionId,
         long Generation,
@@ -378,5 +417,7 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
         string InstallationId,
         Guid SessionId,
         long Generation,
+        RevisionId StateRevisionId,
+        RevisionId? EnvironmentRevisionId,
         DateTimeOffset RetiredAt);
 }

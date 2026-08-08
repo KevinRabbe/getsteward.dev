@@ -60,15 +60,20 @@ public sealed class SteamCloudPeerAuthorityFenceCompositionTests
     public void GenerationCannotMoveBackwardOrConflictAtSameGeneration()
     {
         var source = ReadStore();
-
-        Assert.Contains("next.Generation < current.Generation", source, StringComparison.Ordinal);
-        Assert.Contains("next.Generation ==", source, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("current.Holder, next.Holder", source, StringComparison.Ordinal);
-        Assert.Contains("current.StateRevisionId != next.StateRevisionId", source, StringComparison.Ordinal);
-        Assert.Contains(
-            "current.State == PeerAuthorityFenceState.Relinquishing &&\n                      next.State == PeerAuthorityFenceState.Observed",
+        var method = RequiredIndex(source, "private static void ValidateMonotonicTransition(");
+        var backward = RequiredIndex(source, "next.Generation < current.Generation", method);
+        var forward = RequiredIndex(source, "next.Generation > current.Generation", backward);
+        var sameHolder = RequiredIndex(source, "SameUser(current.Holder, next.Holder)", forward);
+        var sameRevision = RequiredIndex(source, "current.StateRevisionId != next.StateRevisionId", sameHolder);
+        var sameGenerationTransition = RequiredIndex(
             source,
-            StringComparison.Ordinal);
+            "current.State == PeerAuthorityFenceState.Relinquishing &&\n                      next.State == PeerAuthorityFenceState.Observed",
+            sameRevision);
+
+        Assert.True(backward < forward);
+        Assert.True(forward < sameHolder);
+        Assert.True(sameHolder < sameRevision);
+        Assert.True(sameRevision < sameGenerationTransition);
     }
 
     [Fact]

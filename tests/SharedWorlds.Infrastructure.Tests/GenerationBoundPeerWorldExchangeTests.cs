@@ -268,10 +268,24 @@ public sealed class GenerationBoundPeerWorldExchangeTests
             => Task.FromResult<PeerWorldLobbySnapshot?>(
                 _snapshot.WorldId == worldId ? _snapshot : null);
 
+        public Task<PeerWorldLobbySnapshot> CreateOrGetAsync(
+            WorldId worldId,
+            UserIdentity proposedOwner,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<PeerWorldLobbySnapshot> RequestHandoffAsync(
             WorldId worldId,
             UserIdentity expectedOwner,
             UserIdentity requestedHost,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<PeerWorldLobbySnapshot> TransferOwnershipAsync(
+            WorldId worldId,
+            UserIdentity expectedOwner,
+            UserIdentity newOwner,
+            RevisionId committedRevision,
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 

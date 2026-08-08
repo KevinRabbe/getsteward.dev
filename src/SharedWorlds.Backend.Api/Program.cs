@@ -88,6 +88,9 @@ builder.Services.AddSingleton<ISharedWorldResponsibilityInspector>(services =>
 builder.Services.AddSingleton<PostgreSqlSharedWorldReservationAbandonStore>();
 builder.Services.AddSingleton<ISharedWorldReservationAbandonStore>(services =>
     services.GetRequiredService<PostgreSqlSharedWorldReservationAbandonStore>());
+builder.Services.AddSingleton<PostgreSqlLegacySharedWorldAuthorityRetirementStore>();
+builder.Services.AddSingleton<ILegacySharedWorldAuthorityRetirementStore>(services =>
+    services.GetRequiredService<PostgreSqlLegacySharedWorldAuthorityRetirementStore>());
 
 builder.Services.AddSingleton<PostgreSqlSharedWorldHostPresenceStore>();
 builder.Services.AddSingleton<ISharedWorldHostPresenceStore>(services =>
@@ -153,6 +156,9 @@ builder.Services.AddSingleton(services => new SharedWorldAuthorityService(
     services.GetRequiredService<ISharedWorldAuthorityStore>(),
     () => DateTimeOffset.UtcNow));
 builder.Services.AddSingleton<SharedWorldReservationAbandonService>();
+builder.Services.AddSingleton(services => new LegacySharedWorldAuthorityRetirementService(
+    services.GetRequiredService<ILegacySharedWorldAuthorityRetirementStore>(),
+    () => DateTimeOffset.UtcNow));
 builder.Services.AddSingleton(services => new SharedWorldHostPresenceService(
     services.GetRequiredService<SharedWorldAuthorityService>(),
     services.GetRequiredService<ISharedWorldHostPresenceStore>(),
@@ -221,6 +227,7 @@ if (useForwardedClientAddress)
 
 var dataSource = app.Services.GetRequiredService<NpgsqlDataSource>();
 await PostgreSqlBackendSchema.InitializeAsync(dataSource);
+await PostgreSqlLegacySharedWorldAuthorityRetirementSchema.InitializeAsync(dataSource);
 await PostgreSqlSharedWorldHostPresenceSchema.InitializeAsync(dataSource);
 await PostgreSqlSharedWorldPlayerPresenceSchema.InitializeAsync(dataSource);
 await app.Services.GetRequiredService<PostgreSqlOwnedWorldLocationStore>().InitializeAsync();
@@ -236,6 +243,7 @@ app.MapFriendsBuildAuthApiV1();
 app.MapStewardAccessApiV1();
 app.MapStewardRevisionMetadataApiV1();
 app.MapStewardAuthorityApiV1();
+app.MapStewardLegacyAuthorityRetirementApiV1();
 app.MapStewardReservationAbandonApiV1();
 app.MapStewardHostPresenceApiV1();
 app.MapStewardWorldPlayerPresenceApiV1();

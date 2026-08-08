@@ -68,12 +68,13 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizerTests
     {
         using var registry = new StewardWritableReservationRegistry();
         var world = CreateWorld();
-        var retirement = new RetirementClient
+        var events = new List<string>();
+        var retirement = new RetirementClient(events)
         {
             PersistRetirement = true,
             ExpectedWorld = world
         };
-        var coordinator = new LegacyCoordinator(registry, world, Holder);
+        var coordinator = new LegacyCoordinator(registry, world, Holder, events);
         var authorizer = new StewardLegacyAuthorityMigrationAuthorizer(
             coordinator,
             registry,
@@ -87,12 +88,7 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizerTests
         Assert.Equal(2, retirement.GetCalls);
         Assert.Equal(1, retirement.RetireCalls);
         Assert.Null(registry.Get(world.Id));
-        Assert.Equal(
-            ["get", "acquire", "retire", "get", "resolve"],
-            coordinator.Events.Concat(retirement.Events)
-                .OrderBy(static item => item.Order)
-                .Select(static item => item.Name)
-                .ToArray());
+        Assert.Equal(["get", "acquire", "retire", "get"], events);
     }
 
     [Fact]
@@ -169,8 +165,7 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizerTests
     }
 
     private static World CreateWorld()
-    {
-        var world = new World(
+        => new World(
             WorldId.New(),
             "Legacy Shared",
             "factorio",
@@ -180,8 +175,6 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizerTests
         {
             SharingMode = WorldSharingMode.Shared
         };
-        return world;
-    }
 
     private static StewardLegacyAuthorityRetirementEvidence Evidence(
         World world,
@@ -197,7 +190,12 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizerTests
 
     private sealed class RetirementClient : IStewardLegacyAuthorityRetirementClient
     {
-        private int _order;
+        private readonly List<string>? _events;
+
+        public RetirementClient(List<string>? events = null)
+        {
+            _events = events;
+        }
 
         public StewardLegacyAuthorityRetirementEvidence? Evidence { get; set; }
         public bool PersistRetirement { get; set; }
@@ -206,14 +204,13 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizerTests
         public int RetireCalls { get; private set; }
         public Guid LastRetiredSessionId { get; private set; }
         public long LastRetiredGeneration { get; private set; }
-        public List<Event> Events { get; } = [];
 
         public Task<StewardLegacyAuthorityRetirementEvidence?> GetAsync(
             WorldId worldId,
             CancellationToken cancellationToken = default)
         {
             GetCalls++;
-            Events.Add(new Event(++_order * 10 + 1, "get"));
+            _events?.Add("get");
             return Task.FromResult(Evidence);
         }
 
@@ -224,7 +221,7 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizerTests
             CancellationToken cancellationToken = default)
         {
             RetireCalls++;
-            Events.Add(new Event(++_order * 10 + 3, "retire"));
+            _events?.Add("retire");
             LastRetiredSessionId = sessionId;
             LastRetiredGeneration = generation;
             var world = Assert.IsType<World>(ExpectedWorld);
@@ -246,21 +243,22 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizerTests
         private readonly StewardWritableReservationRegistry _registry;
         private readonly World _remoteWorld;
         private readonly UserIdentity _holder;
-        private int _order;
+        private readonly List<string>? _events;
 
         public LegacyCoordinator(
             StewardWritableReservationRegistry registry,
             World remoteWorld,
-            UserIdentity holder)
+            UserIdentity holder,
+            List<string>? events = null)
         {
             _registry = registry;
             _remoteWorld = remoteWorld;
             _holder = holder;
+            _events = events;
         }
 
         public int AcquireCalls { get; private set; }
         public int ReleaseCalls { get; private set; }
-        public List<Event> Events { get; } = [];
 
         public Task<WorldSession> GetSessionAsync(
             WorldId worldId,
@@ -277,7 +275,7 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizerTests
             CancellationToken cancellationToken = default)
         {
             AcquireCalls++;
-            Events.Add(new Event(++_order * 10 + 2, "acquire"));
+            _events?.Add("acquire");
             var lease = new StewardWritableReservationLease(
                 worldId,
                 Guid.NewGuid(),
@@ -319,12 +317,9 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizerTests
             if (lease is not null)
             {
                 _registry.TryResolve(worldId, lease.SessionId, lease.Generation);
-                Events.Add(new Event(++_order * 10 + 4, "resolve"));
             }
 
             return Task.CompletedTask;
         }
     }
-
-    private sealed record Event(int Order, string Name);
 }

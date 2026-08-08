@@ -22,6 +22,36 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
         _dataSource = dataSource;
     }
 
+    public async Task<LegacySharedWorldAuthorityRetirementResult?> GetAsync(
+        ExternalIdentityRef caller,
+        WorldId worldId,
+        CancellationToken cancellationToken = default)
+    {
+        if (worldId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("World ID is required.", nameof(worldId));
+        }
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var retirement = await LoadRetirementAsync(
+            connection,
+            transaction,
+            worldId,
+            cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        if (retirement is null || retirement.Holder != caller)
+        {
+            return null;
+        }
+
+        return Result(
+            LegacySharedWorldAuthorityRetirementStatus.AlreadyRetired,
+            worldId,
+            retirement);
+    }
+
     public async Task<LegacySharedWorldAuthorityRetirementResult> RetireAsync(
         ExternalIdentityRef caller,
         WorldId worldId,

@@ -211,7 +211,7 @@ public sealed class WorldLifecycleServiceTests : IDisposable
         await adapter.HostStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.True(await lifecycle.RequestHostHandoffAsync(world.Id, nextHost));
-        await Assert.ThrowsAsync<IOException>(async () => await hosting);
+        await Assert.ThrowsAsync<IOException>(() => hosting);
 
         Assert.Equal(1, sessions.RequestHandoffCount);
         Assert.Equal(0, sessions.CompleteHandoffCount);
@@ -475,7 +475,6 @@ public sealed class WorldLifecycleServiceTests : IDisposable
             CancellationToken cancellationToken = default)
         {
             HostLaunchCount++;
-            HostStarted.TrySetResult(true);
             return Task.FromResult(new GameSessionHandle(12345, DateTimeOffset.UtcNow));
         }
 
@@ -504,6 +503,7 @@ public sealed class WorldLifecycleServiceTests : IDisposable
                 return;
             }
 
+            HostStarted.TrySetResult(true);
             await _hostSessionEnded.Task.WaitAsync(cancellationToken);
         }
 

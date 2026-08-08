@@ -481,40 +481,40 @@ internal sealed class SteamPeerWorldRevisionExchange :
         switch (kind)
         {
             case MessageKind.Ready:
-            {
-                var ready = DecodeJson<TransferControlEnvelope>(
-                    message,
-                    MaxControlBytes,
-                    "peer World ready");
-                EnsureControl(ready.ProtocolVersion, ready.TransferId, outgoing.TransferId);
-                outgoing.Ready.TrySetResult(true);
-                break;
-            }
+                {
+                    var ready = DecodeJson<TransferControlEnvelope>(
+                        message,
+                        MaxControlBytes,
+                        "peer World ready");
+                    EnsureControl(ready.ProtocolVersion, ready.TransferId, outgoing.TransferId);
+                    outgoing.Ready.TrySetResult(true);
+                    break;
+                }
             case MessageKind.Receipt:
-            {
-                var receipt = DecodeJson<ReceiptEnvelope>(
-                    message,
-                    MaxControlBytes,
-                    "peer World receipt");
-                EnsureControl(receipt.ProtocolVersion, receipt.TransferId, outgoing.TransferId);
-                outgoing.Receipt.TrySetResult(receipt.Receipt);
-                break;
-            }
+                {
+                    var receipt = DecodeJson<ReceiptEnvelope>(
+                        message,
+                        MaxControlBytes,
+                        "peer World receipt");
+                    EnsureControl(receipt.ProtocolVersion, receipt.TransferId, outgoing.TransferId);
+                    outgoing.Receipt.TrySetResult(receipt.Receipt);
+                    break;
+                }
             case MessageKind.Reject:
-            {
-                var rejection = DecodeJson<RejectEnvelope>(
-                    message,
-                    MaxControlBytes,
-                    "peer World rejection");
-                EnsureControl(rejection.ProtocolVersion, rejection.TransferId, outgoing.TransferId);
-                var exception = new InvalidOperationException(
-                    string.IsNullOrWhiteSpace(rejection.Reason)
-                        ? "The target rejected the peer World transfer."
-                        : rejection.Reason);
-                outgoing.Ready.TrySetException(exception);
-                outgoing.Receipt.TrySetException(exception);
-                break;
-            }
+                {
+                    var rejection = DecodeJson<RejectEnvelope>(
+                        message,
+                        MaxControlBytes,
+                        "peer World rejection");
+                    EnsureControl(rejection.ProtocolVersion, rejection.TransferId, outgoing.TransferId);
+                    var exception = new InvalidOperationException(
+                        string.IsNullOrWhiteSpace(rejection.Reason)
+                            ? "The target rejected the peer World transfer."
+                            : rejection.Reason);
+                    outgoing.Ready.TrySetException(exception);
+                    outgoing.Receipt.TrySetException(exception);
+                    break;
+                }
             default:
                 throw new InvalidDataException(
                     $"Unexpected Steam peer World response kind '{kind}'.");
@@ -530,54 +530,54 @@ internal sealed class SteamPeerWorldRevisionExchange :
         switch (kind)
         {
             case MessageKind.Offer when incoming.State == IncomingState.AwaitingOffer:
-            {
-                var envelope = DecodeJson<OfferEnvelope>(
-                    message,
-                    MaxOfferBytes,
-                    "peer World offer");
-                if (envelope.ProtocolVersion != ProtocolVersion ||
-                    envelope.TransferId == Guid.Empty ||
-                    !Enum.IsDefined(envelope.Purpose))
                 {
-                    throw new InvalidDataException(
-                        "Peer World offer uses an unsupported protocol version, transfer ID, or purpose.");
-                }
+                    var envelope = DecodeJson<OfferEnvelope>(
+                        message,
+                        MaxOfferBytes,
+                        "peer World offer");
+                    if (envelope.ProtocolVersion != ProtocolVersion ||
+                        envelope.TransferId == Guid.Empty ||
+                        !Enum.IsDefined(envelope.Purpose))
+                    {
+                        throw new InvalidDataException(
+                            "Peer World offer uses an unsupported protocol version, transfer ID, or purpose.");
+                    }
 
-                incoming.TransferId = envelope.TransferId;
-                incoming.Purpose = envelope.Purpose;
-                incoming.Offer = envelope.Offer;
-                incoming.State = IncomingState.Authorizing;
-                _ = AuthorizeIncomingOfferAsync(context, envelope);
-                break;
-            }
+                    incoming.TransferId = envelope.TransferId;
+                    incoming.Purpose = envelope.Purpose;
+                    incoming.Offer = envelope.Offer;
+                    incoming.State = IncomingState.Authorizing;
+                    _ = AuthorizeIncomingOfferAsync(context, envelope);
+                    break;
+                }
             case MessageKind.Payload when incoming.State == IncomingState.Receiving:
-            {
-                if (message.Length <= 1 || message.Length > PayloadChunkBytes + 1)
                 {
-                    throw new InvalidDataException("Peer World payload chunk has an invalid size.");
-                }
+                    if (message.Length <= 1 || message.Length > PayloadChunkBytes + 1)
+                    {
+                        throw new InvalidDataException("Peer World payload chunk has an invalid size.");
+                    }
 
-                var chunk = message.AsSpan(1).ToArray();
-                if (!incoming.Chunks!.Writer.TryWrite(chunk))
-                {
-                    throw new IOException(
-                        "Peer World receiver could not preserve bounded payload backpressure.");
-                }
+                    var chunk = message.AsSpan(1).ToArray();
+                    if (!incoming.Chunks!.Writer.TryWrite(chunk))
+                    {
+                        throw new IOException(
+                            "Peer World receiver could not preserve bounded payload backpressure.");
+                    }
 
-                break;
-            }
+                    break;
+                }
             case MessageKind.Complete when incoming.State == IncomingState.Receiving:
-            {
-                var complete = DecodeJson<TransferControlEnvelope>(
-                    message,
-                    MaxControlBytes,
-                    "peer World completion");
-                EnsureControl(complete.ProtocolVersion, complete.TransferId, incoming.TransferId);
-                incoming.State = IncomingState.Installing;
-                incoming.Chunks!.Writer.TryComplete();
-                _ = Task.Run(() => FinishIncomingAsync(context));
-                break;
-            }
+                {
+                    var complete = DecodeJson<TransferControlEnvelope>(
+                        message,
+                        MaxControlBytes,
+                        "peer World completion");
+                    EnsureControl(complete.ProtocolVersion, complete.TransferId, incoming.TransferId);
+                    incoming.State = IncomingState.Installing;
+                    incoming.Chunks!.Writer.TryComplete();
+                    _ = Task.Run(() => FinishIncomingAsync(context));
+                    break;
+                }
             default:
                 throw new InvalidDataException(
                     $"Unexpected Steam peer World message kind '{kind}' while receiver is '{incoming.State}'.");

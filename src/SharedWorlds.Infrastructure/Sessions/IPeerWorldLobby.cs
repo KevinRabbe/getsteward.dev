@@ -12,7 +12,8 @@ public sealed record PeerWorldLobbySnapshot(
     bool OwnerConfirmed,
     UserIdentity? RequestedHost,
     RevisionId? LastCommittedRevision,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    ulong AuthorityGeneration = 0);
 
 /// <summary>
 /// Narrow platform boundary required by peer-hosted Steward sessions. A Steam implementation can map
@@ -23,6 +24,11 @@ public sealed record PeerWorldLobbySnapshot(
 /// Implementations report whether the observed owner matches Steward's explicitly confirmed authority;
 /// an automatic platform owner change must therefore surface as recovery-pending until Steward verifies
 /// a usable World revision and deliberately confirms the replacement host.
+///
+/// AuthorityGeneration is the live lobby's claim about persistent WorldPeerAuthority.Generation.
+/// Generation-aware peer exchange code requires it to be non-zero and exact. Legacy/schema-v1 lobby
+/// implementations intentionally surface the default zero value so they fail closed rather than being
+/// mistaken for generation-fenced authority.
 ///
 /// Implementations must fail closed when the expected owner no longer owns the platform lobby during
 /// a mutation. Durable World bytes and revision publication are intentionally outside this boundary.

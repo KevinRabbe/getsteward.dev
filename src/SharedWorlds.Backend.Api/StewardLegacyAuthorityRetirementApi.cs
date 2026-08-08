@@ -5,9 +5,9 @@ using SharedWorlds.Core.Domain;
 namespace SharedWorlds.Backend.Api;
 
 /// <summary>
-/// Temporary one-way migration endpoint used only while legacy Backend.Api writable authority is
-/// being retired in favor of peer authority. The authenticated session supplies identity and
-/// installation; callers can submit only the exact reservation session/generation they hold.
+/// Temporary one-way migration endpoint used only while legacy Backend.Api authority is being
+/// retired in favor of peer authority. The authenticated session supplies identity and installation;
+/// callers can submit only the exact reservation session/generation they hold.
 /// </summary>
 public static class StewardLegacyAuthorityRetirementApi
 {
@@ -92,6 +92,10 @@ public static class StewardLegacyAuthorityRetirementApi
                 new LegacyAuthorityRetirementResponse(
                     "ReservationMismatch",
                     Retryable: false)),
+            LegacySharedWorldAuthorityRetirementStatus.AccessStateNotReady => Results.Conflict(
+                new LegacyAuthorityRetirementResponse(
+                    "LegacyAccessStateNotReady",
+                    Retryable: false)),
             _ => throw new InvalidOperationException(
                 $"Unhandled legacy authority retirement status {result.Status}.")
         };
@@ -104,6 +108,8 @@ public static class StewardLegacyAuthorityRetirementApi
         if (result.RetiredSessionId is null ||
             result.RetiredGeneration is null ||
             result.RetiredStateRevisionId is null ||
+            !StableIdentitySetFingerprint.IsCanonicalFingerprint(
+                result.RetiredActiveMembersFingerprint) ||
             result.RetiredAt is null)
         {
             throw new InvalidDataException(
@@ -119,6 +125,7 @@ public static class StewardLegacyAuthorityRetirementApi
                 result.RetiredGeneration.Value,
                 result.RetiredStateRevisionId.Value.Value,
                 result.RetiredEnvironmentRevisionId?.Value,
+                result.RetiredActiveMembersFingerprint!,
                 result.RetiredAt.Value));
     }
 
@@ -153,6 +160,7 @@ public static class StewardLegacyAuthorityRetirementApi
         long Generation,
         Guid StateRevisionId,
         Guid? EnvironmentRevisionId,
+        string ActiveMembersFingerprint,
         DateTimeOffset RetiredAt);
 
     public sealed record LegacyAuthorityRetirementResponse(

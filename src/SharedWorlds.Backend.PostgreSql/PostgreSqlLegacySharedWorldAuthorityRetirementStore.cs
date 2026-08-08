@@ -6,10 +6,11 @@ using SharedWorlds.Core.Domain;
 namespace SharedWorlds.Backend.PostgreSql;
 
 /// <summary>
-/// One-way PostgreSQL cutover from the legacy shared-World reservation writer. The transaction locks
-/// the canonical World row first, matching legacy acquire/commit lock order, then proves the exact
-/// still-live reservation, persists the retirement tombstone plus exact canonical head, and removes
-/// that reservation before commit. The database trigger prevents any later reservation INSERT/UPDATE.
+/// One-way PostgreSQL cutover from the legacy shared-World authority plane. The transaction locks
+/// the canonical World row first, matching legacy acquire/commit/access mutation lock order, then
+/// freezes the exact head and active membership, proves the access manager owns the exact live
+/// reservation, persists the retirement tombstone, and removes that reservation before commit.
+/// Database triggers prevent later legacy authority/access mutations.
 /// </summary>
 public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
     ILegacySharedWorldAuthorityRetirementStore
@@ -67,7 +68,11 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
-        var world = await LockWorldAsync(connection, transaction, worldId, cancellationToken);
+        var world = await LockWorldAndReadAccessSnapshotAsync(
+            connection,
+            transaction,
+            worldId,
+            cancellationToken);
         if (world is null)
         {
             await transaction.RollbackAsync(cancellationToken);
@@ -102,6 +107,22 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
                     LegacySharedWorldAuthorityRetirementStatus.ReservationMismatch,
                     worldId,
                     existing);
+        }
+
+        if (world.AccessManager != caller)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return Result(
+                LegacySharedWorldAuthorityRetirementStatus.NotFoundOrUnauthorized,
+                worldId);
+        }
+
+        if (!world.AccessStateReady)
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return Result(
+                LegacySharedWorldAuthorityRetirementStatus.AccessStateNotReady,
+                worldId);
         }
 
         var reservation = await LoadReservationForUpdateAsync(
@@ -146,6 +167,7 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
             generation,
             world.StateRevisionId,
             world.EnvironmentRevisionId,
+            world.ActiveMembersFingerprint,
             serverNow);
         await InsertRetirementAsync(
             connection,
@@ -167,7 +189,7 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
             retirement);
     }
 
-    private static async Task<WorldHeadRow?> LockWorldAsync(
+    private static async Task<WorldAuthoritySnapshot?> LockWorldAndReadAccessSnapshotAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         WorldId worldId,
@@ -176,25 +198,109 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
         const string sql = """
             SELECT
                 current_state_revision_id,
-                current_environment_revision_id
+                current_environment_revision_id,
+                access_manager_provider,
+                access_manager_external_id
             FROM steward_shared_worlds
             WHERE world_id = @world_id
             FOR UPDATE;
             """;
         await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("world_id", worldId.Value);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
+
+        RevisionId stateRevisionId;
+        RevisionId? environmentRevisionId;
+        ExternalIdentityRef accessManager;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            return null;
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return null;
+            }
+
+            var environmentOrdinal = reader.GetOrdinal("current_environment_revision_id");
+            stateRevisionId = new RevisionId(
+                reader.GetGuid(reader.GetOrdinal("current_state_revision_id")));
+            environmentRevisionId = reader.IsDBNull(environmentOrdinal)
+                ? null
+                : new RevisionId(reader.GetGuid(environmentOrdinal));
+            accessManager = new ExternalIdentityRef(
+                reader.GetString(reader.GetOrdinal("access_manager_provider")),
+                reader.GetString(reader.GetOrdinal("access_manager_external_id")));
         }
 
-        var environmentOrdinal = reader.GetOrdinal("current_environment_revision_id");
-        return new WorldHeadRow(
-            new RevisionId(reader.GetGuid(reader.GetOrdinal("current_state_revision_id"))),
-            reader.IsDBNull(environmentOrdinal)
-                ? null
-                : new RevisionId(reader.GetGuid(environmentOrdinal)));
+        var access = await LoadAccessSnapshotAsync(
+            connection,
+            transaction,
+            worldId,
+            accessManager,
+            cancellationToken);
+        return new WorldAuthoritySnapshot(
+            stateRevisionId,
+            environmentRevisionId,
+            accessManager,
+            access.ActiveMembersFingerprint,
+            access.Ready);
+    }
+
+    private static async Task<AccessSnapshot> LoadAccessSnapshotAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        WorldId worldId,
+        ExternalIdentityRef accessManager,
+        CancellationToken cancellationToken)
+    {
+        const string memberSql = """
+            SELECT provider, external_id, status
+            FROM steward_world_members
+            WHERE world_id = @world_id
+            ORDER BY provider, external_id;
+            """;
+        var activeMembers = new List<(string Provider, string ExternalId)>();
+        var allMembersActive = true;
+        var managerIsActiveMember = false;
+        await using (var command = new NpgsqlCommand(memberSql, connection, transaction))
+        {
+            command.Parameters.AddWithValue("world_id", worldId.Value);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var identity = new ExternalIdentityRef(reader.GetString(0), reader.GetString(1));
+                var status = (SharedWorldMemberStatus)reader.GetInt16(2);
+                if (status != SharedWorldMemberStatus.Active)
+                {
+                    allMembersActive = false;
+                    continue;
+                }
+
+                activeMembers.Add((identity.Provider, identity.ExternalId));
+                if (identity == accessManager)
+                {
+                    managerIsActiveMember = true;
+                }
+            }
+        }
+
+        const string invitationSql = """
+            SELECT COUNT(*)
+            FROM steward_world_invitations
+            WHERE world_id = @world_id
+              AND status = @pending_status;
+            """;
+        await using var invitationCommand = new NpgsqlCommand(
+            invitationSql,
+            connection,
+            transaction);
+        invitationCommand.Parameters.AddWithValue("world_id", worldId.Value);
+        invitationCommand.Parameters.AddWithValue(
+            "pending_status",
+            (short)WorldAccessInvitationStatus.Pending);
+        var pendingInvitations = Convert.ToInt64(
+            await invitationCommand.ExecuteScalarAsync(cancellationToken));
+
+        return new AccessSnapshot(
+            StableIdentitySetFingerprint.Compute(activeMembers),
+            Ready: allMembersActive && managerIsActiveMember && pendingInvitations == 0);
     }
 
     private static async Task<RetirementRow?> LoadRetirementAsync(
@@ -212,6 +318,7 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
                 generation,
                 state_revision_id,
                 environment_revision_id,
+                active_members_fingerprint,
                 retired_at
             FROM steward_legacy_authority_retirements
             WHERE world_id = @world_id;
@@ -236,6 +343,7 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
             reader.IsDBNull(environmentOrdinal)
                 ? null
                 : new RevisionId(reader.GetGuid(environmentOrdinal)),
+            reader.GetString(reader.GetOrdinal("active_members_fingerprint")),
             reader.GetFieldValue<DateTimeOffset>(reader.GetOrdinal("retired_at")));
     }
 
@@ -294,6 +402,7 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
                 generation,
                 state_revision_id,
                 environment_revision_id,
+                active_members_fingerprint,
                 retired_at)
             VALUES (
                 @world_id,
@@ -304,6 +413,7 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
                 @generation,
                 @state_revision_id,
                 @environment_revision_id,
+                @active_members_fingerprint,
                 @retired_at);
             """;
         await using var command = new NpgsqlCommand(sql, connection, transaction);
@@ -319,6 +429,9 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
             retirement.EnvironmentRevisionId is { } environment
                 ? (object)environment.Value
                 : DBNull.Value);
+        command.Parameters.AddWithValue(
+            "active_members_fingerprint",
+            retirement.ActiveMembersFingerprint);
         command.Parameters.AddWithValue("retired_at", retirement.RetiredAt);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -366,6 +479,7 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
             retirement?.Generation,
             retirement?.StateRevisionId,
             retirement?.EnvironmentRevisionId,
+            retirement?.ActiveMembersFingerprint,
             retirement?.RetiredAt);
 
     private static void Validate(
@@ -400,9 +514,16 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
         ArgumentNullException.ThrowIfNull(options);
     }
 
-    private sealed record WorldHeadRow(
+    private sealed record AccessSnapshot(
+        string ActiveMembersFingerprint,
+        bool Ready);
+
+    private sealed record WorldAuthoritySnapshot(
         RevisionId StateRevisionId,
-        RevisionId? EnvironmentRevisionId);
+        RevisionId? EnvironmentRevisionId,
+        ExternalIdentityRef AccessManager,
+        string ActiveMembersFingerprint,
+        bool AccessStateReady);
 
     private sealed record ReservationRow(
         Guid SessionId,
@@ -419,5 +540,6 @@ public sealed class PostgreSqlLegacySharedWorldAuthorityRetirementStore :
         long Generation,
         RevisionId StateRevisionId,
         RevisionId? EnvironmentRevisionId,
+        string ActiveMembersFingerprint,
         DateTimeOffset RetiredAt);
 }

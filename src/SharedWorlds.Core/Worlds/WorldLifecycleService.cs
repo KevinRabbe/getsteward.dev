@@ -205,6 +205,32 @@ public sealed class WorldLifecycleService
         return true;
     }
 
+    /// <summary>
+    /// Registers the intended next host before asking the game adapter to stop the active host.
+    /// The handoff remains non-authoritative until the normal lifecycle safely captures and commits
+    /// the outgoing host's final World revision. If stopping fails, the request remains pending so a
+    /// retry cannot accidentally fall back to an ordinary release and create an untracked writer.
+    /// </summary>
+    public async Task<bool> RequestHostHandoffAsync(
+        WorldId worldId,
+        UserIdentity requestedHost,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(requestedHost);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_activeHostedSessions.TryGetValue(worldId, out var active))
+        {
+            return false;
+        }
+
+        await _sessionCoordinator.RequestHandoffAsync(
+            worldId,
+            requestedHost,
+            cancellationToken);
+        await active.RequestStopAsync(cancellationToken);
+        return true;
+    }
+
     private async Task<PreparedWorldContext> PrepareCoreAsync(
         WorldId worldId,
         IGameAdapter adapter,
@@ -392,6 +418,7 @@ public sealed class WorldLifecycleService
         PreparedWorldContext? context = null;
         PreparedWorld? preparedWorkspace = null;
         WorkspaceRecoveryRecord? workspaceRecord = null;
+        RevisionId? committedStateRevisionId = null;
         var sessionStarted = false;
         var unresolvedResponsibility = false;
         var lifecycleFinalized = false;
@@ -517,6 +544,7 @@ public sealed class WorldLifecycleService
 
                 Notify(worldId, mode, WorldLifecyclePhase.Committing);
                 await _storage.SaveWorldAsync(updatedWorld, cancellationToken);
+                committedStateRevisionId = nextRevisionId;
 
                 Notify(worldId, mode, WorldLifecyclePhase.Finalizing);
                 lifecycleFinalized = await CompleteSuccessfulWorkspaceAsync(
@@ -597,23 +625,25 @@ public sealed class WorldLifecycleService
         }
         finally
         {
-            var reservationReleased = false;
+            var authorityResolved = false;
             try
             {
-                await _sessionCoordinator.ReleaseHostAsync(
+                authorityResolved = await ResolveSessionAuthorityAsync(
                     worldId,
                     user,
+                    committedStateRevisionId,
+                    lifecycleFinalized,
+                    operationException,
                     CancellationToken.None);
-                reservationReleased = true;
             }
-            catch (Exception releaseException)
+            catch (Exception authorityException)
             {
                 unresolvedResponsibility = true;
                 Notify(
                     worldId,
                     mode,
                     WorldLifecyclePhase.RecoveryNeeded,
-                    $"Writable reservation could not be released safely: {releaseException.Message}");
+                    $"Writable authority could not be resolved safely: {authorityException.Message}");
 
                 if (operationException is null)
                 {
@@ -621,16 +651,59 @@ public sealed class WorldLifecycleService
                 }
             }
 
-            if (reservationReleased && !unresolvedResponsibility)
+            if (authorityResolved && !unresolvedResponsibility)
             {
                 // Completed means the whole managed responsibility is over: canonical work is
-                // finalized (or a pre-launch failure was safely cleaned) and authority is released.
+                // finalized and authority was either released or deliberately handed to the next host.
                 if (operationException is not null || lifecycleFinalized)
                 {
                     Notify(worldId, mode, WorldLifecyclePhase.Completed);
                 }
             }
         }
+    }
+
+    private async Task<bool> ResolveSessionAuthorityAsync(
+        WorldId worldId,
+        UserIdentity user,
+        RevisionId? committedStateRevisionId,
+        bool lifecycleFinalized,
+        Exception? operationException,
+        CancellationToken cancellationToken)
+    {
+        var session = await _sessionCoordinator.GetSessionAsync(worldId, cancellationToken);
+        if (session.State == SessionState.HandoffRequested)
+        {
+            if (operationException is not null ||
+                !lifecycleFinalized ||
+                committedStateRevisionId is null)
+            {
+                throw new InvalidOperationException(
+                    "Steward will not transfer host authority because the outgoing host did not finish a safe canonical commit and finalization.");
+            }
+
+            var requestedHost = session.RequestedHost
+                ?? throw new InvalidDataException(
+                    "The session reports a host handoff without identifying the requested next host.");
+            await _sessionCoordinator.CompleteHandoffAsync(
+                worldId,
+                requestedHost,
+                committedStateRevisionId.Value,
+                cancellationToken);
+            return true;
+        }
+
+        if (session.State == SessionState.RecoveryPending)
+        {
+            throw new InvalidOperationException(
+                "Steward will not release writable authority while the World is recovery-pending.");
+        }
+
+        await _sessionCoordinator.ReleaseHostAsync(
+            worldId,
+            user,
+            cancellationToken);
+        return true;
     }
 
     private async Task EnsureNoUnresolvedWorkspaceResponsibilityAsync(

@@ -9,6 +9,7 @@ namespace SharedWorlds.Infrastructure.Sessions;
 public sealed record PeerWorldLobbySnapshot(
     WorldId WorldId,
     UserIdentity Owner,
+    bool OwnerConfirmed,
     UserIdentity? RequestedHost,
     RevisionId? LastCommittedRevision,
     DateTimeOffset UpdatedAt);
@@ -17,6 +18,11 @@ public sealed record PeerWorldLobbySnapshot(
 /// Narrow platform boundary required by peer-hosted Steward sessions. A Steam implementation can map
 /// this contract onto one Steam lobby and its owner-transfer primitive without making Core depend on
 /// Steamworks or a permanent Steward backend.
+///
+/// Platform ownership changes are not sufficient by themselves to establish writable World authority.
+/// Implementations report whether the observed owner matches Steward's explicitly confirmed authority;
+/// an automatic platform owner change must therefore surface as recovery-pending until Steward verifies
+/// a usable World revision and deliberately confirms the replacement host.
 ///
 /// Implementations must fail closed when the expected owner no longer owns the platform lobby during
 /// a mutation. Durable World bytes and revision publication are intentionally outside this boundary.

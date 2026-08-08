@@ -9,6 +9,9 @@ namespace SharedWorlds.Infrastructure.Tests.Remote;
 
 public sealed class StewardLegacyAuthorityRetirementClientTests
 {
+    private const string MembershipFingerprint =
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
     [Fact]
     public async Task GetReturnsNullOnlyForExplicitNotRetiredResponse()
     {
@@ -30,7 +33,7 @@ public sealed class StewardLegacyAuthorityRetirementClientTests
     }
 
     [Fact]
-    public async Task GetParsesExactFrozenCanonicalHead()
+    public async Task GetParsesExactFrozenCanonicalHeadAndMembership()
     {
         var worldId = WorldId.New();
         var sessionId = Guid.NewGuid();
@@ -58,6 +61,7 @@ public sealed class StewardLegacyAuthorityRetirementClientTests
         Assert.Equal(9, evidence.Generation);
         Assert.Equal(stateId, evidence.StateRevisionId);
         Assert.Equal(environmentId, evidence.EnvironmentRevisionId);
+        Assert.Equal(MembershipFingerprint, evidence.ActiveMembersFingerprint);
         Assert.Equal(retiredAt, evidence.RetiredAt);
     }
 
@@ -93,6 +97,7 @@ public sealed class StewardLegacyAuthorityRetirementClientTests
 
         Assert.Equal(stateId, evidence.StateRevisionId);
         Assert.Null(evidence.EnvironmentRevisionId);
+        Assert.Equal(MembershipFingerprint, evidence.ActiveMembersFingerprint);
         Assert.NotNull(body);
         using var document = JsonDocument.Parse(body);
         var root = document.RootElement;
@@ -140,6 +145,32 @@ public sealed class StewardLegacyAuthorityRetirementClientTests
                 RevisionId.New(),
                 environmentId: null,
                 new DateTimeOffset(2026, 8, 8, 3, 25, 0, TimeSpan.Zero))));
+        using var http = Http(handler);
+        var client = Client(http);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => client.GetAsync(worldId));
+    }
+
+    [Fact]
+    public async Task GetRejectsMalformedMembershipFingerprint()
+    {
+        var worldId = WorldId.New();
+        var json = JsonSerializer.Serialize(new
+        {
+            code = "LegacyAuthorityAlreadyRetired",
+            retryable = false,
+            data = new
+            {
+                worldId = worldId.Value,
+                sessionId = Guid.NewGuid(),
+                generation = 1,
+                stateRevisionId = RevisionId.New().Value,
+                environmentRevisionId = (Guid?)null,
+                activeMembersFingerprint = "not-a-fingerprint",
+                retiredAt = new DateTimeOffset(2026, 8, 8, 3, 27, 0, TimeSpan.Zero)
+            }
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(HttpStatusCode.OK, json));
         using var http = Http(handler);
         var client = Client(http);
 
@@ -205,6 +236,7 @@ public sealed class StewardLegacyAuthorityRetirementClientTests
                 generation,
                 stateRevisionId = stateId.Value,
                 environmentRevisionId = environmentId?.Value,
+                activeMembersFingerprint = MembershipFingerprint,
                 retiredAt
             }
         });

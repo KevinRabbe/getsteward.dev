@@ -82,10 +82,19 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizer :
                 lease.Generation,
                 cancellationToken);
         }
+        catch (StewardRemoteApiException exception) when (
+            !exception.Retryable && IsDefinitivelyUnretired(exception.Code))
+        {
+            // These response codes prove that this request did not create the retirement tombstone.
+            // Release the still-legacy lease so the access manager can resolve access state or retry.
+            await TryReleaseUnretiredLeaseAsync(world.Id, proposedHolder);
+            throw;
+        }
         catch
         {
-            // Do not release on an ambiguous retirement failure. The backend may already have made
-            // retirement durable. Keeping the local lease lets a retry first resolve the tombstone.
+            // ReservationMismatch, transport failure, timeout, and cancellation can be ambiguous:
+            // the backend may already have made retirement durable. Keep the local lease so the next
+            // attempt begins with tombstone read-back instead of recreating legacy authority.
             throw;
         }
 
@@ -99,6 +108,10 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizer :
         ResolveLocalLease(verified);
         return true;
     }
+
+    private static bool IsDefinitivelyUnretired(string code)
+        => string.Equals(code, "LegacyAccessStateNotReady", StringComparison.Ordinal) ||
+           string.Equals(code, "WorldNotFoundOrUnauthorized", StringComparison.Ordinal);
 
     private static void ValidateLeaseHolder(
         StewardWritableReservationLease lease,
@@ -205,8 +218,8 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizer :
         }
         catch
         {
-            // The migration is already blocked by the head/identity mismatch. Do not mask the
-            // original failure merely because cleanup of a still-legacy reservation also failed.
+            // The migration is already blocked. Do not mask the original failure merely because
+            // cleanup of a still-legacy reservation also failed.
         }
     }
 

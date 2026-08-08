@@ -12,6 +12,10 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizerTests
         "steam",
         "76561198000001001",
         "Holder");
+    private static readonly UserIdentity OtherMember = new(
+        "steam",
+        "76561198000001002",
+        "Other Member");
 
     [Fact]
     public async Task ExistingMatchingRetirementResumesWithoutReacquiringLegacyAuthority()
@@ -60,6 +64,31 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizerTests
             authorizer.CanInitializePeerAuthorityAsync(world, Holder));
 
         Assert.Equal(0, coordinator.AcquireCalls);
+        Assert.Equal(0, retirement.RetireCalls);
+    }
+
+    [Fact]
+    public async Task ExistingRetirementForDifferentMembershipBlocksPeerGenerationOne()
+    {
+        using var registry = new StewardWritableReservationRegistry();
+        var retiredWorld = CreateWorld();
+        var localWorld = retiredWorld with { Members = [Holder, OtherMember] };
+        var retirement = new RetirementClient
+        {
+            Evidence = Evidence(retiredWorld, Guid.NewGuid(), generation: 7)
+        };
+        var coordinator = new LegacyCoordinator(registry, localWorld, Holder);
+        var authorizer = new StewardLegacyAuthorityMigrationAuthorizer(
+            coordinator,
+            registry,
+            retirement,
+            Holder);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            authorizer.CanInitializePeerAuthorityAsync(localWorld, Holder));
+
+        Assert.Equal(0, coordinator.AcquireCalls);
+        Assert.Equal(1, retirement.GetCalls);
         Assert.Equal(0, retirement.RetireCalls);
     }
 
@@ -149,7 +178,7 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizerTests
         var coordinator = new LegacyCoordinator(registry, world, Holder);
         var different = new UserIdentity(
             "steam",
-            "76561198000001002",
+            "76561198000001003",
             "Different");
         var authorizer = new StewardLegacyAuthorityMigrationAuthorizer(
             coordinator,
@@ -186,6 +215,7 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizerTests
             generation,
             world.CurrentStateRevisionId!.Value,
             world.CurrentEnvironmentRevisionId,
+            StableIdentitySetFingerprint.Compute(world.Members),
             new DateTimeOffset(2026, 8, 8, 3, 0, 0, TimeSpan.Zero));
 
     private sealed class RetirementClient : IStewardLegacyAuthorityRetirementClient

@@ -16,10 +16,37 @@ public static class StewardLegacyAuthorityRetirementApi
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
+        endpoints.MapGet(
+            "/api/v1/worlds/{worldId:guid}/reservation/retire-peer-authority",
+            GetAsync);
         endpoints.MapPost(
             "/api/v1/worlds/{worldId:guid}/reservation/retire-peer-authority",
             RetireAsync);
         return endpoints;
+    }
+
+    private static async Task<IResult> GetAsync(
+        Guid worldId,
+        HttpRequest request,
+        StewardSessionService sessions,
+        LegacySharedWorldAuthorityRetirementService retirement,
+        CancellationToken cancellationToken)
+    {
+        var caller = await AuthenticateAsync(request, sessions, cancellationToken);
+        if (caller is null)
+        {
+            return StewardApiResults.AuthenticationRequired();
+        }
+
+        var result = await retirement.GetAsync(
+            caller.Identity,
+            new WorldId(worldId),
+            cancellationToken);
+        return result is null
+            ? Results.NotFound(new LegacyAuthorityRetirementResponse(
+                "LegacyAuthorityNotRetired",
+                Retryable: false))
+            : Results.Ok(MapSuccess("LegacyAuthorityAlreadyRetired", result));
     }
 
     private static async Task<IResult> RetireAsync(

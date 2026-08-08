@@ -19,22 +19,24 @@ public sealed record PeerWorldLobbySnapshot(
     /// Compatibility shape for schema-v1 lobby implementations that predate persistent authority
     /// generations. They intentionally surface generation zero so generation-bound peer exchange
     /// refuses to send World bytes rather than treating the legacy lobby as current authority.
+    /// Parameter casing intentionally matches the former positional record contract so existing
+    /// named-argument callers remain source-compatible.
     /// </summary>
     public PeerWorldLobbySnapshot(
-        WorldId worldId,
-        UserIdentity owner,
-        bool ownerConfirmed,
-        UserIdentity? requestedHost,
-        RevisionId? lastCommittedRevision,
-        DateTimeOffset updatedAt)
+        WorldId WorldId,
+        UserIdentity Owner,
+        bool OwnerConfirmed,
+        UserIdentity? RequestedHost,
+        RevisionId? LastCommittedRevision,
+        DateTimeOffset UpdatedAt)
         : this(
-            worldId,
-            owner,
-            ownerConfirmed,
+            WorldId,
+            Owner,
+            OwnerConfirmed,
             AuthorityGeneration: 0,
-            requestedHost,
-            lastCommittedRevision,
-            updatedAt)
+            RequestedHost,
+            LastCommittedRevision,
+            UpdatedAt)
     {
     }
 }

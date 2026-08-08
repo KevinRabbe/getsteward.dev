@@ -163,6 +163,29 @@ public sealed class StewardLegacyAuthorityRetirementClientTests
         Assert.False(exception.Retryable);
     }
 
+    [Fact]
+    public async Task SuccessCodeOnServerErrorCannotAuthorizeMigration()
+    {
+        var worldId = WorldId.New();
+        var sessionId = Guid.NewGuid();
+        var handler = new RecordingHandler(_ => JsonResponse(
+            HttpStatusCode.InternalServerError,
+            SuccessJson(
+                "LegacyAuthorityRetired",
+                worldId,
+                sessionId,
+                3,
+                RevisionId.New(),
+                environmentId: null,
+                new DateTimeOffset(2026, 8, 8, 3, 30, 0, TimeSpan.Zero))));
+        using var http = Http(handler);
+        var client = Client(http);
+
+        var exception = await Assert.ThrowsAsync<StewardRemoteApiException>(() =>
+            client.RetireAsync(worldId, sessionId, 3));
+        Assert.True(exception.Retryable);
+    }
+
     private static string SuccessJson(
         string code,
         WorldId worldId,

@@ -74,7 +74,8 @@ public sealed class StewardLegacyAuthorityRetirementClient :
             return null;
         }
 
-        if (!string.Equals(response.Code, "LegacyAuthorityAlreadyRetired", StringComparison.Ordinal))
+        if (!string.Equals(response.Code, "LegacyAuthorityAlreadyRetired", StringComparison.Ordinal) ||
+            !IsSuccessStatus(response.StatusCode))
         {
             throw CreateUnexpectedResponse(response);
         }
@@ -108,8 +109,10 @@ public sealed class StewardLegacyAuthorityRetirementClient :
             options: _jsonOptions);
 
         var response = await SendAsync(request, cancellationToken);
-        if (!string.Equals(response.Code, "LegacyAuthorityRetired", StringComparison.Ordinal) &&
-            !string.Equals(response.Code, "LegacyAuthorityAlreadyRetired", StringComparison.Ordinal))
+        var successCode =
+            string.Equals(response.Code, "LegacyAuthorityRetired", StringComparison.Ordinal) ||
+            string.Equals(response.Code, "LegacyAuthorityAlreadyRetired", StringComparison.Ordinal);
+        if (!successCode || !IsSuccessStatus(response.StatusCode))
         {
             throw CreateUnexpectedResponse(response);
         }
@@ -211,6 +214,9 @@ public sealed class StewardLegacyAuthorityRetirementClient :
             response.StatusCode,
             response.Code,
             response.Retryable || IsTransientStatus(response.StatusCode));
+
+    private static bool IsSuccessStatus(HttpStatusCode statusCode)
+        => (int)statusCode is >= 200 and <= 299;
 
     private static bool IsTransientStatus(HttpStatusCode statusCode)
         => statusCode == HttpStatusCode.RequestTimeout ||

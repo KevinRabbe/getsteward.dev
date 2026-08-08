@@ -68,7 +68,7 @@ public sealed class LegacyAuthorityRetirementApiCompositionTests
     }
 
     [Fact]
-    public void SuccessEvidenceIncludesExactFrozenCanonicalHead()
+    public void SuccessEvidenceIncludesExactFrozenCanonicalHeadAndMembership()
     {
         var source = Read("src/SharedWorlds.Backend.Api/StewardLegacyAuthorityRetirementApi.cs");
 
@@ -85,7 +85,30 @@ public sealed class LegacyAuthorityRetirementApiCompositionTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
-            "Guid StateRevisionId,\n        Guid? EnvironmentRevisionId,",
+            "StableIdentitySetFingerprint.IsCanonicalFingerprint(\n                result.RetiredActiveMembersFingerprint)",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "result.RetiredActiveMembersFingerprint!",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Guid StateRevisionId,\n        Guid? EnvironmentRevisionId,\n        string ActiveMembersFingerprint,",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TransitionalLegacyAccessStateIsNotConvertibleToPeerAuthority()
+    {
+        var source = Read("src/SharedWorlds.Backend.Api/StewardLegacyAuthorityRetirementApi.cs");
+
+        Assert.Contains(
+            "LegacySharedWorldAuthorityRetirementStatus.AccessStateNotReady => Results.Conflict(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"LegacyAccessStateNotReady\"",
             source,
             StringComparison.Ordinal);
     }

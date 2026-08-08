@@ -82,19 +82,28 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizer :
                 lease.Generation,
                 cancellationToken);
         }
-        catch (StewardRemoteApiException exception) when (
-            !exception.Retryable && IsDefinitivelyUnretired(exception.Code))
+        catch (StewardRemoteApiException exception) when (!exception.Retryable)
         {
-            // These response codes prove that this request did not create the retirement tombstone.
-            // Release the still-legacy lease so the access manager can resolve access state or retry.
+            // A non-retryable backend response is definitive enough to resolve by one holder-scoped
+            // tombstone read. If retirement won concurrently, accept only that exact durable record.
+            // If no tombstone exists, this local lease is still legacy/stale and must be released so
+            // it cannot short-circuit every later migration attempt.
+            var observed = await _retirement.GetAsync(world.Id, CancellationToken.None);
+            if (observed is not null)
+            {
+                ValidateRetiredWorld(world, observed);
+                ResolveLocalLease(observed);
+                return true;
+            }
+
             await TryReleaseUnretiredLeaseAsync(world.Id, proposedHolder);
             throw;
         }
         catch
         {
-            // ReservationMismatch, transport failure, timeout, and cancellation can be ambiguous:
-            // the backend may already have made retirement durable. Keep the local lease so the next
-            // attempt begins with tombstone read-back instead of recreating legacy authority.
+            // Transport failure, retryable backend failure, timeout, and cancellation can be
+            // ambiguous: the backend may already have made retirement durable. Keep the local lease
+            // so the next attempt begins with tombstone read-back instead of recreating authority.
             throw;
         }
 
@@ -108,10 +117,6 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizer :
         ResolveLocalLease(verified);
         return true;
     }
-
-    private static bool IsDefinitivelyUnretired(string code)
-        => string.Equals(code, "LegacyAccessStateNotReady", StringComparison.Ordinal) ||
-           string.Equals(code, "WorldNotFoundOrUnauthorized", StringComparison.Ordinal);
 
     private static void ValidateLeaseHolder(
         StewardWritableReservationLease lease,
@@ -219,7 +224,7 @@ public sealed class StewardLegacyAuthorityMigrationAuthorizer :
         catch
         {
             // The migration is already blocked. Do not mask the original failure merely because
-            // cleanup of a still-legacy reservation also failed.
+            // cleanup of a still-legacy or stale reservation also failed.
         }
     }
 

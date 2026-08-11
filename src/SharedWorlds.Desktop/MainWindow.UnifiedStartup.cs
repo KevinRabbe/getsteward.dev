@@ -37,6 +37,11 @@ public partial class MainWindow
         UpdateWorldSharingActionState();
         await InitializeWorldJoinUiAsync();
 
+        // Steam delivers accepted lobby invitations through GameLobbyJoinRequested_t while Steward is
+        // running, but uses +connect_lobby <lobbyId> when the invite launches the app. Process that
+        // cold-start form only after the same Join UI/runtime handlers are ready.
+        InitializeSteamLobbyLaunchRequest();
+
         InitializeUnifiedImportBrowser();
         InitializeImportAccessibility();
         await InitializeSafeWorldGamesHomeAsync();

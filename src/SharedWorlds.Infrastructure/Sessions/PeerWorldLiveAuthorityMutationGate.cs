@@ -3,13 +3,12 @@ namespace SharedWorlds.Infrastructure.Sessions;
 /// <summary>
 /// Process-local serialization boundary for live peer authority mutations that must not overlap.
 /// Steward's managed writable-session gate already permits only one writable managed Host lifecycle in
-/// this process, so one small gate is sufficient for the live handoff-request/member-removal race.
-/// Long state transfer is not held under this gate: once RequestHandoff publishes RequestedHost, later
-/// member removal observes that lobby transition and refuses.
+/// this process, so one small gate is sufficient for the live handoff/member-mutation race.
 /// </summary>
 public sealed class PeerWorldLiveAuthorityMutationGate : IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly CancellationTokenSource _lifetime = new();
     private int _disposed;
 
     public async ValueTask<IDisposable> EnterAsync(
@@ -18,7 +17,20 @@ public sealed class PeerWorldLiveAuthorityMutationGate : IDisposable
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposed) != 0,
             this);
-        await _gate.WaitAsync(cancellationToken);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _lifetime.Token);
+        try
+        {
+            await _gate.WaitAsync(linked.Token);
+        }
+        catch (OperationCanceledException) when (
+            !cancellationToken.IsCancellationRequested &&
+            Volatile.Read(ref _disposed) != 0)
+        {
+            throw new ObjectDisposedException(nameof(PeerWorldLiveAuthorityMutationGate));
+        }
+
         if (Volatile.Read(ref _disposed) != 0)
         {
             _gate.Release();
@@ -30,10 +42,14 @@ public sealed class PeerWorldLiveAuthorityMutationGate : IDisposable
 
     public void Dispose()
     {
-        // Do not dispose the underlying SemaphoreSlim while a successful EnterAsync lease may still be
-        // unwinding on another stack. Marking the gate closed prevents all future entrants while every
-        // already-issued releaser remains safe to release exactly once.
-        Interlocked.Exchange(ref _disposed, 1);
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        // Wake blocked entrants but keep the semaphore itself alive for leases that were already issued;
+        // their final Release must remain safe while runtime teardown unwinds concurrently.
+        _lifetime.Cancel();
     }
 
     private sealed class Releaser : IDisposable

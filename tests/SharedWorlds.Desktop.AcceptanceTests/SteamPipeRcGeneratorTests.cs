@@ -89,7 +89,7 @@ public sealed class SteamPipeRcGeneratorTests
     public void GeneratorHasNoCredentialOrAutomaticPromotionInputs()
     {
         var source = File.ReadAllText(FindRepositoryFile("tools/new-steam-peer-beta-steampipe.ps1"));
-        var parameterBlockEnd = source.IndexOf(")\n\nSet-StrictMode", StringComparison.Ordinal);
+        var parameterBlockEnd = source.IndexOf("Set-StrictMode", StringComparison.Ordinal);
         Assert.True(parameterBlockEnd > 0);
         var parameters = source[..parameterBlockEnd];
 
@@ -139,10 +139,11 @@ public sealed class SteamPipeRcGeneratorTests
         startInfo.ArgumentList.Add("Steward peer RC generator acceptance");
 
         using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start PowerShell.");
-        var stdout = process.StandardOutput.ReadToEnd();
-        var stderr = process.StandardError.ReadToEnd();
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
         process.WaitForExit();
-        return new ProcessResult(process.ExitCode, stdout + Environment.NewLine + stderr);
+        Task.WaitAll(stdoutTask, stderrTask);
+        return new ProcessResult(process.ExitCode, stdoutTask.Result + Environment.NewLine + stderrTask.Result);
     }
 
     private static void WriteSyntheticPeerProduct(string product, uint appId)

@@ -8,6 +8,10 @@ namespace SharedWorlds.Infrastructure.Sessions;
 /// shared-World migration, no external retirement proof is needed because LocalOnly has no competing
 /// remote writer. The durable Active fence is still committed before Shared/PeerAuthority becomes
 /// visible so an interruption leaves only a safe resumable marker.
+///
+/// LocalOnly membership is device-local ownership metadata, not remote access authority. Fresh peer
+/// sharing therefore normalizes canonical membership to exactly the current peer identity; additional
+/// participants are added afterward through the fenced membership service.
 /// </summary>
 public sealed class PeerWorldInitialShareService
 {
@@ -42,11 +46,6 @@ public sealed class PeerWorldInitialShareService
         var environmentRevisionId = world.CurrentEnvironmentRevisionId
             ?? throw new InvalidDataException(
                 $"World '{worldId}' has no canonical environment revision to share.");
-        if (!ContainsStableMember(world.Members, localOwner))
-        {
-            throw new UnauthorizedAccessException(
-                $"Local identity '{localOwner.ExternalId}' is not a canonical member of World '{worldId}'.");
-        }
 
         await VerifyCanonicalSourceAsync(
             world,
@@ -58,7 +57,8 @@ public sealed class PeerWorldInitialShareService
         {
             if (world.PeerAuthority is not { } existingAuthority ||
                 existingAuthority.Generation != InitialGeneration ||
-                !SameUser(existingAuthority.Holder, localOwner))
+                !SameUser(existingAuthority.Holder, localOwner) ||
+                !ContainsStableMember(world.Members, localOwner))
             {
                 throw new InvalidOperationException(
                     $"World '{worldId}' is already shared through a different authority model and cannot be initialized as a fresh peer World.");
@@ -116,6 +116,7 @@ public sealed class PeerWorldInitialShareService
         var shared = world with
         {
             SharingMode = WorldSharingMode.Shared,
+            Members = [localOwner],
             PeerAuthority = new WorldPeerAuthority(
                 localOwner,
                 InitialGeneration)
@@ -129,6 +130,8 @@ public sealed class PeerWorldInitialShareService
             verified.PeerAuthority is not { } verifiedAuthority ||
             verifiedAuthority.Generation != InitialGeneration ||
             !SameUser(verifiedAuthority.Holder, localOwner) ||
+            verified.Members.Count != 1 ||
+            !SameUser(verified.Members[0], localOwner) ||
             verified.CurrentStateRevisionId != stateRevisionId ||
             verified.CurrentEnvironmentRevisionId != environmentRevisionId)
         {

@@ -77,7 +77,7 @@ public sealed class PeerHostCutoverCompositionTests
     }
 
     [Fact]
-    public void HostActionWrapsPeerAdapterBeforeAuthoritativeLifecycleLaunch()
+    public void InstallationAwareHostActionWrapsPeerAdapterBeforeAuthoritativeLifecycleLaunch()
     {
         var source = Read("src/SharedWorlds.Desktop/MainWindow.InstallationSelection.cs");
         var hostHandler = RequiredIndex(source, "private async void InstallationAwareHostButton_Click(");
@@ -93,6 +93,35 @@ public sealed class PeerHostCutoverCompositionTests
         Assert.True(lifecycle < wrapper);
         Assert.True(wrapper < launch);
         Assert.True(launch < wrappedArgument);
+    }
+
+    [Fact]
+    public void UnifiedHostActionWrapsPeerBeforeOptionalLegacyRemotePresenceAndLaunch()
+    {
+        var source = Read("src/SharedWorlds.Desktop/MainWindow.UnifiedGames.cs");
+        var hostHandler = RequiredIndex(source, "private async void UnifiedHostButton_Click(");
+        var lifecycle = RequiredIndex(source, "var lifecycle = GetLifecycleForWorld(world);", hostHandler);
+        var peerWrapper = RequiredIndex(
+            source,
+            "var managedHostAdapter = GetManagedHostAdapterForWorld(world, adapter);",
+            lifecycle);
+        var legacyCondition = RequiredIndex(
+            source,
+            "_remoteWorldIds.Contains(world.Id) && _remoteRuntime is { } remoteRuntime",
+            peerWrapper);
+        var legacyWrapper = RequiredIndex(
+            source,
+            "remoteRuntime.CoordinateManagedHost(world.Id, managedHostAdapter)",
+            legacyCondition);
+        var launch = RequiredIndex(source, "var updated = await lifecycle.ContinueAsHostAsync(", legacyWrapper);
+        var hostArgument = RequiredIndex(source, "hostAdapter,", launch);
+
+        Assert.True(hostHandler < lifecycle);
+        Assert.True(lifecycle < peerWrapper);
+        Assert.True(peerWrapper < legacyCondition);
+        Assert.True(legacyCondition < legacyWrapper);
+        Assert.True(legacyWrapper < launch);
+        Assert.True(launch < hostArgument);
     }
 
     [Fact]

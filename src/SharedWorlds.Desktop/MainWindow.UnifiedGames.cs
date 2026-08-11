@@ -191,9 +191,10 @@ public partial class MainWindow
                 StatusText.Text =
                     $"{adapter.DisplayName} is running. When the hosted session ends, Steward will save the updated World.";
                 var lifecycle = GetLifecycleForWorld(world);
+                var managedHostAdapter = GetManagedHostAdapterForWorld(world, adapter);
                 var hostAdapter = _remoteWorldIds.Contains(world.Id) && _remoteRuntime is { } remoteRuntime
-                    ? remoteRuntime.CoordinateManagedHost(world.Id, adapter)
-                    : adapter;
+                    ? remoteRuntime.CoordinateManagedHost(world.Id, managedHostAdapter)
+                    : managedHostAdapter;
                 var updated = await lifecycle.ContinueAsHostAsync(
                     world.Id,
                     hostAdapter,

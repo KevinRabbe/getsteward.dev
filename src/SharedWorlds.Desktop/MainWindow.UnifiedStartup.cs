@@ -47,9 +47,21 @@ public partial class MainWindow
         await InitializeSafeWorldGamesHomeAsync();
         InitializeResponsibilityPresentation();
         InitializeWorldDeletionUi();
-        await InitializeWorldInvitationsUiAsync();
+
+        // The legacy backend invitation inbox belongs only to an actually-established migration runtime.
+        // AppID-only peer installs use private Steam lobby invitations through WorldJoin instead and must
+        // not construct or advertise the old remote invitation surface at all.
+        if (_remoteRuntime is not null)
+        {
+            await InitializeWorldInvitationsUiAsync();
+        }
+
         InitializeProfessionalProductShell();
-        RehomeInvitationsToGlobalLobby();
+        if (_remoteRuntime is not null)
+        {
+            RehomeInvitationsToGlobalLobby();
+        }
+
         InitializeVisualDesignV2();
         InitializeVisualDesignV2Refinements();
         InitializeWorldHistoryUi();

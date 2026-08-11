@@ -1,0 +1,223 @@
+name: Legacy backend CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/SharedWorlds.Backend/**"
+      - "src/SharedWorlds.Backend.Api/**"
+      - "src/SharedWorlds.Backend.PostgreSql/**"
+      - "src/SharedWorlds.Backend.ObjectStorage.S3/**"
+      - "tests/SharedWorlds.Backend.Tests/**"
+      - "tests/SharedWorlds.Backend.Api.Tests/**"
+      - "tests/SharedWorlds.Backend.PostgreSql.Tests/**"
+      - "tests/SharedWorlds.Backend.ObjectStorage.S3.Tests/**"
+      - ".github/workflows/legacy-backend-ci.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "src/SharedWorlds.Backend/**"
+      - "src/SharedWorlds.Backend.Api/**"
+      - "src/SharedWorlds.Backend.PostgreSql/**"
+      - "src/SharedWorlds.Backend.ObjectStorage.S3/**"
+      - "tests/SharedWorlds.Backend.Tests/**"
+      - "tests/SharedWorlds.Backend.Api.Tests/**"
+      - "tests/SharedWorlds.Backend.PostgreSql.Tests/**"
+      - "tests/SharedWorlds.Backend.ObjectStorage.S3.Tests/**"
+      - ".github/workflows/legacy-backend-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: legacy-backend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  backend-tests:
+    name: Legacy backend unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Test backend domain
+        run: dotnet test tests/SharedWorlds.Backend.Tests/SharedWorlds.Backend.Tests.csproj --configuration Release --nologo --verbosity minimal
+
+      - name: Test backend API
+        run: dotnet test tests/SharedWorlds.Backend.Api.Tests/SharedWorlds.Backend.Api.Tests.csproj --configuration Release --nologo --verbosity minimal
+
+  postgres-integration:
+    name: Legacy PostgreSQL integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: steward
+          POSTGRES_PASSWORD: steward
+          POSTGRES_DB: steward_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U steward -d steward_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      STEWARD_TEST_POSTGRES: Host=localhost;Port=5432;Username=steward;Password=steward;Database=steward_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Test PostgreSQL persistence
+        run: dotnet test tests/SharedWorlds.Backend.PostgreSql.Tests/SharedWorlds.Backend.PostgreSql.Tests.csproj --configuration Release --nologo --verbosity minimal
+
+  s3-integration:
+    name: Legacy S3-compatible integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      STEWARD_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+      STEWARD_TEST_S3_REGION: us-east-1
+      STEWARD_TEST_S3_ACCESS_KEY: steward
+      STEWARD_TEST_S3_SECRET_KEY: steward-secret
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Start disposable S3-compatible service
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --rm \
+            --name steward-legacy-minio \
+            --publish 9000:9000 \
+            --env MINIO_ROOT_USER=steward \
+            --env MINIO_ROOT_PASSWORD=steward-secret \
+            quay.io/minio/minio:RELEASE.2025-07-18T21-56-31Z \
+            server /data --address :9000
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:9000/minio/health/live >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs steward-legacy-minio
+          exit 1
+
+      - name: Test S3-compatible persistence
+        run: dotnet test tests/SharedWorlds.Backend.ObjectStorage.S3.Tests/SharedWorlds.Backend.ObjectStorage.S3.Tests.csproj --configuration Release --nologo --verbosity minimal
+
+      - name: Stop disposable S3-compatible service
+        if: always()
+        run: docker rm --force steward-legacy-minio || true
+
+  backend-container:
+    name: Legacy backend container
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: steward
+          POSTGRES_PASSWORD: steward
+          POSTGRES_DB: steward_container_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U steward -d steward_container_smoke"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build legacy backend image
+        run: >-
+          docker build
+          --file src/SharedWorlds.Backend.Api/Dockerfile
+          --tag steward-legacy-backend-ci:${{ github.sha }}
+          .
+
+      - name: Verify non-root runtime user
+        shell: bash
+        run: |
+          user="$(docker image inspect steward-legacy-backend-ci:${{ github.sha }} --format '{{.Config.User}}')"
+          test "$user" = "app"
+
+      - name: Start disposable S3-compatible dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --rm \
+            --name steward-legacy-backend-s3 \
+            --network host \
+            --env MINIO_ROOT_USER=ci-test-only \
+            --env MINIO_ROOT_PASSWORD=ci-test-only \
+            quay.io/minio/minio:RELEASE.2025-07-18T21-56-31Z \
+            server /data --address :9000
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:9000/minio/health/live >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs steward-legacy-backend-s3
+          exit 1
+
+      - name: Smoke legacy backend startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          container=steward-legacy-backend-smoke
+          trap 'docker rm --force "$container" >/dev/null 2>&1 || true' EXIT
+          docker run --detach --rm \
+            --name "$container" \
+            --network host \
+            --env PORT=18080 \
+            --env 'ConnectionStrings__Steward=Host=127.0.0.1;Port=5432;Username=steward;Password=steward;Database=steward_container_smoke' \
+            --env ObjectStorage__ServiceUrl=http://127.0.0.1:9000 \
+            --env ObjectStorage__AuthenticationRegion=us-east-1 \
+            --env ObjectStorage__BucketName=steward-ci \
+            --env ObjectStorage__AccessKeyId=ci-test-only \
+            --env ObjectStorage__SecretAccessKey=ci-test-only \
+            --env ObjectStorage__ForcePathStyle=true \
+            steward-legacy-backend-ci:${{ github.sha }}
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18080/health/live >/dev/null && \
+               curl --fail --silent http://127.0.0.1:18080/health/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs "$container"
+          exit 1
+
+      - name: Stop disposable S3-compatible dependency
+        if: always()
+        run: docker rm --force steward-legacy-backend-s3 || true

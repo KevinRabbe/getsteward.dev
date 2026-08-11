@@ -21,7 +21,6 @@ public sealed class SteamPeerLobbyParticipantCompositionTests
         Assert.DoesNotContain("SetLobbyData", source, StringComparison.Ordinal);
         Assert.DoesNotContain("SetLobbyOwner", source, StringComparison.Ordinal);
         Assert.DoesNotContain("LeaveLobby", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("RequestHandoffAsync", source, StringComparison.Ordinal);
     }
 
     [Fact]

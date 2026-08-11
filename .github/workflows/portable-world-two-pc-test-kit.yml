@@ -1,11 +1,6 @@
 name: Portable World two-PC test kit
 
 on:
-  push:
-    branches:
-      - main
-      - "agent/**"
-  pull_request:
   workflow_dispatch:
 
 permissions:

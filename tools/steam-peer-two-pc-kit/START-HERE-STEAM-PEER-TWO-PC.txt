@@ -1,0 +1,228 @@
+STEWARD / SAFE WORLD — STEAM PEER TWO-PC ACCEPTANCE
+=====================================================
+
+Purpose
+-------
+This kit validates the normal Steward product on two physical Windows PCs and two real Steam accounts.
+It is NOT a Backend.Api, Friends Build, Portable World, database, S3, or migration test.
+
+The product under test is exactly the byte-verifiable AppID-only package in:
+
+    product\
+
+The read-only helper in acceptance-tools\ is test tooling only. It is not part of the product package.
+Do not modify product\ after the kit is built. The evidence probe refuses changed/unmanifested product bytes.
+
+Required setup
+--------------
+1. PC A and PC B are separate Windows PCs.
+2. PC A and PC B use two different real Steam accounts that are immediate Steam friends.
+3. Both accounts can launch the same private Steward Steam AppID used to build this kit.
+4. Install/deploy the exact product\ contents for that AppID on both PCs and launch Steward through Steam.
+5. Both PCs have the same supported game/version available for the disposable test World.
+6. Use a NEW disposable World. Do not run this acceptance against an important personal World.
+7. Do not add steward-steam-release.json, steward-friends-build.json, API URLs, backend credentials, or a second Steward executable.
+
+Before starting, run on both PCs:
+
+    acceptance-tools\SharedWorlds.PeerWorldProbe.exe --verify-package --package-root product
+
+Both must report the same commit SHA, Steam AppID, and acceptance manifest SHA-256.
+
+Evidence helpers
+----------------
+LIST-PEER-WORLDS.cmd
+    Lists locally installed persistent peer-shared Worlds and their stable World IDs.
+
+CAPTURE-PEER-EVIDENCE.cmd
+    Prompts for the World ID and writes a JSON evidence file to the current user's Desktop.
+    It reads only canonical local storage and device settings. It does not initialize Steam, contact a server,
+    mutate the World, or change authority.
+
+Each evidence JSON binds:
+- exact product commit + manifest SHA-256 + Steam AppID;
+- PC/machine name + Steward installation identity;
+- canonical World ID;
+- canonical member identities;
+- persistent authority holder + generation;
+- current state/environment revision IDs;
+- verified current state payload byte size + SHA-256.
+
+Keep every evidence JSON outside product\.
+
+PASS RULE 0 — exact package
+---------------------------
+Before any World action:
+- PC A package verify passes.
+- PC B package verify passes.
+- commitSha matches on both PCs.
+- manifestSha256 matches on both PCs.
+- steamAppId matches on both PCs.
+- product\ contains steward-steam.json only for Steward runtime coordinates.
+- product\ contains NO steward-steam-release.json and NO steward-friends-build.json.
+
+PHASE 1 — create, share, add friend
+------------------------------------
+PC A:
+1. Create/import a new disposable Local World using the normal Steward UI.
+2. Confirm it starts LocalOnly.
+3. Share it. This must cut it over directly to persistent peer authority generation 1.
+4. Open Manage access.
+5. Add PC B by selecting the PC B Steam account from the Steam friends picker. Do not type an ID64.
+6. Close Manage access.
+7. Run LIST-PEER-WORLDS.cmd and copy the World ID.
+8. Run CAPTURE-PEER-EVIDENCE.cmd for that World. Save this file as checkpoint A-share.
+
+A-share must show:
+- sharingMode = Shared;
+- authority.generation = 1;
+- authority.holder = PC A Steam identity;
+- members include PC A + PC B Steam identities;
+- current state/environment IDs exist;
+- current payload hash exists.
+
+PHASE 2 — Host, Steam invite, Join/bootstrap
+---------------------------------------------
+PC A:
+1. Press Host for the shared World.
+2. Confirm the game/managed host reaches Running.
+3. Steward should own a private FriendsOnly Steam lobby and automatically request invitation delivery for canonical members.
+
+PC B:
+1. Join from the Steam invitation. A cold Steam +connect_lobby launch is also valid.
+2. Steward must bootstrap/catch up the same World identity locally.
+3. Join the running game through the normal Steward flow and confirm actual game traffic works.
+
+When both are stable and before deliberately changing/saving the game:
+- capture A-host on PC A;
+- run LIST-PEER-WORLDS.cmd on PC B and capture B-join for the SAME World ID.
+
+A-host and B-join must match on:
+- product commit/AppID/manifest hash;
+- World ID;
+- authority holder = PC A;
+- authority generation = 1;
+- canonical member set;
+- current state revision ID;
+- current environment revision ID;
+- current state payload SHA-256.
+
+If those heads differ before deliberate gameplay mutation, STOP. Do not continue handoff acceptance.
+
+PHASE 3 — exact live host handoff A -> B
+----------------------------------------
+1. While PC B remains connected to the active private lobby, make one easy-to-recognize in-game change.
+2. On PC A choose Hand off host.
+3. The picker must show only canonical members currently connected to this exact live lobby. Select PC B.
+4. Steward must safely stop/save PC A's host, capture the final state, transfer that exact revision, activate PC B at generation 2, then move Steam lobby ownership.
+5. PC A must not retain writable authority after completion.
+
+After handoff has completely settled, capture:
+- A-after-handoff on PC A;
+- B-after-handoff on PC B.
+
+Both evidence files must match on:
+- World ID;
+- authority holder = PC B Steam identity;
+- authority generation = 2;
+- current state revision ID;
+- current environment revision ID;
+- current state payload SHA-256.
+
+The post-handoff state revision should normally differ from A-share/B-join because the outgoing host performed a final save.
+The recognizable in-game change must be present on the PC B-hosted World.
+
+PHASE 4 — authority survives stop/restart and participant catch-up
+------------------------------------------------------------------
+PC B:
+1. Use Stop & Save.
+2. Close Steward on both PCs.
+3. Relaunch Steward through Steam on PC B.
+4. Host the same World again.
+
+PC A:
+1. Join PC B's new live lobby through the normal Steam/Steward path.
+2. Allow catch-up to finish before capturing evidence.
+
+Capture A-rejoin and B-rehost.
+
+PASS:
+- both still use the same World ID;
+- authority holder remains PC B;
+- authority generation remains 2 (ordinary stop/restart MUST NOT create a new generation);
+- after catch-up both have the same current state/environment IDs and payload SHA-256;
+- the latest saved gameplay change is present.
+
+PHASE 5 — live Remove access, then safe re-add
+-----------------------------------------------
+This is destructive to PC A's current live access. Continue only on the disposable test World.
+
+PC B (current holder, World live):
+1. Manage access -> select PC A -> Remove access.
+2. Removal must be accepted while the World is live unless a host handoff is in progress.
+
+PASS immediately:
+- PC A's active peer transfer/game path is revoked/disconnected;
+- PC A cannot immediately re-bootstrap/rejoin using the revoked membership;
+- PC B remains the valid generation-2 authority.
+
+Capture B-after-remove on PC B.
+It must show PC A absent from canonical members.
+
+PC B:
+3. Add PC A again using the Steam friends picker.
+4. Invitation delivery may happen immediately or on Host Ready; canonical membership must already be committed.
+
+PC A:
+5. Join again and allow bootstrap/catch-up to complete.
+
+Capture A-readded and B-readded.
+They must again match on World ID, generation 2, holder PC B, canonical members, current revision IDs, and payload SHA-256.
+
+PHASE 6 — true Leave World
+---------------------------
+Keep PC B hosting at generation 2 and PC A connected as a canonical non-holder.
+
+PC A:
+1. Manage access -> Leave World.
+2. Steward must ask the confirmed current holder to canonically remove PC A first.
+3. Only after that authoritative acknowledgement may PC A delete its local replica and leave the Steam lobby.
+
+PASS:
+- PC A's local replica disappears only after successful canonical removal acknowledgement;
+- LIST-PEER-WORLDS.cmd on PC A no longer lists the test World;
+- PC B still owns the World at generation 2;
+- PC B canonical members no longer include PC A.
+
+Capture B-after-leave on PC B as the final evidence file.
+
+FAIL-CLOSED checks
+------------------
+The acceptance FAILS if any of these occur:
+- Steward requires an API URL/backend service for normal Share/Host/Join/access/handoff/Leave.
+- A second Steward server executable/distribution is required.
+- public/searchable Steam lobby behavior appears instead of the private FriendsOnly path.
+- an offline member is offered as a handoff target.
+- handoff moves authority before final save/exact revision transfer/target activation.
+- ordinary restart increments authority generation.
+- a removed member retains active port-71/port-72 access or can immediately re-bootstrap.
+- Leave deletes the local replica before current authority confirms canonical removal.
+- PC A and PC B claim the same generation with different holders after a completed operation.
+- two evidence files that should represent the same canonical head have different state revision IDs or payload SHA-256 values.
+- either PC's product package hash/AppID/commit differs during the run.
+
+What to retain
+--------------
+For a closed-beta qualification record retain:
+- this kit's peer-test-kit.json;
+- product\acceptance-build.json;
+- every A/B evidence JSON;
+- screenshots only where UI behavior matters (Steam invite, handoff picker, Remove/Leave presentation);
+- a short note naming the game + exact game version used;
+- PASS/FAIL and any incident/log IDs Steward surfaced.
+
+A successful physical run proves the peer product boundary we actually intend to ship:
+
+    Steward.exe + Steam + one active peer host
+
+No central Steward backend is part of the normal runtime.

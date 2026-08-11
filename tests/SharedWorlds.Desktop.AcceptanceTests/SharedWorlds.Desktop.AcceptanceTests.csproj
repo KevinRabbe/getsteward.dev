@@ -19,5 +19,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/SharedWorlds.Desktop/SharedWorlds.Desktop.csproj" />
+    <ProjectReference Include="../../tools/SharedWorlds.PeerWorldProbe/SharedWorlds.PeerWorldProbe.csproj"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

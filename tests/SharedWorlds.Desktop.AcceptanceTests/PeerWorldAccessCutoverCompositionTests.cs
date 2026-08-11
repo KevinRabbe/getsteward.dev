@@ -95,6 +95,23 @@ public sealed class PeerWorldAccessCutoverCompositionTests
     }
 
     [Fact]
+    public void RuntimeComposesRemovalFromSameCanonicalStorageFenceAndLobby()
+    {
+        var source = Read("src/SharedWorlds.Desktop/StewardDesktopPeerRuntime.cs");
+        var membership = RequiredIndex(source, "var membership = new PeerWorldMembershipService(");
+        var removal = RequiredIndex(source, "var memberRemoval = new PeerWorldMemberRemovalService(", membership);
+        var storage = RequiredIndex(source, "storage,", removal);
+        var fences = RequiredIndex(source, "authorityFences,", storage);
+        var lobby = RequiredIndex(source, "lobby);", fences);
+
+        Assert.True(membership < removal);
+        Assert.True(removal < storage);
+        Assert.True(storage < fences);
+        Assert.True(fences < lobby);
+        Assert.Contains("public PeerWorldMemberRemovalService MemberRemoval { get; }", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PeerDialogStillDoesNotPretendTransferOrLeaveSemanticsExist()
     {
         var source = Read("src/SharedWorlds.Desktop/PeerWorldAccessDialog.cs");

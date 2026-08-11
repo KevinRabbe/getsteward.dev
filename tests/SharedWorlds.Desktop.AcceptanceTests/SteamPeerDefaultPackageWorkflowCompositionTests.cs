@@ -149,7 +149,7 @@ public sealed class SteamPeerDefaultPackageWorkflowCompositionTests
             var candidate = Path.Combine(directory.FullName, relativePath);
             if (File.Exists(candidate))
             {
-                return File.ReadAllText(candidate);
+                return candidate;
             }
         }
 

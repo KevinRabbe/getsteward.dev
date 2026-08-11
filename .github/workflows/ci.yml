@@ -1,4 +1,4 @@
-name: CI
+name: Peer product CI
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: peer-product-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -21,7 +21,7 @@ env:
 
 jobs:
   quality:
-    name: Quality
+    name: Peer product quality
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -33,160 +33,35 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Restore
-        run: |
-          dotnet restore SharedWorlds.sln
-          dotnet restore tests/SharedWorlds.Backend.PostgreSql.Tests/SharedWorlds.Backend.PostgreSql.Tests.csproj
-          dotnet restore tests/SharedWorlds.Backend.ObjectStorage.S3.Tests/SharedWorlds.Backend.ObjectStorage.S3.Tests.csproj
+      - name: Restore peer product
+        run: dotnet restore SharedWorlds.PeerProduct.slnf
 
-      - name: Verify formatting
+      - name: Verify peer product formatting
         shell: pwsh
         run: |
-          dotnet format SharedWorlds.sln --verify-no-changes --no-restore *> format.log
-          $formatExitCode = $LASTEXITCODE
-          if ($formatExitCode -eq 0) {
-            dotnet format tests/SharedWorlds.Backend.PostgreSql.Tests/SharedWorlds.Backend.PostgreSql.Tests.csproj --verify-no-changes --no-restore *>> format.log
-            $formatExitCode = $LASTEXITCODE
+          $projects = @(
+            'src/SharedWorlds.Core/SharedWorlds.Core.csproj',
+            'src/SharedWorlds.Infrastructure/SharedWorlds.Infrastructure.csproj',
+            'src/SharedWorlds.Desktop/SharedWorlds.Desktop.csproj',
+            'tests/SharedWorlds.Core.Tests/SharedWorlds.Core.Tests.csproj',
+            'tests/SharedWorlds.Infrastructure.Tests/SharedWorlds.Infrastructure.Tests.csproj',
+            'tests/SharedWorlds.Desktop.AcceptanceTests/SharedWorlds.Desktop.AcceptanceTests.csproj'
+          )
+          foreach ($project in $projects) {
+            & dotnet format $project --verify-no-changes --no-restore --verbosity minimal
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
-          if ($formatExitCode -eq 0) {
-            dotnet format tests/SharedWorlds.Backend.ObjectStorage.S3.Tests/SharedWorlds.Backend.ObjectStorage.S3.Tests.csproj --verify-no-changes --no-restore *>> format.log
-            $formatExitCode = $LASTEXITCODE
-          }
-          Get-Content format.log
-          exit $formatExitCode
-
-      - name: Upload formatter log
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: format-log
-          path: format.log
-          if-no-files-found: ignore
-          retention-days: 7
-
-  backend-container:
-    name: Backend container
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: steward
-          POSTGRES_PASSWORD: steward
-          POSTGRES_DB: steward_container_smoke
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U steward -d steward_container_smoke"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Build production image
-        run: >-
-          docker build
-          --file src/SharedWorlds.Backend.Api/Dockerfile
-          --tag steward-backend-ci:${{ github.sha }}
-          .
-
-      - name: Verify non-root runtime user
-        shell: bash
-        run: |
-          user="$(docker image inspect steward-backend-ci:${{ github.sha }} --format '{{.Config.User}}')"
-          test "$user" = "app"
-
-      - name: Start disposable S3-compatible readiness dependency
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker run --detach --rm \
-            --name steward-backend-smoke-s3 \
-            --network host \
-            --env MINIO_ROOT_USER=ci-test-only \
-            --env MINIO_ROOT_PASSWORD=ci-test-only \
-            quay.io/minio/minio:RELEASE.2025-07-18T21-56-31Z \
-            server /data --address :9000
-
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error http://127.0.0.1:9000/minio/health/live >/dev/null; then
-              exit 0
-            fi
-            sleep 2
-          done
-
-          docker logs steward-backend-smoke-s3
-          exit 1
-
-      - name: Smoke test E4-A container startup, readiness, and fail-closed Steam auth
-        shell: bash
-        run: |
-          set -euo pipefail
-          container=steward-backend-smoke
-          trap 'docker rm --force "$container" >/dev/null 2>&1 || true' EXIT
-
-          docker run --detach --rm \
-            --name "$container" \
-            --network host \
-            --env PORT=18080 \
-            --env 'ConnectionStrings__Steward=Host=127.0.0.1;Port=5432;Username=steward;Password=steward;Database=steward_container_smoke' \
-            --env ObjectStorage__ServiceUrl=http://127.0.0.1:9000 \
-            --env ObjectStorage__AuthenticationRegion=us-east-1 \
-            --env ObjectStorage__BucketName=steward-ci \
-            --env ObjectStorage__AccessKeyId=ci-test-only \
-            --env ObjectStorage__SecretAccessKey=ci-test-only \
-            --env ObjectStorage__ForcePathStyle=true \
-            steward-backend-ci:${{ github.sha }}
-
-          ready=false
-          for attempt in $(seq 1 60); do
-            if curl --fail --silent http://127.0.0.1:18080/health/live >/dev/null && \
-               curl --fail --silent http://127.0.0.1:18080/health/ready >/dev/null; then
-              ready=true
-              break
-            fi
-
-            if ! docker inspect "$container" --format '{{.State.Running}}' | grep -qx true; then
-              docker logs "$container"
-              exit 1
-            fi
-
-            sleep 1
-          done
-
-          if [ "$ready" != true ]; then
-            docker logs "$container"
-            exit 1
-          fi
-
-          auth_status="$(curl --silent --show-error \
-            --output /tmp/steward-e4a-auth.json \
-            --write-out '%{http_code}' \
-            --header 'Content-Type: application/json' \
-            --data '{"ticketHex":"AABBCC","installationId":"ci-e4a"}' \
-            http://127.0.0.1:18080/api/v1/auth/steam/session)"
-          test "$auth_status" = "503"
-          grep -q '"code":"IdentityProviderUnavailable"' /tmp/steward-e4a-auth.json
-          grep -q '"retryable":false' /tmp/steward-e4a-auth.json
-
-      - name: Stop disposable S3-compatible readiness dependency
-        if: always()
-        run: docker rm --force steward-backend-smoke-s3 || true
 
   build-test:
-    name: Build and test (${{ matrix.os }})
+    name: Peer product build and test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         os:
           - ubuntu-latest
           - windows-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -196,158 +71,27 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Restore
-        run: dotnet restore SharedWorlds.sln
+      - name: Restore peer product
+        run: dotnet restore SharedWorlds.PeerProduct.slnf
 
-      - name: Build
-        shell: pwsh
-        run: |
-          dotnet build SharedWorlds.sln --configuration Release --no-restore --nologo --verbosity minimal *> build.log
-          $buildExitCode = $LASTEXITCODE
-          Get-Content build.log
-          exit $buildExitCode
+      - name: Build peer product
+        run: dotnet build SharedWorlds.PeerProduct.slnf --configuration Release --no-restore --nologo --verbosity minimal
 
-      - name: Validate Windows acceptance package
+      - name: Test peer product
+        run: dotnet test SharedWorlds.PeerProduct.slnf --configuration Release --no-build --no-restore --nologo --verbosity minimal
+
+      - name: Validate ordinary Windows package
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          ./tools/e4-build-desktop.ps1 -FrameworkDependent -OutputDirectory "$env:RUNNER_TEMP/steward-e4-package"
-          Get-Content "$env:RUNNER_TEMP/steward-e4-package/acceptance-build.json"
+          ./tools/e4-build-desktop.ps1 `
+            -FrameworkDependent `
+            -OutputDirectory "$env:RUNNER_TEMP/steward-peer-product"
+          Get-Content "$env:RUNNER_TEMP/steward-peer-product/acceptance-build.json"
 
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: build-log-${{ matrix.os }}
-          path: build.log
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Test
-        shell: pwsh
-        run: |
-          dotnet test SharedWorlds.sln --configuration Release --no-build --nologo --verbosity minimal --logger "trx;LogFileName=test-results.trx" *> test.log
-          $testExitCode = $LASTEXITCODE
-          Get-Content test.log
-          exit $testExitCode
-
-      - name: Upload test log
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: test-log-${{ matrix.os }}
-          path: test.log
-          if-no-files-found: ignore
-          retention-days: 7
-
-  postgres-integration:
-    name: PostgreSQL integration
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: steward
-          POSTGRES_PASSWORD: steward
-          POSTGRES_DB: steward_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U steward -d steward_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      STEWARD_TEST_POSTGRES: Host=localhost;Port=5432;Username=steward;Password=steward;Database=steward_test
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "10.0.x"
-
-      - name: Restore PostgreSQL integration tests
-        run: dotnet restore tests/SharedWorlds.Backend.PostgreSql.Tests/SharedWorlds.Backend.PostgreSql.Tests.csproj
-
-      - name: Test PostgreSQL persistence
-        shell: pwsh
-        run: |
-          dotnet test tests/SharedWorlds.Backend.PostgreSql.Tests/SharedWorlds.Backend.PostgreSql.Tests.csproj --configuration Release --no-restore --nologo --verbosity minimal *> postgres-test.log
-          $testExitCode = $LASTEXITCODE
-          Get-Content postgres-test.log
-          exit $testExitCode
-
-      - name: Upload PostgreSQL integration test log
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: postgres-integration-test-log
-          path: postgres-test.log
-          if-no-files-found: ignore
-          retention-days: 7
-
-  s3-integration:
-    name: S3-compatible integration
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      STEWARD_TEST_S3_ENDPOINT: http://127.0.0.1:9000
-      STEWARD_TEST_S3_REGION: us-east-1
-      STEWARD_TEST_S3_ACCESS_KEY: steward
-      STEWARD_TEST_S3_SECRET_KEY: steward-secret
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "10.0.x"
-
-      - name: Start disposable S3-compatible test service
-        shell: bash
-        run: |
-          docker run --detach --rm \
-            --name steward-minio \
-            --publish 9000:9000 \
-            --env MINIO_ROOT_USER=steward \
-            --env MINIO_ROOT_PASSWORD=steward-secret \
-            quay.io/minio/minio:RELEASE.2025-07-18T21-56-31Z \
-            server /data --address :9000
-
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error http://127.0.0.1:9000/minio/health/live >/dev/null; then
-              exit 0
-            fi
-            sleep 2
-          done
-
-          docker logs steward-minio
-          exit 1
-
-      - name: Restore S3-compatible integration tests
-        run: dotnet restore tests/SharedWorlds.Backend.ObjectStorage.S3.Tests/SharedWorlds.Backend.ObjectStorage.S3.Tests.csproj
-
-      - name: Test S3-compatible direct transfer
-        shell: pwsh
-        run: |
-          dotnet test tests/SharedWorlds.Backend.ObjectStorage.S3.Tests/SharedWorlds.Backend.ObjectStorage.S3.Tests.csproj --configuration Release --no-restore --nologo --verbosity normal *> s3-test.log
-          $testExitCode = $LASTEXITCODE
-          Get-Content s3-test.log
-          exit $testExitCode
-
-      - name: Upload S3 integration test log
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: s3-integration-test-log
-          path: s3-test.log
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Stop disposable S3-compatible test service
-        if: always()
-        run: docker rm --force steward-minio || true
+          if (Test-Path "$env:RUNNER_TEMP/steward-peer-product/steward-steam-release.json") {
+            throw 'Ordinary peer product package unexpectedly contains legacy remote configuration.'
+          }
+          if (Test-Path "$env:RUNNER_TEMP/steward-peer-product/steward-friends-build.json") {
+            throw 'Ordinary peer product package unexpectedly contains Friends Build backend routing.'
+          }

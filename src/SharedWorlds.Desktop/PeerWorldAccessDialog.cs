@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Automation.Peers;
@@ -11,18 +10,23 @@ namespace SharedWorlds.Desktop;
 
 /// <summary>
 /// Access surface for persistent peer Worlds. Canonical membership is the only authority here; Steam
-/// lobby invitations are delivery after membership persistence. A live holder removal first revokes the
-/// exact member/generation transport boundary, then persists canonical membership. A non-holder Leave
-/// World is the inverse remote transaction: the current holder removes this authenticated member first,
-/// then this Steward installation deletes its local replica and detaches from the Steam lobby.
+/// friends are only the holder-facing identity picker and Steam lobby invitations are delivery after
+/// membership persistence. A live holder removal first revokes the exact member/generation transport
+/// boundary, then persists canonical membership. A non-holder Leave World asks the current holder to
+/// remove this authenticated member first, then deletes the local replica and detaches from the lobby.
 /// </summary>
 internal sealed class PeerWorldAccessDialog : Window
 {
     private readonly StewardDesktopPeerRuntime _runtime;
     private World _world;
     private IReadOnlyList<UserIdentity> _displayedMembers = Array.Empty<UserIdentity>();
+    private IReadOnlyList<UserIdentity> _availableFriends = Array.Empty<UserIdentity>();
     private readonly ListBox _members = new();
-    private readonly TextBox _steamId = new();
+    private readonly ComboBox _friendPicker = new()
+    {
+        MinHeight = 32,
+        IsTextSearchEnabled = true
+    };
     private readonly Button _addButton = new()
     {
         Content = "Add person",
@@ -78,6 +82,7 @@ internal sealed class PeerWorldAccessDialog : Window
         _addButton.Click += AddButton_Click;
         _removeButton.Click += RemoveButton_Click;
         _leaveButton.Click += LeaveButton_Click;
+        _friendPicker.SelectionChanged += (_, _) => UpdateActionState();
         _members.SelectionChanged += (_, _) => UpdateActionState();
         Loaded += async (_, _) => await ReloadAsync();
     }
@@ -108,19 +113,18 @@ internal sealed class PeerWorldAccessDialog : Window
         var addRow = new Grid { Margin = new Thickness(0, 18, 0, 12) };
         addRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         addRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        _steamId.MinHeight = 32;
-        _steamId.VerticalContentAlignment = VerticalAlignment.Center;
-        _steamId.ToolTip = "Steam ID64 of the person to add";
-        AutomationProperties.SetName(_steamId, "Steam ID64 to add");
+        _friendPicker.VerticalContentAlignment = VerticalAlignment.Center;
+        _friendPicker.ToolTip = "Choose a Steam friend to add to this World";
+        AutomationProperties.SetName(_friendPicker, "Steam friend to add");
         AutomationProperties.SetHelpText(
-            _steamId,
-            "Enter the numeric Steam ID64 of a person who should become a member of this World.");
-        addRow.Children.Add(_steamId);
+            _friendPicker,
+            "Choose one of your immediate Steam friends who is not already a member of this World.");
+        addRow.Children.Add(_friendPicker);
 
         _addButton.Margin = new Thickness(10, 0, 0, 0);
         AutomationProperties.SetHelpText(
             _addButton,
-            "Persist World membership first, then deliver a private Steam lobby invitation when possible.");
+            "Persist the selected Steam friend's World membership first, then deliver a private Steam lobby invitation when possible.");
         Grid.SetColumn(_addButton, 1);
         addRow.Children.Add(_addButton);
         Grid.SetRow(addRow, 1);
@@ -176,21 +180,13 @@ internal sealed class PeerWorldAccessDialog : Window
 
     private async void AddButton_Click(object sender, RoutedEventArgs e)
     {
-        var value = _steamId.Text.Trim();
-        if (!ulong.TryParse(
-                value,
-                NumberStyles.None,
-                CultureInfo.InvariantCulture,
-                out var steamId) ||
-            steamId == 0)
+        if (!TryGetSelectedAvailableFriend(out var member))
         {
-            SetStatus("Enter the person's numeric Steam ID64.");
+            SetStatus("Choose a Steam friend to add.");
             return;
         }
 
-        if (SameUser(
-                _runtime.User,
-                new UserIdentity("steam", value, value)))
+        if (SameUser(_runtime.User, member))
         {
             SetStatus("This Steam account is already the local Steward identity.");
             return;
@@ -198,11 +194,6 @@ internal sealed class PeerWorldAccessDialog : Window
 
         await RunAsync(async () =>
         {
-            var member = new UserIdentity(
-                "steam",
-                value,
-                $"Steam ID {value}");
-
             // Canonical membership is committed before any platform invitation attempt. A later Steam
             // delivery failure therefore remains safely retryable and cannot make access ambiguous.
             _world = await _runtime.Membership.AddMemberAsync(
@@ -222,10 +213,9 @@ internal sealed class PeerWorldAccessDialog : Window
                 // Membership is already canonical. Host Ready will retry all canonical members later.
             }
 
-            _steamId.Clear();
             SetStatus(delivery is { Delivered: > 0 }
-                ? $"Access added for Steam ID {value}. Private Steam invitation delivery was requested."
-                : $"Access added for Steam ID {value}. Steward will retry the Steam invitation when this World is hosted.");
+                ? $"Access added for {member.DisplayName}. Private Steam invitation delivery was requested."
+                : $"Access added for {member.DisplayName}. Steward will retry the Steam invitation when this World is hosted.");
         });
     }
 
@@ -317,7 +307,7 @@ internal sealed class PeerWorldAccessDialog : Window
 
         _displayedMembers = _world.Members
             .OrderBy(member => SameUser(member, _runtime.User) ? 0 : 1)
-            .ThenBy(member => member.Provider, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(member => member.DisplayName, StringComparer.CurrentCultureIgnoreCase)
             .ThenBy(member => member.ExternalId, StringComparer.Ordinal)
             .ToArray();
         _members.ItemsSource = _displayedMembers
@@ -329,6 +319,30 @@ internal sealed class PeerWorldAccessDialog : Window
         _canManage = authority is not null &&
                      SameUser(authority.Holder, _runtime.User) &&
                      isCanonicalMember;
+
+        string? friendLoadProblem = null;
+        _availableFriends = Array.Empty<UserIdentity>();
+        _friendPicker.ItemsSource = Array.Empty<string>();
+        _friendPicker.SelectedIndex = -1;
+        if (_canManage)
+        {
+            try
+            {
+                var friends = await _runtime.Friends.ListAsync();
+                _availableFriends = friends
+                    .Where(friend => !_world.Members.Any(member => SameUser(member, friend)))
+                    .ToArray();
+                _friendPicker.ItemsSource = _availableFriends
+                    .Select(FormatFriend)
+                    .ToArray();
+                _friendPicker.SelectedIndex = _availableFriends.Count > 0 ? 0 : -1;
+            }
+            catch (Exception exception)
+            {
+                friendLoadProblem = exception.Message;
+            }
+        }
+
         var isNonHolderMember = authority is not null &&
                                 !SameUser(authority.Holder, _runtime.User) &&
                                 isCanonicalMember;
@@ -351,12 +365,19 @@ internal sealed class PeerWorldAccessDialog : Window
         }
 
         _summary.Text = _canManage
-            ? "World membership is stored with the World. Add grants access before Steam invite delivery. Remove access also works during a live Host by revoking the selected member's peer sessions before canonical removal. To leave this World yourself, hand off host authority first."
+            ? _availableFriends.Count > 0
+                ? "Choose a Steam friend to add. Membership is stored with the World before Steam invitation delivery. Remove access also works during a live Host. To leave the World yourself, hand off host authority first."
+                : "No additional immediate Steam friends are available to add. Existing World members remain canonical until removed. To leave the World yourself, hand off host authority first."
             : _canLeave
                 ? "This account is a canonical World member but not the current authority holder. Leave World asks the active holder to remove this account first; Steward deletes the local replica only after that authoritative acknowledgement."
                 : isNonHolderMember
                     ? "This account is a canonical non-holder member. Leave World becomes available when Steward is attached to the confirmed current host at this exact authority generation and no handoff is in progress."
                     : "World membership is read-only here because this Steward identity is not a current canonical member or authority holder.";
+        if (!string.IsNullOrWhiteSpace(friendLoadProblem))
+        {
+            _summary.Text += $" Steam friends could not be loaded: {friendLoadProblem}";
+        }
+
         UpdateActionState();
         if (!preserveStatus)
         {
@@ -400,11 +421,25 @@ internal sealed class PeerWorldAccessDialog : Window
     private void UpdateActionState()
     {
         var canMutate = !_busy && _canManage;
-        _steamId.IsEnabled = canMutate;
-        _addButton.IsEnabled = canMutate;
+        _friendPicker.IsEnabled = canMutate && _availableFriends.Count > 0;
+        _addButton.IsEnabled = canMutate &&
+                               TryGetSelectedAvailableFriend(out _);
         _removeButton.IsEnabled = canMutate &&
                                   TryGetSelectedRemovableMember(out _);
         _leaveButton.IsEnabled = !_busy && _canLeave;
+    }
+
+    private bool TryGetSelectedAvailableFriend(out UserIdentity friend)
+    {
+        var index = _friendPicker.SelectedIndex;
+        if (index >= 0 && index < _availableFriends.Count)
+        {
+            friend = _availableFriends[index];
+            return true;
+        }
+
+        friend = null!;
+        return false;
     }
 
     private bool TryGetSelectedRemovableMember(out UserIdentity member)
@@ -422,11 +457,14 @@ internal sealed class PeerWorldAccessDialog : Window
         return false;
     }
 
+    private static string FormatFriend(UserIdentity friend)
+        => $"{friend.DisplayName} — Steam ID {friend.ExternalId}";
+
     private string FormatMember(UserIdentity member)
     {
         var label = string.Equals(member.Provider, "steam", StringComparison.OrdinalIgnoreCase)
-            ? $"Steam ID {member.ExternalId}"
-            : $"{member.Provider}: {member.ExternalId}";
+            ? $"{member.DisplayName} — Steam ID {member.ExternalId}"
+            : $"{member.DisplayName} — {member.Provider}: {member.ExternalId}";
         return SameUser(member, _runtime.User)
             ? $"{label} — this account"
             : label;

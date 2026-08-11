@@ -30,12 +30,14 @@ public sealed class PeerGameDatagramBridgeAdmissionService
     private readonly IWorldStorage _storage;
     private readonly IPeerManagedHostPresenceRegistry _presence;
     private readonly UserIdentity _localUser;
+    private readonly PeerWorldLiveMemberRevocationRegistry? _liveRevocations;
 
     public PeerGameDatagramBridgeAdmissionService(
         IPeerWorldLobby lobby,
         IWorldStorage storage,
         IPeerManagedHostPresenceRegistry presence,
-        UserIdentity localUser)
+        UserIdentity localUser,
+        PeerWorldLiveMemberRevocationRegistry? liveRevocations = null)
     {
         ArgumentNullException.ThrowIfNull(lobby);
         ArgumentNullException.ThrowIfNull(storage);
@@ -45,6 +47,7 @@ public sealed class PeerGameDatagramBridgeAdmissionService
         _storage = storage;
         _presence = presence;
         _localUser = localUser;
+        _liveRevocations = liveRevocations;
     }
 
     public async Task<PeerGameDatagramBridgeGrant> AuthorizeAsync(
@@ -67,6 +70,11 @@ public sealed class PeerGameDatagramBridgeAdmissionService
                 worldId,
                 "The local host cannot open a peer game bridge to itself.");
         }
+
+        _liveRevocations?.ThrowIfRevoked(
+            worldId,
+            expectedAuthorityGeneration,
+            remoteUser);
 
         var lobby = await _lobby.GetAsync(worldId, cancellationToken)
             ?? throw new WorldSessionConflictException(
@@ -133,6 +141,13 @@ public sealed class PeerGameDatagramBridgeAdmissionService
             throw new InvalidDataException(
                 $"World '{worldId}' managed game endpoint contains invalid UDP port '{hostUdpPort}'.");
         }
+
+        // Close the asynchronous authorization window. The targeted port-72 teardown slice subscribes
+        // to the same registry for sessions that become long-lived after this grant is returned.
+        _liveRevocations?.ThrowIfRevoked(
+            worldId,
+            expectedAuthorityGeneration,
+            remoteUser);
 
         return new PeerGameDatagramBridgeGrant(
             worldId,

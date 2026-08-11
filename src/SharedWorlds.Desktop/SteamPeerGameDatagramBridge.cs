@@ -36,6 +36,7 @@ internal sealed class SteamPeerGameDatagramBridge : IDisposable, IAsyncDisposabl
     private readonly SteamPlatformRuntime _platform;
     private readonly SteamPeerWorldLobby _lobby;
     private readonly PeerGameDatagramBridgeAdmissionService _admission;
+    private readonly PeerWorldLiveMemberRevocationRegistry? _liveRevocations;
     private readonly Callback<SteamNetConnectionStatusChangedCallback_t> _connectionCallback;
     private readonly ConcurrentDictionary<HSteamNetConnection, BridgeConnectionContext> _connections = new();
     private readonly CancellationTokenSource _lifetime = new();
@@ -46,7 +47,8 @@ internal sealed class SteamPeerGameDatagramBridge : IDisposable, IAsyncDisposabl
     public SteamPeerGameDatagramBridge(
         SteamPlatformRuntime platform,
         SteamPeerWorldLobby lobby,
-        PeerGameDatagramBridgeAdmissionService admission)
+        PeerGameDatagramBridgeAdmissionService admission,
+        PeerWorldLiveMemberRevocationRegistry? liveRevocations = null)
     {
         ArgumentNullException.ThrowIfNull(platform);
         ArgumentNullException.ThrowIfNull(lobby);
@@ -60,6 +62,7 @@ internal sealed class SteamPeerGameDatagramBridge : IDisposable, IAsyncDisposabl
         _platform = platform;
         _lobby = lobby;
         _admission = admission;
+        _liveRevocations = liveRevocations;
         SteamNetworkingUtils.InitRelayNetworkAccess();
         _listenSocket = SteamNetworkingSockets.CreateListenSocketP2P(
             VirtualPort,
@@ -74,6 +77,10 @@ internal sealed class SteamPeerGameDatagramBridge : IDisposable, IAsyncDisposabl
         _connectionCallback = Callback<SteamNetConnectionStatusChangedCallback_t>.Create(
             OnConnectionStatusChanged);
         _receiveLoop = Task.Run(ReceiveLoopAsync);
+        if (_liveRevocations is not null)
+        {
+            _liveRevocations.Revoked += OnMemberRevoked;
+        }
     }
 
     public async Task<SteamPeerGameDatagramClientSession> OpenClientAsync(
@@ -176,6 +183,11 @@ internal sealed class SteamPeerGameDatagramBridge : IDisposable, IAsyncDisposabl
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return;
+        }
+
+        if (_liveRevocations is not null)
+        {
+            _liveRevocations.Revoked -= OnMemberRevoked;
         }
 
         _lifetime.Cancel();
@@ -295,6 +307,39 @@ internal sealed class SteamPeerGameDatagramBridge : IDisposable, IAsyncDisposabl
                 context,
                 new IOException(
                     $"Steam peer game bridge connection ended: {change.m_info.m_szEndDebug}"));
+        }
+    }
+
+    private void OnMemberRevoked(PeerWorldLiveMemberRevocation revocation)
+    {
+        if (Volatile.Read(ref _disposed) != 0 ||
+            !string.Equals(revocation.Member.Provider, "steam", StringComparison.OrdinalIgnoreCase) ||
+            !ulong.TryParse(
+                revocation.Member.ExternalId,
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out var revokedSteamId) ||
+            revokedSteamId == 0)
+        {
+            return;
+        }
+
+        foreach (var context in _connections.Values
+                     .OfType<HostBridgeContext>()
+                     .ToArray())
+        {
+            if (context.RemoteSteamId != revokedSteamId ||
+                context.WorldId is not { } contextWorldId ||
+                contextWorldId != revocation.WorldId ||
+                context.AuthorityGeneration != revocation.AuthorityGeneration)
+            {
+                continue;
+            }
+
+            FailAndRemove(
+                context,
+                new UnauthorizedAccessException(
+                    $"Peer member '{revocation.Member.ExternalId}' was removed from live World '{revocation.WorldId}'."));
         }
     }
 
@@ -447,7 +492,12 @@ internal sealed class SteamPeerGameDatagramBridge : IDisposable, IAsyncDisposabl
                         "Peer game bridge open uses an unsupported protocol or authority generation.");
                 }
 
+                // Bind the authenticated connection to its exact World/generation before asynchronous
+                // authorization starts. A concurrent live revocation can therefore target this context
+                // even if it has not reached Ready yet; admission also re-checks the deny fence.
                 context.BridgeId = open.BridgeId;
+                context.WorldId = open.WorldId;
+                context.AuthorityGeneration = open.AuthorityGeneration;
                 context.State = HostBridgeState.Authorizing;
                 _ = Task.Run(() => AuthorizeHostBridgeAsync(context, open));
                 break;
@@ -526,7 +576,9 @@ internal sealed class SteamPeerGameDatagramBridge : IDisposable, IAsyncDisposabl
 
             if (!_connections.TryGetValue(context.Connection, out var current) ||
                 !ReferenceEquals(current, context) ||
-                context.State != HostBridgeState.Authorizing)
+                context.State != HostBridgeState.Authorizing ||
+                context.WorldId != open.WorldId ||
+                context.AuthorityGeneration != open.AuthorityGeneration)
             {
                 return;
             }
@@ -538,7 +590,12 @@ internal sealed class SteamPeerGameDatagramBridge : IDisposable, IAsyncDisposabl
             socket.Connect(new IPEndPoint(
                 IPAddress.Loopback,
                 grant.HostUdpPort));
-            context.AttachHostSocket(socket);
+            if (!context.TryAttachHostSocket(socket))
+            {
+                socket.Dispose();
+                return;
+            }
+
             context.State = HostBridgeState.Ready;
             context.HostPump = Task.Run(() =>
                 PumpHostUdpToSteamAsync(context, _lifetime.Token));
@@ -1095,6 +1152,8 @@ internal sealed class SteamPeerGameDatagramBridge : IDisposable, IAsyncDisposabl
 
     private sealed class HostBridgeContext : BridgeConnectionContext
     {
+        private readonly object _resourceGate = new();
+
         public HostBridgeContext(
             HSteamNetConnection connection,
             ulong remoteSteamId)
@@ -1103,20 +1162,46 @@ internal sealed class SteamPeerGameDatagramBridge : IDisposable, IAsyncDisposabl
         }
 
         public Guid BridgeId { get; set; }
+        public WorldId? WorldId { get; set; }
+        public ulong AuthorityGeneration { get; set; }
         public HostBridgeState State { get; set; } = HostBridgeState.AwaitingOpen;
         public Socket? HostSocket { get; private set; }
         public Task? HostPump { get; set; }
 
-        public void AttachHostSocket(Socket socket)
-            => HostSocket = socket;
+        public bool TryAttachHostSocket(Socket socket)
+        {
+            ArgumentNullException.ThrowIfNull(socket);
+            lock (_resourceGate)
+            {
+                if (Cancellation.IsCancellationRequested || HostSocket is not null)
+                {
+                    return false;
+                }
+
+                HostSocket = socket;
+                return true;
+            }
+        }
 
         public override void Fail(Exception exception)
-            => Cancellation.Cancel();
+        {
+            lock (_resourceGate)
+            {
+                Cancellation.Cancel();
+            }
+        }
 
         public override async ValueTask DisposeAsync()
         {
-            Cancellation.Cancel();
-            HostSocket?.Dispose();
+            Socket? hostSocket;
+            lock (_resourceGate)
+            {
+                Cancellation.Cancel();
+                hostSocket = HostSocket;
+                HostSocket = null;
+            }
+
+            hostSocket?.Dispose();
             if (HostPump is not null &&
                 Task.CurrentId != HostPump.Id)
             {

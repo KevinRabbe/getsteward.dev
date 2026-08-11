@@ -3,8 +3,24 @@ name: Project Zomboid adapter CI
 on:
   push:
     branches:
-      - "agent/steward-unblocked-work"
+      - main
+    paths:
+      - "src/SharedWorlds.GameAdapters/ProjectZomboid/**"
+      - "tests/SharedWorlds.GameAdapters.ProjectZomboid.Tests/**"
+      - ".github/workflows/project-zomboid-ci.yml"
+      - "Directory.Build.props"
+      - "Directory.Packages.props"
+      - "global.json"
+      - "NuGet.config"
   pull_request:
+    paths:
+      - "src/SharedWorlds.GameAdapters/ProjectZomboid/**"
+      - "tests/SharedWorlds.GameAdapters.ProjectZomboid.Tests/**"
+      - ".github/workflows/project-zomboid-ci.yml"
+      - "Directory.Build.props"
+      - "Directory.Packages.props"
+      - "global.json"
+      - "NuGet.config"
   workflow_dispatch:
 
 permissions:

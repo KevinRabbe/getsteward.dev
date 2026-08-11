@@ -28,13 +28,7 @@ internal static class Program
                 return 0;
             }
 
-            var options = ParseOptions(args);
-            var worldText = RequireOption(options, "--world");
-            if (!Guid.TryParse(worldText, out var worldGuid) || worldGuid == Guid.Empty)
-            {
-                throw new ArgumentException("--world must be a non-empty Steward World GUID.");
-            }
-
+            var parsed = ParseArguments(args);
             var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             if (string.IsNullOrWhiteSpace(localAppData))
             {
@@ -42,18 +36,39 @@ internal static class Program
             }
 
             var sharedWorldsRoot = Path.Combine(localAppData, "SharedWorlds");
-            var dataRoot = GetFullPathOption(options, "--data-root")
+            var dataRoot = GetFullPathOption(parsed.Options, "--data-root")
                 ?? Path.Combine(sharedWorldsRoot, "data");
-            var settingsPath = GetFullPathOption(options, "--settings")
-                ?? Path.Combine(sharedWorldsRoot, "settings", "device.json");
-            var packageRoot = GetFullPathOption(options, "--package-root")
-                ?? ResolveDefaultPackageRoot();
-            var outputPath = GetFullPathOption(options, "--output")
-                ?? Path.GetFullPath($"peer-evidence-{Environment.MachineName}-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.json");
 
+            if (parsed.ListWorlds)
+            {
+                await ListPeerWorldsAsync(dataRoot);
+                return 0;
+            }
+
+            var packageRoot = GetFullPathOption(parsed.Options, "--package-root")
+                ?? ResolveDefaultPackageRoot();
+            var package = await VerifyPackageAsync(packageRoot);
+            if (parsed.VerifyPackageOnly)
+            {
+                Console.WriteLine("[OK] Exact AppID-only Steward product package verified.");
+                Console.WriteLine($"  Commit: {package.CommitSha}");
+                Console.WriteLine($"  Steam AppID: {package.SteamAppId}");
+                Console.WriteLine($"  Manifest SHA-256: {package.ManifestSha256}");
+                return 0;
+            }
+
+            var worldText = RequireOption(parsed.Options, "--world");
+            if (!Guid.TryParse(worldText, out var worldGuid) || worldGuid == Guid.Empty)
+            {
+                throw new ArgumentException("--world must be a non-empty Steward World GUID.");
+            }
+
+            var settingsPath = GetFullPathOption(parsed.Options, "--settings")
+                ?? Path.Combine(sharedWorldsRoot, "settings", "device.json");
+            var outputPath = GetFullPathOption(parsed.Options, "--output")
+                ?? Path.GetFullPath($"peer-evidence-{Environment.MachineName}-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.json");
             EnsureOutputOutsidePackage(outputPath, packageRoot);
 
-            var package = await VerifyPackageAsync(packageRoot);
             var installationId = await ReadInstallationIdAsync(settingsPath);
             var storage = new LocalWorldStorage(dataRoot);
             var worldId = new WorldId(worldGuid);
@@ -85,7 +100,7 @@ internal static class Program
                 environment.WorldId != worldId ||
                 environment.Id != environmentId ||
                 !string.Equals(state.AdapterId, world.GameAdapterId, StringComparison.Ordinal) ||
-                !string.Equals(environment.Manifest.GameAdapterId, world.GameAdapterId, StringComparison.Ordinal))
+                !string.Equals(environment.Manifest.AdapterId, world.GameAdapterId, StringComparison.Ordinal))
             {
                 throw new InvalidDataException(
                     $"World '{worldId}' canonical head metadata is internally inconsistent.");
@@ -153,6 +168,30 @@ internal static class Program
         }
     }
 
+    private static async Task ListPeerWorldsAsync(string dataRoot)
+    {
+        var storage = new LocalWorldStorage(dataRoot);
+        var worlds = (await storage.ListWorldsAsync())
+            .Where(world => world.SharingMode == WorldSharingMode.Shared && world.PeerAuthority is not null)
+            .OrderBy(world => world.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(world => world.Id.ToString(), StringComparer.Ordinal)
+            .ToArray();
+
+        if (worlds.Length == 0)
+        {
+            Console.WriteLine("No persistent peer-shared Steward Worlds exist on this PC.");
+            return;
+        }
+
+        Console.WriteLine("Persistent peer-shared Steward Worlds:");
+        foreach (var world in worlds)
+        {
+            var authority = world.PeerAuthority!;
+            Console.WriteLine(
+                $"  {world.Id}  {world.Name}  generation={authority.Generation}  holder={authority.Holder.Provider}:{authority.Holder.ExternalId}");
+        }
+    }
+
     private static async Task<PackageEvidence> VerifyPackageAsync(string packageRoot)
     {
         var manifestPath = Path.Combine(packageRoot, "acceptance-build.json");
@@ -160,13 +199,13 @@ internal static class Program
         if (!File.Exists(manifestPath) || !File.Exists(steamPath))
         {
             throw new InvalidDataException(
-                "The peer acceptance kit must contain acceptance-build.json and steward-steam.json.");
+                "The peer acceptance product must contain acceptance-build.json and steward-steam.json.");
         }
         if (File.Exists(Path.Combine(packageRoot, "steward-steam-release.json")) ||
             File.Exists(Path.Combine(packageRoot, "steward-friends-build.json")))
         {
             throw new InvalidDataException(
-                "The physical peer kit must be the normal AppID-only product and cannot contain legacy remote migration configuration.");
+                "The physical peer product must be AppID-only and cannot contain legacy remote migration configuration.");
         }
 
         using var manifestDocument = JsonDocument.Parse(await File.ReadAllBytesAsync(manifestPath));
@@ -208,7 +247,7 @@ internal static class Program
         if (actualFiles.Length != expected.Count)
         {
             throw new InvalidDataException(
-                $"Peer kit contains {actualFiles.Length} package files but its manifest lists {expected.Count}.");
+                $"Peer product contains {actualFiles.Length} package files but its manifest lists {expected.Count}.");
         }
 
         foreach (var file in actualFiles)
@@ -216,17 +255,17 @@ internal static class Program
             var relative = Path.GetRelativePath(packageRoot, file).Replace('\\', '/');
             if (!expected.TryGetValue(relative, out var entry))
             {
-                throw new InvalidDataException($"Unmanifested peer-kit file found: '{relative}'.");
+                throw new InvalidDataException($"Unmanifested peer-product file found: '{relative}'.");
             }
             var info = new FileInfo(file);
             if (info.Length != entry.ByteSize)
             {
-                throw new InvalidDataException($"Peer-kit file '{relative}' does not match its manifested byte size.");
+                throw new InvalidDataException($"Peer-product file '{relative}' does not match its manifested byte size.");
             }
             var hash = await HashFileAsync(file);
             if (!string.Equals(hash, entry.Sha256, StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidDataException($"Peer-kit file '{relative}' does not match its manifested SHA-256.");
+                throw new InvalidDataException($"Peer-product file '{relative}' does not match its manifested SHA-256.");
             }
         }
 
@@ -312,27 +351,58 @@ internal static class Program
     private static bool IsSha256(string? value)
         => value is { Length: 64 } && value.All(Uri.IsHexDigit);
 
-    private static Dictionary<string, string> ParseOptions(string[] args)
+    private static ParsedArguments ParseArguments(string[] args)
     {
-        if (args.Length % 2 != 0)
-        {
-            throw new ArgumentException("Every probe option must be supplied as --name value.");
-        }
+        var options = new Dictionary<string, string>(StringComparer.Ordinal);
+        var listWorlds = false;
+        var verifyPackageOnly = false;
 
-        var result = new Dictionary<string, string>(StringComparer.Ordinal);
-        for (var index = 0; index < args.Length; index += 2)
+        for (var index = 0; index < args.Length; index++)
         {
             var name = args[index];
-            var value = args[index + 1];
-            if (name is not ("--world" or "--output" or "--package-root" or "--data-root" or "--settings") ||
-                string.IsNullOrWhiteSpace(value) ||
-                !result.TryAdd(name, value))
+            if (name == "--list")
             {
-                throw new ArgumentException($"Unsupported, empty, or duplicate probe option '{name}'.");
+                if (listWorlds)
+                {
+                    throw new ArgumentException("--list was supplied more than once.");
+                }
+                listWorlds = true;
+                continue;
             }
+            if (name == "--verify-package")
+            {
+                if (verifyPackageOnly)
+                {
+                    throw new ArgumentException("--verify-package was supplied more than once.");
+                }
+                verifyPackageOnly = true;
+                continue;
+            }
+
+            if (name is not ("--world" or "--output" or "--package-root" or "--data-root" or "--settings") ||
+                index + 1 >= args.Length ||
+                string.IsNullOrWhiteSpace(args[index + 1]) ||
+                !options.TryAdd(name, args[index + 1]))
+            {
+                throw new ArgumentException($"Unsupported, missing, or duplicate probe option '{name}'.");
+            }
+            index++;
         }
 
-        return result;
+        if (listWorlds && verifyPackageOnly)
+        {
+            throw new ArgumentException("--list and --verify-package are mutually exclusive.");
+        }
+        if (listWorlds && options.Keys.Any(key => key is not "--data-root"))
+        {
+            throw new ArgumentException("--list accepts only the optional --data-root override.");
+        }
+        if (verifyPackageOnly && options.Keys.Any(key => key is not "--package-root"))
+        {
+            throw new ArgumentException("--verify-package accepts only the optional --package-root override.");
+        }
+
+        return new ParsedArguments(options, listWorlds, verifyPackageOnly);
     }
 
     private static string RequireOption(IReadOnlyDictionary<string, string> options, string name)
@@ -346,13 +416,9 @@ internal static class Program
     private static string ResolveDefaultPackageRoot()
     {
         var toolDirectory = Path.GetFullPath(AppContext.BaseDirectory);
-        var parent = Directory.GetParent(toolDirectory);
-        if (parent is null)
-        {
-            throw new InvalidOperationException("Could not resolve peer acceptance package root from probe location.");
-        }
-
-        return parent.FullName;
+        var kitRoot = Directory.GetParent(toolDirectory)
+            ?? throw new InvalidOperationException("Could not resolve peer acceptance kit root from probe location.");
+        return Path.Combine(kitRoot.FullName, "product");
     }
 
     private static void EnsureOutputOutsidePackage(string outputPath, string packageRoot)
@@ -362,7 +428,7 @@ internal static class Program
         if (output.StartsWith(root, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
-                "Evidence output must be outside the byte-verifiable peer kit directory so the package remains immutable.");
+                "Evidence output must be outside the byte-verifiable peer product directory so the package remains immutable.");
         }
     }
 
@@ -370,11 +436,18 @@ internal static class Program
     {
         Console.WriteLine("Steward peer two-PC read-only evidence probe");
         Console.WriteLine();
-        Console.WriteLine("Usage:");
+        Console.WriteLine("Commands:");
+        Console.WriteLine("  SharedWorlds.PeerWorldProbe.exe --list");
+        Console.WriteLine("  SharedWorlds.PeerWorldProbe.exe --verify-package [--package-root <dir>]");
         Console.WriteLine("  SharedWorlds.PeerWorldProbe.exe --world <WorldGuid> [--output <json>] [--package-root <dir>] [--data-root <dir>] [--settings <device.json>]");
         Console.WriteLine();
-        Console.WriteLine("The probe reads canonical local Steward storage, verifies the exact AppID-only test kit, hashes the current state payload, and writes evidence outside the kit. It does not initialize Steam, contact a backend, mutate World state, or change authority.");
+        Console.WriteLine("The probe reads canonical local Steward storage, verifies the exact AppID-only product, hashes the current state payload, and writes evidence outside product/. It does not initialize Steam, contact a backend, mutate World state, or change authority.");
     }
+
+    private sealed record ParsedArguments(
+        IReadOnlyDictionary<string, string> Options,
+        bool ListWorlds,
+        bool VerifyPackageOnly);
 
     private sealed record IdentityEvidence(
         string Provider,

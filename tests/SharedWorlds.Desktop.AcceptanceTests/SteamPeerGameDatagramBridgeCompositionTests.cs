@@ -99,13 +99,15 @@ public sealed class SteamPeerGameDatagramBridgeCompositionTests
         var socket = RequiredIndex(source, "var socket = new Socket(", grant);
         var loopback = RequiredIndex(source, "IPAddress.Loopback,", socket);
         var port = RequiredIndex(source, "grant.HostUdpPort", loopback);
-        var ready = RequiredIndex(source, "MessageKind.Ready", port);
+        var attach = RequiredIndex(source, "if (!context.TryAttachHostSocket(socket))", port);
+        var ready = RequiredIndex(source, "MessageKind.Ready", attach);
 
         Assert.True(authorize < grant);
         Assert.True(grant < socket);
         Assert.True(socket < loopback);
         Assert.True(loopback < port);
-        Assert.True(port < ready);
+        Assert.True(port < attach);
+        Assert.True(attach < ready);
     }
 
     [Fact]
@@ -128,7 +130,7 @@ public sealed class SteamPeerGameDatagramBridgeCompositionTests
     }
 
     [Fact]
-    public void EachHostPeerGetsItsOwnUdpSocketAndConnectionContext()
+    public void EachHostPeerGetsItsOwnRevocationSafeUdpSocketAndConnectionContext()
     {
         var source = ReadBridge();
 
@@ -138,7 +140,8 @@ public sealed class SteamPeerGameDatagramBridgeCompositionTests
             StringComparison.Ordinal);
         Assert.Contains("private sealed class HostBridgeContext", source, StringComparison.Ordinal);
         Assert.Contains("public Socket? HostSocket", source, StringComparison.Ordinal);
-        Assert.Contains("context.AttachHostSocket(socket);", source, StringComparison.Ordinal);
+        Assert.Contains("public bool TryAttachHostSocket(Socket socket)", source, StringComparison.Ordinal);
+        Assert.Contains("Cancellation.IsCancellationRequested", source, StringComparison.Ordinal);
         Assert.Contains("MaximumIncomingConnections = 64", source, StringComparison.Ordinal);
     }
 

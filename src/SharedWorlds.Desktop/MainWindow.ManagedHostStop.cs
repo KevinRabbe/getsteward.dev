@@ -93,7 +93,14 @@ public partial class MainWindow
                     "Only the current persistent peer authority holder can hand this hosted World to another member.");
             }
 
-            var dialog = new PeerHostHandoffDialog(canonical, peer.User)
+            var liveMembers = await peer.Lobby.ListCurrentMembersAsync(
+                canonical.Id,
+                peer.User,
+                authority.Generation);
+            var dialog = new PeerHostHandoffDialog(
+                canonical,
+                peer.User,
+                liveMembers)
             {
                 Owner = this
             };

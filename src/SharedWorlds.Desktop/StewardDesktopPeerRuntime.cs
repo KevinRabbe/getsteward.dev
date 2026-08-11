@@ -13,8 +13,8 @@ namespace SharedWorlds.Desktop;
 /// The runtime deliberately contains only active peer gameplay concerns: local canonical storage with
 /// durable authority fencing, live lobby authority, exact revision bootstrap/handoff/observer transfer,
 /// initial peer sharing, managed-host presence, membership, live revocation fencing, authenticated
-/// Leave World control, invitations, and the Steam game-data bridge. Central remote services and remote
-/// object storage are not part of this composition.
+/// Leave World control, Steam friend discovery, invitations, and the Steam game-data bridge. Central
+/// remote services and remote object storage are not part of this composition.
 /// </summary>
 internal sealed class StewardDesktopPeerRuntime : IDisposable
 {
@@ -68,6 +68,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
         Storage = storage;
         Lifecycle = lifecycle;
         User = user;
+        Friends = new SteamFriendDirectory(platform);
         Lobby = lobby;
         LobbyJoin = lobbyJoin;
         Bootstrap = bootstrap;
@@ -89,6 +90,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
     public IWorldStorage Storage { get; }
     public WorldLifecycleService Lifecycle { get; }
     public UserIdentity User { get; }
+    public SteamFriendDirectory Friends { get; }
     public SteamPeerWorldLobby Lobby { get; }
     public SteamPeerWorldLobbyJoinService LobbyJoin { get; }
     public PeerWorldBootstrapTransferService Bootstrap { get; }

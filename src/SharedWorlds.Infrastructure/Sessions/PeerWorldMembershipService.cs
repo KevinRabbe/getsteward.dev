@@ -14,15 +14,18 @@ public sealed class PeerWorldMembershipService
 
     private readonly IWorldStorage _storage;
     private readonly IPeerAuthorityFenceStore _authorityFences;
+    private readonly PeerWorldLiveMemberRevocationRegistry? _liveRevocations;
 
     public PeerWorldMembershipService(
         IWorldStorage storage,
-        IPeerAuthorityFenceStore authorityFences)
+        IPeerAuthorityFenceStore authorityFences,
+        PeerWorldLiveMemberRevocationRegistry? liveRevocations = null)
     {
         ArgumentNullException.ThrowIfNull(storage);
         ArgumentNullException.ThrowIfNull(authorityFences);
         _storage = storage;
         _authorityFences = authorityFences;
+        _liveRevocations = liveRevocations;
     }
 
     public async Task<World> AddMemberAsync(
@@ -72,6 +75,9 @@ public sealed class PeerWorldMembershipService
 
         if (ContainsStableMember(world.Members, newMember))
         {
+            // A holder-controlled Add person is also the explicit re-admission boundary for a member
+            // whose previous live revocation is still remembered in this process.
+            _liveRevocations?.Restore(worldId, authority.Generation, newMember);
             return world;
         }
 
@@ -86,6 +92,10 @@ public sealed class PeerWorldMembershipService
             .ToArray();
         var updated = world with { Members = updatedMembers };
         await _storage.SaveWorldAsync(updated, cancellationToken);
+
+        // Restore only after canonical membership persistence. A failed World write therefore cannot
+        // accidentally reopen a member that remains canonically removed.
+        _liveRevocations?.Restore(worldId, authority.Generation, newMember);
         return updated;
     }
 

@@ -96,14 +96,16 @@ public sealed class SteamPeerWorldCatchUpCompositionTests
         var source = Read("src/SharedWorlds.Desktop/StewardDesktopPeerRuntime.cs");
         var router = RequiredIndex(source, "var catchUpRouter = new PeerWorldCatchUpRequestRouter(");
         var exchange = RequiredIndex(source, "revisionExchange = new SteamPeerWorldRevisionExchange(", router);
-        var routerArgument = RequiredIndex(source, "catchUpRouter);", exchange);
-        var bootstrap = RequiredIndex(source, "var bootstrap = new PeerWorldBootstrapTransferService(", routerArgument);
+        var catchUpArgument = RequiredIndex(source, "catchUpRouter,", exchange);
+        var leaveArgument = RequiredIndex(source, "leaveRouter);", catchUpArgument);
+        var bootstrap = RequiredIndex(source, "var bootstrap = new PeerWorldBootstrapTransferService(", leaveArgument);
         var observer = RequiredIndex(source, "var observerSync = new PeerWorldObserverSyncService(", bootstrap);
         var bind = RequiredIndex(source, "catchUpRouter.Bind(", observer);
 
         Assert.True(router < exchange);
-        Assert.True(exchange < routerArgument);
-        Assert.True(routerArgument < bootstrap);
+        Assert.True(exchange < catchUpArgument);
+        Assert.True(catchUpArgument < leaveArgument);
+        Assert.True(leaveArgument < bootstrap);
         Assert.True(bootstrap < observer);
         Assert.True(observer < bind);
         Assert.Contains("public IPeerWorldCatchUpRequestClient CatchUp { get; }", source, StringComparison.Ordinal);

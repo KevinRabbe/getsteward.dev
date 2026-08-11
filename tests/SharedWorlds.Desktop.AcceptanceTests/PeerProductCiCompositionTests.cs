@@ -5,7 +5,7 @@ namespace SharedWorlds.Desktop.AcceptanceTests;
 public sealed class PeerProductCiCompositionTests
 {
     [Fact]
-    public void PeerSolutionBoundaryContainsProductProjectsButNoLegacyBackend()
+    public void PeerSolutionBoundaryContainsProductProjectsButNoLegacyBackendOrWindowsAcceptanceSuite()
     {
         var source = ReadRepositoryFile("SharedWorlds.PeerProduct.slnf");
 
@@ -14,23 +14,37 @@ public sealed class PeerProductCiCompositionTests
         Assert.Contains("SharedWorlds.Desktop", source, StringComparison.Ordinal);
         Assert.Contains("SharedWorlds.Core.Tests", source, StringComparison.Ordinal);
         Assert.Contains("SharedWorlds.Infrastructure.Tests", source, StringComparison.Ordinal);
-        Assert.Contains("SharedWorlds.Desktop.AcceptanceTests", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("SharedWorlds.Desktop.AcceptanceTests", source, StringComparison.Ordinal);
         Assert.DoesNotContain("SharedWorlds.Backend", source, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void DefaultCiUsesPeerBoundaryAndDoesNotProvisionBackendInfrastructure()
+    public void DefaultCiUsesPeerBoundaryAndDoesNotDuplicateDesktopAcceptanceOrProvisionBackendInfrastructure()
     {
         var source = ReadRepositoryFile(".github/workflows/ci.yml");
 
         Assert.Contains("name: Peer product CI", source, StringComparison.Ordinal);
         Assert.Contains("SharedWorlds.PeerProduct.slnf", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("tests/SharedWorlds.Desktop.AcceptanceTests", source, StringComparison.Ordinal);
         Assert.DoesNotContain("SharedWorlds.Backend", source, StringComparison.Ordinal);
         Assert.DoesNotContain("postgres:", source, StringComparison.Ordinal);
         Assert.DoesNotContain("minio", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("ConnectionStrings__Steward", source, StringComparison.Ordinal);
         Assert.DoesNotContain("STEWARD_TEST_POSTGRES", source, StringComparison.Ordinal);
         Assert.DoesNotContain("STEWARD_TEST_S3", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WindowsAcceptanceLaneOwnsDesktopAcceptanceSuite()
+    {
+        var source = ReadRepositoryFile(".github/workflows/windows-acceptance-package.yml");
+
+        Assert.Contains("name: Windows acceptance package", source, StringComparison.Ordinal);
+        Assert.Contains(
+            "tests/SharedWorlds.Desktop.AcceptanceTests/SharedWorlds.Desktop.AcceptanceTests.csproj",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains("Test Windows Desktop resource boundary", source, StringComparison.Ordinal);
     }
 
     [Fact]

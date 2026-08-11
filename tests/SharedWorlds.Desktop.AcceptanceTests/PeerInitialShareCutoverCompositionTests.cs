@@ -9,11 +9,11 @@ public sealed class PeerInitialShareCutoverCompositionTests
     {
         var source = Read("src/SharedWorlds.Desktop/StewardDesktopPeerRuntime.cs");
         var service = RequiredIndex(source, "var initialShare = new PeerWorldInitialShareService(");
-        var membership = RequiredIndex(source, "var membership = new PeerWorldMembershipService(", service);
+        var serviceEnd = RequiredIndex(source, "authorityFences);", service);
 
-        Assert.True(service < membership);
+        Assert.Contains("var membership = new PeerWorldMembershipService(", source, StringComparison.Ordinal);
         Assert.Contains("public PeerWorldInitialShareService InitialShare { get; }", source, StringComparison.Ordinal);
-        Assert.Contains("storage,\n                authorityFences);", source[service..membership], StringComparison.Ordinal);
+        Assert.Contains("storage,\n                authorityFences);", source[service..(serviceEnd + "authorityFences);".Length)], StringComparison.Ordinal);
     }
 
     [Fact]

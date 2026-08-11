@@ -35,11 +35,51 @@ public sealed class PeerWorldMemberRemovalService
         _liveAuthorityMutations = liveAuthorityMutations;
     }
 
-    public async Task<World> RemoveMemberAsync(
+    public Task<World> RemoveMemberAsync(
         WorldId worldId,
         UserIdentity localHolder,
         UserIdentity member,
         CancellationToken cancellationToken = default)
+        => RemoveMemberCoreAsync(
+            worldId,
+            localHolder,
+            member,
+            expectedAuthorityGeneration: null,
+            cancellationToken);
+
+    /// <summary>
+    /// Removes a member only if the exact authority generation observed by an authenticated remote
+    /// control request is still current. This prevents a delayed Leave World request from mutating a
+    /// later authority generation after host handoff/recovery/re-admission.
+    /// </summary>
+    public Task<World> RemoveMemberAtGenerationAsync(
+        WorldId worldId,
+        UserIdentity localHolder,
+        UserIdentity member,
+        ulong expectedAuthorityGeneration,
+        CancellationToken cancellationToken = default)
+    {
+        if (expectedAuthorityGeneration == 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(expectedAuthorityGeneration),
+                "Exact-generation member removal requires a nonzero peer authority generation.");
+        }
+
+        return RemoveMemberCoreAsync(
+            worldId,
+            localHolder,
+            member,
+            expectedAuthorityGeneration,
+            cancellationToken);
+    }
+
+    private async Task<World> RemoveMemberCoreAsync(
+        WorldId worldId,
+        UserIdentity localHolder,
+        UserIdentity member,
+        ulong? expectedAuthorityGeneration,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(localHolder);
         ArgumentNullException.ThrowIfNull(member);
@@ -69,11 +109,15 @@ public sealed class PeerWorldMemberRemovalService
             ?? throw new InvalidOperationException(
                 $"World '{worldId}' has not been migrated to persistent peer authority.");
         if (authority.Generation == 0 ||
+            (expectedAuthorityGeneration is { } expectedGeneration &&
+             authority.Generation != expectedGeneration) ||
             !SameUser(authority.Holder, localHolder) ||
             !ContainsStableMember(world.Members, localHolder))
         {
             throw new UnauthorizedAccessException(
-                $"Identity '{localHolder.ExternalId}' is not the canonical peer authority holder for World '{worldId}'.");
+                expectedAuthorityGeneration is null
+                    ? $"Identity '{localHolder.ExternalId}' is not the canonical peer authority holder for World '{worldId}'."
+                    : $"Identity '{localHolder.ExternalId}' does not hold the requested exact authority generation for World '{worldId}'.");
         }
 
         var stateRevision = world.CurrentStateRevisionId

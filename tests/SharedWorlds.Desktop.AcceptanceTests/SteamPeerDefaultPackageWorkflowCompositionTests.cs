@@ -16,27 +16,54 @@ public sealed class SteamPeerDefaultPackageWorkflowCompositionTests
             source,
             StringComparison.Ordinal);
         Assert.Contains("$includeLegacyRemoteMigration = [string]::Equals(", source, StringComparison.Ordinal);
-        Assert.Contains("if ($includeLegacyRemoteMigration) {", source, StringComparison.Ordinal);
-        Assert.Contains("'-IncludeLegacyRemoteMigrationConfiguration'", source, StringComparison.Ordinal);
+        var migration = RequiredIndex(source, "if ($includeLegacyRemoteMigration) {");
+        var switchArgument = RequiredIndex(
+            source,
+            "$buildArguments.IncludeLegacyRemoteMigrationConfiguration = $true",
+            migration);
+        var apiArgument = RequiredIndex(
+            source,
+            "$buildArguments.SteamReleaseApiBaseUrl = $expectedApiBaseUrl",
+            switchArgument);
+        var identityArgument = RequiredIndex(
+            source,
+            "$buildArguments.SteamReleaseWebApiIdentity = $identity",
+            apiArgument);
+        var invocation = RequiredIndex(
+            source,
+            "& ./tools/e4-build-desktop.ps1 @buildArguments",
+            identityArgument);
+
+        Assert.True(migration < switchArgument);
+        Assert.True(switchArgument < apiArgument);
+        Assert.True(apiArgument < identityArgument);
+        Assert.True(identityArgument < invocation);
     }
 
     [Fact]
-    public void NormalSteamDepotRequiresAppIdButNoBackendCoordinates()
+    public void NormalSteamDepotUsesNamedAppIdParametersButNoBackendCoordinates()
     {
         var source = ReadWorkflow();
         var step = RequiredIndex(source, "- name: Build and verify V3 Steam depot content");
         var defaultAppId = RequiredIndex(source, "[uint32]$appId = 123456789", step);
-        var buildArgs = RequiredIndex(source, "$buildArguments = @(", defaultAppId);
-        var appId = RequiredIndex(source, "'-SteamReleaseAppId', $appId", buildArgs);
-        var migration = RequiredIndex(source, "if ($includeLegacyRemoteMigration) {", appId);
+        var buildArgs = RequiredIndex(source, "$buildArguments = @{", defaultAppId);
+        var appId = RequiredIndex(source, "SteamReleaseAppId = $appId", buildArgs);
+        var releaseOnly = RequiredIndex(source, "ReleaseContentOnly = $true", buildArgs);
+        var migration = RequiredIndex(source, "if ($includeLegacyRemoteMigration) {", releaseOnly);
+        var invocation = RequiredIndex(source, "& ./tools/e4-build-desktop.ps1 @buildArguments", migration);
 
         Assert.True(step < defaultAppId);
         Assert.True(defaultAppId < buildArgs);
         Assert.True(buildArgs < appId);
-        Assert.True(appId < migration);
+        Assert.True(buildArgs < releaseOnly);
+        Assert.True(releaseOnly < migration);
+        Assert.True(migration < invocation);
         var normalBuildSection = source[buildArgs..migration];
         Assert.DoesNotContain("SteamReleaseApiBaseUrl", normalBuildSection, StringComparison.Ordinal);
         Assert.DoesNotContain("SteamReleaseWebApiIdentity", normalBuildSection, StringComparison.Ordinal);
+        Assert.DoesNotContain("IncludeLegacyRemoteMigrationConfiguration", normalBuildSection, StringComparison.Ordinal);
+        Assert.DoesNotContain("'-SteamReleaseAppId'", normalBuildSection, StringComparison.Ordinal);
+        Assert.DoesNotContain("$buildArguments = @(", source, StringComparison.Ordinal);
     }
 
     [Fact]

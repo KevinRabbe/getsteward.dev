@@ -44,8 +44,7 @@ jobs:
             'src/SharedWorlds.Infrastructure/SharedWorlds.Infrastructure.csproj',
             'src/SharedWorlds.Desktop/SharedWorlds.Desktop.csproj',
             'tests/SharedWorlds.Core.Tests/SharedWorlds.Core.Tests.csproj',
-            'tests/SharedWorlds.Infrastructure.Tests/SharedWorlds.Infrastructure.Tests.csproj',
-            'tests/SharedWorlds.Desktop.AcceptanceTests/SharedWorlds.Desktop.AcceptanceTests.csproj'
+            'tests/SharedWorlds.Infrastructure.Tests/SharedWorlds.Infrastructure.Tests.csproj'
           )
           foreach ($project in $projects) {
             & dotnet format $project --verify-no-changes --no-restore --verbosity minimal

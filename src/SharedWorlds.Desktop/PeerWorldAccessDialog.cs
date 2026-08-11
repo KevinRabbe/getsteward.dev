@@ -11,9 +11,9 @@ namespace SharedWorlds.Desktop;
 
 /// <summary>
 /// Access surface for persistent peer Worlds. Canonical membership is the only authority here; Steam
-/// lobby invitations are delivery after membership persistence. Member removal is intentionally limited
-/// to inactive Worlds so Steward never presents a partial live-kick model while peer transports are active.
-/// Authority transfer / holder leave remain separate workflows and are not presented here yet.
+/// lobby invitations are delivery after membership persistence. A live holder removal first revokes the
+/// exact member/generation transport boundary, then persists canonical membership. Authority transfer /
+/// holder leave remain separate workflows and are not presented here yet.
 /// </summary>
 internal sealed class PeerWorldAccessDialog : Window
 {
@@ -127,7 +127,7 @@ internal sealed class PeerWorldAccessDialog : Window
         _removeButton.Margin = new Thickness(0, 10, 0, 0);
         AutomationProperties.SetHelpText(
             _removeButton,
-            "Remove the selected non-holder member while the World is not being hosted.");
+            "Remove the selected non-holder member. During a live Host, Steward revokes that member's active peer transfer and game sessions before canonical removal. Host handoff blocks removal.");
         Grid.SetRow(_removeButton, 1);
         memberArea.Children.Add(_removeButton);
         Grid.SetRow(memberArea, 2);
@@ -217,7 +217,7 @@ internal sealed class PeerWorldAccessDialog : Window
 
         var confirmation = MessageBox.Show(
             this,
-            $"Remove access for {FormatMember(member)}?\n\nThe World must be inactive. Steward will not perform a partial live kick while peer traffic is running.",
+            $"Remove access for {FormatMember(member)}?\n\nIf this World is live, Steward will revoke that member's active peer transfer and game sessions immediately before removing canonical access. Remove access is refused while a host handoff is in progress.",
             "Remove World access",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning,
@@ -233,7 +233,7 @@ internal sealed class PeerWorldAccessDialog : Window
                 _world.Id,
                 _runtime.User,
                 member);
-            SetStatus($"Access removed for {FormatMember(member)}. Future Host/Join admission will reject that member.");
+            SetStatus($"Access removed for {FormatMember(member)}. Active peer sessions were revoked when applicable, and future Host/Join admission will reject that member.");
         });
     }
 
@@ -255,7 +255,7 @@ internal sealed class PeerWorldAccessDialog : Window
         _canManage = _world.PeerAuthority is { } authority &&
                      SameUser(authority.Holder, _runtime.User);
         _summary.Text = _canManage
-            ? "World membership is stored with the World. Add grants access before Steam invite delivery. Remove access is available only while the World is inactive."
+            ? "World membership is stored with the World. Add grants access before Steam invite delivery. Remove access also works during a live Host by revoking the selected member's peer sessions before canonical removal; host handoff blocks membership mutation."
             : "World membership is read-only here because this Steward identity is not the current persistent peer authority holder.";
         UpdateActionState();
         if (!preserveStatus)

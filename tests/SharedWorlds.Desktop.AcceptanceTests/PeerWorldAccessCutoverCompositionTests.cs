@@ -70,7 +70,7 @@ public sealed class PeerWorldAccessCutoverCompositionTests
     }
 
     [Fact]
-    public void PeerDialogRemoveUsesDedicatedInactiveRevocationService()
+    public void PeerDialogRemoveUsesDedicatedLiveSafeRevocationService()
     {
         var source = Read("src/SharedWorlds.Desktop/PeerWorldAccessDialog.cs");
         var remove = RequiredIndex(source, "private async void RemoveButton_Click");
@@ -81,7 +81,9 @@ public sealed class PeerWorldAccessCutoverCompositionTests
         Assert.True(remove < selected);
         Assert.True(selected < confirm);
         Assert.True(confirm < service);
-        Assert.Contains("World must be inactive", source[remove..], StringComparison.Ordinal);
+        Assert.Contains("active peer transfer and game sessions", source[remove..], StringComparison.Ordinal);
+        Assert.Contains("host handoff", source[remove..], StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("World must be inactive", source[remove..], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -95,19 +97,23 @@ public sealed class PeerWorldAccessCutoverCompositionTests
     }
 
     [Fact]
-    public void RuntimeComposesRemovalFromSameCanonicalStorageFenceAndLobby()
+    public void RuntimeComposesRemovalFromCanonicalStorageFenceLobbyAndLiveSafetyBoundaries()
     {
         var source = Read("src/SharedWorlds.Desktop/StewardDesktopPeerRuntime.cs");
         var membership = RequiredIndex(source, "var membership = new PeerWorldMembershipService(");
         var removal = RequiredIndex(source, "var memberRemoval = new PeerWorldMemberRemovalService(", membership);
         var storage = RequiredIndex(source, "storage,", removal);
         var fences = RequiredIndex(source, "authorityFences,", storage);
-        var lobby = RequiredIndex(source, "lobby);", fences);
+        var lobby = RequiredIndex(source, "lobby,", fences);
+        var revocations = RequiredIndex(source, "liveMemberRevocations,", lobby);
+        var mutations = RequiredIndex(source, "liveAuthorityMutations);", revocations);
 
         Assert.True(membership < removal);
         Assert.True(removal < storage);
         Assert.True(storage < fences);
         Assert.True(fences < lobby);
+        Assert.True(lobby < revocations);
+        Assert.True(revocations < mutations);
         Assert.Contains("public PeerWorldMemberRemovalService MemberRemoval { get; }", source, StringComparison.Ordinal);
     }
 

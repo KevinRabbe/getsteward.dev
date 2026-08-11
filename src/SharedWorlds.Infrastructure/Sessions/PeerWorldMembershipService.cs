@@ -6,7 +6,9 @@ namespace SharedWorlds.Infrastructure.Sessions;
 /// <summary>
 /// Canonically admits a participant to a shared peer World. Steam lobby presence is never treated as
 /// membership authority: only the persistent holder with an exact Active account fence may mutate the
-/// member list, and the World is saved before any later platform invite/bootstrap step.
+/// member list, and the World is saved before any later platform invite/bootstrap step. When composed
+/// for a live peer runtime, the same mutation gate used by handoff/removal prevents membership writes
+/// from being overwritten by a concurrent authority transfer.
 /// </summary>
 public sealed class PeerWorldMembershipService
 {
@@ -15,17 +17,20 @@ public sealed class PeerWorldMembershipService
     private readonly IWorldStorage _storage;
     private readonly IPeerAuthorityFenceStore _authorityFences;
     private readonly PeerWorldLiveMemberRevocationRegistry? _liveRevocations;
+    private readonly PeerWorldLiveAuthorityMutationGate? _liveAuthorityMutations;
 
     public PeerWorldMembershipService(
         IWorldStorage storage,
         IPeerAuthorityFenceStore authorityFences,
-        PeerWorldLiveMemberRevocationRegistry? liveRevocations = null)
+        PeerWorldLiveMemberRevocationRegistry? liveRevocations = null,
+        PeerWorldLiveAuthorityMutationGate? liveAuthorityMutations = null)
     {
         ArgumentNullException.ThrowIfNull(storage);
         ArgumentNullException.ThrowIfNull(authorityFences);
         _storage = storage;
         _authorityFences = authorityFences;
         _liveRevocations = liveRevocations;
+        _liveAuthorityMutations = liveAuthorityMutations;
     }
 
     public async Task<World> AddMemberAsync(
@@ -36,6 +41,10 @@ public sealed class PeerWorldMembershipService
     {
         ArgumentNullException.ThrowIfNull(localHolder);
         ArgumentNullException.ThrowIfNull(newMember);
+        using var mutationLease = _liveAuthorityMutations is null
+            ? null
+            : await _liveAuthorityMutations.EnterAsync(cancellationToken);
+
         var world = await _storage.LoadWorldAsync(worldId, cancellationToken)
             ?? throw new InvalidDataException(
                 $"Cannot add a peer member to missing World '{worldId}'.");

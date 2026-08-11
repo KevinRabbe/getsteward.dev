@@ -7,6 +7,7 @@ param(
     [string]$SteamReleaseApiBaseUrl,
     [uint32]$SteamReleaseAppId = 0,
     [string]$SteamReleaseWebApiIdentity,
+    [switch]$IncludeLegacyRemoteMigrationConfiguration,
     [string]$BuildVersion,
     [string]$AcceptanceManifestOutputPath,
     [switch]$ReleaseContentOnly,
@@ -75,30 +76,40 @@ if ([string]::IsNullOrWhiteSpace($manifestDirectory)) {
 [IO.Directory]::CreateDirectory($manifestDirectory) | Out-Null
 
 $normalizedFriendsBuildApiBaseUrl = Get-NormalizedPackageApiBaseUrl $FriendsBuildApiBaseUrl 'FriendsBuildApiBaseUrl'
-$steamReleaseRequested =
+
+# The normal Steam product now needs only the AppID. Legacy API coordinates remain accepted as
+# compatibility parameters for old deployment callers, but they are not validated or emitted unless
+# the explicit migration switch is present.
+$steamReleaseRequested = $SteamReleaseAppId -ne 0
+$legacyRemoteMigrationRequested = $IncludeLegacyRemoteMigrationConfiguration.IsPresent
+$legacyRemoteCoordinatesSupplied =
     -not [string]::IsNullOrWhiteSpace($SteamReleaseApiBaseUrl) -or
-    $SteamReleaseAppId -ne 0 -or
     -not [string]::IsNullOrWhiteSpace($SteamReleaseWebApiIdentity)
 
-if ($null -ne $normalizedFriendsBuildApiBaseUrl -and $steamReleaseRequested) {
-    Fail 'Friends Build and Steam release package configuration are mutually exclusive.'
+if ($null -ne $normalizedFriendsBuildApiBaseUrl -and
+    ($steamReleaseRequested -or $legacyRemoteMigrationRequested)) {
+    Fail 'Friends Build and Steam package configuration are mutually exclusive.'
+}
+
+if ($legacyRemoteMigrationRequested -and -not $steamReleaseRequested) {
+    Fail 'SteamReleaseAppId must be a positive UInt32 when legacy Steam remote migration configuration is requested.'
 }
 
 $normalizedSteamReleaseApiBaseUrl = $null
-if ($steamReleaseRequested) {
+if ($legacyRemoteMigrationRequested) {
     if ([string]::IsNullOrWhiteSpace($SteamReleaseApiBaseUrl)) {
-        Fail 'SteamReleaseApiBaseUrl is required when Steam release package configuration is requested.'
-    }
-    if ($SteamReleaseAppId -eq 0) {
-        Fail 'SteamReleaseAppId must be a positive UInt32 when Steam release package configuration is requested.'
+        Fail 'SteamReleaseApiBaseUrl is required only when legacy Steam remote migration configuration is requested.'
     }
     if ([string]::IsNullOrWhiteSpace($SteamReleaseWebApiIdentity) -or
         $SteamReleaseWebApiIdentity.Length -gt 128 -or
         $SteamReleaseWebApiIdentity -match '\s') {
-        Fail 'SteamReleaseWebApiIdentity must be 1-128 characters without whitespace.'
+        Fail 'SteamReleaseWebApiIdentity must be 1-128 characters without whitespace when legacy remote migration configuration is requested.'
     }
 
     $normalizedSteamReleaseApiBaseUrl = Get-NormalizedPackageApiBaseUrl $SteamReleaseApiBaseUrl 'SteamReleaseApiBaseUrl'
+}
+elseif ($legacyRemoteCoordinatesSupplied) {
+    Write-Warning 'Legacy Steam API coordinates were supplied but will not be embedded. Add -IncludeLegacyRemoteMigrationConfiguration only for an explicit old-World migration package.'
 }
 
 $normalizedBuildVersion = if ([string]::IsNullOrWhiteSpace($BuildVersion)) { $null } else { $BuildVersion.Trim() }
@@ -119,11 +130,14 @@ Write-Host "  Release content only: $($ReleaseContentOnly.IsPresent)"
 Write-Host "  Output: $output"
 Write-Host "  Acceptance manifest: $manifestOutputPath"
 if ($null -ne $normalizedFriendsBuildApiBaseUrl) {
-    Write-Host '  Deployment: Friends Build package'
+    Write-Host '  Deployment: legacy Friends Build package'
 }
 if ($steamReleaseRequested) {
-    Write-Host '  Deployment: Steam release candidate package'
+    Write-Host '  Deployment: Steam peer product package'
     Write-Host "  Expected Steam AppID: $SteamReleaseAppId"
+}
+if ($legacyRemoteMigrationRequested) {
+    Write-Host '  Legacy remote migration compatibility: enabled explicitly'
     Write-Host "  Steam Web API identity: $SteamReleaseWebApiIdentity"
 }
 if ($null -ne $normalizedBuildVersion) {
@@ -218,7 +232,9 @@ if ($steamReleaseRequested) {
         $steamPlatformConfigurationPath,
         $steamPlatformConfigurationJson,
         [Text.UTF8Encoding]::new($false))
+}
 
+if ($legacyRemoteMigrationRequested) {
     $steamReleaseConfiguration = [ordered]@{
         schemaVersion = 1
         apiBaseUrl = $normalizedSteamReleaseApiBaseUrl
@@ -284,15 +300,19 @@ Write-Host "  Hashed package files: $($packageFiles.Count)"
 Write-Host "  Metadata: $manifestOutputPath"
 Write-Host
 if ($null -ne $normalizedFriendsBuildApiBaseUrl) {
-    Write-Host 'The Friends Build HTTPS API coordinate is embedded in steward-friends-build.json and covered by the package manifest.'
+    Write-Host 'This legacy Friends Build includes steward-friends-build.json for remote migration compatibility.'
     Write-Host 'No private friend credential, Steam AppID, Web API identity, ticket, or backend secret is embedded.'
 }
-elseif ($steamReleaseRequested) {
-    Write-Host 'The expected Steam AppID is embedded independently in steward-steam.json and covered by the package manifest.'
-    Write-Host 'Legacy Steam release API coordinates remain in steward-steam-release.json during migration.'
+elseif ($steamReleaseRequested -and $legacyRemoteMigrationRequested) {
+    Write-Host 'The Steam peer AppID is embedded independently in steward-steam.json and covered by the package manifest.'
+    Write-Host 'Legacy API coordinates are additionally embedded in steward-steam-release.json because migration compatibility was explicitly requested.'
     Write-Host 'No publisher API key, Steam ticket, Steward session credential, or other backend secret is embedded.'
+}
+elseif ($steamReleaseRequested) {
+    Write-Host 'The Steam peer AppID is embedded independently in steward-steam.json and covered by the package manifest.'
+    Write-Host 'No legacy API URL, Web API identity, backend credential, or remote-session configuration is embedded in the normal product package.'
 }
 else {
     Write-Host 'No Steam AppID, API URL, Web API identity, tickets, or backend secrets are embedded by this script.'
-    Write-Host 'Use tools/e4-live-acceptance.ps1 to verify this exact engineering package and supply the non-secret runtime coordinates.'
+    Write-Host 'Use tools/e4-live-acceptance.ps1 to verify this exact engineering package and supply any explicit migration-only coordinates.'
 }

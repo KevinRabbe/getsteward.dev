@@ -7,6 +7,10 @@ on:
         description: "Real Steward Steam AppID used by both physical beta PCs"
         required: true
         type: string
+      windows_depot_id:
+        description: "Real Steward Windows content DepotID"
+        required: true
+        type: string
       version:
         description: "Closed-beta kit version"
         required: true
@@ -61,10 +65,51 @@ jobs:
           Get-Content -LiteralPath (Join-Path $output 'peer-test-kit.json')
           Get-Content -LiteralPath (Join-Path $output 'product/acceptance-build.json')
 
+      - name: Generate verified SteamPipe RC inputs
+        shell: pwsh
+        env:
+          REQUESTED_STEAM_APP_ID: ${{ inputs.steam_app_id }}
+          REQUESTED_WINDOWS_DEPOT_ID: ${{ inputs.windows_depot_id }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          [uint32]$appId = 0
+          [uint32]$depotId = 0
+          if (-not [uint32]::TryParse($env:REQUESTED_STEAM_APP_ID, [ref]$appId) -or $appId -eq 0) {
+            throw 'steam_app_id must be a positive UInt32.'
+          }
+          if (-not [uint32]::TryParse($env:REQUESTED_WINDOWS_DEPOT_ID, [ref]$depotId) -or $depotId -eq 0) {
+            throw 'windows_depot_id must be a positive UInt32.'
+          }
+
+          $kit = "$env:RUNNER_TEMP/steward-steam-peer-two-pc-kit"
+          $steamPipe = "$env:RUNNER_TEMP/steward-steampipe-rc-input"
+          $description = "Steward peer closed beta $($env:REQUESTED_VERSION) - $($env:GITHUB_SHA.Substring(0, 8))"
+
+          ./tools/new-steam-peer-beta-steampipe.ps1 `
+            -SteamAppId $appId `
+            -WindowsDepotId $depotId `
+            -ProductDirectory (Join-Path $kit 'product') `
+            -OutputDirectory $steamPipe `
+            -BuildDescription $description
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "SteamPipe RC input generation failed with exit code $LASTEXITCODE."
+          }
+
+          Get-Content -LiteralPath (Join-Path $steamPipe 'steampipe-rc-input.json')
+
       - name: Upload physical two-PC kit
         uses: actions/upload-artifact@v6
         with:
           name: steward-steam-peer-two-pc-${{ inputs.version }}-${{ github.sha }}
           path: ${{ runner.temp }}/steward-steam-peer-two-pc-kit
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload verified SteamPipe RC inputs
+        uses: actions/upload-artifact@v6
+        with:
+          name: steward-steampipe-rc-input-${{ inputs.version }}-${{ github.sha }}
+          path: ${{ runner.temp }}/steward-steampipe-rc-input
           if-no-files-found: error
           retention-days: 14

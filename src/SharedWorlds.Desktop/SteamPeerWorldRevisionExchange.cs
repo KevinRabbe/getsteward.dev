@@ -12,15 +12,17 @@ namespace SharedWorlds.Desktop;
 
 /// <summary>
 /// Identity-preserving World transfer over Steam Networking Sockets. One authenticated P2P engine
-/// carries first-time Bootstrap, strict HandoffRevision, and non-authoritative ObserverSync
-/// transactions. The purpose is part of the protocol and selects the corresponding receiver installer;
-/// transport never decides host authority. Steam authenticates the peer identity and Steward additionally
-/// authorizes the transfer against the already-attached active World lobby and its exact generation.
+/// carries first-time Bootstrap, strict HandoffRevision, non-authoritative ObserverSync, and bounded
+/// catch-up request/result control transactions. The purpose is part of the transfer protocol and
+/// selects the corresponding receiver installer; transport never decides host authority. Steam
+/// authenticates the peer identity and Steward additionally authorizes every operation against the
+/// already-attached active World lobby and its exact generation.
 /// </summary>
 internal sealed class SteamPeerWorldRevisionExchange :
     IPeerWorldRevisionExchange,
     IPeerWorldBootstrapExchange,
     IPeerWorldObserverSyncExchange,
+    IPeerWorldCatchUpRequestClient,
     IDisposable
 {
     private const int ProtocolVersion = 2;
@@ -42,6 +44,7 @@ internal sealed class SteamPeerWorldRevisionExchange :
     private readonly PeerWorldRevisionReplicaInstaller _revisionInstaller;
     private readonly PeerWorldBootstrapInstaller _bootstrapInstaller;
     private readonly PeerWorldObserverSyncInstaller _observerSyncInstaller;
+    private readonly PeerWorldCatchUpRequestRouter _catchUpRouter;
     private readonly Callback<SteamNetConnectionStatusChangedCallback_t> _connectionCallback;
     private readonly DispatcherTimer _receiveTimer;
     private readonly SemaphoreSlim _outgoingGate = new(1, 1);
@@ -54,13 +57,15 @@ internal sealed class SteamPeerWorldRevisionExchange :
         SteamPeerWorldLobby lobby,
         PeerWorldRevisionReplicaInstaller revisionInstaller,
         PeerWorldBootstrapInstaller bootstrapInstaller,
-        PeerWorldObserverSyncInstaller observerSyncInstaller)
+        PeerWorldObserverSyncInstaller observerSyncInstaller,
+        PeerWorldCatchUpRequestRouter catchUpRouter)
     {
         ArgumentNullException.ThrowIfNull(platform);
         ArgumentNullException.ThrowIfNull(lobby);
         ArgumentNullException.ThrowIfNull(revisionInstaller);
         ArgumentNullException.ThrowIfNull(bootstrapInstaller);
         ArgumentNullException.ThrowIfNull(observerSyncInstaller);
+        ArgumentNullException.ThrowIfNull(catchUpRouter);
         if (!platform.Dispatcher.CheckAccess())
         {
             throw new InvalidOperationException(
@@ -72,6 +77,7 @@ internal sealed class SteamPeerWorldRevisionExchange :
         _revisionInstaller = revisionInstaller;
         _bootstrapInstaller = bootstrapInstaller;
         _observerSyncInstaller = observerSyncInstaller;
+        _catchUpRouter = catchUpRouter;
         SteamNetworkingUtils.InitRelayNetworkAccess();
         _listenSocket = SteamNetworkingSockets.CreateListenSocketP2P(
             VirtualPort,
@@ -128,6 +134,107 @@ internal sealed class SteamPeerWorldRevisionExchange :
             statePayload,
             TransferPurpose.ObserverSync,
             cancellationToken);
+
+    public async Task<PeerWorldCatchUpResult> RequestCatchUpAsync(
+        UserIdentity confirmedHost,
+        PeerWorldCatchUpRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(confirmedHost);
+        ArgumentNullException.ThrowIfNull(request);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (request.WorldId.Value == Guid.Empty || request.AuthorityGeneration == 0)
+        {
+            throw new InvalidDataException(
+                "Peer World catch-up request requires a World ID and nonzero authority generation.");
+        }
+
+        if (request.LocalStateRevisionId is { } localRevision &&
+            localRevision.Value == Guid.Empty)
+        {
+            throw new InvalidDataException(
+                "Peer World catch-up request contains an empty local state revision ID.");
+        }
+
+        var hostSteamId = ParseSteamIdentity(confirmedHost);
+        if (hostSteamId == _platform.LocalSteamId)
+        {
+            throw new InvalidOperationException(
+                "The local Steward host cannot request peer catch-up from itself.");
+        }
+
+        var snapshot = await _lobby.GetAsync(request.WorldId, cancellationToken)
+            ?? throw new InvalidOperationException(
+                "Steward is not attached to the active Steam lobby for this World.");
+        if (!snapshot.OwnerConfirmed ||
+            snapshot.AuthorityGeneration != request.AuthorityGeneration ||
+            snapshot.RequestedHost is not null ||
+            !SameUser(snapshot.Owner, confirmedHost))
+        {
+            throw new InvalidOperationException(
+                "Peer catch-up request does not match the currently confirmed live host/generation or a handoff is in progress.");
+        }
+
+        await _outgoingGate.WaitAsync(cancellationToken);
+        HSteamNetConnection connection = HSteamNetConnection.Invalid;
+        try
+        {
+            var requestId = Guid.NewGuid();
+            var created = await CreateOutgoingConnectionAsync(
+                hostSteamId,
+                requestId,
+                cancellationToken);
+            connection = created.Connection;
+            var outgoing = created.Context;
+
+            await WaitWithTimeoutAsync(
+                outgoing.Connected.Task,
+                ConnectTimeout,
+                "Steam did not establish the peer catch-up control connection in time.",
+                cancellationToken);
+
+            await SendReliableAsync(
+                connection,
+                EncodeJson(
+                    MessageKind.CatchUpRequest,
+                    new CatchUpRequestEnvelope(
+                        ProtocolVersion,
+                        requestId,
+                        request),
+                    MaxControlBytes,
+                    "peer World catch-up request"),
+                cancellationToken);
+            await InvokeSteamAsync(
+                () => SteamNetworkingSockets.FlushMessagesOnConnection(connection),
+                cancellationToken);
+
+            var result = await WaitWithTimeoutAsync(
+                outgoing.CatchUpResult.Task,
+                ReceiptTimeout,
+                "The active host did not finish peer World catch-up in time.",
+                cancellationToken);
+            if (result.WorldId != request.WorldId ||
+                result.AuthorityGeneration != request.AuthorityGeneration ||
+                result.CurrentStateRevisionId.Value == Guid.Empty)
+            {
+                throw new InvalidDataException(
+                    "The active host returned a catch-up result for a different World, generation, or invalid state revision.");
+            }
+
+            return result;
+        }
+        finally
+        {
+            if (connection != HSteamNetConnection.Invalid)
+            {
+                await CloseConnectionAsync(
+                    connection,
+                    "Steward peer World catch-up request complete");
+            }
+
+            _outgoingGate.Release();
+        }
+    }
 
     private async Task<PeerWorldRevisionReceipt> TransferCoreAsync(
         UserIdentity targetPeer,
@@ -517,6 +624,16 @@ internal sealed class SteamPeerWorldRevisionExchange :
                     outgoing.Receipt.TrySetResult(receipt.Receipt);
                     break;
                 }
+            case MessageKind.CatchUpResult:
+                {
+                    var result = DecodeJson<CatchUpResultEnvelope>(
+                        message,
+                        MaxControlBytes,
+                        "peer World catch-up result");
+                    EnsureControl(result.ProtocolVersion, result.TransferId, outgoing.TransferId);
+                    outgoing.CatchUpResult.TrySetResult(result.Result);
+                    break;
+                }
             case MessageKind.Reject:
                 {
                     var rejection = DecodeJson<RejectEnvelope>(
@@ -526,10 +643,11 @@ internal sealed class SteamPeerWorldRevisionExchange :
                     EnsureControl(rejection.ProtocolVersion, rejection.TransferId, outgoing.TransferId);
                     var exception = new InvalidOperationException(
                         string.IsNullOrWhiteSpace(rejection.Reason)
-                            ? "The target rejected the peer World transfer."
+                            ? "The target rejected the peer World operation."
                             : rejection.Reason);
                     outgoing.Ready.TrySetException(exception);
                     outgoing.Receipt.TrySetException(exception);
+                    outgoing.CatchUpResult.TrySetException(exception);
                     break;
                 }
             default:
@@ -567,6 +685,28 @@ internal sealed class SteamPeerWorldRevisionExchange :
                     _ = AuthorizeIncomingOfferAsync(context, envelope);
                     break;
                 }
+            case MessageKind.CatchUpRequest when incoming.State == IncomingState.AwaitingOffer:
+                {
+                    var envelope = DecodeJson<CatchUpRequestEnvelope>(
+                        message,
+                        MaxControlBytes,
+                        "peer World catch-up request");
+                    if (envelope.ProtocolVersion != ProtocolVersion ||
+                        envelope.TransferId == Guid.Empty ||
+                        envelope.Request.WorldId.Value == Guid.Empty ||
+                        envelope.Request.AuthorityGeneration == 0 ||
+                        envelope.Request.LocalStateRevisionId is { } localRevision &&
+                        localRevision.Value == Guid.Empty)
+                    {
+                        throw new InvalidDataException(
+                            "Peer World catch-up request uses invalid protocol, request, World, generation, or revision metadata.");
+                    }
+
+                    incoming.TransferId = envelope.TransferId;
+                    incoming.State = IncomingState.HandlingCatchUp;
+                    _ = HandleCatchUpRequestAsync(context, envelope);
+                    break;
+                }
             case MessageKind.Payload when incoming.State == IncomingState.Receiving:
                 {
                     if (message.Length <= 1 || message.Length > PayloadChunkBytes + 1)
@@ -598,6 +738,57 @@ internal sealed class SteamPeerWorldRevisionExchange :
             default:
                 throw new InvalidDataException(
                     $"Unexpected Steam peer World message kind '{kind}' while receiver is '{incoming.State}'.");
+        }
+    }
+
+    private async Task HandleCatchUpRequestAsync(
+        ConnectionContext context,
+        CatchUpRequestEnvelope envelope)
+    {
+        try
+        {
+            var remoteExternalId = context.RemoteSteamId.ToString(CultureInfo.InvariantCulture);
+            var remoteUser = new UserIdentity(
+                "steam",
+                remoteExternalId,
+                remoteExternalId);
+            var result = await _catchUpRouter.HandleAsync(
+                remoteUser,
+                envelope.Request,
+                context.Incoming!.Cancellation.Token);
+
+            if (!_connections.TryGetValue(context.Connection, out var current) ||
+                !ReferenceEquals(current, context) ||
+                current.Incoming is null ||
+                current.Incoming.State != IncomingState.HandlingCatchUp)
+            {
+                return;
+            }
+
+            await SendReliableAsync(
+                context.Connection,
+                EncodeJson(
+                    MessageKind.CatchUpResult,
+                    new CatchUpResultEnvelope(
+                        ProtocolVersion,
+                        envelope.TransferId,
+                        result),
+                    MaxControlBytes,
+                    "peer World catch-up result"),
+                CancellationToken.None);
+            await InvokeSteamAsync(
+                () => SteamNetworkingSockets.FlushMessagesOnConnection(context.Connection),
+                CancellationToken.None);
+
+            current.Incoming.State = IncomingState.Completed;
+            await CloseConnectionAsync(
+                context.Connection,
+                "Steward peer World catch-up complete",
+                linger: true);
+        }
+        catch (Exception exception)
+        {
+            await RejectAndCloseIncomingAsync(context, exception.Message);
         }
     }
 
@@ -1164,14 +1355,14 @@ internal sealed class SteamPeerWorldRevisionExchange :
         if (protocolVersion != ProtocolVersion || actualTransferId != expectedTransferId)
         {
             throw new InvalidDataException(
-                "Steam peer World control message does not match the active transfer.");
+                "Steam peer World control message does not match the active operation.");
         }
     }
 
     private static string BoundUtf8(string? text, int maximumBytes)
     {
         var value = string.IsNullOrWhiteSpace(text)
-            ? "Steward peer World transfer failed."
+            ? "Steward peer World operation failed."
             : text.Trim();
         if (Encoding.UTF8.GetByteCount(value) <= maximumBytes)
         {
@@ -1194,7 +1385,7 @@ internal sealed class SteamPeerWorldRevisionExchange :
         }
 
         return builder.Length == 0
-            ? "Steward peer transfer failed."
+            ? "Steward peer operation failed."
             : builder.ToString();
     }
 
@@ -1212,7 +1403,9 @@ internal sealed class SteamPeerWorldRevisionExchange :
         Payload = 3,
         Complete = 4,
         Receipt = 5,
-        Reject = 6
+        Reject = 6,
+        CatchUpRequest = 7,
+        CatchUpResult = 8
     }
 
     private enum IncomingState
@@ -1221,8 +1414,9 @@ internal sealed class SteamPeerWorldRevisionExchange :
         Authorizing = 1,
         Receiving = 2,
         Installing = 3,
-        Completed = 4,
-        Failed = 5
+        HandlingCatchUp = 4,
+        Completed = 5,
+        Failed = 6
     }
 
     private sealed record OfferEnvelope(
@@ -1239,6 +1433,16 @@ internal sealed class SteamPeerWorldRevisionExchange :
         int ProtocolVersion,
         Guid TransferId,
         PeerWorldRevisionReceipt Receipt);
+
+    private sealed record CatchUpRequestEnvelope(
+        int ProtocolVersion,
+        Guid TransferId,
+        PeerWorldCatchUpRequest Request);
+
+    private sealed record CatchUpResultEnvelope(
+        int ProtocolVersion,
+        Guid TransferId,
+        PeerWorldCatchUpResult Result);
 
     private sealed record RejectEnvelope(
         int ProtocolVersion,
@@ -1269,6 +1473,7 @@ internal sealed class SteamPeerWorldRevisionExchange :
             Outgoing?.Connected.TrySetException(exception);
             Outgoing?.Ready.TrySetException(exception);
             Outgoing?.Receipt.TrySetException(exception);
+            Outgoing?.CatchUpResult.TrySetException(exception);
             Incoming?.Cancellation.Cancel();
             Incoming?.Chunks?.Writer.TryComplete(exception);
         }
@@ -1285,6 +1490,8 @@ internal sealed class SteamPeerWorldRevisionExchange :
         public TaskCompletionSource<bool> Ready { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource<PeerWorldRevisionReceipt> Receipt { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<PeerWorldCatchUpResult> CatchUpResult { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
     }
 

@@ -83,12 +83,13 @@ internal sealed class PeerWorldLeaveService
                 "Leave World acknowledgement does not match the requested World and authority generation.");
         }
 
-        // Canonical removal is now confirmed by the authenticated current holder. Only from this point
-        // onward may the requester discard its local replica. Deleting first also ensures that a later
-        // best-effort Steam lobby cleanup failure cannot leave a misleading local World that appears
-        // usable even though canonical access has already been removed.
-        await _storage.DeleteWorldAsync(worldId, cancellationToken);
-        if (await _storage.LoadWorldAsync(worldId, cancellationToken) is not null)
+        // From this point the current authority holder has already removed this account canonically.
+        // Caller cancellation must no longer strand a stale local replica that looks usable. Finish the
+        // irreversible local side with an independent token: delete/verify first, then best-effort Steam
+        // lobby cleanup. Process termination is the only remaining interruption boundary.
+        var cleanupToken = CancellationToken.None;
+        await _storage.DeleteWorldAsync(worldId, cleanupToken);
+        if (await _storage.LoadWorldAsync(worldId, cleanupToken) is not null)
         {
             throw new IOException(
                 "Canonical Leave World succeeded, but Steward could not delete the local World replica.");
@@ -96,16 +97,14 @@ internal sealed class PeerWorldLeaveService
 
         try
         {
-            await _lobby.LeaveJoinedLobbyAsync(worldId, cancellationToken);
+            await _lobby.LeaveJoinedLobbyAsync(worldId, cleanupToken);
             return new PeerWorldLeaveCompletion(
                 canonicalResult,
                 SteamLobbyDetached: true,
                 CleanupWarning: null);
         }
         catch (Exception exception) when (
-            exception is IOException or
-            InvalidOperationException or
-            OperationCanceledException)
+            exception is IOException or InvalidOperationException)
         {
             // Lobby presence is not access. Canonical removal and local replica deletion already
             // succeeded, so do not report the World as retained merely because Steam cleanup failed.

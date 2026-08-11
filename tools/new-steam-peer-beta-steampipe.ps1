@@ -40,8 +40,17 @@ function Get-FullPath([string]$Path, [string]$Name) {
 }
 
 function Test-IsInside([string]$Candidate, [string]$Parent) {
-    $normalizedParent = $Parent.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    $trimChars = [char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $normalizedParent = $Parent.TrimEnd($trimChars) + [IO.Path]::DirectorySeparatorChar
     return $Candidate.StartsWith($normalizedParent, [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Assert-DisjointDirectory([string]$Candidate, [string]$Protected, [string]$Name) {
+    if ([string]::Equals($Candidate, $Protected, [StringComparison]::OrdinalIgnoreCase) -or
+        (Test-IsInside $Candidate $Protected) -or
+        (Test-IsInside $Protected $Candidate)) {
+        Fail "$Name must not equal, contain, or be contained by the immutable product directory."
+    }
 }
 
 function Get-ManifestRelativePath([string]$Value) {
@@ -50,7 +59,7 @@ function Get-ManifestRelativePath([string]$Value) {
     }
 
     $normalized = $Value.Replace('/', [IO.Path]::DirectorySeparatorChar)
-    foreach ($segment in $normalized.Split([IO.Path]::DirectorySeparatorChar)) {
+    foreach ($segment in $normalized.Split([char[]]@([IO.Path]::DirectorySeparatorChar), [StringSplitOptions]::None)) {
         if ([string]::Equals($segment, '..', [StringComparison]::Ordinal)) {
             Fail "Acceptance manifest package path escapes product root: '$Value'."
         }
@@ -65,7 +74,7 @@ if ($SteamAppId -eq 0) {
 if ($WindowsDepotId -eq 0) {
     Fail 'WindowsDepotId must be a positive UInt32.'
 }
-if ($BuildDescription.Length -gt 128) {
+if ([string]::IsNullOrWhiteSpace($BuildDescription) -or $BuildDescription.Length -gt 128) {
     Fail 'BuildDescription must be 1-128 characters.'
 }
 Assert-SafeVdfValue $BuildDescription 'BuildDescription'
@@ -76,19 +85,15 @@ if (-not [IO.Directory]::Exists($product)) {
 }
 
 $output = Get-FullPath $OutputDirectory 'OutputDirectory'
-if (Test-IsInside $output $product -or [string]::Equals($output, $product, [StringComparison]::OrdinalIgnoreCase)) {
-    Fail 'OutputDirectory must be outside the immutable product directory.'
-}
+Assert-DisjointDirectory $output $product 'OutputDirectory'
 
 $buildOutput = if ([string]::IsNullOrWhiteSpace($BuildOutputDirectory)) {
-    Join-Path $output 'build-output'
+    [IO.Path]::GetFullPath((Join-Path $output 'build-output'))
 }
 else {
     Get-FullPath $BuildOutputDirectory 'BuildOutputDirectory'
 }
-if (Test-IsInside $buildOutput $product -or [string]::Equals($buildOutput, $product, [StringComparison]::OrdinalIgnoreCase)) {
-    Fail 'BuildOutputDirectory must be outside the immutable product directory.'
-}
+Assert-DisjointDirectory $buildOutput $product 'BuildOutputDirectory'
 
 Assert-SafeVdfValue $product 'ProductDirectory'
 Assert-SafeVdfValue $buildOutput 'BuildOutputDirectory'
@@ -129,7 +134,7 @@ catch {
     Fail "Could not parse steward-steam.json: $($_.Exception.Message)"
 }
 $configProperties = @($steamConfig.PSObject.Properties.Name | Sort-Object)
-$expectedProperties = @('schemaVersion', 'steamAppId' | Sort-Object)
+$expectedProperties = @('schemaVersion', 'steamAppId') | Sort-Object
 if ($configProperties.Count -ne 2 -or
     $configProperties[0] -ne $expectedProperties[0] -or
     $configProperties[1] -ne $expectedProperties[1]) {

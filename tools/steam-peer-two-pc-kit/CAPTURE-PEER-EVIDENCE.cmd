@@ -7,7 +7,7 @@ if "%WORLD_ID%"=="" (
   exit /b 1
 )
 set "OUTPUT=%USERPROFILE%\Desktop\steward-peer-evidence-%COMPUTERNAME%-%RANDOM%.json"
-"%~dp0acceptance-tools\SharedWorlds.PeerWorldProbe.exe" --world "%WORLD_ID%" --package-root "%~dp0" --output "%OUTPUT%"
+"%~dp0acceptance-tools\SharedWorlds.PeerWorldProbe.exe" --world "%WORLD_ID%" --package-root "%~dp0product" --output "%OUTPUT%"
 if errorlevel 1 (
   echo.
   echo Evidence capture failed.

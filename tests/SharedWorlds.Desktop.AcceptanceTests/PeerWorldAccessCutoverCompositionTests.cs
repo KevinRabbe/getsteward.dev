@@ -48,28 +48,76 @@ public sealed class PeerWorldAccessCutoverCompositionTests
     }
 
     [Fact]
-    public void PeerDialogUsesCanonicalStorageAndOnlyCurrentAuthorityHolderCanAdd()
+    public void PeerDialogUsesCanonicalStorageAndOnlyCurrentAuthorityHolderCanMutate()
     {
         var source = Read("src/SharedWorlds.Desktop/PeerWorldAccessDialog.cs");
         var reload = RequiredIndex(source, "private async Task ReloadAsync");
         var canonical = RequiredIndex(source, "_runtime.Storage.LoadWorldAsync(_world.Id)", reload);
         var authority = RequiredIndex(source, "_world.PeerAuthority is { } authority", canonical);
         var holder = RequiredIndex(source, "SameUser(authority.Holder, _runtime.User)", authority);
-        var enable = RequiredIndex(source, "_addButton.IsEnabled = !_busy && canManage;", holder);
+        var update = RequiredIndex(source, "private void UpdateActionState()", holder);
+        var canMutate = RequiredIndex(source, "var canMutate = !_busy && _canManage;", update);
+        var addEnable = RequiredIndex(source, "_addButton.IsEnabled = canMutate;", canMutate);
+        var removeEnable = RequiredIndex(source, "_removeButton.IsEnabled = canMutate &&", addEnable);
 
         Assert.True(reload < canonical);
         Assert.True(canonical < authority);
         Assert.True(authority < holder);
-        Assert.True(holder < enable);
+        Assert.True(holder < update);
+        Assert.True(update < canMutate);
+        Assert.True(canMutate < addEnable);
+        Assert.True(addEnable < removeEnable);
     }
 
     [Fact]
-    public void PeerDialogDoesNotPretendUnsupportedRevocationTransferOrLeaveSemanticsExist()
+    public void PeerDialogRemoveUsesDedicatedInactiveRevocationService()
+    {
+        var source = Read("src/SharedWorlds.Desktop/PeerWorldAccessDialog.cs");
+        var remove = RequiredIndex(source, "private async void RemoveButton_Click");
+        var selected = RequiredIndex(source, "TryGetSelectedRemovableMember(out var member)", remove);
+        var confirm = RequiredIndex(source, "MessageBox.Show(", selected);
+        var service = RequiredIndex(source, "_runtime.MemberRemoval.RemoveMemberAsync(", confirm);
+
+        Assert.True(remove < selected);
+        Assert.True(selected < confirm);
+        Assert.True(confirm < service);
+        Assert.Contains("World must be inactive", source[remove..], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HolderCannotBecomeRemoveTargetInPresentation()
+    {
+        var source = Read("src/SharedWorlds.Desktop/PeerWorldAccessDialog.cs");
+        var method = RequiredIndex(source, "private bool TryGetSelectedRemovableMember");
+        var guard = RequiredIndex(source, "!SameUser(_displayedMembers[index], _runtime.User)", method);
+
+        Assert.True(method < guard);
+    }
+
+    [Fact]
+    public void RuntimeComposesRemovalFromSameCanonicalStorageFenceAndLobby()
+    {
+        var source = Read("src/SharedWorlds.Desktop/StewardDesktopPeerRuntime.cs");
+        var membership = RequiredIndex(source, "var membership = new PeerWorldMembershipService(");
+        var removal = RequiredIndex(source, "var memberRemoval = new PeerWorldMemberRemovalService(", membership);
+        var storage = RequiredIndex(source, "storage,", removal);
+        var fences = RequiredIndex(source, "authorityFences,", storage);
+        var lobby = RequiredIndex(source, "lobby);", fences);
+
+        Assert.True(membership < removal);
+        Assert.True(removal < storage);
+        Assert.True(storage < fences);
+        Assert.True(fences < lobby);
+        Assert.Contains("public PeerWorldMemberRemovalService MemberRemoval { get; }", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PeerDialogStillDoesNotPretendTransferOrLeaveSemanticsExist()
     {
         var source = Read("src/SharedWorlds.Desktop/PeerWorldAccessDialog.cs");
 
+        Assert.Contains("_runtime.MemberRemoval.RemoveMemberAsync", source, StringComparison.Ordinal);
         Assert.DoesNotContain("RevokeMember", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("RemoveAccess", source, StringComparison.Ordinal);
         Assert.DoesNotContain("TransferAccessManager", source, StringComparison.Ordinal);
         Assert.DoesNotContain("MakeAccessManager", source, StringComparison.Ordinal);
         Assert.DoesNotContain("LeaveWorld", source, StringComparison.Ordinal);

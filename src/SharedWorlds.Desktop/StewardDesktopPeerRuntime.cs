@@ -12,8 +12,8 @@ namespace SharedWorlds.Desktop;
 ///
 /// The runtime deliberately contains only active peer gameplay concerns: local canonical storage with
 /// durable authority fencing, live lobby authority, exact revision bootstrap/handoff/observer transfer,
-/// initial peer sharing, managed-host presence, membership, invitations, and the Steam game-data bridge.
-/// Central remote services and remote object storage are not part of this composition.
+/// initial peer sharing, managed-host presence, membership, offline revocation, invitations, and the
+/// Steam game-data bridge. Central remote services and remote object storage are not part of this composition.
 /// </summary>
 internal sealed class StewardDesktopPeerRuntime : IDisposable
 {
@@ -39,6 +39,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
         PeerWorldObserverSyncService observerSync,
         PeerWorldInitialShareService initialShare,
         PeerWorldMembershipService membership,
+        PeerWorldMemberRemovalService memberRemoval,
         PeerWorldMemberInvitationService invitations,
         IWorldSessionCoordinator sessionCoordinator,
         PeerManagedHostPresenceRegistry hostPresence,
@@ -65,6 +66,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
         ObserverSync = observerSync;
         InitialShare = initialShare;
         Membership = membership;
+        MemberRemoval = memberRemoval;
         Invitations = invitations;
         SessionCoordinator = sessionCoordinator;
         HostPresence = hostPresence;
@@ -83,6 +85,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
     public PeerWorldObserverSyncService ObserverSync { get; }
     public PeerWorldInitialShareService InitialShare { get; }
     public PeerWorldMembershipService Membership { get; }
+    public PeerWorldMemberRemovalService MemberRemoval { get; }
     public PeerWorldMemberInvitationService Invitations { get; }
     public IWorldSessionCoordinator SessionCoordinator { get; }
     public IPeerManagedHostPresenceRegistry HostPresence { get; }
@@ -223,6 +226,10 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
             var membership = new PeerWorldMembershipService(
                 storage,
                 authorityFences);
+            var memberRemoval = new PeerWorldMemberRemovalService(
+                storage,
+                authorityFences,
+                lobby);
 
             lobbyJoin = new SteamPeerWorldLobbyJoinService(
                 platform,
@@ -248,6 +255,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
                 observerSync,
                 initialShare,
                 membership,
+                memberRemoval,
                 invitations,
                 sessionCoordinator,
                 hostPresence,

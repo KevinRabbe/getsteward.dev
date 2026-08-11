@@ -58,6 +58,17 @@ public partial class MainWindow
                     };
                     dialog.ShowDialog();
 
+                    if (dialog.WorldWasLeft)
+                    {
+                        await RefreshUnifiedWorldsAsync(
+                            selectedWorldId: null,
+                            preserveStatus: true);
+                        StatusText.Text = string.IsNullOrWhiteSpace(dialog.LeaveWarning)
+                            ? $"You left shared World '{world.Name}'."
+                            : dialog.LeaveWarning;
+                        return;
+                    }
+
                     await RefreshUnifiedWorldsAsync(
                         world.Id,
                         preserveStatus: true);
@@ -259,7 +270,7 @@ public partial class MainWindow
                 DesktopText.ManageAccess,
                 !_isBusy && available,
                 available
-                    ? "View canonical World members or add a Steam ID64. Membership is stored before private Steam invitation delivery."
+                    ? "View canonical World members, add/remove access, or leave the World after another member holds active authority. Membership is canonical before Steam delivery/cleanup."
                     : "This World uses persistent peer authority, but the embedded Steam runtime is unavailable.");
             return;
         }

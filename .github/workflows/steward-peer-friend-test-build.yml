@@ -1,0 +1,68 @@
+name: Steward peer friend test build
+
+on:
+  push:
+    branches:
+      - "release/steward-peer-friend-test-v1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build:
+    name: Build AppID 480 friend-test kit
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact friend-test revision
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build and verify development friend-test kit
+        shell: pwsh
+        run: |
+          $output = "$env:RUNNER_TEMP/steward-peer-friend-test"
+          ./tools/build-steam-peer-friend-test.ps1 `
+            -Version '3.0.0-peer-friend-test.1' `
+            -OutputDirectory $output
+          if ($LASTEXITCODE -ne 0) {
+            throw "Friend-test kit build failed with exit code $LASTEXITCODE."
+          }
+
+          $friendManifest = Join-Path $output 'friend-test-kit.json'
+          $product = Join-Path $output 'product'
+          $probe = Join-Path $output 'acceptance-tools/SharedWorlds.PeerWorldProbe.exe'
+          if (-not (Test-Path -LiteralPath $friendManifest -PathType Leaf)) {
+            throw 'friend-test-kit.json is missing.'
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $product 'steam_appid.txt') -PathType Leaf)) {
+            throw 'Development steam_appid.txt is missing.'
+          }
+          if ([IO.File]::ReadAllText((Join-Path $product 'steam_appid.txt')).Trim() -ne '480') {
+            throw 'Development steam_appid.txt does not contain Valve SpaceWar AppID 480.'
+          }
+
+          & $probe --verify-package --package-root $product
+          if ($LASTEXITCODE -ne 0) {
+            throw "Final friend-test product verification failed with exit code $LASTEXITCODE."
+          }
+
+          Get-Content -LiteralPath $friendManifest
+          Get-Content -LiteralPath (Join-Path $product 'acceptance-build.json')
+
+      - name: Upload downloadable friend-test kit
+        uses: actions/upload-artifact@v6
+        with:
+          name: steward-peer-friend-test-v1-${{ github.sha }}
+          path: ${{ runner.temp }}/steward-peer-friend-test
+          if-no-files-found: error
+          retention-days: 14

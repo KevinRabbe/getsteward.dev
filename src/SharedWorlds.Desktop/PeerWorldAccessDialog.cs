@@ -12,8 +12,9 @@ namespace SharedWorlds.Desktop;
 /// <summary>
 /// Access surface for persistent peer Worlds. Canonical membership is the only authority here; Steam
 /// lobby invitations are delivery after membership persistence. A live holder removal first revokes the
-/// exact member/generation transport boundary, then persists canonical membership. Authority transfer /
-/// holder leave remain separate workflows and are not presented here yet.
+/// exact member/generation transport boundary, then persists canonical membership. A non-holder Leave
+/// World is the inverse remote transaction: the current holder removes this authenticated member first,
+/// then this Steward installation deletes its local replica and detaches from the Steam lobby.
 /// </summary>
 internal sealed class PeerWorldAccessDialog : Window
 {
@@ -33,6 +34,12 @@ internal sealed class PeerWorldAccessDialog : Window
         Padding = new Thickness(12, 6, 12, 6),
         IsEnabled = false
     };
+    private readonly Button _leaveButton = new()
+    {
+        Content = "Leave World",
+        Padding = new Thickness(12, 6, 12, 6),
+        IsEnabled = false
+    };
     private readonly TextBlock _summary = new()
     {
         TextWrapping = TextWrapping.Wrap,
@@ -44,6 +51,7 @@ internal sealed class PeerWorldAccessDialog : Window
         Opacity = 0.82
     };
     private bool _canManage;
+    private bool _canLeave;
     private bool _busy;
 
     public PeerWorldAccessDialog(
@@ -57,9 +65,9 @@ internal sealed class PeerWorldAccessDialog : Window
 
         Title = $"Lobby — {world.Name}";
         Width = 560;
-        Height = 500;
+        Height = 520;
         MinWidth = 480;
-        MinHeight = 400;
+        MinHeight = 420;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         UseLayoutRounding = true;
         SnapsToDevicePixels = true;
@@ -69,9 +77,13 @@ internal sealed class PeerWorldAccessDialog : Window
 
         _addButton.Click += AddButton_Click;
         _removeButton.Click += RemoveButton_Click;
+        _leaveButton.Click += LeaveButton_Click;
         _members.SelectionChanged += (_, _) => UpdateActionState();
         Loaded += async (_, _) => await ReloadAsync();
     }
+
+    public bool WorldWasLeft { get; private set; }
+    public string? LeaveWarning { get; private set; }
 
     private UIElement BuildContent()
     {
@@ -123,13 +135,22 @@ internal sealed class PeerWorldAccessDialog : Window
         AutomationProperties.SetName(_members, "World members");
         memberArea.Children.Add(_members);
 
-        _removeButton.HorizontalAlignment = HorizontalAlignment.Right;
-        _removeButton.Margin = new Thickness(0, 10, 0, 0);
+        var actions = new Grid { Margin = new Thickness(0, 10, 0, 0) };
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        AutomationProperties.SetHelpText(
+            _leaveButton,
+            "Ask the confirmed current host to remove this account canonically, then delete this local replica and leave the Steam lobby. Current holders must hand off host first.");
+        actions.Children.Add(_leaveButton);
+
         AutomationProperties.SetHelpText(
             _removeButton,
             "Remove the selected non-holder member. During a live Host, Steward revokes that member's active peer transfer and game sessions before canonical removal. Host handoff blocks removal.");
-        Grid.SetRow(_removeButton, 1);
-        memberArea.Children.Add(_removeButton);
+        Grid.SetColumn(_removeButton, 2);
+        actions.Children.Add(_removeButton);
+        Grid.SetRow(actions, 1);
+        memberArea.Children.Add(actions);
         Grid.SetRow(memberArea, 2);
         root.Children.Add(memberArea);
 
@@ -237,6 +258,57 @@ internal sealed class PeerWorldAccessDialog : Window
         });
     }
 
+    private async void LeaveButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy || !_canLeave)
+        {
+            return;
+        }
+
+        var confirmation = MessageBox.Show(
+            this,
+            "Leave this World?\n\nSteward will ask the confirmed current host to remove this account from canonical membership. Only after the host confirms that removal will Steward delete this local World replica and leave the Steam lobby. This cannot run during host handoff.",
+            "Leave World",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No);
+        if (confirmation != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        _busy = true;
+        UpdateActionState();
+        try
+        {
+            var leave = new PeerWorldLeaveService(
+                _runtime.Storage,
+                _runtime.Lobby,
+                _runtime.LeaveRequests,
+                _runtime.User);
+            var completion = await leave.LeaveAsync(_world.Id);
+
+            WorldWasLeft = true;
+            LeaveWarning = completion.CleanupWarning;
+            DialogResult = true;
+        }
+        catch (Exception exception)
+        {
+            SetStatus(exception.Message);
+            _busy = false;
+            try
+            {
+                await ReloadAsync(preserveStatus: true);
+            }
+            catch
+            {
+                _canManage = false;
+                _canLeave = false;
+                UpdateActionState();
+            }
+        }
+    }
+
     private async Task ReloadAsync(bool preserveStatus = false)
     {
         _world = await _runtime.Storage.LoadWorldAsync(_world.Id)
@@ -252,11 +324,39 @@ internal sealed class PeerWorldAccessDialog : Window
             .Select(FormatMember)
             .ToArray();
 
-        _canManage = _world.PeerAuthority is { } authority &&
-                     SameUser(authority.Holder, _runtime.User);
+        var isCanonicalMember = _world.Members.Any(member => SameUser(member, _runtime.User));
+        var authority = _world.PeerAuthority;
+        _canManage = authority is not null &&
+                     SameUser(authority.Holder, _runtime.User) &&
+                     isCanonicalMember;
+        var isNonHolderMember = authority is not null &&
+                                !SameUser(authority.Holder, _runtime.User) &&
+                                isCanonicalMember;
+        _canLeave = false;
+        if (isNonHolderMember)
+        {
+            try
+            {
+                var liveLobby = await _runtime.Lobby.GetAsync(_world.Id);
+                _canLeave = liveLobby is not null &&
+                            liveLobby.OwnerConfirmed &&
+                            liveLobby.AuthorityGeneration == authority!.Generation &&
+                            liveLobby.RequestedHost is null &&
+                            SameUser(liveLobby.Owner, authority.Holder);
+            }
+            catch
+            {
+                _canLeave = false;
+            }
+        }
+
         _summary.Text = _canManage
-            ? "World membership is stored with the World. Add grants access before Steam invite delivery. Remove access also works during a live Host by revoking the selected member's peer sessions before canonical removal; host handoff blocks membership mutation."
-            : "World membership is read-only here because this Steward identity is not the current persistent peer authority holder.";
+            ? "World membership is stored with the World. Add grants access before Steam invite delivery. Remove access also works during a live Host by revoking the selected member's peer sessions before canonical removal. To leave this World yourself, hand off host authority first."
+            : _canLeave
+                ? "This account is a canonical World member but not the current authority holder. Leave World asks the active holder to remove this account first; Steward deletes the local replica only after that authoritative acknowledgement."
+                : isNonHolderMember
+                    ? "This account is a canonical non-holder member. Leave World becomes available when Steward is attached to the confirmed current host at this exact authority generation and no handoff is in progress."
+                    : "World membership is read-only here because this Steward identity is not a current canonical member or authority holder.";
         UpdateActionState();
         if (!preserveStatus)
         {
@@ -291,6 +391,7 @@ internal sealed class PeerWorldAccessDialog : Window
             catch
             {
                 _canManage = false;
+                _canLeave = false;
                 UpdateActionState();
             }
         }
@@ -303,6 +404,7 @@ internal sealed class PeerWorldAccessDialog : Window
         _addButton.IsEnabled = canMutate;
         _removeButton.IsEnabled = canMutate &&
                                   TryGetSelectedRemovableMember(out _);
+        _leaveButton.IsEnabled = !_busy && _canLeave;
     }
 
     private bool TryGetSelectedRemovableMember(out UserIdentity member)

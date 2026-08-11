@@ -1,6 +1,6 @@
 @echo off
 setlocal
-"%~dp0..\acceptance-tools\SharedWorlds.PeerWorldProbe.exe" --list
+"%~dp0acceptance-tools\SharedWorlds.PeerWorldProbe.exe" --list
 if errorlevel 1 (
   echo.
   echo Steward peer World listing failed.

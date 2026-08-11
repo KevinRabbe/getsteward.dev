@@ -60,6 +60,13 @@ public sealed class PeerManagedHostPresenceRegistry : IPeerManagedHostPresenceRe
     private readonly object _gate = new();
     private readonly Dictionary<WorldId, PeerManagedHostPresence> _records = [];
 
+    /// <summary>
+    /// Process-local teardown notification raised only after the exact holder/generation presence tuple
+    /// has been removed. Transport owners use this to revoke already-open joinability channels without
+    /// persisting transport state or polling authority on the packet hot path.
+    /// </summary>
+    public event Action<PeerManagedHostPresence>? Ended;
+
     public Task<PeerManagedHostPresence?> GetAsync(
         WorldId worldId,
         CancellationToken cancellationToken = default)
@@ -157,6 +164,7 @@ public sealed class PeerManagedHostPresenceRegistry : IPeerManagedHostPresenceRe
         cancellationToken.ThrowIfCancellationRequested();
         EnsureGeneration(authorityGeneration);
 
+        PeerManagedHostPresence? ended;
         lock (_gate)
         {
             if (!_records.TryGetValue(worldId, out var current))
@@ -166,7 +174,32 @@ public sealed class PeerManagedHostPresenceRegistry : IPeerManagedHostPresenceRe
 
             EnsureSameAuthority(current, holder, authorityGeneration);
             _records.Remove(worldId);
-            return Task.CompletedTask;
+            ended = current;
+        }
+
+        NotifyEnded(ended);
+        return Task.CompletedTask;
+    }
+
+    private void NotifyEnded(PeerManagedHostPresence ended)
+    {
+        var subscribers = Ended;
+        if (subscribers is null)
+        {
+            return;
+        }
+
+        foreach (var subscriber in subscribers.GetInvocationList().Cast<Action<PeerManagedHostPresence>>())
+        {
+            try
+            {
+                subscriber(ended);
+            }
+            catch
+            {
+                // Presence is already absent and therefore fail-closed for new admissions. One
+                // process-local cleanup observer must not restore or block that revoked state.
+            }
         }
     }
 

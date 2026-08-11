@@ -8,6 +8,8 @@ namespace SharedWorlds.Infrastructure.Sessions;
 /// Serializes the peer host-handoff lifecycle with holder-controlled membership mutation. The wrapped
 /// coordinator remains the authority implementation; this decorator only closes the process-local race
 /// where Remove access and Request/Complete handoff could otherwise both act on the same member list.
+/// Every managed-host presence method is forwarded explicitly so interface defaults cannot swallow the
+/// existing Starting/Ready/End publication chain.
 /// </summary>
 public sealed class PeerWorldLiveAuthoritySessionCoordinator : IWorldSessionCoordinator
 {
@@ -42,6 +44,25 @@ public sealed class PeerWorldLiveAuthoritySessionCoordinator : IWorldSessionCoor
         UserIdentity user,
         CancellationToken cancellationToken = default)
         => _inner.AcquireHostAsync(worldId, user, cancellationToken);
+
+    public Task MarkHostStartingAsync(
+        WorldId worldId,
+        CancellationToken cancellationToken = default)
+        => _inner.MarkHostStartingAsync(worldId, cancellationToken);
+
+    public Task MarkHostReadyAsync(
+        WorldId worldId,
+        ManagedHostEndpoint endpoint,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(endpoint);
+        return _inner.MarkHostReadyAsync(worldId, endpoint, cancellationToken);
+    }
+
+    public Task EndHostPresenceAsync(
+        WorldId worldId,
+        CancellationToken cancellationToken = default)
+        => _inner.EndHostPresenceAsync(worldId, cancellationToken);
 
     public async Task RequestHandoffAsync(
         WorldId worldId,

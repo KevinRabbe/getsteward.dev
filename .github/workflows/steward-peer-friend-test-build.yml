@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - "release/steward-peer-friend-test-v1"
+  pull_request:
+    branches:
+      - "agent/steward-steam-kit-with-steampipe-v1"
   workflow_dispatch:
 
 permissions:

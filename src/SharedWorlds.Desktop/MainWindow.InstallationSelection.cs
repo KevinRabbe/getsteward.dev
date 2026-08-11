@@ -185,9 +185,10 @@ public partial class MainWindow
                     $"{adapter.DisplayName} is running. End the game/server session normally; Steward will then capture and commit the new canonical revision.";
 
                 var lifecycle = GetLifecycleForWorld(world);
+                var managedHostAdapter = GetManagedHostAdapterForWorld(world, adapter);
                 var updated = await lifecycle.ContinueAsHostAsync(
                     world.Id,
-                    adapter,
+                    managedHostAdapter,
                     installation,
                     GetUserForWorld(world));
 

@@ -30,7 +30,8 @@ public interface IPeerWorldCatchUpRequestClient
 /// Host-side authority gate for first-time bootstrap and returning-observer synchronization requests.
 /// It is deliberately transport-independent: the Steam engine supplies the already-authenticated
 /// remote identity, while this router proves canonical World authority, durable Active authority,
-/// live lobby authority/generation, and canonical membership before invoking any transfer service.
+/// live lobby authority/generation, canonical membership, and the process-local live revocation fence
+/// before invoking any transfer service.
 /// </summary>
 public sealed class PeerWorldCatchUpRequestRouter
 {
@@ -38,6 +39,7 @@ public sealed class PeerWorldCatchUpRequestRouter
     private readonly IPeerWorldLobby _lobby;
     private readonly IPeerAuthorityFenceStore _authorityFences;
     private readonly UserIdentity _localUser;
+    private readonly PeerWorldLiveMemberRevocationRegistry? _liveRevocations;
     private readonly object _bindingGate = new();
     private PeerWorldBootstrapTransferService? _bootstrap;
     private PeerWorldObserverSyncService? _observerSync;
@@ -46,7 +48,8 @@ public sealed class PeerWorldCatchUpRequestRouter
         IWorldStorage storage,
         IPeerWorldLobby lobby,
         IPeerAuthorityFenceStore authorityFences,
-        UserIdentity localUser)
+        UserIdentity localUser,
+        PeerWorldLiveMemberRevocationRegistry? liveRevocations = null)
     {
         ArgumentNullException.ThrowIfNull(storage);
         ArgumentNullException.ThrowIfNull(lobby);
@@ -56,6 +59,7 @@ public sealed class PeerWorldCatchUpRequestRouter
         _lobby = lobby;
         _authorityFences = authorityFences;
         _localUser = localUser;
+        _liveRevocations = liveRevocations;
     }
 
     /// <summary>
@@ -114,11 +118,26 @@ public sealed class PeerWorldCatchUpRequestRouter
                 "The active host cannot request observer catch-up from itself.");
         }
 
+        _liveRevocations?.ThrowIfRevoked(
+            request.WorldId,
+            request.AuthorityGeneration,
+            authenticatedRemoteUser);
+        using var liveCancellation = _liveRevocations is null
+            ? null
+            : CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                _liveRevocations.GetCancellationToken(
+                    request.WorldId,
+                    request.AuthorityGeneration,
+                    authenticatedRemoteUser));
+        var operationToken = liveCancellation?.Token ?? cancellationToken;
+        operationToken.ThrowIfCancellationRequested();
+
         var services = RequireBoundServices();
         var before = await RequireCurrentAuthorityAsync(
             authenticatedRemoteUser,
             request,
-            cancellationToken);
+            operationToken);
         var currentStateRevisionId = before.CurrentStateRevisionId!.Value;
 
         if (request.LocalStateRevisionId is null)
@@ -126,7 +145,7 @@ public sealed class PeerWorldCatchUpRequestRouter
             await services.Bootstrap.BootstrapAsync(
                 request.WorldId,
                 authenticatedRemoteUser,
-                cancellationToken);
+                operationToken);
         }
         else if (request.LocalStateRevisionId.Value != currentStateRevisionId)
         {
@@ -134,16 +153,16 @@ public sealed class PeerWorldCatchUpRequestRouter
                 request.WorldId,
                 authenticatedRemoteUser,
                 request.LocalStateRevisionId.Value,
-                cancellationToken);
+                operationToken);
         }
 
-        // A transfer may take long enough for gameplay shutdown/handoff to start. Never report a
-        // successful current-head result unless the same holder/generation/head are still canonical
-        // and the durable/lobby authority views still agree after transfer completion.
+        // A transfer may take long enough for gameplay shutdown/handoff or live access revocation to
+        // start. Never report a successful current-head result unless the same holder/generation/head
+        // are still canonical and the durable/lobby/revocation views still agree after completion.
         var after = await RequireCurrentAuthorityAsync(
             authenticatedRemoteUser,
             request,
-            cancellationToken);
+            operationToken);
         if (after.CurrentStateRevisionId != currentStateRevisionId)
         {
             throw new InvalidOperationException(
@@ -161,6 +180,12 @@ public sealed class PeerWorldCatchUpRequestRouter
         PeerWorldCatchUpRequest request,
         CancellationToken cancellationToken)
     {
+        _liveRevocations?.ThrowIfRevoked(
+            request.WorldId,
+            request.AuthorityGeneration,
+            authenticatedRemoteUser);
+        cancellationToken.ThrowIfCancellationRequested();
+
         var world = await _storage.LoadWorldAsync(
             request.WorldId,
             cancellationToken)
@@ -214,6 +239,11 @@ public sealed class PeerWorldCatchUpRequestRouter
                 "The live peer lobby does not confirm this host/generation or a host handoff is in progress.");
         }
 
+        _liveRevocations?.ThrowIfRevoked(
+            request.WorldId,
+            request.AuthorityGeneration,
+            authenticatedRemoteUser);
+        cancellationToken.ThrowIfCancellationRequested();
         return world;
     }
 

@@ -34,6 +34,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
         IWorldSessionCoordinator sessionCoordinator,
         IPeerManagedHostPresenceRegistry hostPresence,
         IPeerAuthorityActiveRevisionFenceStore authorityFences,
+        IPeerWorldCatchUpRequestClient catchUp,
         SteamPeerWorldRevisionExchange revisionExchange,
         SteamPeerGameDatagramBridge gameBridge)
     {
@@ -48,6 +49,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
         SessionCoordinator = sessionCoordinator;
         HostPresence = hostPresence;
         AuthorityFences = authorityFences;
+        CatchUp = catchUp;
         GameBridge = gameBridge;
         _revisionExchange = revisionExchange;
         _lobbyJoin = lobbyJoin;
@@ -65,6 +67,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
     public IWorldSessionCoordinator SessionCoordinator { get; }
     public IPeerManagedHostPresenceRegistry HostPresence { get; }
     public IPeerAuthorityActiveRevisionFenceStore AuthorityFences { get; }
+    public IPeerWorldCatchUpRequestClient CatchUp { get; }
     public SteamPeerGameDatagramBridge GameBridge { get; }
 
     public static StewardDesktopPeerRuntime Create(
@@ -114,13 +117,19 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
                 storage,
                 user,
                 authorityFences);
+            var catchUpRouter = new PeerWorldCatchUpRequestRouter(
+                storage,
+                lobby,
+                authorityFences,
+                user);
 
             revisionExchange = new SteamPeerWorldRevisionExchange(
                 platform,
                 lobby,
                 revisionInstaller,
                 bootstrapInstaller,
-                observerInstaller);
+                observerInstaller,
+                catchUpRouter);
 
             var generationBoundExchange = new GenerationBoundPeerWorldExchange(
                 lobby,
@@ -161,6 +170,9 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
                 user,
                 authorityFences,
                 observerExchange);
+            catchUpRouter.Bind(
+                bootstrap,
+                observerSync);
             var membership = new PeerWorldMembershipService(
                 storage,
                 authorityFences);
@@ -190,6 +202,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
                 sessionCoordinator,
                 hostPresence,
                 authorityFences,
+                revisionExchange,
                 revisionExchange,
                 gameBridge);
         }

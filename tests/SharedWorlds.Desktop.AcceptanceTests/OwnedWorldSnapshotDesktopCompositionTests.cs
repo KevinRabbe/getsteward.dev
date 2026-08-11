@@ -90,7 +90,7 @@ public sealed class OwnedWorldSnapshotDesktopCompositionTests
             activation,
             StringComparison.Ordinal);
         Assert.Contains(
-            "_ownedWorldLocationPublicationTrigger.Request();",
+            "migrationPublication.Trigger.Request();",
             activation,
             StringComparison.Ordinal);
     }
@@ -139,7 +139,11 @@ public sealed class OwnedWorldSnapshotDesktopCompositionTests
             publication,
             StringComparison.Ordinal);
         Assert.Contains(
-            "new StewardOwnedWorldLocationPublicationTrigger(\n                PublishCurrentOwnedWorldLocationsAsync,",
+            "new StewardOwnedWorldLocationPublicationTrigger(\n                    PublishCurrentOwnedWorldLocationsAsync,",
+            publication,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "new StewardOwnedWorldLocationPublicationTrigger(",
             window,
             StringComparison.Ordinal);
         Assert.DoesNotContain(

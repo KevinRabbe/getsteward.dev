@@ -32,6 +32,10 @@ public partial class MainWindow
         ArgumentNullException.ThrowIfNull(initialTokens);
         ArgumentNullException.ThrowIfNull(authenticatedUser);
 
+        // The journal/worker belong exclusively to this explicit legacy migration path. Normal peer
+        // startup deliberately never allocates them; repeated migration runtime replacements reuse the
+        // same one-journal/one-worker state for this MainWindow lifetime.
+        var migrationPublication = EnsureOwnedWorldLocationMigrationState();
         var remoteRoot = Path.Combine(
             GetLocalDataRoot(),
             "SharedWorlds",
@@ -43,7 +47,7 @@ public partial class MainWindow
             authenticatedUser,
             remoteRoot,
             _storage,
-            _ownedWorldLocationPublicationJournal,
+            migrationPublication.Journal,
             _workspaceRecoveryStore,
             CreateDesktopLifecycleObserver());
 
@@ -91,7 +95,7 @@ public partial class MainWindow
 
         // A local mutation may have completed while the candidate was reconciling. Queue one bounded
         // pass after the swap so that mutation is observed through the newly active session.
-        _ownedWorldLocationPublicationTrigger.Request();
+        migrationPublication.Trigger.Request();
 
         await RefreshUnifiedWorldsAsync(
             _selectedWorld?.Id,

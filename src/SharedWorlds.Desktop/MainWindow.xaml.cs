@@ -17,8 +17,10 @@ namespace SharedWorlds.Desktop;
 public partial class MainWindow : Window
 {
     private readonly IWorldStorage _storage;
-    private readonly IOwnedWorldLocationPublicationJournal _ownedWorldLocationPublicationJournal;
-    private readonly StewardOwnedWorldLocationPublicationTrigger _ownedWorldLocationPublicationTrigger;
+    private readonly string _storageRoot;
+    private readonly object _ownedWorldLocationMigrationStateGate = new();
+    private IOwnedWorldLocationPublicationJournal? _ownedWorldLocationPublicationJournal;
+    private StewardOwnedWorldLocationPublicationTrigger? _ownedWorldLocationPublicationTrigger;
     private readonly SemaphoreSlim _ownedWorldLocationPublicationGate = new(1, 1);
     private readonly LocalWorldSessionCoordinator _localSessionCoordinator;
     private readonly ManagedWritableSessionGate _localManagedSessionGate;
@@ -39,20 +41,15 @@ public partial class MainWindow : Window
         InitializeGameTechnicalReadinessUi();
 
         // Keep the existing local data root for persistence compatibility while the visible product
-        // moves to the Safe World name.
+        // moves to the Safe World name. The migration publication journal/worker are deliberately not
+        // created here: AppID-only peer startup has no use for them.
         var sharedWorldsRoot = Path.Combine(GetLocalDataRoot(), "SharedWorlds");
-        var storageRoot = Path.Combine(sharedWorldsRoot, "data");
-        var localStorage = new LocalWorldStorage(storageRoot);
-        _ownedWorldLocationPublicationJournal =
-            new LocalOwnedWorldLocationPublicationJournal(storageRoot);
-        _ownedWorldLocationPublicationTrigger =
-            new StewardOwnedWorldLocationPublicationTrigger(
-                PublishCurrentOwnedWorldLocationsAsync,
-                RecordOwnedWorldLocationPublicationFailure);
+        _storageRoot = Path.Combine(sharedWorldsRoot, "data");
+        var localStorage = new LocalWorldStorage(_storageRoot);
         _storage = new OwnedWorldLocationObservedWorldStorage(
             localStorage,
-            _ownedWorldLocationPublicationTrigger.Request);
-        _workspaceRecoveryStore = new LocalWorkspaceRecoveryStore(storageRoot);
+            RequestOwnedWorldLocationPublication);
+        _workspaceRecoveryStore = new LocalWorkspaceRecoveryStore(_storageRoot);
         _localSessionCoordinator = new LocalWorldSessionCoordinator();
         _localManagedSessionGate = new ManagedWritableSessionGate();
         _lifecycle = new WorldLifecycleService(
@@ -66,7 +63,7 @@ public partial class MainWindow : Window
 
         Closed += (_, _) =>
         {
-            _ownedWorldLocationPublicationTrigger.Dispose();
+            DisposeOwnedWorldLocationMigrationState();
             DisposeRemoteRuntime();
         };
         InitializeTray();

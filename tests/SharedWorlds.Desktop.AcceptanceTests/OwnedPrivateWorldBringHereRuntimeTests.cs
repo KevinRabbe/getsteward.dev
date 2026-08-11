@@ -20,7 +20,11 @@ public sealed class OwnedPrivateWorldBringHereRuntimeTests
             runtime,
             StringComparison.Ordinal);
         Assert.Contains(
-            "remoteRoot,\n            _storage,\n            _ownedWorldLocationPublicationJournal,",
+            "var migrationPublication = EnsureOwnedWorldLocationMigrationState();",
+            mainWindow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "remoteRoot,\n            _storage,\n            migrationPublication.Journal,",
             mainWindow,
             StringComparison.Ordinal);
         Assert.Equal(1, CountOccurrences(runtime, "new VerifiedPackageCache("));

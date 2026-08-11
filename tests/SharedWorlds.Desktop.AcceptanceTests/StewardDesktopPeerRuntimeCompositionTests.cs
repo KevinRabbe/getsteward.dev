@@ -77,8 +77,8 @@ public sealed class StewardDesktopPeerRuntimeCompositionTests
         Assert.Contains("new SteamPeerWorldRevisionExchange(", source, StringComparison.Ordinal);
         Assert.Contains("new PeerGameDatagramBridgeAdmissionService(", source, StringComparison.Ordinal);
         Assert.Contains("new SteamPeerGameDatagramBridge(", source, StringComparison.Ordinal);
-        Assert.Contains("public SteamPeerGameDatagramBridge GameBridge { get; }", source, StringComparison.Ordinal);
-        Assert.Contains("_gameBridge.Dispose();", source, StringComparison.Ordinal);
+        Assert.Contains("public SteamPeerGameDatagramBridge GameBridge", source, StringComparison.Ordinal);
+        Assert.Contains("gameBridge?.Dispose();", source, StringComparison.Ordinal);
         Assert.Contains("_lobbyJoin.Dispose();", source, StringComparison.Ordinal);
         Assert.Contains("_revisionExchange.Dispose();", source, StringComparison.Ordinal);
     }

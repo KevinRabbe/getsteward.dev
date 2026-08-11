@@ -106,121 +106,131 @@ public partial class MainWindow
             return;
         }
 
+        if (world.SharingMode == WorldSharingMode.LocalOnly)
+        {
+            var peerShareRuntime = _peerRuntime;
+            if (peerShareRuntime is null)
+            {
+                StatusText.Text =
+                    "Start Steward with its Steam peer runtime available before sharing a new World.";
+                return;
+            }
+
+            if (_responsibilityTracker.Current.Kind != WorldLifecycleResponsibilityKind.None)
+            {
+                StatusText.Text =
+                    "Resolve the active or recovery responsibility on this PC before sharing another World.";
+                return;
+            }
+
+            await RunOperationAsync(
+                $"Sharing {world.Name}...",
+                async () =>
+                {
+                    var local = await peerShareRuntime.Storage.LoadWorldAsync(world.Id)
+                        ?? throw new InvalidOperationException(
+                            "The selected World has no local canonical snapshot to share.");
+                    if (!TryGetAdapter(local.GameAdapterId, out var adapter))
+                    {
+                        throw new InvalidOperationException(
+                            $"No installed Steward adapter can verify '{local.GameAdapterId}' before sharing.");
+                    }
+
+                    // Fresh peer sharing keeps the existing exact-environment preflight. No authority
+                    // fence or Shared marker is written until this device proves it can reproduce the
+                    // canonical environment for the selected World.
+                    var selection = await SelectInstallationForWorldAsync(local, adapter);
+                    RememberEnvironmentVerification(local, selection.Verification);
+                    RememberVerifiedInstallation(local, selection.Installation);
+                    UpdateEnvironmentReadinessUi();
+                    if (!selection.Verification.IsReady)
+                    {
+                        throw new InvalidOperationException(
+                            $"Steward will not share '{local.Name}' until this device can reproduce its exact canonical environment. Run Verify Environment and resolve the reported issue first.");
+                    }
+
+                    var shared = await peerShareRuntime.InitialShare.ShareAsync(
+                        local.Id,
+                        peerShareRuntime.User);
+                    _selectedWorld = shared;
+                    await RefreshUnifiedWorldsAsync(
+                        shared.Id,
+                        preserveStatus: true);
+                    StatusText.Text =
+                        $"'{shared.Name}' is shared through Steward's peer runtime. Add people from Manage access; private Steam invitations are delivered when a host is ready.";
+                });
+
+            UpdateWorldSharingActionState();
+            return;
+        }
+
+        // From this point downward only pre-peer legacy Shared transactions are allowed. New LocalOnly
+        // Worlds are never created in the centralized authority model after the peer sharing cutover.
+        if (world.SharingMode != WorldSharingMode.Shared)
+        {
+            StatusText.Text = "This World has an unsupported sharing state.";
+            return;
+        }
+
         var remoteRuntime = _remoteRuntime;
         if (remoteRuntime is null)
         {
-            StatusText.Text = world.SharingMode == WorldSharingMode.Shared
-                ? "Sharing is incomplete. Reconnect authenticated Steward and use Retry sharing."
-                : "Connect authenticated Steward before sharing this World.";
+            StatusText.Text =
+                "This older shared World still needs the legacy authenticated service to finish its existing sharing transaction.";
             return;
         }
 
         if (_responsibilityTracker.Current.Kind != WorldLifecycleResponsibilityKind.None)
         {
             StatusText.Text =
-                "Resolve the active or recovery responsibility on this PC before publishing a World for sharing.";
+                "Resolve the active or recovery responsibility on this PC before retrying this legacy sharing transaction.";
             return;
         }
 
         await RunOperationAsync(
-            world.SharingMode == WorldSharingMode.Shared
-                ? $"Retrying sharing for {world.Name}..."
-                : $"Sharing {world.Name}...",
+            $"Retrying sharing for {world.Name}...",
             async () =>
             {
-                World? localShadow = null;
-                try
+                var localShadow = await _storage.LoadWorldAsync(world.Id)
+                    ?? throw new InvalidOperationException(
+                        "The selected legacy shared World has no local canonical snapshot to republish.");
+                if (localShadow.SharingMode != WorldSharingMode.Shared ||
+                    localShadow.PeerAuthority is not null)
                 {
-                    localShadow = await _storage.LoadWorldAsync(world.Id)
-                        ?? throw new InvalidOperationException(
-                            "The selected World has no local canonical snapshot to publish.");
-
-                    var environmentId = localShadow.CurrentEnvironmentRevisionId
-                        ?? throw new InvalidOperationException(
-                            "The local World has no canonical environment revision to share.");
-                    var stateId = localShadow.CurrentStateRevisionId
-                        ?? throw new InvalidOperationException(
-                            "The local World has no canonical state revision to share.");
-                    var environment = await _storage.LoadEnvironmentRevisionAsync(
-                        localShadow.Id,
-                        environmentId)
-                        ?? throw new InvalidOperationException(
-                            "The local canonical environment revision is missing.");
-                    var state = await _storage.LoadStateRevisionAsync(
-                        localShadow.Id,
-                        stateId)
-                        ?? throw new InvalidOperationException(
-                            "The local canonical state revision is missing.");
-
-                    if (localShadow.SharingMode == WorldSharingMode.LocalOnly)
-                    {
-                        if (!TryGetAdapter(localShadow.GameAdapterId, out var adapter))
-                        {
-                            throw new InvalidOperationException(
-                                $"No installed Steward adapter can verify '{localShadow.GameAdapterId}' before sharing.");
-                        }
-
-                        // Initial sharing must prove that the canonical environment is reproducible before
-                        // any remote side effect or local authority lock is written. Evaluate every discovered
-                        // installation so Steam library ordering can never decide which environment is shared.
-                        var selection = await SelectInstallationForWorldAsync(localShadow, adapter);
-                        RememberEnvironmentVerification(localShadow, selection.Verification);
-                        RememberVerifiedInstallation(localShadow, selection.Installation);
-                        UpdateEnvironmentReadinessUi();
-                        if (!selection.Verification.IsReady)
-                        {
-                            throw new InvalidOperationException(
-                                $"Steward will not share '{localShadow.Name}' until this device can reproduce its exact canonical environment. Run Verify Environment and resolve the reported issue first.");
-                        }
-
-                        // Write-ahead authority intent: once any remote side effect can happen this
-                        // local copy must never silently become a writable fallback. A crash after
-                        // this write therefore resumes as Retry sharing instead of forking history.
-                        localShadow = localShadow with { SharingMode = WorldSharingMode.Shared };
-                        await _storage.SaveWorldAsync(localShadow);
-                        _selectedWorld = localShadow;
-                    }
-
-                    await using var package = await _storage.OpenRevisionAsync(
-                        localShadow.Id,
-                        stateId);
-                    await remoteRuntime.InitialWorldPublisher.PublishAsync(
-                        localShadow,
-                        environment,
-                        state,
-                        package,
-                        remoteRuntime.User);
-
-                    await RefreshUnifiedWorldsAsync(localShadow.Id, preserveStatus: true);
-                    StatusText.Text =
-                        $"'{localShadow.Name}' is shared. Steward will keep the shared World synchronized across devices.";
+                    throw new InvalidOperationException(
+                        "Legacy sharing retry accepts only a pre-peer Shared World. Persistent peer Worlds can never be published back to the old backend authority model.");
                 }
-                catch (Exception exception)
-                {
-                    // Never roll the write-ahead Shared marker back automatically. If backend World
-                    // creation or immutable publication became ambiguous, local writable fallback is
-                    // more dangerous than requiring an explicit retry of the same IDs. Failures before
-                    // that marker (including exact-environment preflight) remain ordinary LocalOnly failures.
-                    if (localShadow?.SharingMode == WorldSharingMode.Shared ||
-                        world.SharingMode == WorldSharingMode.Shared)
-                    {
-                        try
-                        {
-                            await RefreshUnifiedWorldsAsync(world.Id, preserveStatus: true);
-                        }
-                        catch
-                        {
-                            // The original failure remains the useful diagnostic; the durable local
-                            // Shared marker already preserves the authority invariant.
-                        }
 
-                        throw new InvalidOperationException(
-                            "Sharing did not finish. Steward kept this local World locked to remote authority so it cannot diverge. Reconnect and use Retry sharing to resume the same immutable publication.",
-                            exception);
-                    }
+                var environmentId = localShadow.CurrentEnvironmentRevisionId
+                    ?? throw new InvalidOperationException(
+                        "The local World has no canonical environment revision to republish.");
+                var stateId = localShadow.CurrentStateRevisionId
+                    ?? throw new InvalidOperationException(
+                        "The local World has no canonical state revision to republish.");
+                var environment = await _storage.LoadEnvironmentRevisionAsync(
+                    localShadow.Id,
+                    environmentId)
+                    ?? throw new InvalidOperationException(
+                        "The local canonical environment revision is missing.");
+                var state = await _storage.LoadStateRevisionAsync(
+                    localShadow.Id,
+                    stateId)
+                    ?? throw new InvalidOperationException(
+                        "The local canonical state revision is missing.");
 
-                    throw;
-                }
+                await using var package = await _storage.OpenRevisionAsync(
+                    localShadow.Id,
+                    stateId);
+                await remoteRuntime.InitialWorldPublisher.PublishAsync(
+                    localShadow,
+                    environment,
+                    state,
+                    package,
+                    remoteRuntime.User);
+
+                await RefreshUnifiedWorldsAsync(localShadow.Id, preserveStatus: true);
+                StatusText.Text =
+                    $"Legacy sharing transaction for '{localShadow.Name}' is up to date.";
             });
 
         UpdateWorldSharingActionState();
@@ -259,46 +269,72 @@ public partial class MainWindow
             SetShareActionState(
                 DesktopText.ManageAccess,
                 !_isBusy && _remoteRuntime is not null,
-                "Invite players, remove access, transfer Access Manager responsibility, or leave this shared World.");
+                "Invite players, remove access, transfer Access Manager responsibility, or leave this legacy shared World.");
             return;
         }
 
-        var retrying = world.SharingMode == WorldSharingMode.Shared ||
-                       _remoteIncompleteWorldIds.Contains(world.Id);
-        var content = retrying ? DesktopText.RetrySharing : DesktopText.ShareWorld;
-        var isEnabled = !_isBusy &&
-                        _remoteRuntime is not null &&
-                        !unresolvedResponsibility;
+        if (world.SharingMode == WorldSharingMode.LocalOnly)
+        {
+            var available = _peerRuntime is not null;
+            var isEnabled = !_isBusy && available && !unresolvedResponsibility;
+            if (unresolvedResponsibility)
+            {
+                SetShareActionState(
+                    DesktopText.ShareWorld,
+                    false,
+                    "Resolve this PC's active or recovery responsibility before sharing another World.");
+            }
+            else if (!available)
+            {
+                SetShareActionState(
+                    DesktopText.ShareWorld,
+                    false,
+                    "Start Steward with its Steam peer runtime available before sharing a new World.");
+            }
+            else
+            {
+                SetShareActionState(
+                    DesktopText.ShareWorld,
+                    isEnabled,
+                    "Verify the exact canonical environment, then establish durable generation-1 peer sharing on this device. No backend upload is required.");
+            }
 
+            return;
+        }
+
+        var legacyRetry = world.SharingMode == WorldSharingMode.Shared ||
+                          _remoteIncompleteWorldIds.Contains(world.Id);
+        if (!legacyRetry)
+        {
+            SetShareActionState(
+                DesktopText.ShareWorld,
+                false,
+                "This World has an unsupported sharing state.");
+            return;
+        }
+
+        var legacyAvailable = _remoteRuntime is not null;
+        var legacyEnabled = !_isBusy && legacyAvailable && !unresolvedResponsibility;
         if (unresolvedResponsibility)
         {
             SetShareActionState(
-                content,
-                isEnabled,
-                "Resolve this PC's active or recovery responsibility before publishing a World for sharing.");
+                DesktopText.RetrySharing,
+                false,
+                "Resolve this PC's active or recovery responsibility before retrying the legacy sharing transaction.");
         }
-        else if (_remoteRuntime is null)
+        else if (!legacyAvailable)
         {
             SetShareActionState(
-                content,
-                isEnabled,
-                retrying
-                    ? "Reconnect authenticated Steward to retry this incomplete sharing transaction."
-                    : "Connect authenticated Steward before sharing this World.");
-        }
-        else if (retrying)
-        {
-            SetShareActionState(
-                content,
-                isEnabled,
-                "Retry the same immutable World/environment/state publication. Local writable fallback remains locked until this finishes.");
+                DesktopText.RetrySharing,
+                false,
+                "Reconnect the legacy authenticated service to finish this pre-peer sharing transaction.");
         }
         else
         {
             SetShareActionState(
-                content,
-                isEnabled,
-                "Verify the exact canonical environment, then publish this World's immutable state to Steward and make remote authority canonical.");
+                DesktopText.RetrySharing,
+                legacyEnabled,
+                "Retry the existing immutable legacy publication. New Worlds are no longer created in this authority model.");
         }
     }
 

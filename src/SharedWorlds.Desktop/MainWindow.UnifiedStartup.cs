@@ -17,8 +17,6 @@ public partial class MainWindow
         InitializeStewardPeerRuntime();
 
         await InitializeUnifiedGameUiAsync();
-        InitializeOwnedPrivateWorldCatalogRefreshHooks();
-        InitializeOwnedPrivateWorldBringHereAction();
         InitializeInstallationAwareWorldActions();
         InitializeWorldSearchUi();
 
@@ -34,6 +32,16 @@ public partial class MainWindow
         // peer gameplay composition; Steam authentication reuses the already-created App runtime when
         // both configurations carry the same AppID.
         await InitializeStewardRemoteSessionAsync();
+
+        // Owned-private catalog and Bring Here are legacy backend reservation/location workflows. They
+        // are useful only while an explicit migration runtime is actually established. The normal
+        // AppID-only peer product must not register their refresh hooks or attach their action surface.
+        if (_remoteRuntime is not null)
+        {
+            InitializeOwnedPrivateWorldCatalogRefreshHooks();
+            InitializeOwnedPrivateWorldBringHereAction();
+        }
+
         UpdateWorldSharingActionState();
         await InitializeWorldJoinUiAsync();
 

@@ -5,7 +5,7 @@ namespace SharedWorlds.Desktop.AcceptanceTests;
 public sealed class SteamPeerTwoPcKitCompositionTests
 {
     [Fact]
-    public void PhysicalKitWorkflowIsManualOnlyAndRequiresOnlySteamAppIdAndVersion()
+    public void PhysicalKitWorkflowIsManualOnlyAndRequiresOnlyNonSecretSteamBuildIdentity()
     {
         var workflow = Read(".github/workflows/steam-peer-two-pc-test-kit.yml");
 
@@ -14,12 +14,40 @@ public sealed class SteamPeerTwoPcKitCompositionTests
         Assert.DoesNotContain("push:", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("schedule:", workflow, StringComparison.Ordinal);
         Assert.Contains("steam_app_id:", workflow, StringComparison.Ordinal);
+        Assert.Contains("windows_depot_id:", workflow, StringComparison.Ordinal);
         Assert.Contains("version:", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("api_base", workflow, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("web_api", workflow, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("friends_build", workflow, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("password:", workflow, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("credential", workflow, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("steam_guard", workflow, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("build-steam-peer-two-pc-kit.ps1", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/upload-artifact@v6", workflow, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PhysicalKitWorkflowGeneratesSteamPipeInputsAsSeparateArtifactWithoutMutatingKit()
+    {
+        var workflow = Read(".github/workflows/steam-peer-two-pc-test-kit.yml");
+        var kitBuild = RequiredIndex(workflow, "-OutputDirectory $output");
+        var generator = RequiredIndex(workflow, "./tools/new-steam-peer-beta-steampipe.ps1", kitBuild);
+        var product = RequiredIndex(workflow, "-ProductDirectory (Join-Path $kit 'product')", generator);
+        var steamPipeOutput = RequiredIndex(workflow, "-OutputDirectory $steamPipe", product);
+        var kitUpload = RequiredIndex(workflow, "name: steward-steam-peer-two-pc-${{ inputs.version }}-${{ github.sha }}", steamPipeOutput);
+        var steamPipeUpload = RequiredIndex(workflow, "name: steward-steampipe-rc-input-${{ inputs.version }}-${{ github.sha }}", kitUpload);
+
+        Assert.True(kitBuild < generator);
+        Assert.True(generator < product);
+        Assert.True(product < steamPipeOutput);
+        Assert.True(steamPipeOutput < kitUpload);
+        Assert.True(kitUpload < steamPipeUpload);
+        Assert.Contains("$env:RUNNER_TEMP/steward-steam-peer-two-pc-kit", workflow, StringComparison.Ordinal);
+        Assert.Contains("$env:RUNNER_TEMP/steward-steampipe-rc-input", workflow, StringComparison.Ordinal);
+        Assert.Contains("windows_depot_id must be a positive UInt32", workflow, StringComparison.Ordinal);
+        Assert.Contains("steampipe-rc-input.json", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("SetLive", workflow, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("steamcmd", workflow, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

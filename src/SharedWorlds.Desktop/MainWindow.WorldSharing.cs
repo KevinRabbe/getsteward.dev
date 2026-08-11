@@ -35,6 +35,39 @@ public partial class MainWindow
             return;
         }
 
+        if (_peerWorldIds.Contains(world.Id))
+        {
+            var peer = _peerRuntime;
+            if (peer is null)
+            {
+                StatusText.Text =
+                    "This shared World uses persistent peer authority, but the embedded Steam runtime is unavailable.";
+                return;
+            }
+
+            await RunOperationAsync(
+                $"Loading access for {world.Name}...",
+                async () =>
+                {
+                    var canonical = await peer.Storage.LoadWorldAsync(world.Id)
+                        ?? throw new InvalidOperationException(
+                            "The canonical peer World is no longer available on this Steward installation.");
+                    var dialog = new PeerWorldAccessDialog(peer, canonical)
+                    {
+                        Owner = this
+                    };
+                    dialog.ShowDialog();
+
+                    await RefreshUnifiedWorldsAsync(
+                        world.Id,
+                        preserveStatus: true);
+                    StatusText.Text = $"Access for '{world.Name}' is up to date.";
+                });
+
+            UpdateWorldSharingActionState();
+            return;
+        }
+
         if (_remoteWorldIds.Contains(world.Id))
         {
             var remote = _remoteRuntime;
@@ -209,6 +242,18 @@ public partial class MainWindow
 
         var unresolvedResponsibility =
             _responsibilityTracker.Current.Kind != WorldLifecycleResponsibilityKind.None;
+        if (_peerWorldIds.Contains(world.Id))
+        {
+            var available = _peerRuntime is not null;
+            SetShareActionState(
+                DesktopText.ManageAccess,
+                !_isBusy && available,
+                available
+                    ? "View canonical World members or add a Steam ID64. Membership is stored before private Steam invitation delivery."
+                    : "This World uses persistent peer authority, but the embedded Steam runtime is unavailable.");
+            return;
+        }
+
         if (_remoteWorldIds.Contains(world.Id))
         {
             SetShareActionState(

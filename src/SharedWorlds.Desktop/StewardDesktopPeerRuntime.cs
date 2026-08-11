@@ -12,9 +12,9 @@ namespace SharedWorlds.Desktop;
 ///
 /// The runtime deliberately contains only active peer gameplay concerns: local canonical storage with
 /// durable authority fencing, live lobby authority, exact revision bootstrap/handoff/observer transfer,
-/// initial peer sharing, managed-host presence, membership, live revocation fencing, invitations, and
-/// the Steam game-data bridge. Central remote services and remote object storage are not part of this
-/// composition.
+/// initial peer sharing, managed-host presence, membership, live revocation fencing, authenticated
+/// Leave World control, invitations, and the Steam game-data bridge. Central remote services and remote
+/// object storage are not part of this composition.
 /// </summary>
 internal sealed class StewardDesktopPeerRuntime : IDisposable
 {
@@ -50,6 +50,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
         PeerWorldLiveAuthorityMutationGate liveAuthorityMutations,
         IPeerAuthorityActiveRevisionFenceStore authorityFences,
         IPeerWorldCatchUpRequestClient catchUp,
+        IPeerWorldLeaveRequestClient leaveRequests,
         SteamPeerWorldRevisionExchange revisionExchange,
         PeerGameDatagramBridgeAdmissionService gameBridgeAdmission,
         SteamPeerGameDatagramBridge gameBridge)
@@ -80,6 +81,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
         LiveMemberRevocations = liveMemberRevocations;
         AuthorityFences = authorityFences;
         CatchUp = catchUp;
+        LeaveRequests = leaveRequests;
 
         _hostPresence.Ended += OnManagedHostPresenceEnded;
     }
@@ -100,6 +102,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
     public PeerWorldLiveMemberRevocationRegistry LiveMemberRevocations { get; }
     public IPeerAuthorityActiveRevisionFenceStore AuthorityFences { get; }
     public IPeerWorldCatchUpRequestClient CatchUp { get; }
+    public IPeerWorldLeaveRequestClient LeaveRequests { get; }
 
     public SteamPeerGameDatagramBridge GameBridge
     {
@@ -149,6 +152,22 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
         var lobby = new SteamPeerWorldLobby(platform);
         var liveMemberRevocations = new PeerWorldLiveMemberRevocationRegistry();
         var liveAuthorityMutations = new PeerWorldLiveAuthorityMutationGate();
+        var membership = new PeerWorldMembershipService(
+            storage,
+            authorityFences,
+            liveMemberRevocations,
+            liveAuthorityMutations);
+        var memberRemoval = new PeerWorldMemberRemovalService(
+            storage,
+            authorityFences,
+            lobby,
+            liveMemberRevocations,
+            liveAuthorityMutations);
+        var leaveRouter = new PeerWorldLeaveRequestRouter(
+            storage,
+            lobby,
+            memberRemoval,
+            user);
 
         SteamPeerWorldRevisionExchange? revisionExchange = null;
         SteamPeerWorldLobbyJoinService? lobbyJoin = null;
@@ -180,7 +199,8 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
                 revisionInstaller,
                 bootstrapInstaller,
                 observerInstaller,
-                catchUpRouter);
+                catchUpRouter,
+                leaveRouter);
 
             var generationBoundExchange = new GenerationBoundPeerWorldExchange(
                 lobby,
@@ -240,17 +260,6 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
             var initialShare = new PeerWorldInitialShareService(
                 storage,
                 authorityFences);
-            var membership = new PeerWorldMembershipService(
-                storage,
-                authorityFences,
-                liveMemberRevocations,
-                liveAuthorityMutations);
-            var memberRemoval = new PeerWorldMemberRemovalService(
-                storage,
-                authorityFences,
-                lobby,
-                liveMemberRevocations,
-                liveAuthorityMutations);
 
             lobbyJoin = new SteamPeerWorldLobbyJoinService(
                 platform,
@@ -285,6 +294,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
                 liveMemberRevocations,
                 liveAuthorityMutations,
                 authorityFences,
+                revisionExchange,
                 revisionExchange,
                 revisionExchange,
                 gameBridgeAdmission,
@@ -443,8 +453,8 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
             _gameBridge = null;
         }
 
-        // Stop live game traffic first, then future lobby admission, then World transfer traffic and
-        // finally the process-local cancellation/mutation fences. SteamPlatformRuntime remains owned by App.
+        // Stop live game traffic first, then future lobby admission, then World transfer/control traffic
+        // and finally the process-local cancellation/mutation fences. SteamPlatformRuntime remains owned by App.
         gameBridge?.Dispose();
         _lobbyJoin.Dispose();
         _revisionExchange.Dispose();

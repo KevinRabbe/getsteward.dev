@@ -185,8 +185,11 @@ public sealed class PeerWorldLiveMemberRevocationRegistry : IDisposable
             }
         }
 
+        // Host teardown is also a transport revocation boundary. Cancel before disposal so an
+        // in-flight catch-up or transfer cannot outlive the exact managed-host generation it used.
         foreach (var cancellation in removed)
         {
+            cancellation.Cancel();
             cancellation.Dispose();
         }
 

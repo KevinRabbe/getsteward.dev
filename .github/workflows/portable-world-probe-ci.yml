@@ -1,11 +1,6 @@
 name: Portable World acceptance probe CI
 
 on:
-  push:
-    branches:
-      - main
-      - "agent/**"
-  pull_request:
   workflow_dispatch:
 
 permissions:

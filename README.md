@@ -2,380 +2,294 @@
 
 > **One shared World. Different Steam players. Different times. No always-on game server.**
 
-Steward is a commercial Windows desktop product that moves the latest valid game World between players/devices without keeping a Steward-owned game-server fleet running permanently.
+Steward is a Windows desktop application for continuing the same game World across trusted Steam players and PCs without operating a permanent Steward-owned game-server fleet.
 
-Steam is the commercial platform. Games are adapters. Worlds are the product.
+Steam is the platform. Games are adapters. Worlds are the product.
 
-## Current project state
+## Current product state
 
-The generic platform/backend/runtime architecture is implemented and CI-proven. Deterministic V3 Steam release-candidate preparation is complete through qualified PR #137.
+The current closed-beta release candidate is the peer-hosted product at exact SHA:
 
-The current qualified executable/product baseline is PR #138:
+`9acf25f7696dfe9056028e4201ca380a94883f0e`
 
-> `e63c6f7d20d103cd2ea3d9a922b73de3c3ba1f5f`
+Release-candidate branch:
 
-#138 came from the first real V3-E Windows run: an older v1 device-settings file exposed a Windows file-replacement defect during v1 -> v2 migration. The migration now closes its read handle before atomic replacement and has a Windows-relevant regression test.
+`release/steward-peer-closed-beta-rc1`
 
-The current documentation-state audit is PR #139. Use [`docs/DOCUMENTATION_AUDIT.md`](docs/DOCUMENTATION_AUDIT.md) when an older roadmap/status file disagrees with executable truth.
+Automated exact-head qualification is green for that SHA. The remaining release evidence is physical: two Windows PCs, two real Steam accounts, the private Steward Steam AppID, and one complete Host/Join/handoff/restart/revocation/Leave run.
 
-What remains before release acceptance is deliberately real rather than another generic subsystem:
+See:
 
-- finish reconciling stale active documentation;
-- reconcile the known Games Library navigation drift with the already-approved game-first UI contract;
-- continue V3-E real Windows observation;
-- open V3-F only with real provider/Steam/AppID/publisher/depot/two-installation/game evidence.
+- issue #349 — physical Steam peer two-PC qualification;
+- issue #350 — repository trunk/default-branch cutover after physical qualification;
+- `tools/steam-peer-two-pc-kit/START-HERE-STEAM-PEER-TWO-PC.txt` — physical acceptance procedure.
 
-Steward does not manufacture CI substitutes for evidence that only a real Windows/Steam/game/network boundary can provide.
+Automated CI does **not** substitute for the real Steam/network/game boundary.
 
-## Product boundary
+## Final product topology
 
-Steward owns the complete World handoff:
-
-```text
-latest valid World state
--> reserve one writable session
--> prepare the correct environment
--> restore the World on this device
--> launch local play or temporary hosting
--> observe the game/server session
--> establish a safe capture boundary
--> capture the updated state
--> store and verify it
--> advance the shared World state last
--> make the World available to the next player
-```
-
-Launching alone is not success. Steward remains responsible in the background until capture, storage, verification, commit, cleanup, or recovery is resolved.
-
-Steam and each game should continue owning what they already provide: game ownership/installations, Steam identity, Steam distribution/update, native multiplayer behavior, Workshop/native content tooling, and dedicated-server executables where applicable.
-
-## Non-goals
-
-Steward is not:
-
-- a Git-style branching or merging system for saves;
-- a universal save merger;
-- a social network or Discord replacement;
-- a complex ownership/party/governance platform;
-- a public game-server browser;
-- a permanent Steward game-server fleet;
-- a live game-process migration system;
-- a second Steam updater/distribution service;
-- DRM for copies already received by an authorized device.
-
-Groups organize themselves. Steward keeps the selected shared World state safe, current, portable, and playable.
-
-## Core architecture
-
-Universal lifecycle/state-safety behavior remains outside game-specific adapters.
+Normal Steward use does not require a central Steward backend.
 
 ```text
-Windows Desktop / background runtime / development tools
-                    |
-                    v
-             SharedWorlds.Core
-              |      |      |
-              |      |      `-> IWorldSessionCoordinator
-              |      |            |-- local reservation
-              |      |            `-- distributed backend reservation
-              |      |
-              |      `-> IWorldStorage
-              |            |-- local filesystem
-              |            `-- authenticated remote World storage
-              |
-              `-> IGameAdapter
-                     `-- 19 first-party adapters with independent capability sets
-
-Windows Desktop
-    |
-    `-> HTTPS Backend.Api
-            |-- PostgreSQL: identity/access/revisions/reservations/idempotency
-            `-- private S3-compatible object storage: immutable package bytes
+Steward.exe
+   |
+   +-- Local World
+   |      |
+   |      `-- Share
+   |             -> persistent peer authority generation 1
+   |
+   +-- Manage access
+   |      +-- Add Steam friend
+   |      +-- Remove access
+   |      `-- Leave World
+   |
+   +-- Host
+   |      +-- private FriendsOnly Steam lobby
+   |      +-- canonical members invited through Steam
+   |      +-- port 71: Steward World/control traffic
+   |      `-- port 72: bridged game traffic
+   |
+   +-- Join
+   |      +-- Steam invite / +connect_lobby
+   |      +-- bootstrap or catch-up exact World state
+   |      `-- local game connection through Steward bridge
+   |
+   `-- Hand off host
+          -> safe final save
+          -> exact revision transfer
+          -> authority generation N -> N+1
+          -> target activates
+          -> Steam lobby ownership moves last
 ```
 
-Core must never gain game-name branches merely because one adapter is unusual. Backend/object storage also do not interpret game-save semantics.
+One Steward distribution contains the normal peer product and explicit legacy migration compatibility. There is no separate Steward server executable required for ordinary use.
 
-Object storage moves opaque bytes; PostgreSQL/backend transactions decide shared authority and canonical heads.
+## Authority model
 
-## Essential invariants
-
-- A World has one current valid state.
-- At most one Steward session may write that World at a time.
-- Published revisions are immutable.
-- The current World state advances only after the replacement is completely captured, stored, verified, and committed.
-- A failed operation leaves the previous valid state authoritative.
-- Post-launch workspaces are recovery assets until success is certain.
-- Session observation/readiness/safe-capture timing are adapter-owned.
-- Host switching happens between sessions through safe completion, capture, commit, restore, and launch.
-- Generic save merging and Git-style branches are not supported.
-- Catalog registration never grants Start/Host/Join/Stop/Create behavior; capability/evidence does.
-- Timers may create uncertainty but may never manufacture a second writer.
-
-See [Non-Negotiable Rules](docs/NON_NEGOTIABLE_RULES.md) for the complete rule set.
-
-## Current implementation
-
-### Shared lifecycle and backend
-
-Steward currently contains:
-
-- generic local/shared World lifecycle orchestration;
-- isolated environment preparation and verification;
-- immutable state/environment revisions;
-- expected-head canonical commits;
-- local and distributed one-writer coordination;
-- durable recovery journals and interrupted-session handling;
-- authenticated shared World metadata/access;
-- PostgreSQL-backed sessions/access/revisions/reservations/idempotency;
-- resumable direct S3-compatible object transfer;
-- verified local package cache/materialization;
-- short-lived Host presence for read-only Join;
-- bounded cleanup/retention and redacted diagnostics.
-
-The canonical state transaction remains:
+A Shared World has durable peer authority:
 
 ```text
-capture candidate
--> store immutable bytes/metadata
--> verify durable result
--> validate expected head + valid reservation generation
--> advance canonical head atomically
--> release/finalize only after authority is known
+WorldPeerAuthority
+  holder: stable Steward/Steam identity
+  generation: nonzero monotonic authority generation
 ```
 
-A stale or invalidated writer cannot overwrite a newer head.
+The durable World state, not Steam lobby ownership by itself, decides who may host the next writable generation.
 
-### First-party adapter catalog
+Important rules:
 
-`DesktopGameAdapterCatalog` currently composes **19** first-party adapters:
+- exactly one persistent authority holder exists for a peer-shared World;
+- generation 1 is created when a LocalOnly World is explicitly shared;
+- a normal stop/restart does **not** increment generation;
+- generation increments exactly once for a deliberate successful host handoff;
+- if no host is active, the World is inactive rather than being kept alive by a Steward server;
+- Steam lobby ownership is ephemeral transport/platform state and must agree with persistent Steward authority before writable operations proceed;
+- stale generation, stale holder, ambiguous persistence, or conflicting authority fails closed.
 
-1. Factorio
-2. Palworld
-3. 7 Days to Die
-4. Project Zomboid
-5. Terraria
-6. Stardew Valley
-7. Necesse
-8. Core Keeper
-9. The Planet Crafter
-10. Satisfactory
-11. ASTRONEER
-12. Enshrouded
-13. Conan Exiles Enhanced
-14. Raft
-15. ICARUS
-16. Smalland
-17. Abiotic Factor
-18. V Rising
-19. Space Engineers
+## Host lifecycle
 
-This is a catalog, not a promise that all 19 games support every action.
+When the current persistent holder hosts a Shared World, Steward:
 
-`GameAdapterCapabilities` is the executable action boundary:
+1. validates durable peer authority and current World head;
+2. creates/owns a private FriendsOnly Steam lobby for that exact generation;
+3. publishes managed-host readiness only after the game/session is actually usable;
+4. automatically invites canonical Steam World members;
+5. serves bootstrap/catch-up and control traffic on Steward virtual port 71;
+6. admits game traffic on virtual port 72 only after membership + authority checks;
+7. observes the game-specific lifecycle through the adapter;
+8. safely captures and commits the final World state before releasing writable responsibility.
+
+The host machine contains the live authoritative save state while the World is active.
+
+## Join and catch-up
+
+A canonical member may join through the private Steam lobby.
+
+Steward does not treat Steam lobby membership as canonical World membership. The Join path revalidates:
+
+- World ID;
+- canonical member identity;
+- persistent holder;
+- exact nonzero authority generation;
+- confirmed live lobby owner/generation;
+- current revision and transfer integrity.
+
+A joining peer bootstraps or catches up the exact World state it needs. Outside live hosting, users may also exchange a World ZIP themselves; Steward does not need to own the external file-transfer channel.
+
+## Safe host handoff
+
+Host handoff is not a live process migration.
+
+The existing lifecycle performs:
 
 ```text
-Start World -> AutomaticLocalLaunch
-Host World  -> AutomaticHostLaunch
-Join        -> AutomaticClientJoin + current join capability result
-Stop/Save   -> AutomaticHostStop
-Create      -> NativeWorldCreation
+request next host
+-> serialize authority mutation
+-> stop outgoing host safely
+-> final save/capture
+-> commit exact final revision
+-> transfer/verify that exact revision
+-> target activates durable generation N+1
+-> acknowledge activation
+-> move Steam lobby ownership
 ```
 
-The detailed current adapter/capability table lives in [Platform Implementation Status](docs/PLATFORM_IMPLEMENTATION_STATUS.md).
+The UI only offers handoff targets that are:
 
-### Factorio
+`canonical World member ∩ valid Steam identity ∩ current live lobby participant`
 
-Factorio currently exposes the broadest automatic action set:
+The protocol rechecks membership/presence again immediately before authority mutation, so a disconnect after the picker opens is refused safely.
 
-- local Start;
-- managed Host;
-- automatic Join;
-- native World creation;
-- mod/environment handling;
-- exact game version.
+## Membership, revocation, and Leave World
 
-Its active `IGameAdapter` Host implementation is the authoritative dedicated-server path, not the simpler public helper path:
+Canonical membership is stored on the World and controlled by the current persistent authority holder.
+
+### Add person
+
+The holder selects an immediate Steam friend. Steward persists canonical membership first, then uses Steam to deliver the private lobby invitation. Steam is the picker/invite transport; it is not the membership authority.
+
+### Remove access
+
+For a live World, removal is fail-closed and ordered:
 
 ```text
-private dedicated Factorio server
--> UDP 34197 for the managed game endpoint
--> ephemeral loopback RCON
--> authenticated RCON readiness
--> normal graphical host client joins locally
--> host-client session ends
--> /server-save
--> observed save refresh
--> server process ends
--> capture/commit
+revoke exact (World, generation, member)
+-> cancel matching port-71 work
+-> close matching port-72 sessions
+-> persist canonical membership removal
+-> reload and verify holder/generation/current head unchanged
 ```
 
-Factorio does **not** currently advertise `AutomaticHostStop`. Real Internet reachability, Join, final server-end/capture safety, and cross-device handoff remain release evidence rather than inferred CI claims.
+A failed or ambiguous persistence step does not silently reopen the revoked member.
 
-See [Factorio Adapter](docs/FACTORIO.md) and [Deferred Empirical Tests](docs/DEFERRED_EMPIRICAL_TESTS.md).
+### Leave World
 
-### Palworld
-
-Palworld currently advertises automatic Host + Host Stop and exact game-version support.
-
-The managed lifecycle uses the real dedicated server and localhost REST control. `WorldOption.sav` remains canonical read-only input: Steward does not patch, rewrite, or re-encode it merely to control a hosted session.
-
-Automatic client Join is not currently advertised. Player identity differences between local/co-op and dedicated-server representations remain a Palworld-specific limitation.
-
-See [Palworld Adapter](docs/PALWORLD.md).
-
-### 7 Days to Die
-
-7 Days to Die has the proven discovery/environment/state slice, including current V3 World + generated-terrain handling and exact opaque `SandboxCode` as an explicit World-specific reproduction input.
-
-Managed Host/Stop/Join is intentionally still unavailable until the recorded real V3 lifecycle trace establishes readiness, minimum local `shutdown` framing, clean long-lived-process exit, final-save completion, and relaunch from captured state.
-
-### Project Zomboid
-
-Project Zomboid has the proven discovery/environment/state slice including dedicated-server build and Workshop identity boundaries.
-
-Managed runtime remains frozen until an isolated real dedicated-server lifecycle proves launch ownership, safe shutdown, capture, and relaunch without using the player's live Zomboid tree as authoritative state.
-
-### Remaining 15 adapters
-
-The later adapters deliberately entered Steward with narrower truthful discovery/environment/state capabilities. They do not gain Start/Host/Join/Stop merely because they appear in the Games Library.
-
-That is intentional platform behavior: **one generic UI can contain an adapter before every runtime capability for that game exists.**
-
-## Desktop
-
-The WPF Desktop uses one capability-driven adapter catalog and one shared lifecycle/access/recovery composition. Local-only and authenticated shared Worlds use different authority implementations behind the same product concepts.
-
-The Desktop consumes:
-
-- persistent recovery responsibility;
-- local and remote World storage;
-- shared World membership/access/invitations;
-- exact-environment readiness;
-- distributed reservation authority;
-- direct package transfer;
-- Host presence and read-only Join;
-- tray/background lifecycle responsibility.
-
-One known product/UI drift is now explicit: the approved first-release information architecture is **Games Library -> game workspace -> Worlds -> selected World details**, while current XAML still uses a fixed World-list sidebar with a compact game selector. The specification remains authoritative; UI reconciliation follows documentation cleanup rather than redefining the product around the current sidebar.
-
-## V3 Steam release shape
-
-Normal production Steam configuration is package-owned rather than dependent on developer environment variables.
-
-A Steam release package contains an adjacent non-secret:
+A non-holder does not simply delete its local replica.
 
 ```text
-steward-steam-release.json
+authenticated requester asks current holder to leave
+-> current holder canonically removes requester
+-> exact-generation acknowledgement returns
+-> requester deletes local replica
+-> requester detaches from Steam lobby best-effort
 ```
 
-with the expected HTTPS Backend.Api URL, Steward AppID, and `GetAuthTicketForWebApi` identity.
+The current holder must hand off authority before using the member Leave path.
 
-The Windows release pipeline already produces:
+## State safety
 
-- exact self-contained Release `win-x64` depot content;
-- external byte-size/SHA-256 evidence;
-- matching non-secret backend AppID/Web API identity configuration;
-- `FriendsBuild__Enabled=false` for production release evidence.
+Steward keeps the same core invariants regardless of game adapter:
 
-The publisher API key remains backend-secret and never belongs in depot content.
+- one current valid World state;
+- at most one writable Steward authority;
+- immutable published revisions;
+- canonical head advances only after replacement bytes are captured, stored, verified, and committed;
+- failed work preserves the previous valid state and recovery evidence;
+- adapters own game-specific session/save/capture truth;
+- no generic save merging or Git-style branching;
+- no live process/memory migration.
 
-SteamPipe remains responsible for actual depot upload, BuildIDs, installation, updates, branches, and rollback/build selection.
+See `docs/NON_NEGOTIABLE_RULES.md`.
 
-## Remaining release gate
+## Steam package boundary
 
-The remaining decisive proof is real end-to-end acceptance, not another mock backend:
+The normal product package is AppID-only.
+
+`steward-steam.json` contains only:
+
+```json
+{
+  "schemaVersion": 1,
+  "steamAppId": 123456789
+}
+```
+
+Normal peer packaging contains no Steward API URL, Web API identity, backend credential, Friends Build routing, or remote-session configuration.
+
+Legacy compatibility remains available only through explicit migration activation, such as:
+
+- explicit migration package configuration;
+- explicit `STEWARD_ENABLE_LEGACY_REMOTE_MIGRATION=true` engineering/operator mode.
+
+Old Backend.Api/PostgreSQL/S3 implementation remains in the repository for migration/history. It is not the ordinary product authority path.
+
+## Code structure
 
 ```text
-real provider deployment
-+ real Steam AppID/publisher/depot
-+ Steam-installed Steward on independent Windows PCs
-+ genuine Steam tickets
-+ real advertised game/network lifecycle
-+ one-writer/capture/commit/recovery invariants
-= release acceptance
+SharedWorlds.Core
+  universal World lifecycle, revisions, adapters, safety contracts
+
+SharedWorlds.Infrastructure
+  local persistence
+  peer authority fences
+  bootstrap/catch-up/replication
+  membership/removal/Leave
+  generation-fenced session coordination
+  explicit legacy remote migration compatibility
+
+SharedWorlds.Desktop
+  Windows UI/background lifecycle
+  one process-lifetime Steam runtime
+  private lobby Host/Join/invitations
+  port-71 revision/control exchange
+  port-72 game bridge
+  Steam friend picker
+  host handoff UI
+  product composition
+
+SharedWorlds.GameAdapters/*
+  independently owned game-specific behavior
 ```
 
-For Factorio, the representative handoff remains:
+Core must not gain game-name branches merely because one adapter is unusual.
 
-```text
-PC A gets canonical N
--> A Hosts / B Joins
--> gameplay changes World
--> A safely completes and commits N+1
--> PC B later acquires N+1 and commits N+2
--> PC A receives the returned current N+2
-```
+## Game adapters
 
-A competing writer must remain blocked throughout active or unresolved authority.
+The repository contains 19 first-party adapters. Catalog registration is not a promise that every adapter supports every action.
 
-See [Steam Release Gate](docs/STEAM_RELEASE_GATE.md).
+`GameAdapterCapabilities` remains the executable capability boundary for operations such as Start, Host, Join, Stop/Save, and native World creation. Game-specific uncertainty stays inside the adapter/evidence boundary rather than expanding Core.
 
-## Documentation
+## CI
 
-Start with:
+Normal peer-product changes use a deliberately small automatic qualification surface:
 
-- [Documentation Index](docs/README.md)
-- [Documentation State Audit](docs/DOCUMENTATION_AUDIT.md)
-- [V3 Steam Release Candidate](docs/V3_STEAM_RELEASE_CANDIDATE.md)
-- [Steam Release Gate](docs/STEAM_RELEASE_GATE.md)
+1. `Peer product CI`;
+2. `Windows acceptance package`;
+3. `Peer exact-head qualification`.
 
-Authoritative product/architecture contracts:
+Game-specific adapter workflows are path-aware and run only when their adapter/global build surface changes. Portable/physical engineering kits are manual-only. Legacy backend CI is separately scoped to migration/backend work.
 
-- [Non-Negotiable Rules](docs/NON_NEGOTIABLE_RULES.md)
-- [Product Boundary](docs/PRODUCT_BOUNDARY.md)
-- [Design Decisions](docs/DECISIONS.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Domain Model](docs/DOMAIN_MODEL.md)
-- [World Lifecycle](docs/WORLD_LIFECYCLE.md)
-- [Cross-Workstream Contract](docs/CROSS_WORKSTREAM_CONTRACT.md)
-- [UI Roadmap](docs/UI_ROADMAP.md)
+Queued, cancelled, skipped, superseded, or different-head workflow results are not exact-head qualification.
 
-Older milestone/status documents remain useful evidence where the documentation audit marks them historical, but their old "next step" statements are not current roadmap authority.
+## Closed-beta physical evidence
 
-## Repository structure
+The peer RC includes a byte-verifiable two-PC kit builder and read-only evidence probe.
 
-```text
-src/
-  SharedWorlds.Core/
-  SharedWorlds.Infrastructure/
-  SharedWorlds.Backend/
-  SharedWorlds.Backend.Api/
-  SharedWorlds.Backend.PostgreSql/
-  SharedWorlds.Backend.ObjectStorage.S3/
-  SharedWorlds.Desktop/
-  SharedWorlds.Cli/
-  SharedWorlds.GameAdapters/
-    <19 independent first-party game adapter projects>
+The physical acceptance run checks:
 
-tests/
-  <Core/Infrastructure/Backend/Desktop/adapter tests>
+- identical product bytes/AppID on both PCs;
+- Local -> Shared generation 1;
+- Steam friend access selection;
+- private Host/invite/Join/bootstrap;
+- exact A/B revision + payload hash equality;
+- safe A -> B host handoff and generation 1 -> 2;
+- restart persistence with generation remaining 2;
+- live Remove access and immediate targeted revocation;
+- re-add/catch-up;
+- true authoritative Leave World.
 
-tools/
-  <focused probes, acceptance, packaging and validation utilities>
+A failure should produce the smallest fix for the observed boundary. Do not redesign a working peer architecture speculatively.
 
-docs/
-  <product contracts, current runbooks and historical evidence>
-```
+## Documentation authority
 
-## Validation
+The repository contains substantial historical closed-alpha/backend/Friends-Build material. Preserve it for migration and engineering provenance, but do not use old active-sounding backend documents to infer the normal product topology.
 
-```bash
-dotnet restore SharedWorlds.sln
-dotnet format SharedWorlds.sln --verify-no-changes --no-restore
-dotnet build SharedWorlds.sln --configuration Release --no-restore
-dotnet test SharedWorlds.sln --configuration Release --no-build
-```
+Current product/architecture entry points are:
 
-The repository uses nullable reference types, warnings as errors, deterministic builds, explicit persisted schemas/migrations, typed product failures, architecture tests, provider integration tests, and Windows/Linux CI where applicable.
+- this README;
+- `docs/ARCHITECTURE.md`;
+- `docs/PRODUCT_BOUNDARY.md`;
+- `docs/NON_NEGOTIABLE_RULES.md`;
+- `docs/DOCUMENTATION_AUDIT.md`.
 
-## Working rule
-
-Before adding a feature or abstraction, ask:
-
-> **Does this directly help Steward move the latest valid World into a playable session and return the updated valid state for the next player?**
-
-Then ask the stronger question:
-
-> **Can Steward remove the problem, let Steam/the game/Windows own it, or make the invalid state impossible instead of building another subsystem?**
-
-When the answer is yes, do less.
+When documentation and executable behavior disagree, the qualified executable authority/safety contract wins and the documentation must be reconciled.

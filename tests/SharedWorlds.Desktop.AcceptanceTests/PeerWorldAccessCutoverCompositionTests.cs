@@ -48,25 +48,27 @@ public sealed class PeerWorldAccessCutoverCompositionTests
     }
 
     [Fact]
-    public void PeerDialogUsesCanonicalStorageAndOnlyCurrentAuthorityHolderCanMutate()
+    public void PeerDialogSeparatesHolderMutationFromNonHolderLeaveAuthority()
     {
         var source = Read("src/SharedWorlds.Desktop/PeerWorldAccessDialog.cs");
         var reload = RequiredIndex(source, "private async Task ReloadAsync");
         var canonical = RequiredIndex(source, "_runtime.Storage.LoadWorldAsync(_world.Id)", reload);
-        var authority = RequiredIndex(source, "_world.PeerAuthority is { } authority", canonical);
-        var holder = RequiredIndex(source, "SameUser(authority.Holder, _runtime.User)", authority);
-        var update = RequiredIndex(source, "private void UpdateActionState()", holder);
-        var canMutate = RequiredIndex(source, "var canMutate = !_busy && _canManage;", update);
-        var addEnable = RequiredIndex(source, "_addButton.IsEnabled = canMutate;", canMutate);
-        var removeEnable = RequiredIndex(source, "_removeButton.IsEnabled = canMutate &&", addEnable);
+        var authority = RequiredIndex(source, "var authority = _world.PeerAuthority;", canonical);
+        var holderManage = RequiredIndex(source, "SameUser(authority.Holder, _runtime.User)", authority);
+        var nonHolder = RequiredIndex(source, "var isNonHolderMember", holderManage);
+        var liveLobby = RequiredIndex(source, "var liveLobby = await _runtime.Lobby.GetAsync(_world.Id);", nonHolder);
+        var exactGeneration = RequiredIndex(source, "liveLobby.AuthorityGeneration == authority!.Generation", liveLobby);
+        var noHandoff = RequiredIndex(source, "liveLobby.RequestedHost is null", exactGeneration);
+        var leaveEnable = RequiredIndex(source, "_leaveButton.IsEnabled = !_busy && _canLeave;", noHandoff);
 
         Assert.True(reload < canonical);
         Assert.True(canonical < authority);
-        Assert.True(authority < holder);
-        Assert.True(holder < update);
-        Assert.True(update < canMutate);
-        Assert.True(canMutate < addEnable);
-        Assert.True(addEnable < removeEnable);
+        Assert.True(authority < holderManage);
+        Assert.True(holderManage < nonHolder);
+        Assert.True(nonHolder < liveLobby);
+        Assert.True(liveLobby < exactGeneration);
+        Assert.True(exactGeneration < noHandoff);
+        Assert.True(noHandoff < leaveEnable);
     }
 
     [Fact]
@@ -118,15 +120,16 @@ public sealed class PeerWorldAccessCutoverCompositionTests
     }
 
     [Fact]
-    public void PeerDialogStillDoesNotPretendTransferOrLeaveSemanticsExist()
+    public void PeerDialogUsesDedicatedPeerLeaveWorkflowWithoutLegacyAccessManagerSemantics()
     {
         var source = Read("src/SharedWorlds.Desktop/PeerWorldAccessDialog.cs");
 
         Assert.Contains("_runtime.MemberRemoval.RemoveMemberAsync", source, StringComparison.Ordinal);
+        Assert.Contains("new PeerWorldLeaveService(", source, StringComparison.Ordinal);
+        Assert.Contains("Content = \"Leave World\"", source, StringComparison.Ordinal);
         Assert.DoesNotContain("RevokeMember", source, StringComparison.Ordinal);
         Assert.DoesNotContain("TransferAccessManager", source, StringComparison.Ordinal);
         Assert.DoesNotContain("MakeAccessManager", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("LeaveWorld", source, StringComparison.Ordinal);
         Assert.DoesNotContain("StewardWorldAccessClient", source, StringComparison.Ordinal);
         Assert.DoesNotContain("SharedWorlds.Infrastructure.Remote", source, StringComparison.Ordinal);
     }
@@ -142,6 +145,7 @@ public sealed class PeerWorldAccessCutoverCompositionTests
 
         Assert.Contains("DesktopText.ManageAccess", peerBlock, StringComparison.Ordinal);
         Assert.Contains("var available = _peerRuntime is not null;", peerBlock, StringComparison.Ordinal);
+        Assert.Contains("add/remove access, or leave the World", peerBlock, StringComparison.Ordinal);
         Assert.DoesNotContain("_remoteRuntime", peerBlock, StringComparison.Ordinal);
     }
 

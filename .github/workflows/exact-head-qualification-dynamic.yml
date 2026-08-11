@@ -6,6 +6,7 @@ on:
 permissions:
   actions: read
   contents: read
+  pull-requests: read
   statuses: write
 
 jobs:
@@ -14,35 +15,106 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - name: Observe peer-product workflow groups and publish one status
+      - name: Observe required peer-product workflow groups and publish one status
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           QUALIFICATION_EVIDENCE_PATH: ${{ runner.temp }}/peer-exact-head-qualification.json
           QUALIFICATION_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           QUALIFICATION_EVENT: pull_request
+          QUALIFICATION_PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference = 'Stop'
 
           $targetSha = [string]$env:QUALIFICATION_HEAD_SHA
           $targetEvent = [string]$env:QUALIFICATION_EVENT
+          [int]$prNumber = 0
           if ($targetSha -notmatch '^[0-9a-f]{40}$') { throw 'Qualification head SHA is malformed.' }
           if ($targetEvent -cne 'pull_request') { throw 'Qualification event is unsupported.' }
+          if (-not [int]::TryParse($env:QUALIFICATION_PR_NUMBER, [ref]$prNumber) -or $prNumber -le 0) {
+            throw 'Qualification pull request number is malformed.'
+          }
 
-          $expectedNames = @(
-            'Peer product CI',
-            'Windows acceptance package',
-            'Palworld read-only CI',
-            '7 Days to Die adapter CI',
-            'Project Zomboid adapter CI'
-          )
-          $expectedCount = $expectedNames.Count
           $headers = @{
             Accept = 'application/vnd.github+json'
             Authorization = "Bearer $env:GH_TOKEN"
             'X-GitHub-Api-Version' = '2022-11-28'
           }
+
+          $changedPaths = [Collections.Generic.List[string]]::new()
+          $page = 1
+          do {
+            $filesUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/pulls/$prNumber/files?per_page=100&page=$page"
+            $pageFiles = @(Invoke-RestMethod -Method Get -Uri $filesUri -Headers $headers)
+            foreach ($file in $pageFiles) {
+              $path = [string]$file.filename
+              if (-not [string]::IsNullOrWhiteSpace($path)) { [void]$changedPaths.Add($path) }
+            }
+            $page++
+          } while ($pageFiles.Count -eq 100)
+
+          function Test-PathRelevant {
+            param(
+              [string[]]$Prefixes,
+              [string[]]$ExactPaths)
+
+            foreach ($path in $changedPaths) {
+              foreach ($prefix in $Prefixes) {
+                if ($path.StartsWith($prefix, [StringComparison]::Ordinal)) { return $true }
+              }
+              if ($ExactPaths -contains $path) { return $true }
+            }
+            return $false
+          }
+
+          $globalAdapterFiles = @(
+            'Directory.Build.props',
+            'Directory.Packages.props',
+            'global.json',
+            'NuGet.config'
+          )
+          $adapterRules = @(
+            [ordered]@{
+              Name = 'Palworld read-only CI'
+              Prefixes = @(
+                'src/SharedWorlds.GameAdapters/Palworld/',
+                'tests/SharedWorlds.GameAdapters.Palworld.Tests/',
+                'tools/SharedWorlds.PalworldProbe/'
+              )
+              ExactPaths = @('.github/workflows/palworld-plm-probe-ci.yml') + $globalAdapterFiles
+            },
+            [ordered]@{
+              Name = '7 Days to Die adapter CI'
+              Prefixes = @(
+                'src/SharedWorlds.GameAdapters/SevenDaysToDie/',
+                'tests/SharedWorlds.GameAdapters.SevenDaysToDie.Tests/',
+                'tools/SharedWorlds.SevenDaysToDieProbe/'
+              )
+              ExactPaths = @('.github/workflows/seven-days-to-die-ci.yml') + $globalAdapterFiles
+            },
+            [ordered]@{
+              Name = 'Project Zomboid adapter CI'
+              Prefixes = @(
+                'src/SharedWorlds.GameAdapters/ProjectZomboid/',
+                'tests/SharedWorlds.GameAdapters.ProjectZomboid.Tests/'
+              )
+              ExactPaths = @('.github/workflows/project-zomboid-ci.yml') + $globalAdapterFiles
+            }
+          )
+
+          $expectedNames = [Collections.Generic.List[string]]::new()
+          [void]$expectedNames.Add('Peer product CI')
+          [void]$expectedNames.Add('Windows acceptance package')
+          $conditionalNames = [Collections.Generic.List[string]]::new()
+          foreach ($rule in $adapterRules) {
+            if (Test-PathRelevant -Prefixes $rule.Prefixes -ExactPaths $rule.ExactPaths) {
+              [void]$expectedNames.Add([string]$rule.Name)
+              [void]$conditionalNames.Add([string]$rule.Name)
+            }
+          }
+
+          $expectedCount = $expectedNames.Count
           $runsUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions/runs?head_sha=$targetSha&event=$targetEvent&per_page=100"
           $statusUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/statuses/$targetSha"
           $observerUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
@@ -54,11 +126,13 @@ jobs:
             $pendingBody = [ordered]@{
               state = 'pending'
               context = 'safe-world/exact-head-qualification-v2'
-              description = "Waiting for all $expectedCount peer-product workflow groups."
+              description = "Waiting for $expectedCount required peer-product workflow groups."
               target_url = $observerUrl
             } | ConvertTo-Json -Compress
             Invoke-RestMethod -Method Post -Uri $statusUri -Headers $headers -Body $pendingBody -ContentType 'application/json' | Out-Null
 
+            Write-Host "Changed paths: $($changedPaths.Count)"
+            Write-Host "Required workflow groups: $($expectedNames -join ', ')"
             do {
               $response = Invoke-RestMethod -Method Get -Uri $runsUri -Headers $headers
               $matching = @($response.workflow_runs | Where-Object {
@@ -137,13 +211,16 @@ jobs:
           $succeeded = [string]::IsNullOrWhiteSpace($failureReason)
           $evidence = [ordered]@{
             documentType = 'steward.peer-exact-head-qualification'
-            schemaVersion = 1
+            schemaVersion = 2
             observedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
             repository = $env:GITHUB_REPOSITORY
+            pullRequestNumber = $prNumber
             event = $targetEvent
             headSha = $targetSha
             observerRunId = [int64]$env:GITHUB_RUN_ID
-            qualificationBoundary = 'normal-peer-product-only'
+            qualificationBoundary = 'path-aware-peer-product'
+            changedPaths = @($changedPaths)
+            conditionalWorkflowGroups = @($conditionalNames)
             expectedWorkflowGroupCount = $expectedCount
             allPresent = ($selected.Count -eq $expectedCount)
             allCompleted = ($selected.Count -eq $expectedCount -and @($selected.Values | Where-Object { [string]$_.status -cne 'completed' }).Count -eq 0)
@@ -158,7 +235,7 @@ jobs:
 
           $state = if ($succeeded) { 'success' } else { 'failure' }
           $description = if ($succeeded) {
-            "All $expectedCount peer-product workflow groups are green."
+            "All $expectedCount required peer-product workflow groups are green."
           }
           else {
             $text = [string]$failureReason

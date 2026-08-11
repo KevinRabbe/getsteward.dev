@@ -48,16 +48,19 @@ public sealed class PeerProductCiCompositionTests
     }
 
     [Fact]
-    public void PeerExactHeadGateRequiresOnlyNormalProductWorkflows()
+    public void PeerExactHeadGateUsesCommonProductLanesAndConditionalAdapterLanes()
     {
         var source = ReadRepositoryFile(".github/workflows/exact-head-qualification-dynamic.yml");
 
-        Assert.Contains("'Peer product CI'", source, StringComparison.Ordinal);
-        Assert.Contains("'Windows acceptance package'", source, StringComparison.Ordinal);
-        Assert.Contains("'Palworld read-only CI'", source, StringComparison.Ordinal);
-        Assert.Contains("'7 Days to Die adapter CI'", source, StringComparison.Ordinal);
-        Assert.Contains("'Project Zomboid adapter CI'", source, StringComparison.Ordinal);
-        Assert.Contains("qualificationBoundary = 'normal-peer-product-only'", source, StringComparison.Ordinal);
+        Assert.Contains("[void]$expectedNames.Add('Peer product CI')", source, StringComparison.Ordinal);
+        Assert.Contains("[void]$expectedNames.Add('Windows acceptance package')", source, StringComparison.Ordinal);
+        Assert.Contains("Name = 'Palworld read-only CI'", source, StringComparison.Ordinal);
+        Assert.Contains("Name = '7 Days to Die adapter CI'", source, StringComparison.Ordinal);
+        Assert.Contains("Name = 'Project Zomboid adapter CI'", source, StringComparison.Ordinal);
+        Assert.Contains("if (Test-PathRelevant", source, StringComparison.Ordinal);
+        Assert.Contains("qualificationBoundary = 'path-aware-peer-product'", source, StringComparison.Ordinal);
+        Assert.Contains("changedPaths = @($changedPaths)", source, StringComparison.Ordinal);
+        Assert.Contains("conditionalWorkflowGroups = @($conditionalNames)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("closed-alpha", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("closed-beta", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Bring Here", source, StringComparison.Ordinal);

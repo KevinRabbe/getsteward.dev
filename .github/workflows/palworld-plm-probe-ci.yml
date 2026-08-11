@@ -3,9 +3,26 @@ name: Palworld read-only CI
 on:
   push:
     branches:
-      - "agent/palworld-runtime-overlay"
-      - "agent/steward-unblocked-work"
+      - main
+    paths:
+      - "src/SharedWorlds.GameAdapters/Palworld/**"
+      - "tests/SharedWorlds.GameAdapters.Palworld.Tests/**"
+      - "tools/SharedWorlds.PalworldProbe/**"
+      - ".github/workflows/palworld-plm-probe-ci.yml"
+      - "Directory.Build.props"
+      - "Directory.Packages.props"
+      - "global.json"
+      - "NuGet.config"
   pull_request:
+    paths:
+      - "src/SharedWorlds.GameAdapters/Palworld/**"
+      - "tests/SharedWorlds.GameAdapters.Palworld.Tests/**"
+      - "tools/SharedWorlds.PalworldProbe/**"
+      - ".github/workflows/palworld-plm-probe-ci.yml"
+      - "Directory.Build.props"
+      - "Directory.Packages.props"
+      - "global.json"
+      - "NuGet.config"
   workflow_dispatch:
 
 permissions:

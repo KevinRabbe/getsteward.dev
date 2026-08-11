@@ -1,0 +1,13 @@
+{
+  "solution": {
+    "path": "SharedWorlds.sln",
+    "projects": [
+      "src\\SharedWorlds.Core\\SharedWorlds.Core.csproj",
+      "src\\SharedWorlds.Infrastructure\\SharedWorlds.Infrastructure.csproj",
+      "src\\SharedWorlds.Desktop\\SharedWorlds.Desktop.csproj",
+      "tests\\SharedWorlds.Core.Tests\\SharedWorlds.Core.Tests.csproj",
+      "tests\\SharedWorlds.Infrastructure.Tests\\SharedWorlds.Infrastructure.Tests.csproj",
+      "tests\\SharedWorlds.Desktop.AcceptanceTests\\SharedWorlds.Desktop.AcceptanceTests.csproj"
+    ]
+  }
+}

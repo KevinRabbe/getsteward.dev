@@ -31,10 +31,41 @@ public sealed class PeerWorldInitialShareServiceTests : IDisposable
         Assert.NotNull(shared.PeerAuthority);
         Assert.Equal((ulong)1, shared.PeerAuthority.Generation);
         Assert.Equal(fixture.Owner.ExternalId, shared.PeerAuthority.Holder.ExternalId);
+        Assert.Single(shared.Members);
+        Assert.Equal(fixture.Owner.Provider, shared.Members[0].Provider);
+        Assert.Equal(fixture.Owner.ExternalId, shared.Members[0].ExternalId);
         var fence = await fixture.Fences.LoadAsync(shared.Id);
         Assert.NotNull(fence);
         Assert.Equal(PeerAuthorityFenceState.Active, fence.State);
         Assert.Equal(shared.CurrentStateRevisionId, fence.StateRevisionId);
+    }
+
+    [Fact]
+    public async Task FreshShareReplacesDeviceLocalMembershipWithCurrentPeerIdentity()
+    {
+        var fixture = await CreateFixtureAsync();
+        var localOnlyIdentity = new UserIdentity("local", "this-pc", "This PC");
+        var historical = fixture.World with
+        {
+            Members = [localOnlyIdentity]
+        };
+        await fixture.Storage.SaveWorldAsync(historical);
+        fixture.Events.Clear();
+        var service = new PeerWorldInitialShareService(
+            fixture.Storage,
+            fixture.Fences);
+
+        var shared = await service.ShareAsync(
+            fixture.World.Id,
+            fixture.Owner);
+
+        Assert.Single(shared.Members);
+        Assert.Equal(fixture.Owner.Provider, shared.Members[0].Provider);
+        Assert.Equal(fixture.Owner.ExternalId, shared.Members[0].ExternalId);
+        Assert.DoesNotContain(
+            shared.Members,
+            member => string.Equals(member.Provider, "local", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(new[] { "fence", "world" }, fixture.Events);
     }
 
     [Fact]

@@ -19,6 +19,7 @@ internal sealed record StewardDesktopRemoteConfiguration(
 {
     internal const string FriendsBuildConfigurationFileName = "steward-friends-build.json";
     internal const string SteamReleaseConfigurationFileName = "steward-steam-release.json";
+    internal const string LegacyRemoteEnvironmentEnableVariable = "STEWARD_ENABLE_LEGACY_REMOTE_MIGRATION";
     private const int FriendsBuildConfigurationSchemaVersion = 1;
     private const int SteamReleaseConfigurationSchemaVersion = 1;
     private const int MaximumPackageConfigurationBytes = 4096;
@@ -28,10 +29,11 @@ internal sealed record StewardDesktopRemoteConfiguration(
     private const string SteamIdentityVariable = "STEWARD_STEAM_WEB_API_IDENTITY";
 
     /// <summary>
-    /// Remote sharing remains opt-in. Engineering deployments may use environment variables.
-    /// Private Friends Build and commercial Steam release packages instead carry adjacent,
-    /// non-secret configuration files. Multiple configuration sources are refused rather than
-    /// selecting one implicitly.
+    /// Legacy remote sharing remains opt-in. Explicit migration packages may carry adjacent,
+    /// non-secret routing files. Engineering environment configuration is considered only when
+    /// STEWARD_ENABLE_LEGACY_REMOTE_MIGRATION=true, so stale ambient STEWARD_* variables cannot
+    /// silently turn the normal AppID-only peer product back into a backend client.
+    /// Multiple active configuration sources are refused rather than selecting one implicitly.
     /// </summary>
     public static bool TryLoad(
         out StewardDesktopRemoteConfiguration? configuration,
@@ -66,7 +68,8 @@ internal sealed record StewardDesktopRemoteConfiguration(
         ArgumentException.ThrowIfNullOrWhiteSpace(friendsBuildConfigurationPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(steamReleaseConfigurationPath);
 
-        var environmentConfigured = IsAnyEnvironmentConfigurationPresent();
+        var environmentConfigured =
+            IsLegacyRemoteEnvironmentRequested() && IsAnyEnvironmentConfigurationPresent();
         var friendsPackageConfigured = File.Exists(friendsBuildConfigurationPath);
         var steamPackageConfigured = File.Exists(steamReleaseConfigurationPath);
         var configuredSourceCount =
@@ -77,7 +80,7 @@ internal sealed record StewardDesktopRemoteConfiguration(
         {
             configuration = null;
             problem =
-                $"Remote configuration is ambiguous: configure exactly one of {FriendsBuildConfigurationFileName}, {SteamReleaseConfigurationFileName}, or the STEWARD_* engineering environment configuration.";
+                $"Remote configuration is ambiguous: configure exactly one of {FriendsBuildConfigurationFileName}, {SteamReleaseConfigurationFileName}, or explicitly-enabled STEWARD_* migration environment configuration.";
             return false;
         }
 
@@ -111,6 +114,15 @@ internal sealed record StewardDesktopRemoteConfiguration(
         out StewardDesktopRemoteConfiguration? configuration,
         out string? problem)
     {
+        var enableText = Environment.GetEnvironmentVariable(LegacyRemoteEnvironmentEnableVariable);
+        if (!IsLegacyRemoteEnvironmentEnabled(enableText))
+        {
+            configuration = null;
+            problem =
+                $"{LegacyRemoteEnvironmentEnableVariable} must be exactly 'true' before legacy STEWARD_* remote environment configuration may be used.";
+            return false;
+        }
+
         var apiText = Environment.GetEnvironmentVariable(ApiBaseAddressVariable);
         var modeText = Environment.GetEnvironmentVariable(AuthenticationModeVariable);
         var appIdText = Environment.GetEnvironmentVariable(SteamAppIdVariable);
@@ -176,6 +188,9 @@ internal sealed record StewardDesktopRemoteConfiguration(
         problem = null;
         return true;
     }
+
+    internal static bool IsLegacyRemoteEnvironmentEnabled(string? value)
+        => string.Equals(value?.Trim(), "true", StringComparison.OrdinalIgnoreCase);
 
     internal static bool TryLoadFriendsBuildPackage(
         string path,
@@ -424,6 +439,10 @@ internal sealed record StewardDesktopRemoteConfiguration(
             return false;
         }
     }
+
+    private static bool IsLegacyRemoteEnvironmentRequested()
+        => IsLegacyRemoteEnvironmentEnabled(
+            Environment.GetEnvironmentVariable(LegacyRemoteEnvironmentEnableVariable));
 
     private static bool IsAnyEnvironmentConfigurationPresent()
         => !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ApiBaseAddressVariable)) ||

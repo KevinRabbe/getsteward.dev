@@ -29,22 +29,22 @@ public sealed class LiveMemberRevocationFenceCompositionTests
     {
         var source = ReadRepositoryFile("src/SharedWorlds.Desktop/StewardDesktopPeerRuntime.cs");
 
-        var catchUp = RequiredIndex(source, "var catchUpRouter = new PeerWorldCatchUpRequestRouter(");
-        var catchUpFence = RequiredIndex(source, "liveMemberRevocations);", catchUp);
-        var membership = RequiredIndex(source, "var membership = new PeerWorldMembershipService(", catchUpFence);
-        var membershipFence = RequiredIndex(source, "liveMemberRevocations,", membership);
-        var removal = RequiredIndex(source, "var memberRemoval = new PeerWorldMemberRemovalService(", membershipFence);
-        var removalFence = RequiredIndex(source, "liveMemberRevocations,", removal);
-        var admission = RequiredIndex(source, "var gameBridgeAdmission = new PeerGameDatagramBridgeAdmissionService(", removalFence);
-        var admissionFence = RequiredIndex(source, "liveMemberRevocations);", admission);
-
-        Assert.True(catchUp < catchUpFence);
-        Assert.True(catchUpFence < membership);
-        Assert.True(membership < membershipFence);
-        Assert.True(membershipFence < removal);
-        Assert.True(removal < removalFence);
-        Assert.True(removalFence < admission);
-        Assert.True(admission < admissionFence);
+        AssertConstructorUses(
+            source,
+            "var catchUpRouter = new PeerWorldCatchUpRequestRouter(",
+            "liveMemberRevocations");
+        AssertConstructorUses(
+            source,
+            "var membership = new PeerWorldMembershipService(",
+            "liveMemberRevocations");
+        AssertConstructorUses(
+            source,
+            "var memberRemoval = new PeerWorldMemberRemovalService(",
+            "liveMemberRevocations");
+        AssertConstructorUses(
+            source,
+            "var gameBridgeAdmission = new PeerGameDatagramBridgeAdmissionService(",
+            "liveMemberRevocations");
     }
 
     [Fact]
@@ -128,6 +128,17 @@ public sealed class LiveMemberRevocationFenceCompositionTests
         Assert.True(revocation < mutation);
         Assert.Contains("_liveRevocations.Revoke(", removal, StringComparison.Ordinal);
         Assert.Contains("Remove access cannot run while a host handoff is in progress", removal, StringComparison.Ordinal);
+    }
+
+    private static void AssertConstructorUses(
+        string source,
+        string constructorStart,
+        string dependency)
+    {
+        var start = RequiredIndex(source, constructorStart);
+        var end = RequiredIndex(source, ");", start);
+        var block = source[start..(end + 2)];
+        Assert.Contains(dependency, block, StringComparison.Ordinal);
     }
 
     private static int CountOccurrences(string source, string value)

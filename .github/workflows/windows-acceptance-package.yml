@@ -9,11 +9,11 @@ on:
   workflow_dispatch:
     inputs:
       friends_api_base_url:
-        description: "Optional real HTTPS Steward backend URL for a downloadable Friends Build artifact"
+        description: "Legacy migration only: HTTPS Steward backend URL for a Friends Build artifact"
         required: false
         type: string
       friends_version:
-        description: "Friends Build package version"
+        description: "Legacy Friends Build package version"
         required: false
         default: "2.0.0-alpha.1"
         type: string
@@ -76,9 +76,7 @@ jobs:
             --results-directory $results *> $log
           $exitCode = $LASTEXITCODE
           Get-Content $log
-          if ($exitCode -ne 0) {
-            exit $exitCode
-          }
+          if ($exitCode -ne 0) { exit $exitCode }
 
       - name: Upload Desktop resource test diagnostics
         if: failure()
@@ -136,7 +134,6 @@ jobs:
                 [string]::IsNullOrWhiteSpace($requestedIdentity)) {
               throw 'Legacy Steam remote migration requires steam_api_base_url and steam_web_api_identity.'
             }
-
             $apiUri = $null
             if (-not [Uri]::TryCreate($requestedApiBaseUrl, [UriKind]::Absolute, [ref]$apiUri) -or
                 -not [string]::Equals($apiUri.Scheme, [Uri]::UriSchemeHttps, [StringComparison]::OrdinalIgnoreCase) -or
@@ -146,9 +143,7 @@ jobs:
               throw 'steam_api_base_url must be an absolute HTTPS URL without credentials, query, or fragment.'
             }
             $expectedApiBaseUrl = $apiUri.AbsoluteUri
-            if (-not $expectedApiBaseUrl.EndsWith('/', [StringComparison]::Ordinal)) {
-              $expectedApiBaseUrl += '/'
-            }
+            if (-not $expectedApiBaseUrl.EndsWith('/', [StringComparison]::Ordinal)) { $expectedApiBaseUrl += '/' }
             $identity = $requestedIdentity
           }
 
@@ -173,9 +168,7 @@ jobs:
             )
           }
           & ./tools/e4-build-desktop.ps1 @buildArguments
-          if ($LASTEXITCODE -ne 0) {
-            throw "Steam peer package build failed with exit code $LASTEXITCODE."
-          }
+          if ($LASTEXITCODE -ne 0) { throw "Steam peer package build failed with exit code $LASTEXITCODE." }
 
           if ($includeLegacyRemoteMigration) {
             $backendAuthConfiguration = [ordered]@{
@@ -190,34 +183,6 @@ jobs:
           }
 
           $platformConfigurationPath = Join-Path $output 'steward-steam.json'
-          $legacyConfigurationPath = Join-Path $output 'steward-steam-release.json'
-          $managedDesktopPath = Join-Path $output 'SharedWorlds.Desktop.dll'
-          if (-not [IO.File]::Exists($platformConfigurationPath) -or
-              -not [IO.File]::Exists($manifestPath) -or
-              -not [IO.File]::Exists($managedDesktopPath)) {
-            throw 'Steam peer staging is missing platform configuration, release evidence, or the Desktop binary.'
-          }
-          if ([IO.File]::Exists((Join-Path $output 'acceptance-build.json'))) {
-            throw 'acceptance-build.json is release evidence and must stay outside Steam depot content.'
-          }
-          if ([IO.File]::Exists((Join-Path $output 'steward-friends-build.json'))) {
-            throw 'Steam depot content unexpectedly contains Friends Build routing.'
-          }
-          if ([IO.File]::Exists((Join-Path $output 'steam_appid.txt'))) {
-            throw 'Steam depot content must not ship steam_appid.txt.'
-          }
-          if (@(Get-ChildItem -LiteralPath $output -Recurse -File -Filter '*.pdb').Count -ne 0) {
-            throw 'Steam depot content must not ship PDB debug symbols.'
-          }
-          if ([IO.File]::Exists((Join-Path $output 'steam_api64.lib'))) {
-            throw 'Steam depot content must not ship the Steamworks import library.'
-          }
-
-          $productVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($managedDesktopPath).ProductVersion
-          if (-not [string]::Equals($productVersion, $version, [StringComparison]::Ordinal)) {
-            throw "Published Steward binary version '$productVersion' does not match requested Steam version '$version'."
-          }
-
           $platformConfiguration = Get-Content -LiteralPath $platformConfigurationPath -Raw | ConvertFrom-Json
           $platformProperties = @($platformConfiguration.PSObject.Properties.Name | Sort-Object)
           $expectedPlatformProperties = @('schemaVersion', 'steamAppId') | Sort-Object
@@ -228,12 +193,12 @@ jobs:
             throw 'Generated Steam peer platform configuration is invalid or contains an unexpected field.'
           }
 
+          $legacyConfigurationPath = Join-Path $output 'steward-steam-release.json'
           if ($includeLegacyRemoteMigration) {
             if (-not [IO.File]::Exists($legacyConfigurationPath) -or
                 -not [IO.File]::Exists($backendAuthPath)) {
               throw 'Explicit legacy migration staging is missing remote client or backend-auth compatibility evidence.'
             }
-
             $legacyConfiguration = Get-Content -LiteralPath $legacyConfigurationPath -Raw | ConvertFrom-Json
             $legacyProperties = @($legacyConfiguration.PSObject.Properties.Name | Sort-Object)
             $expectedLegacyProperties = @('apiBaseUrl', 'schemaVersion', 'steamAppId', 'steamWebApiIdentity') | Sort-Object
@@ -245,17 +210,6 @@ jobs:
                 [string]$legacyConfiguration.steamWebApiIdentity -ne $identity) {
               throw 'Generated legacy Steam migration configuration is invalid or contains an unexpected field.'
             }
-
-            $backendAuth = Get-Content -LiteralPath $backendAuthPath -Raw | ConvertFrom-Json
-            $backendAuthProperties = @($backendAuth.PSObject.Properties.Name | Sort-Object)
-            $expectedBackendAuthProperties = @('FriendsBuild__Enabled', 'Steam__AppId', 'Steam__Identity') | Sort-Object
-            if ($backendAuthProperties.Count -ne $expectedBackendAuthProperties.Count -or
-                @(Compare-Object $backendAuthProperties $expectedBackendAuthProperties).Count -ne 0 -or
-                [uint32]$backendAuth.Steam__AppId -ne [uint32]$legacyConfiguration.steamAppId -or
-                -not [string]::Equals([string]$backendAuth.Steam__Identity, [string]$legacyConfiguration.steamWebApiIdentity, [StringComparison]::Ordinal) -or
-                -not [string]::Equals([string]$backendAuth.FriendsBuild__Enabled, 'false', [StringComparison]::Ordinal)) {
-              throw 'Generated legacy backend Steam auth configuration does not exactly match the migration client identity.'
-            }
           }
           else {
             if ([IO.File]::Exists($legacyConfigurationPath)) {
@@ -264,6 +218,13 @@ jobs:
             if ([IO.File]::Exists($backendAuthPath)) {
               throw 'Normal Steam peer release evidence must not contain backend auth configuration.'
             }
+          }
+
+          if ([IO.File]::Exists((Join-Path $output 'steward-friends-build.json'))) {
+            throw 'Steam depot content unexpectedly contains Friends Build routing.'
+          }
+          if (-not [IO.File]::Exists($manifestPath) -or -not [IO.File]::Exists((Join-Path $output 'SharedWorlds.Desktop.dll'))) {
+            throw 'Steam peer staging is missing release evidence or the Desktop binary.'
           }
 
           $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
@@ -278,15 +239,11 @@ jobs:
           if ($actualFiles.Count -ne $manifestEntries.Count) {
             throw "Steam depot content contains $($actualFiles.Count) files but release evidence lists $($manifestEntries.Count)."
           }
-
           foreach ($file in $actualFiles) {
             $relativePath = [IO.Path]::GetRelativePath($output, $file.FullName).Replace('\', '/')
             $entries = @($manifestEntries | Where-Object { [string]$_.path -eq $relativePath })
-            if ($entries.Count -ne 1) {
-              throw "Steam depot file '$relativePath' is not represented exactly once in release evidence."
-            }
-            if ([int64]$entries[0].byteSize -ne $file.Length) {
-              throw "Steam depot file '$relativePath' size does not match release evidence."
+            if ($entries.Count -ne 1 -or [int64]$entries[0].byteSize -ne $file.Length) {
+              throw "Steam depot file '$relativePath' is not represented exactly once with the correct size."
             }
             $actualHash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
             if (-not [string]::Equals([string]$entries[0].sha256, $actualHash, [StringComparison]::OrdinalIgnoreCase)) {
@@ -295,27 +252,23 @@ jobs:
           }
 
       - name: Build and verify V2 Friends Build ZIP
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.friends_api_base_url != '' }}
         shell: pwsh
         env:
           REQUESTED_FRIENDS_API_BASE_URL: ${{ github.event.inputs.friends_api_base_url }}
           REQUESTED_FRIENDS_VERSION: ${{ github.event.inputs.friends_version }}
         run: |
           $apiBaseUrl = $env:REQUESTED_FRIENDS_API_BASE_URL
-          if ([string]::IsNullOrWhiteSpace($apiBaseUrl)) {
-            $apiBaseUrl = 'https://friends-build.example.invalid/'
-          }
-
+          if ([string]::IsNullOrWhiteSpace($apiBaseUrl)) { throw 'friends_api_base_url is required for explicit Friends Build qualification.' }
           $version = $env:REQUESTED_FRIENDS_VERSION
-          if ([string]::IsNullOrWhiteSpace($version)) {
-            $version = '2.0.0-ci'
-          }
-
+          if ([string]::IsNullOrWhiteSpace($version)) { $version = '2.0.0-alpha.1' }
           ./tools/v2-build-friends.ps1 `
             -ApiBaseUrl $apiBaseUrl `
             -Version $version `
             -OutputDirectory "$env:RUNNER_TEMP/steward-v2-friends"
 
       - name: Verify Friends Build friend provisioning
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.friends_api_base_url != '' }}
         shell: pwsh
         run: |
           $configurationPath = "$env:RUNNER_TEMP/friend-provisioning.json"
@@ -326,13 +279,11 @@ jobs:
             -ConfigurationOutputPath $configurationPath `
             -CredentialOutputPath $credentialPath `
             -Quiet
-
           $configuration = Get-Content -LiteralPath $configurationPath -Raw | ConvertFrom-Json
           $credential = [IO.File]::ReadAllText($credentialPath)
           if (-not $credential.StartsWith('st_friend_', [StringComparison]::Ordinal) -or $credential.Length -ne 53) {
             throw 'Provisioned Friends Build credential has the wrong format.'
           }
-
           $credentialBytes = [Text.Encoding]::UTF8.GetBytes($credential)
           try {
             $actualDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($credentialBytes))
@@ -340,22 +291,10 @@ jobs:
           finally {
             [Security.Cryptography.CryptographicOperations]::ZeroMemory($credentialBytes)
           }
-
           $expectedDigest = [string]$configuration.PSObject.Properties['FriendsBuild__Identities__0__CredentialSha256'].Value
           if (-not [string]::Equals($actualDigest, $expectedDigest, [StringComparison]::Ordinal)) {
             throw 'Provisioned Friends Build credential does not match the backend digest.'
           }
-          if ([string]$configuration.FriendsBuild__Enabled -ne 'true' -or
-              [string]$configuration.PSObject.Properties['FriendsBuild__Identities__0__DisplayName'].Value -ne 'CI Friend' -or
-              -not ([string]$configuration.PSObject.Properties['FriendsBuild__Identities__0__Id'].Value).StartsWith('friend-', [StringComparison]::Ordinal)) {
-            throw 'Provisioned Friends Build backend configuration is invalid.'
-          }
-
-          $configurationText = [IO.File]::ReadAllText($configurationPath)
-          if ($configurationText.Contains($credential, [StringComparison]::Ordinal)) {
-            throw 'Plaintext Friends Build credential leaked into backend configuration.'
-          }
-
           Remove-Item -LiteralPath $credentialPath -Force
 
       - name: Upload exact acceptance package

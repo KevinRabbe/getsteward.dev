@@ -30,12 +30,10 @@ public sealed class PeerWorldLiveAuthorityMutationGate : IDisposable
 
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
-        {
-            return;
-        }
-
-        _gate.Dispose();
+        // Do not dispose the underlying SemaphoreSlim while a successful EnterAsync lease may still be
+        // unwinding on another stack. Marking the gate closed prevents all future entrants while every
+        // already-issued releaser remains safe to release exactly once.
+        Interlocked.Exchange(ref _disposed, 1);
     }
 
     private sealed class Releaser : IDisposable

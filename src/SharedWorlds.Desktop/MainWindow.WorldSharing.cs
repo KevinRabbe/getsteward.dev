@@ -61,7 +61,7 @@ public partial class MainWindow
                     if (dialog.WorldWasLeft)
                     {
                         await RefreshUnifiedWorldsAsync(
-                            selectedWorldId: null,
+                            preferredWorldId: null,
                             preserveStatus: true);
                         StatusText.Text = string.IsNullOrWhiteSpace(dialog.LeaveWarning)
                             ? $"You left shared World '{world.Name}'."

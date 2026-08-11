@@ -35,9 +35,10 @@ public partial class MainWindow
 
         // Owned-private catalog and Bring Here are legacy backend reservation/location workflows. They
         // are useful only while an explicit migration runtime is actually established. The normal
-        // AppID-only peer product must not register their refresh hooks or attach their action surface.
+        // AppID-only peer product must not even construct their hidden presentation surface.
         if (_remoteRuntime is not null)
         {
+            InitializeOwnedPrivateWorldCatalogUi();
             InitializeOwnedPrivateWorldCatalogRefreshHooks();
             InitializeOwnedPrivateWorldBringHereAction();
         }

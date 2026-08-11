@@ -5,30 +5,44 @@ namespace SharedWorlds.Desktop.AcceptanceTests;
 public sealed class PeerDefaultShellLegacyCatalogCompositionTests
 {
     [Fact]
-    public void OwnedPrivateCatalogAndBringHereInitializeOnlyAfterRemoteSessionDecision()
+    public void OwnedPrivateCatalogPresentationHooksAndBringHereInitializeOnlyAfterRemoteSessionDecision()
     {
         var source = ReadStartup();
         var remoteSession = RequiredIndex(source, "await InitializeStewardRemoteSessionAsync();");
         var legacyComment = RequiredIndex(source, "Owned-private catalog and Bring Here are legacy backend reservation/location workflows.", remoteSession);
         var guard = RequiredIndex(source, "if (_remoteRuntime is not null)", legacyComment);
-        var catalog = RequiredIndex(source, "InitializeOwnedPrivateWorldCatalogRefreshHooks();", guard);
-        var bringHere = RequiredIndex(source, "InitializeOwnedPrivateWorldBringHereAction();", catalog);
+        var catalogUi = RequiredIndex(source, "InitializeOwnedPrivateWorldCatalogUi();", guard);
+        var catalogHooks = RequiredIndex(source, "InitializeOwnedPrivateWorldCatalogRefreshHooks();", catalogUi);
+        var bringHere = RequiredIndex(source, "InitializeOwnedPrivateWorldBringHereAction();", catalogHooks);
         var guardEnd = RequiredIndex(source, "}\n\n        UpdateWorldSharingActionState();", bringHere);
 
         Assert.True(remoteSession < legacyComment);
         Assert.True(legacyComment < guard);
-        Assert.True(guard < catalog);
-        Assert.True(catalog < bringHere);
+        Assert.True(guard < catalogUi);
+        Assert.True(catalogUi < catalogHooks);
+        Assert.True(catalogHooks < bringHere);
         Assert.True(bringHere < guardEnd);
     }
 
     [Fact]
-    public void PeerDefaultStartupCannotRegisterLegacyOwnedLocationHooksBeforeRemoteRuntimeExists()
+    public void PeerDefaultConstructorDoesNotBuildLegacyOwnedPrivateCatalogPresentation()
+    {
+        var source = ReadRepositoryFile("src/SharedWorlds.Desktop/MainWindow.xaml.cs");
+        var constructor = RequiredIndex(source, "public MainWindow()");
+        var constructorEnd = RequiredIndex(source, "private void InitializeLiveRegionAnnouncements()", constructor);
+        var body = source[constructor..constructorEnd];
+
+        Assert.DoesNotContain("InitializeOwnedPrivateWorldCatalogUi", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PeerDefaultStartupCannotConstructOrRegisterLegacyOwnedLocationSurfaceBeforeRemoteRuntimeExists()
     {
         var source = ReadStartup();
         var remoteSession = RequiredIndex(source, "await InitializeStewardRemoteSessionAsync();");
         var preRemote = source[..remoteSession];
 
+        Assert.DoesNotContain("InitializeOwnedPrivateWorldCatalogUi", preRemote, StringComparison.Ordinal);
         Assert.DoesNotContain("InitializeOwnedPrivateWorldCatalogRefreshHooks", preRemote, StringComparison.Ordinal);
         Assert.DoesNotContain("InitializeOwnedPrivateWorldBringHereAction", preRemote, StringComparison.Ordinal);
     }
@@ -62,8 +76,10 @@ public sealed class PeerDefaultShellLegacyCatalogCompositionTests
     }
 
     private static string ReadStartup()
-        => File.ReadAllText(FindRepositoryFile(
-            "src/SharedWorlds.Desktop/MainWindow.UnifiedStartup.cs"));
+        => ReadRepositoryFile("src/SharedWorlds.Desktop/MainWindow.UnifiedStartup.cs");
+
+    private static string ReadRepositoryFile(string relativePath)
+        => File.ReadAllText(FindRepositoryFile(relativePath));
 
     private static int RequiredIndex(string source, string value, int startIndex = 0)
     {

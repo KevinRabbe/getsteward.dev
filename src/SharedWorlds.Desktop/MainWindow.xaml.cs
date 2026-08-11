@@ -37,7 +37,6 @@ public partial class MainWindow : Window
         InitializeWorldLobbyUi();
         InitializeNativeWorldCreationUi();
         InitializeGameTechnicalReadinessUi();
-        InitializeOwnedPrivateWorldCatalogUi();
 
         // Keep the existing local data root for persistence compatibility while the visible product
         // moves to the Safe World name.

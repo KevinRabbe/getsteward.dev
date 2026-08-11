@@ -10,15 +10,17 @@ namespace SharedWorlds.Desktop;
 
 public partial class MainWindow
 {
+    private readonly HashSet<WorldId> _peerWorldIds = [];
     private readonly HashSet<WorldId> _remoteWorldIds = [];
     private readonly HashSet<WorldId> _remoteIncompleteWorldIds = [];
     private StewardDesktopRemoteRuntime? _remoteRuntime;
     private Exception? _lastRemoteWorldLoadError;
 
     /// <summary>
-    /// Connects an already-authenticated Steward session to the real shared-World runtime. The caller
+    /// Connects an already-authenticated Steward session to the legacy shared-World runtime. The caller
     /// supplies the backend-verified identity and initial Steward credentials; this method owns the
-    /// resulting remote runtime until it is replaced or the desktop window closes.
+    /// resulting remote runtime until it is replaced or the desktop window closes. Local Worlds that
+    /// already carry persistent peer authority are never routed back through this runtime.
     /// </summary>
     internal async Task SetAuthenticatedRemoteRuntimeAsync(
         Uri apiBaseAddress,
@@ -103,6 +105,19 @@ public partial class MainWindow
     {
         var localWorlds = await _storage.ListWorldsAsync(cancellationToken);
         var localById = localWorlds.ToDictionary(world => world.Id);
+        _peerWorldIds.Clear();
+        foreach (var localWorld in localWorlds)
+        {
+            if (localWorld.SharingMode == WorldSharingMode.Shared &&
+                localWorld.PeerAuthority is not null)
+            {
+                // Classification is intentionally based on a local replica. A remote-only invited
+                // World may eventually contain peer metadata too, but it is not usable through the
+                // embedded peer runtime until bootstrap has installed its canonical bytes locally.
+                _peerWorldIds.Add(localWorld.Id);
+            }
+        }
+
         _remoteWorldIds.Clear();
         _remoteIncompleteWorldIds.Clear();
         _lastRemoteWorldLoadError = null;
@@ -120,19 +135,25 @@ public partial class MainWindow
         }
         catch (Exception exception) when (IsRemoteAvailabilityFailure(exception))
         {
-            // A shared-service outage or invalid remote response must not make private local Worlds
-            // unusable. A local shadow already marked Shared remains non-writable through the normal
-            // authoritative-runtime guard; it never becomes LocalOnly merely because the backend is down.
+            // A legacy shared-service outage or invalid response must not make local Worlds unusable.
+            // Shared peer Worlds remain fenced by their embedded runtime classification and never
+            // become local writable fallbacks because the service is unavailable.
             _lastRemoteWorldLoadError = exception;
             return localWorlds;
         }
 
         foreach (var remoteWorld in remoteWorlds)
         {
+            if (_peerWorldIds.Contains(remoteWorld.Id))
+            {
+                // Persistent peer authority is an irreversible product cutover for this local replica.
+                // Never hide it behind a same-ID legacy backend copy or route it back to remote authority.
+                continue;
+            }
+
             if (!localById.ContainsKey(remoteWorld.Id))
             {
-                // Normal shared/invited Worlds have no local shadow. Backend membership is sufficient
-                // to list them; exact metadata and environment gates still fail closed before play.
+                // Transitional remote-only shared/invited Worlds have no local peer replica yet.
                 _remoteWorldIds.Add(remoteWorld.Id);
                 continue;
             }
@@ -145,9 +166,9 @@ public partial class MainWindow
                 }
                 else
                 {
-                    // The backend World identity may have been created immediately before a crash or
-                    // transfer failure. Keep the local shadow visible only as a locked sharing journal
-                    // so Share World can resume the same immutable publication IDs.
+                    // The legacy backend World identity may have been created immediately before a
+                    // crash or transfer failure. Keep the local shadow visible only as a locked
+                    // sharing journal so publication can resume the same immutable IDs.
                     _remoteIncompleteWorldIds.Add(remoteWorld.Id);
                 }
             }
@@ -158,10 +179,9 @@ public partial class MainWindow
             }
         }
 
-        // A complete backend copy with the same World ID is authoritative. An incomplete backend copy
-        // deliberately does NOT hide the local shadow, because that shadow is the immutable source for
-        // resuming initial publication. The shadow is already marked Shared before remote side effects,
-        // so it cannot accidentally acquire local writable authority while publication is incomplete.
+        // A complete legacy remote copy may still hide an old non-peer local shadow during migration.
+        // A local World with persistent peer authority is never inserted into _remoteWorldIds above and
+        // therefore always remains the visible canonical entry on this installation.
         return localWorlds
             .Where(world => !_remoteWorldIds.Contains(world.Id))
             .Concat(remoteWorlds.Where(world => _remoteWorldIds.Contains(world.Id)))
@@ -201,18 +221,32 @@ public partial class MainWindow
     private bool HasAuthoritativeRuntimeForWorld(World world)
     {
         ArgumentNullException.ThrowIfNull(world);
-        return world.SharingMode == WorldSharingMode.LocalOnly ||
-               (_remoteRuntime is not null && _remoteWorldIds.Contains(world.Id));
+        if (world.SharingMode == WorldSharingMode.LocalOnly)
+        {
+            return true;
+        }
+
+        if (_peerWorldIds.Contains(world.Id))
+        {
+            return _peerRuntime is not null;
+        }
+
+        return _remoteRuntime is not null && _remoteWorldIds.Contains(world.Id);
     }
 
     private IWorldStorage GetStorageForWorld(World world)
     {
         ArgumentNullException.ThrowIfNull(world);
+        if (_peerWorldIds.Contains(world.Id))
+        {
+            return RequirePeerRuntime(world).Storage;
+        }
+
         if (_remoteWorldIds.Contains(world.Id))
         {
             return _remoteRuntime?.Storage
                 ?? throw new InvalidOperationException(
-                    "The selected shared World no longer has an authenticated Steward runtime.");
+                    "The selected legacy shared World no longer has an authenticated Steward runtime.");
         }
 
         return _storage;
@@ -221,17 +255,22 @@ public partial class MainWindow
     private WorldLifecycleService GetLifecycleForWorld(World world)
     {
         ArgumentNullException.ThrowIfNull(world);
+        if (_peerWorldIds.Contains(world.Id))
+        {
+            return RequirePeerRuntime(world).Lifecycle;
+        }
+
         if (_remoteWorldIds.Contains(world.Id))
         {
             return _remoteRuntime?.Lifecycle
                 ?? throw new InvalidOperationException(
-                    "The selected shared World no longer has an authenticated Steward runtime.");
+                    "The selected legacy shared World no longer has an authenticated Steward runtime.");
         }
 
         if (world.SharingMode == WorldSharingMode.Shared)
         {
             throw new InvalidOperationException(
-                "A shared World can never fall back to local writable authority. Reconnect the authenticated Steward backend before play.");
+                "A shared World can never fall back to unfenced local writable authority. Reconnect the required Steward authority runtime before play.");
         }
 
         return _lifecycle;
@@ -240,20 +279,46 @@ public partial class MainWindow
     private UserIdentity GetUserForWorld(World world)
     {
         ArgumentNullException.ThrowIfNull(world);
+        if (_peerWorldIds.Contains(world.Id))
+        {
+            return RequirePeerRuntime(world).User;
+        }
+
         if (_remoteWorldIds.Contains(world.Id))
         {
             return _remoteRuntime?.User
                 ?? throw new InvalidOperationException(
-                    "The selected shared World no longer has an authenticated Steward identity.");
+                    "The selected legacy shared World no longer has an authenticated Steward identity.");
         }
 
         if (world.SharingMode == WorldSharingMode.Shared)
         {
             throw new InvalidOperationException(
-                "A shared World requires an authenticated Steward identity before writable play.");
+                "A shared World requires an authenticated or persistent peer identity before writable play.");
         }
 
         return GetLocalUser();
+    }
+
+    private IGameAdapter GetManagedHostAdapterForWorld(
+        World world,
+        IGameAdapter adapter)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(adapter);
+        return _peerWorldIds.Contains(world.Id)
+            ? RequirePeerRuntime(world).CoordinateManagedHost(world.Id, adapter)
+            : adapter;
+    }
+
+    private StewardDesktopPeerRuntime RequirePeerRuntime(World world)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        return _peerRuntime
+            ?? throw new InvalidOperationException(
+                _peerRuntimeProblem is null
+                    ? $"Shared World '{world.Name}' uses persistent peer authority, but the embedded Steam peer runtime is unavailable on this launch."
+                    : $"Shared World '{world.Name}' uses persistent peer authority, but the embedded Steam peer runtime is unavailable: {_peerRuntimeProblem}");
     }
 
     private async Task<EnvironmentRevision?> LoadEnvironmentRevisionForWorldAsync(

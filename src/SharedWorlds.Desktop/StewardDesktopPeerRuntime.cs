@@ -12,8 +12,8 @@ namespace SharedWorlds.Desktop;
 ///
 /// The runtime deliberately contains only active peer gameplay concerns: local canonical storage with
 /// durable authority fencing, live lobby authority, exact revision bootstrap/handoff/observer transfer,
-/// managed-host presence, membership, invitations, and the Steam game-data bridge. Central remote
-/// services and remote object storage are not part of this composition.
+/// initial peer sharing, managed-host presence, membership, invitations, and the Steam game-data bridge.
+/// Central remote services and remote object storage are not part of this composition.
 /// </summary>
 internal sealed class StewardDesktopPeerRuntime : IDisposable
 {
@@ -37,6 +37,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
         SteamPeerWorldLobbyJoinService lobbyJoin,
         PeerWorldBootstrapTransferService bootstrap,
         PeerWorldObserverSyncService observerSync,
+        PeerWorldInitialShareService initialShare,
         PeerWorldMembershipService membership,
         PeerWorldMemberInvitationService invitations,
         IWorldSessionCoordinator sessionCoordinator,
@@ -62,6 +63,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
         LobbyJoin = lobbyJoin;
         Bootstrap = bootstrap;
         ObserverSync = observerSync;
+        InitialShare = initialShare;
         Membership = membership;
         Invitations = invitations;
         SessionCoordinator = sessionCoordinator;
@@ -79,6 +81,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
     public SteamPeerWorldLobbyJoinService LobbyJoin { get; }
     public PeerWorldBootstrapTransferService Bootstrap { get; }
     public PeerWorldObserverSyncService ObserverSync { get; }
+    public PeerWorldInitialShareService InitialShare { get; }
     public PeerWorldMembershipService Membership { get; }
     public PeerWorldMemberInvitationService Invitations { get; }
     public IWorldSessionCoordinator SessionCoordinator { get; }
@@ -214,6 +217,9 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
             catchUpRouter.Bind(
                 bootstrap,
                 observerSync);
+            var initialShare = new PeerWorldInitialShareService(
+                storage,
+                authorityFences);
             var membership = new PeerWorldMembershipService(
                 storage,
                 authorityFences);
@@ -240,6 +246,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
                 lobbyJoin,
                 bootstrap,
                 observerSync,
+                initialShare,
                 membership,
                 invitations,
                 sessionCoordinator,

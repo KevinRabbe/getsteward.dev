@@ -12,8 +12,8 @@ namespace SharedWorlds.Desktop;
 ///
 /// The runtime deliberately contains only active peer gameplay concerns: local canonical storage with
 /// durable authority fencing, live lobby authority, exact revision bootstrap/handoff/observer transfer,
-/// managed-host presence, membership, and the Steam game-data bridge. Central remote services and
-/// remote object storage are not part of this composition.
+/// managed-host presence, membership, invitations, and the Steam game-data bridge. Central remote
+/// services and remote object storage are not part of this composition.
 /// </summary>
 internal sealed class StewardDesktopPeerRuntime : IDisposable
 {
@@ -38,6 +38,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
         PeerWorldBootstrapTransferService bootstrap,
         PeerWorldObserverSyncService observerSync,
         PeerWorldMembershipService membership,
+        PeerWorldMemberInvitationService invitations,
         IWorldSessionCoordinator sessionCoordinator,
         PeerManagedHostPresenceRegistry hostPresence,
         IPeerAuthorityActiveRevisionFenceStore authorityFences,
@@ -62,6 +63,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
         Bootstrap = bootstrap;
         ObserverSync = observerSync;
         Membership = membership;
+        Invitations = invitations;
         SessionCoordinator = sessionCoordinator;
         HostPresence = hostPresence;
         AuthorityFences = authorityFences;
@@ -78,6 +80,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
     public PeerWorldBootstrapTransferService Bootstrap { get; }
     public PeerWorldObserverSyncService ObserverSync { get; }
     public PeerWorldMembershipService Membership { get; }
+    public PeerWorldMemberInvitationService Invitations { get; }
     public IWorldSessionCoordinator SessionCoordinator { get; }
     public IPeerManagedHostPresenceRegistry HostPresence { get; }
     public IPeerAuthorityActiveRevisionFenceStore AuthorityFences { get; }
@@ -176,10 +179,18 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
                 storage,
                 authorityFences);
             var hostPresence = new PeerManagedHostPresenceRegistry();
-            var sessionCoordinator = new PeerManagedHostPresenceSessionCoordinator(
+            var presenceCoordinator = new PeerManagedHostPresenceSessionCoordinator(
                 authorityCoordinator,
                 storage,
                 hostPresence,
+                user);
+            var invitations = new PeerWorldMemberInvitationService(
+                storage,
+                authorityFences,
+                lobby);
+            var sessionCoordinator = new PeerWorldMemberInvitationSessionCoordinator(
+                presenceCoordinator,
+                invitations,
                 user);
             var lifecycle = new WorldLifecycleService(
                 storage,
@@ -230,6 +241,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
                 bootstrap,
                 observerSync,
                 membership,
+                invitations,
                 sessionCoordinator,
                 hostPresence,
                 authorityFences,

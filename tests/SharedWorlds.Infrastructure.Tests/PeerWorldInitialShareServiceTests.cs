@@ -26,7 +26,7 @@ public sealed class PeerWorldInitialShareServiceTests : IDisposable
             fixture.World.Id,
             fixture.Owner);
 
-        Assert.Equal(["fence", "world"], fixture.Events);
+        Assert.Equal(new[] { "fence", "world" }, fixture.Events);
         Assert.Equal(WorldSharingMode.Shared, shared.SharingMode);
         Assert.NotNull(shared.PeerAuthority);
         Assert.Equal((ulong)1, shared.PeerAuthority.Generation);
@@ -58,13 +58,13 @@ public sealed class PeerWorldInitialShareServiceTests : IDisposable
         Assert.NotNull(fence);
         Assert.Equal(PeerAuthorityFenceState.Active, fence.State);
         Assert.Equal((ulong)1, fence.Generation);
-        Assert.Equal(["fence", "world"], fixture.Events);
+        Assert.Equal(new[] { "fence", "world" }, fixture.Events);
 
         fixture.Storage.FailWorldSave = false;
         fixture.Events.Clear();
         var retried = await service.ShareAsync(fixture.World.Id, fixture.Owner);
 
-        Assert.Equal(["world"], fixture.Events);
+        Assert.Equal(new[] { "world" }, fixture.Events);
         Assert.Equal(WorldSharingMode.Shared, retried.SharingMode);
         Assert.Equal((ulong)1, retried.PeerAuthority!.Generation);
     }

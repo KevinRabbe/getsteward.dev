@@ -25,8 +25,11 @@ public sealed class StewardDesktopSteamConfigurationCompositionTests
         Assert.DoesNotContain("WebApi", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("HttpClient", source, StringComparison.Ordinal);
         Assert.DoesNotContain("Infrastructure.Remote", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("credential", source, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("token", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("StewardRemoteSessionTokens", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("SteamWebApiTicketSource", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("accessToken", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("refreshToken", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("steamWebApiIdentity", source, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

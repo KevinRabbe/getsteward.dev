@@ -109,8 +109,8 @@ public sealed class PeerWorldMemberRemovalService
             ?? throw new InvalidOperationException(
                 $"World '{worldId}' has not been migrated to persistent peer authority.");
         if (authority.Generation == 0 ||
-            expectedAuthorityGeneration is { } expectedGeneration &&
-            authority.Generation != expectedGeneration ||
+            (expectedAuthorityGeneration is { } expectedGeneration &&
+             authority.Generation != expectedGeneration) ||
             !SameUser(authority.Holder, localHolder) ||
             !ContainsStableMember(world.Members, localHolder))
         {

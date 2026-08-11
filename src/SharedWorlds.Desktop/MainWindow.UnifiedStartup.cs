@@ -10,6 +10,12 @@ public partial class MainWindow
         RegisterAdditionalProductionAdapters();
         InitializeUnifiedHostingPreference();
         await LoadDeviceSettingsAsync();
+
+        // Peer gameplay uses the one App-owned Steam runtime and must not depend on remote HTTP/auth
+        // configuration. Compose it immediately after the durable installation identity is available;
+        // optional legacy remote authentication below may reuse the same Steam lifetime afterward.
+        InitializeStewardPeerRuntime();
+
         await InitializeUnifiedGameUiAsync();
         InitializeOwnedPrivateWorldCatalogRefreshHooks();
         InitializeOwnedPrivateWorldBringHereAction();
@@ -24,9 +30,9 @@ public partial class MainWindow
         InitializePortableWorldImportUi();
         InitializePortableWorldDropUi();
 
-        // Remote sharing is optional. With no production/development remote configuration Safe World
-        // stays local-only; with valid configuration it authenticates through Steam and refreshes the
-        // same game-first library with canonical shared Worlds.
+        // Transitional remote services remain optional. They no longer gate Steam initialization or
+        // peer gameplay composition; Steam authentication reuses the already-created App runtime when
+        // both configurations carry the same AppID.
         await InitializeStewardRemoteSessionAsync();
         UpdateWorldSharingActionState();
         await InitializeWorldJoinUiAsync();

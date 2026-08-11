@@ -4,23 +4,26 @@ using SharedWorlds.Core.Domain;
 namespace SharedWorlds.Infrastructure.Sessions;
 
 /// <summary>
-/// Removes one already-admitted participant from canonical peer World membership while the World is
-/// inactive. Live removal is deliberately refused because an active member may have in-flight port-71
-/// state transfer or port-72 game traffic; those transports are not treated as revocation authority.
-///
-/// Once removed offline, future lobby invitations, catch-up requests, game-bridge admission, and host
-/// handoff all re-read canonical membership and therefore reject the stale participant.
+/// Removes one already-admitted participant from canonical peer World membership. Offline removal needs
+/// only canonical authority. During a live Host, removal additionally requires the process-local live
+/// revocation registry and the shared handoff/removal mutation gate: the exact member/generation is
+/// denied and existing cancellation-scoped traffic is stopped before canonical membership is changed.
+/// Long-lived game traffic is closed by the concrete port-72 bridge subscriber to the same revocation.
 /// </summary>
 public sealed class PeerWorldMemberRemovalService
 {
     private readonly IWorldStorage _storage;
     private readonly IPeerAuthorityFenceStore _authorityFences;
     private readonly IPeerWorldLobby _lobby;
+    private readonly PeerWorldLiveMemberRevocationRegistry? _liveRevocations;
+    private readonly PeerWorldLiveAuthorityMutationGate? _liveAuthorityMutations;
 
     public PeerWorldMemberRemovalService(
         IWorldStorage storage,
         IPeerAuthorityFenceStore authorityFences,
-        IPeerWorldLobby lobby)
+        IPeerWorldLobby lobby,
+        PeerWorldLiveMemberRevocationRegistry? liveRevocations = null,
+        PeerWorldLiveAuthorityMutationGate? liveAuthorityMutations = null)
     {
         ArgumentNullException.ThrowIfNull(storage);
         ArgumentNullException.ThrowIfNull(authorityFences);
@@ -28,6 +31,8 @@ public sealed class PeerWorldMemberRemovalService
         _storage = storage;
         _authorityFences = authorityFences;
         _lobby = lobby;
+        _liveRevocations = liveRevocations;
+        _liveAuthorityMutations = liveAuthorityMutations;
     }
 
     public async Task<World> RemoveMemberAsync(
@@ -44,6 +49,13 @@ public sealed class PeerWorldMemberRemovalService
                 "The persistent peer authority holder cannot remove itself. Transfer authority or close the World through a dedicated owner workflow first.");
         }
 
+        using var mutationLease = _liveAuthorityMutations is null
+            ? null
+            : await _liveAuthorityMutations.EnterAsync(cancellationToken);
+
+        // Load and validate only after entering the shared live mutation boundary. RequestHandoff uses
+        // the same gate, so either this removal observes RequestedHost and refuses, or handoff observes
+        // the already-persisted removal and cannot select that participant as the next holder.
         var world = await _storage.LoadWorldAsync(worldId, cancellationToken)
             ?? throw new InvalidDataException(
                 $"Cannot remove a peer member from missing World '{worldId}'.");
@@ -89,8 +101,34 @@ public sealed class PeerWorldMemberRemovalService
         var liveLobby = await _lobby.GetAsync(worldId, cancellationToken);
         if (liveLobby is not null)
         {
-            throw new InvalidOperationException(
-                "Stop hosting this World before removing access. Steward does not perform partial live kicks while peer state/game traffic may still be active.");
+            if (_liveRevocations is null || _liveAuthorityMutations is null)
+            {
+                throw new InvalidOperationException(
+                    "Stop hosting this World before removing access. This Steward runtime does not provide the complete live member revocation boundary.");
+            }
+
+            if (liveLobby.WorldId != worldId ||
+                !liveLobby.OwnerConfirmed ||
+                liveLobby.AuthorityGeneration != authority.Generation ||
+                !SameUser(liveLobby.Owner, localHolder))
+            {
+                throw new InvalidOperationException(
+                    "Live member removal requires this Steward instance to be the confirmed lobby owner at the exact persistent authority generation.");
+            }
+
+            if (liveLobby.RequestedHost is not null)
+            {
+                throw new InvalidOperationException(
+                    "Remove access cannot run while a host handoff is in progress.");
+            }
+
+            // Fail closed before canonical mutation. Revoke cancels port-71 work and notifies the
+            // concrete port-72 bridge before this method can remove the member from persistent state.
+            // If the later save is ambiguous/fails, the deny fence deliberately remains active.
+            _liveRevocations.Revoke(
+                worldId,
+                authority.Generation,
+                member);
         }
 
         var updatedMembers = world.Members

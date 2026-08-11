@@ -118,9 +118,10 @@ public sealed class PeerWorldLiveMemberRevocationRegistry : IDisposable
             cancellation = entry.Cancellation;
         }
 
-        // Cancel before notifying channel owners. Cancellation-token-scoped operations therefore stop
-        // even if a transport observer is delayed or fails independently.
-        cancellation.Cancel();
+        // Cancellation callback failures cannot be allowed to suppress the long-lived transport event.
+        // The CancellationTokenSource is already marked canceled even when Cancel reports callback
+        // exceptions, so continue the fail-closed revocation sequence and notify every channel owner.
+        CancelWithoutPropagation(cancellation);
         NotifyRevoked(new PeerWorldLiveMemberRevocation(
             worldId,
             authorityGeneration,
@@ -189,7 +190,7 @@ public sealed class PeerWorldLiveMemberRevocationRegistry : IDisposable
         // in-flight catch-up or transfer cannot outlive the exact managed-host generation it used.
         foreach (var cancellation in removed)
         {
-            cancellation.Cancel();
+            CancelWithoutPropagation(cancellation);
             cancellation.Dispose();
         }
 
@@ -213,7 +214,7 @@ public sealed class PeerWorldLiveMemberRevocationRegistry : IDisposable
 
         foreach (var entry in entries)
         {
-            entry.Cancellation.Cancel();
+            CancelWithoutPropagation(entry.Cancellation);
             entry.Cancellation.Dispose();
         }
     }
@@ -238,6 +239,23 @@ public sealed class PeerWorldLiveMemberRevocationRegistry : IDisposable
                 // The deny bit and cancellation token are already active. One channel observer must
                 // never roll back or prevent another observer from receiving the revocation.
             }
+        }
+    }
+
+    private static void CancelWithoutPropagation(CancellationTokenSource cancellation)
+    {
+        try
+        {
+            cancellation.Cancel();
+        }
+        catch (AggregateException)
+        {
+            // Cancellation is a safety signal, not an extension point whose callback exception may
+            // roll back revocation. CancellationTokenSource has already transitioned to canceled.
+        }
+        catch (ObjectDisposedException)
+        {
+            // Defensive only: registry ownership normally prevents concurrent disposal of an entry.
         }
     }
 

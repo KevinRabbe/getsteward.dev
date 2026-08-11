@@ -104,11 +104,11 @@ public sealed class PeerWorldLeaveRequestRouter
                 "Leave World requires the confirmed current host/generation and is unavailable during host handoff.");
         }
 
-        var updated = await _memberRemoval.RemoveMemberAsync(
+        var updated = await _memberRemoval.RemoveMemberAtGenerationAsync(
             request.WorldId,
             _localHolder,
             authenticatedRemoteUser,
-            expectedAuthorityGeneration: request.AuthorityGeneration,
+            request.AuthorityGeneration,
             cancellationToken);
         if (ContainsStableMember(updated.Members, authenticatedRemoteUser) ||
             updated.PeerAuthority is not { } updatedAuthority ||

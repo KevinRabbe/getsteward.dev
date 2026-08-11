@@ -12,17 +12,18 @@ namespace SharedWorlds.Desktop;
 
 /// <summary>
 /// Identity-preserving World transfer over Steam Networking Sockets. One authenticated P2P engine
-/// carries first-time Bootstrap, strict HandoffRevision, non-authoritative ObserverSync, and bounded
-/// catch-up request/result control transactions. The purpose is part of the transfer protocol and
-/// selects the corresponding receiver installer; transport never decides host authority. Steam
-/// authenticates the peer identity and Steward additionally authorizes every operation against the
-/// already-attached active World lobby and its exact generation.
+/// carries first-time Bootstrap, strict HandoffRevision, non-authoritative ObserverSync, bounded
+/// catch-up request/result control transactions, and authenticated Leave World control. The purpose is
+/// part of the transfer protocol and selects the corresponding receiver installer; transport never
+/// decides host authority. Steam authenticates the peer identity and Steward additionally authorizes
+/// every operation against the already-attached active World lobby and its exact generation.
 /// </summary>
 internal sealed class SteamPeerWorldRevisionExchange :
     IPeerWorldRevisionExchange,
     IPeerWorldBootstrapExchange,
     IPeerWorldObserverSyncExchange,
     IPeerWorldCatchUpRequestClient,
+    IPeerWorldLeaveRequestClient,
     IDisposable
 {
     private const int ProtocolVersion = 2;
@@ -45,6 +46,7 @@ internal sealed class SteamPeerWorldRevisionExchange :
     private readonly PeerWorldBootstrapInstaller _bootstrapInstaller;
     private readonly PeerWorldObserverSyncInstaller _observerSyncInstaller;
     private readonly PeerWorldCatchUpRequestRouter _catchUpRouter;
+    private readonly PeerWorldLeaveRequestRouter _leaveRouter;
     private readonly Callback<SteamNetConnectionStatusChangedCallback_t> _connectionCallback;
     private readonly DispatcherTimer _receiveTimer;
     private readonly SemaphoreSlim _outgoingGate = new(1, 1);
@@ -58,7 +60,8 @@ internal sealed class SteamPeerWorldRevisionExchange :
         PeerWorldRevisionReplicaInstaller revisionInstaller,
         PeerWorldBootstrapInstaller bootstrapInstaller,
         PeerWorldObserverSyncInstaller observerSyncInstaller,
-        PeerWorldCatchUpRequestRouter catchUpRouter)
+        PeerWorldCatchUpRequestRouter catchUpRouter,
+        PeerWorldLeaveRequestRouter leaveRouter)
     {
         ArgumentNullException.ThrowIfNull(platform);
         ArgumentNullException.ThrowIfNull(lobby);
@@ -66,6 +69,7 @@ internal sealed class SteamPeerWorldRevisionExchange :
         ArgumentNullException.ThrowIfNull(bootstrapInstaller);
         ArgumentNullException.ThrowIfNull(observerSyncInstaller);
         ArgumentNullException.ThrowIfNull(catchUpRouter);
+        ArgumentNullException.ThrowIfNull(leaveRouter);
         if (!platform.Dispatcher.CheckAccess())
         {
             throw new InvalidOperationException(
@@ -78,6 +82,7 @@ internal sealed class SteamPeerWorldRevisionExchange :
         _bootstrapInstaller = bootstrapInstaller;
         _observerSyncInstaller = observerSyncInstaller;
         _catchUpRouter = catchUpRouter;
+        _leaveRouter = leaveRouter;
         SteamNetworkingUtils.InitRelayNetworkAccess();
         _listenSocket = SteamNetworkingSockets.CreateListenSocketP2P(
             VirtualPort,
@@ -230,6 +235,100 @@ internal sealed class SteamPeerWorldRevisionExchange :
                 await CloseConnectionAsync(
                     connection,
                     "Steward peer World catch-up request complete");
+            }
+
+            _outgoingGate.Release();
+        }
+    }
+
+    public async Task<PeerWorldLeaveResult> RequestLeaveAsync(
+        UserIdentity confirmedHost,
+        PeerWorldLeaveRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(confirmedHost);
+        ArgumentNullException.ThrowIfNull(request);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (request.WorldId.Value == Guid.Empty || request.AuthorityGeneration == 0)
+        {
+            throw new InvalidDataException(
+                "Peer Leave World request requires a World ID and nonzero authority generation.");
+        }
+
+        var hostSteamId = ParseSteamIdentity(confirmedHost);
+        if (hostSteamId == _platform.LocalSteamId)
+        {
+            throw new InvalidOperationException(
+                "The persistent authority holder cannot leave through the member Leave World control path. Hand off host authority first.");
+        }
+
+        var snapshot = await _lobby.GetAsync(request.WorldId, cancellationToken)
+            ?? throw new InvalidOperationException(
+                "Steward is not attached to the active Steam lobby for this World.");
+        if (!snapshot.OwnerConfirmed ||
+            snapshot.AuthorityGeneration != request.AuthorityGeneration ||
+            snapshot.RequestedHost is not null ||
+            !SameUser(snapshot.Owner, confirmedHost))
+        {
+            throw new InvalidOperationException(
+                "Leave World does not match the currently confirmed live host/generation or a handoff is in progress.");
+        }
+
+        await _outgoingGate.WaitAsync(cancellationToken);
+        HSteamNetConnection connection = HSteamNetConnection.Invalid;
+        try
+        {
+            var requestId = Guid.NewGuid();
+            var created = await CreateOutgoingConnectionAsync(
+                hostSteamId,
+                requestId,
+                cancellationToken);
+            connection = created.Connection;
+            var outgoing = created.Context;
+
+            await WaitWithTimeoutAsync(
+                outgoing.Connected.Task,
+                ConnectTimeout,
+                "Steam did not establish the Leave World control connection in time.",
+                cancellationToken);
+
+            await SendReliableAsync(
+                connection,
+                EncodeJson(
+                    MessageKind.LeaveRequest,
+                    new LeaveRequestEnvelope(
+                        ProtocolVersion,
+                        requestId,
+                        request),
+                    MaxControlBytes,
+                    "peer Leave World request"),
+                cancellationToken);
+            await InvokeSteamAsync(
+                () => SteamNetworkingSockets.FlushMessagesOnConnection(connection),
+                cancellationToken);
+
+            var result = await WaitWithTimeoutAsync(
+                outgoing.LeaveResult.Task,
+                ReadyTimeout,
+                "The active host did not acknowledge Leave World in time.",
+                cancellationToken);
+            if (result.WorldId != request.WorldId ||
+                result.AuthorityGeneration != request.AuthorityGeneration ||
+                result.CurrentStateRevisionId.Value == Guid.Empty)
+            {
+                throw new InvalidDataException(
+                    "The active host returned a Leave World result for a different World, generation, or invalid state revision.");
+            }
+
+            return result;
+        }
+        finally
+        {
+            if (connection != HSteamNetConnection.Invalid)
+            {
+                await CloseConnectionAsync(
+                    connection,
+                    "Steward Leave World request complete");
             }
 
             _outgoingGate.Release();
@@ -634,6 +733,16 @@ internal sealed class SteamPeerWorldRevisionExchange :
                     outgoing.CatchUpResult.TrySetResult(result.Result);
                     break;
                 }
+            case MessageKind.LeaveResult:
+                {
+                    var result = DecodeJson<LeaveResultEnvelope>(
+                        message,
+                        MaxControlBytes,
+                        "peer Leave World result");
+                    EnsureControl(result.ProtocolVersion, result.TransferId, outgoing.TransferId);
+                    outgoing.LeaveResult.TrySetResult(result.Result);
+                    break;
+                }
             case MessageKind.Reject:
                 {
                     var rejection = DecodeJson<RejectEnvelope>(
@@ -648,6 +757,7 @@ internal sealed class SteamPeerWorldRevisionExchange :
                     outgoing.Ready.TrySetException(exception);
                     outgoing.Receipt.TrySetException(exception);
                     outgoing.CatchUpResult.TrySetException(exception);
+                    outgoing.LeaveResult.TrySetException(exception);
                     break;
                 }
             default:
@@ -705,6 +815,26 @@ internal sealed class SteamPeerWorldRevisionExchange :
                     incoming.TransferId = envelope.TransferId;
                     incoming.State = IncomingState.HandlingCatchUp;
                     _ = HandleCatchUpRequestAsync(context, envelope);
+                    break;
+                }
+            case MessageKind.LeaveRequest when incoming.State == IncomingState.AwaitingOffer:
+                {
+                    var envelope = DecodeJson<LeaveRequestEnvelope>(
+                        message,
+                        MaxControlBytes,
+                        "peer Leave World request");
+                    if (envelope.ProtocolVersion != ProtocolVersion ||
+                        envelope.TransferId == Guid.Empty ||
+                        envelope.Request.WorldId.Value == Guid.Empty ||
+                        envelope.Request.AuthorityGeneration == 0)
+                    {
+                        throw new InvalidDataException(
+                            "Peer Leave World request uses invalid protocol, request, World, or generation metadata.");
+                    }
+
+                    incoming.TransferId = envelope.TransferId;
+                    incoming.State = IncomingState.HandlingLeave;
+                    _ = HandleLeaveRequestAsync(context, envelope);
                     break;
                 }
             case MessageKind.Payload when incoming.State == IncomingState.Receiving:
@@ -784,6 +914,62 @@ internal sealed class SteamPeerWorldRevisionExchange :
             await CloseConnectionAsync(
                 context.Connection,
                 "Steward peer World catch-up complete",
+                linger: true);
+        }
+        catch (Exception exception)
+        {
+            await RejectAndCloseIncomingAsync(context, exception.Message);
+        }
+    }
+
+    private async Task HandleLeaveRequestAsync(
+        ConnectionContext context,
+        LeaveRequestEnvelope envelope)
+    {
+        try
+        {
+            var remoteExternalId = context.RemoteSteamId.ToString(CultureInfo.InvariantCulture);
+            var remoteUser = new UserIdentity(
+                "steam",
+                remoteExternalId,
+                remoteExternalId);
+
+            // Do not bind this control transaction to the member revocation token. The router's
+            // canonical removal intentionally revokes the requester before persistence, and this exact
+            // authenticated connection must remain alive just long enough to acknowledge that verified
+            // removal. All other revocation-aware port-71 work is canceled by the shared registry.
+            var result = await _leaveRouter.HandleAsync(
+                remoteUser,
+                envelope.Request,
+                context.Incoming!.Cancellation.Token);
+
+            if (!_connections.TryGetValue(context.Connection, out var current) ||
+                !ReferenceEquals(current, context) ||
+                current.Incoming is null ||
+                current.Incoming.State != IncomingState.HandlingLeave)
+            {
+                return;
+            }
+
+            await SendReliableAsync(
+                context.Connection,
+                EncodeJson(
+                    MessageKind.LeaveResult,
+                    new LeaveResultEnvelope(
+                        ProtocolVersion,
+                        envelope.TransferId,
+                        result),
+                    MaxControlBytes,
+                    "peer Leave World result"),
+                CancellationToken.None);
+            await InvokeSteamAsync(
+                () => SteamNetworkingSockets.FlushMessagesOnConnection(context.Connection),
+                CancellationToken.None);
+
+            current.Incoming.State = IncomingState.Completed;
+            await CloseConnectionAsync(
+                context.Connection,
+                "Steward Leave World canonical removal confirmed",
                 linger: true);
         }
         catch (Exception exception)
@@ -1405,7 +1591,9 @@ internal sealed class SteamPeerWorldRevisionExchange :
         Receipt = 5,
         Reject = 6,
         CatchUpRequest = 7,
-        CatchUpResult = 8
+        CatchUpResult = 8,
+        LeaveRequest = 9,
+        LeaveResult = 10
     }
 
     private enum IncomingState
@@ -1415,8 +1603,9 @@ internal sealed class SteamPeerWorldRevisionExchange :
         Receiving = 2,
         Installing = 3,
         HandlingCatchUp = 4,
-        Completed = 5,
-        Failed = 6
+        HandlingLeave = 5,
+        Completed = 6,
+        Failed = 7
     }
 
     private sealed record OfferEnvelope(
@@ -1443,6 +1632,16 @@ internal sealed class SteamPeerWorldRevisionExchange :
         int ProtocolVersion,
         Guid TransferId,
         PeerWorldCatchUpResult Result);
+
+    private sealed record LeaveRequestEnvelope(
+        int ProtocolVersion,
+        Guid TransferId,
+        PeerWorldLeaveRequest Request);
+
+    private sealed record LeaveResultEnvelope(
+        int ProtocolVersion,
+        Guid TransferId,
+        PeerWorldLeaveResult Result);
 
     private sealed record RejectEnvelope(
         int ProtocolVersion,
@@ -1474,6 +1673,7 @@ internal sealed class SteamPeerWorldRevisionExchange :
             Outgoing?.Ready.TrySetException(exception);
             Outgoing?.Receipt.TrySetException(exception);
             Outgoing?.CatchUpResult.TrySetException(exception);
+            Outgoing?.LeaveResult.TrySetException(exception);
             Incoming?.Cancellation.Cancel();
             Incoming?.Chunks?.Writer.TryComplete(exception);
         }
@@ -1492,6 +1692,8 @@ internal sealed class SteamPeerWorldRevisionExchange :
         public TaskCompletionSource<PeerWorldRevisionReceipt> Receipt { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource<PeerWorldCatchUpResult> CatchUpResult { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<PeerWorldLeaveResult> LeaveResult { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
     }
 

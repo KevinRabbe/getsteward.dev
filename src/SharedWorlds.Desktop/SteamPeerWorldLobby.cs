@@ -12,7 +12,7 @@ namespace SharedWorlds.Desktop;
 /// transport-visible ownership; Steward metadata records which observed owner/generation has actually
 /// been confirmed against persistent World authority. Durable World bytes never live in lobby data.
 /// </summary>
-internal sealed class SteamPeerWorldLobby : IPeerWorldLobby
+internal sealed partial class SteamPeerWorldLobby : IPeerWorldLobby
 {
     private const int MaxLobbyMembers = 250;
     private const string SchemaKey = "steward.schema";

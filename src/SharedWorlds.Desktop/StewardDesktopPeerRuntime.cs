@@ -12,8 +12,8 @@ namespace SharedWorlds.Desktop;
 ///
 /// The runtime deliberately contains only active peer gameplay concerns: local canonical storage with
 /// durable authority fencing, live lobby authority, exact revision bootstrap/handoff/observer transfer,
-/// managed-host presence, membership, and the Steam game-data bridge. Backend.Api and remote object
-/// storage are not part of this composition.
+/// managed-host presence, membership, and the Steam game-data bridge. Central remote services and
+/// remote object storage are not part of this composition.
 /// </summary>
 internal sealed class StewardDesktopPeerRuntime : IDisposable
 {

@@ -17,12 +17,19 @@ namespace SharedWorlds.Desktop;
 /// </summary>
 internal sealed class StewardDesktopPeerRuntime : IDisposable
 {
+    private readonly SteamPlatformRuntime _platform;
+    private readonly SteamPeerWorldLobby _lobby;
+    private readonly PeerManagedHostPresenceRegistry _hostPresence;
+    private readonly PeerGameDatagramBridgeAdmissionService _gameBridgeAdmission;
     private readonly SteamPeerWorldRevisionExchange _revisionExchange;
     private readonly SteamPeerWorldLobbyJoinService _lobbyJoin;
-    private readonly SteamPeerGameDatagramBridge _gameBridge;
+    private readonly object _gameBridgeGate = new();
+    private SteamPeerGameDatagramBridge? _gameBridge;
+    private Exception? _gameBridgeProblem;
     private int _disposed;
 
     private StewardDesktopPeerRuntime(
+        SteamPlatformRuntime platform,
         IWorldStorage storage,
         WorldLifecycleService lifecycle,
         UserIdentity user,
@@ -32,12 +39,21 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
         PeerWorldObserverSyncService observerSync,
         PeerWorldMembershipService membership,
         IWorldSessionCoordinator sessionCoordinator,
-        IPeerManagedHostPresenceRegistry hostPresence,
+        PeerManagedHostPresenceRegistry hostPresence,
         IPeerAuthorityActiveRevisionFenceStore authorityFences,
         IPeerWorldCatchUpRequestClient catchUp,
         SteamPeerWorldRevisionExchange revisionExchange,
+        PeerGameDatagramBridgeAdmissionService gameBridgeAdmission,
         SteamPeerGameDatagramBridge gameBridge)
     {
+        _platform = platform;
+        _lobby = lobby;
+        _hostPresence = hostPresence;
+        _gameBridgeAdmission = gameBridgeAdmission;
+        _revisionExchange = revisionExchange;
+        _lobbyJoin = lobbyJoin;
+        _gameBridge = gameBridge;
+
         Storage = storage;
         Lifecycle = lifecycle;
         User = user;
@@ -50,10 +66,8 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
         HostPresence = hostPresence;
         AuthorityFences = authorityFences;
         CatchUp = catchUp;
-        GameBridge = gameBridge;
-        _revisionExchange = revisionExchange;
-        _lobbyJoin = lobbyJoin;
-        _gameBridge = gameBridge;
+
+        _hostPresence.Ended += OnManagedHostPresenceEnded;
     }
 
     public IWorldStorage Storage { get; }
@@ -68,7 +82,23 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
     public IPeerManagedHostPresenceRegistry HostPresence { get; }
     public IPeerAuthorityActiveRevisionFenceStore AuthorityFences { get; }
     public IPeerWorldCatchUpRequestClient CatchUp { get; }
-    public SteamPeerGameDatagramBridge GameBridge { get; }
+
+    public SteamPeerGameDatagramBridge GameBridge
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(
+                Volatile.Read(ref _disposed) != 0,
+                this);
+            lock (_gameBridgeGate)
+            {
+                return _gameBridge
+                    ?? throw new InvalidOperationException(
+                        "Steward's peer game bridge is unavailable after managed-host teardown.",
+                        _gameBridgeProblem);
+            }
+        }
+    }
 
     public static StewardDesktopPeerRuntime Create(
         SteamPlatformRuntime platform,
@@ -191,6 +221,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
                 gameBridgeAdmission);
 
             return new StewardDesktopPeerRuntime(
+                platform,
                 storage,
                 lifecycle,
                 user,
@@ -204,6 +235,7 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
                 authorityFences,
                 revisionExchange,
                 revisionExchange,
+                gameBridgeAdmission,
                 gameBridge);
         }
         catch
@@ -238,6 +270,105 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
             : adapter;
     }
 
+    private void OnManagedHostPresenceEnded(PeerManagedHostPresence ended)
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return;
+        }
+
+        // ManagedWritableSessionGate permits only one writable managed host lifecycle in this Steward
+        // process. Resetting the whole data-plane listener therefore revokes every bridge that could
+        // belong to the ended host tuple without adding per-packet authority polling to port 72.
+        _ = ended;
+        SteamPeerGameDatagramBridge? retiring;
+        lock (_gameBridgeGate)
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                return;
+            }
+
+            retiring = _gameBridge;
+            _gameBridge = null;
+            _gameBridgeProblem = null;
+        }
+
+        // Close stale host-side sessions immediately before a fresh listener is created.
+        retiring?.Dispose();
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_platform.Dispatcher.CheckAccess())
+            {
+                RestoreGameBridge();
+            }
+            else
+            {
+                _platform.Dispatcher.Invoke(RestoreGameBridge);
+            }
+        }
+        catch (Exception exception)
+        {
+            RecordGameBridgeProblem(exception);
+        }
+    }
+
+    private void RestoreGameBridge()
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return;
+        }
+
+        SteamPeerGameDatagramBridge? replacement = null;
+        try
+        {
+            replacement = new SteamPeerGameDatagramBridge(
+                _platform,
+                _lobby,
+                _gameBridgeAdmission);
+            lock (_gameBridgeGate)
+            {
+                if (Volatile.Read(ref _disposed) != 0)
+                {
+                    replacement.Dispose();
+                    return;
+                }
+
+                if (_gameBridge is null)
+                {
+                    _gameBridge = replacement;
+                    _gameBridgeProblem = null;
+                    replacement = null;
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            RecordGameBridgeProblem(exception);
+        }
+        finally
+        {
+            replacement?.Dispose();
+        }
+    }
+
+    private void RecordGameBridgeProblem(Exception exception)
+    {
+        lock (_gameBridgeGate)
+        {
+            if (Volatile.Read(ref _disposed) == 0 && _gameBridge is null)
+            {
+                _gameBridgeProblem = exception;
+            }
+        }
+    }
+
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -245,9 +376,17 @@ internal sealed class StewardDesktopPeerRuntime : IDisposable
             return;
         }
 
+        _hostPresence.Ended -= OnManagedHostPresenceEnded;
+        SteamPeerGameDatagramBridge? gameBridge;
+        lock (_gameBridgeGate)
+        {
+            gameBridge = _gameBridge;
+            _gameBridge = null;
+        }
+
         // Stop live game traffic first, then future lobby admission, then World transfer traffic.
         // SteamPlatformRuntime remains owned by App and is intentionally never disposed here.
-        _gameBridge.Dispose();
+        gameBridge?.Dispose();
         _lobbyJoin.Dispose();
         _revisionExchange.Dispose();
     }

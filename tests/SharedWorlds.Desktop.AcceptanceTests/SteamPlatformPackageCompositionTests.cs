@@ -8,11 +8,13 @@ public sealed class SteamPlatformPackageCompositionTests
     public void SteamReleaseWritesIndependentPlatformConfigurationFromExistingAppIdInput()
     {
         var source = ReadBuildScript();
-        var releaseStart = RequiredIndex(source, "if ($steamReleaseRequested) {");
         var platformConfiguration = RequiredIndex(
             source,
-            "$steamPlatformConfiguration = [ordered]@{",
-            releaseStart);
+            "$steamPlatformConfiguration = [ordered]@{");
+        var releaseStart = RequiredLastIndex(
+            source,
+            "if ($steamReleaseRequested) {",
+            platformConfiguration);
         var platformFile = RequiredIndex(
             source,
             "$steamPlatformConfigurationPath = Join-Path $output 'steward-steam.json'",
@@ -62,28 +64,29 @@ public sealed class SteamPlatformPackageCompositionTests
     }
 
     [Fact]
-    public void NonSteamPackagePathDoesNotCreatePlatformConfiguration()
+    public void PlatformConfigurationWriteIsInsideSteamReleasePackagingBlock()
     {
         var source = ReadBuildScript();
-        var steamBlock = RequiredIndex(source, "if ($steamReleaseRequested) {");
+        var platformStart = RequiredIndex(source, "$steamPlatformConfiguration = [ordered]@{");
+        var steamBlock = RequiredLastIndex(
+            source,
+            "if ($steamReleaseRequested) {",
+            platformStart);
+        var desktopSection = RequiredIndex(
+            source,
+            "$desktopExecutable = Join-Path $output 'SharedWorlds.Desktop.exe'",
+            platformStart);
         var platformWrite = RequiredIndex(
             source,
             "$steamPlatformConfigurationPath = Join-Path $output 'steward-steam.json'",
-            steamBlock);
-        var nextTopLevelSection = RequiredIndex(
-            source,
-            "$desktopExecutable = Join-Path $output 'SharedWorlds.Desktop.exe'",
-            platformWrite);
+            platformStart);
 
-        Assert.True(steamBlock < platformWrite);
-        Assert.True(platformWrite < nextTopLevelSection);
+        Assert.True(steamBlock < platformStart);
+        Assert.True(platformStart < platformWrite);
+        Assert.True(platformWrite < desktopSection);
         Assert.DoesNotContain(
             "steward-steam.json",
             source[..steamBlock],
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "steward-steam.json",
-            source[nextTopLevelSection..],
             StringComparison.Ordinal);
     }
 
@@ -112,6 +115,16 @@ public sealed class SteamPlatformPackageCompositionTests
     {
         var index = source.IndexOf(value, startIndex, StringComparison.Ordinal);
         Assert.True(index >= 0, $"Required source fragment was not found: {value}");
+        return index;
+    }
+
+    private static int RequiredLastIndex(string source, string value, int beforeIndex)
+    {
+        var index = source.LastIndexOf(
+            value,
+            beforeIndex,
+            StringComparison.Ordinal);
+        Assert.True(index >= 0, $"Required source fragment was not found before index {beforeIndex}: {value}");
         return index;
     }
 

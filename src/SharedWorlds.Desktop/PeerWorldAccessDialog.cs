@@ -5,6 +5,7 @@ using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Media;
 using SharedWorlds.Core.Domain;
+using SharedWorlds.Infrastructure.Sessions;
 
 namespace SharedWorlds.Desktop;
 
@@ -181,7 +182,6 @@ internal sealed class PeerWorldAccessDialog : Window
             SetStatus(delivery is { Delivered: > 0 }
                 ? $"Access added for Steam ID {value}. Private Steam invitation delivery was requested."
                 : $"Access added for Steam ID {value}. Steward will retry the Steam invitation when this World is hosted.");
-            await ReloadAsync(preserveStatus: true);
         });
     }
 

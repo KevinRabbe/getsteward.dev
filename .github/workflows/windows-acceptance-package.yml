@@ -153,19 +153,17 @@ jobs:
           $manifestPath = Join-Path $evidence 'acceptance-build.json'
           $backendAuthPath = Join-Path $evidence 'backend-steam-auth.public.json'
 
-          $buildArguments = @(
-            '-OutputDirectory', $output,
-            '-AcceptanceManifestOutputPath', $manifestPath,
-            '-ReleaseContentOnly',
-            '-SteamReleaseAppId', $appId,
-            '-BuildVersion', $version
-          )
+          $buildArguments = @{
+            OutputDirectory = $output
+            AcceptanceManifestOutputPath = $manifestPath
+            ReleaseContentOnly = $true
+            SteamReleaseAppId = $appId
+            BuildVersion = $version
+          }
           if ($includeLegacyRemoteMigration) {
-            $buildArguments += '-IncludeLegacyRemoteMigrationConfiguration'
-            $buildArguments += @(
-              '-SteamReleaseApiBaseUrl', $expectedApiBaseUrl,
-              '-SteamReleaseWebApiIdentity', $identity
-            )
+            $buildArguments.IncludeLegacyRemoteMigrationConfiguration = $true
+            $buildArguments.SteamReleaseApiBaseUrl = $expectedApiBaseUrl
+            $buildArguments.SteamReleaseWebApiIdentity = $identity
           }
           & ./tools/e4-build-desktop.ps1 @buildArguments
           if ($LASTEXITCODE -ne 0) { throw "Steam peer package build failed with exit code $LASTEXITCODE." }

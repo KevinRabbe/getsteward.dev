@@ -1,6 +1,6 @@
 using System.IO;
 using System.Windows;
-using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Infrastructure.Storage;
 
 namespace SharedWorlds.Desktop;
 
@@ -18,6 +18,8 @@ public partial class MainWindow
     {
         DisposePeerRuntime();
         _peerRuntimeProblem = null;
+        Closed -= MainWindow_PeerRuntimeClosed;
+        Closed += MainWindow_PeerRuntimeClosed;
 
         if (!StewardDesktopSteamConfiguration.TryLoad(
                 out var configuration,
@@ -63,7 +65,7 @@ public partial class MainWindow
             _peerRuntime = StewardDesktopPeerRuntime.Create(
                 platform!,
                 _deviceSettings.InstallationId,
-                _localCanonicalStorage,
+                CreatePeerCanonicalStorage(),
                 _workspaceRecoveryStore,
                 _localManagedSessionGate,
                 CreateDesktopLifecycleObserver());
@@ -78,6 +80,15 @@ public partial class MainWindow
                 $"Steam peer features could not start on this launch: {exception.Message}";
         }
     }
+
+    private static LocalWorldStorage CreatePeerCanonicalStorage()
+        => new(Path.Combine(
+            GetLocalDataRoot(),
+            "SharedWorlds",
+            "data"));
+
+    private void MainWindow_PeerRuntimeClosed(object? sender, EventArgs e)
+        => DisposePeerRuntime();
 
     private void DisposePeerRuntime()
     {

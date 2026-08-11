@@ -10,20 +10,28 @@ using SharedWorlds.Infrastructure.Sessions;
 namespace SharedWorlds.Desktop;
 
 /// <summary>
-/// Minimal access surface for persistent peer Worlds. Canonical membership is the only authority here;
-/// Steam lobby invitations are delivery after membership persistence. Removal/transfer/leave are not
-/// presented until their peer revocation/handoff semantics are implemented.
+/// Access surface for persistent peer Worlds. Canonical membership is the only authority here; Steam
+/// lobby invitations are delivery after membership persistence. Member removal is intentionally limited
+/// to inactive Worlds so Steward never presents a partial live-kick model while peer transports are active.
+/// Authority transfer / holder leave remain separate workflows and are not presented here yet.
 /// </summary>
 internal sealed class PeerWorldAccessDialog : Window
 {
     private readonly StewardDesktopPeerRuntime _runtime;
     private World _world;
+    private IReadOnlyList<UserIdentity> _displayedMembers = Array.Empty<UserIdentity>();
     private readonly ListBox _members = new();
     private readonly TextBox _steamId = new();
     private readonly Button _addButton = new()
     {
         Content = "Add person",
         Padding = new Thickness(12, 6, 12, 6)
+    };
+    private readonly Button _removeButton = new()
+    {
+        Content = "Remove access",
+        Padding = new Thickness(12, 6, 12, 6),
+        IsEnabled = false
     };
     private readonly TextBlock _summary = new()
     {
@@ -35,6 +43,7 @@ internal sealed class PeerWorldAccessDialog : Window
         TextWrapping = TextWrapping.Wrap,
         Opacity = 0.82
     };
+    private bool _canManage;
     private bool _busy;
 
     public PeerWorldAccessDialog(
@@ -48,9 +57,9 @@ internal sealed class PeerWorldAccessDialog : Window
 
         Title = $"Lobby — {world.Name}";
         Width = 560;
-        Height = 460;
+        Height = 500;
         MinWidth = 480;
-        MinHeight = 380;
+        MinHeight = 400;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         UseLayoutRounding = true;
         SnapsToDevicePixels = true;
@@ -59,6 +68,8 @@ internal sealed class PeerWorldAccessDialog : Window
         Content = BuildContent();
 
         _addButton.Click += AddButton_Click;
+        _removeButton.Click += RemoveButton_Click;
+        _members.SelectionChanged += (_, _) => UpdateActionState();
         Loaded += async (_, _) => await ReloadAsync();
     }
 
@@ -103,12 +114,24 @@ internal sealed class PeerWorldAccessDialog : Window
         Grid.SetRow(addRow, 1);
         root.Children.Add(addRow);
 
+        var memberArea = new Grid();
+        memberArea.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        memberArea.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _members.Background = (Brush)FindResource("PanelBrush");
         _members.Foreground = (Brush)FindResource("TextBrush");
         _members.BorderBrush = (Brush)FindResource("BorderBrush");
         AutomationProperties.SetName(_members, "World members");
-        Grid.SetRow(_members, 2);
-        root.Children.Add(_members);
+        memberArea.Children.Add(_members);
+
+        _removeButton.HorizontalAlignment = HorizontalAlignment.Right;
+        _removeButton.Margin = new Thickness(0, 10, 0, 0);
+        AutomationProperties.SetHelpText(
+            _removeButton,
+            "Remove the selected non-holder member while the World is not being hosted.");
+        Grid.SetRow(_removeButton, 1);
+        memberArea.Children.Add(_removeButton);
+        Grid.SetRow(memberArea, 2);
+        root.Children.Add(memberArea);
 
         var footer = new Grid { Margin = new Thickness(0, 18, 0, 0) };
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -185,26 +208,56 @@ internal sealed class PeerWorldAccessDialog : Window
         });
     }
 
+    private async void RemoveButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetSelectedRemovableMember(out var member))
+        {
+            return;
+        }
+
+        var confirmation = MessageBox.Show(
+            this,
+            $"Remove access for {FormatMember(member)}?\n\nThe World must be inactive. Steward will not perform a partial live kick while peer traffic is running.",
+            "Remove World access",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No);
+        if (confirmation != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        await RunAsync(async () =>
+        {
+            _world = await _runtime.MemberRemoval.RemoveMemberAsync(
+                _world.Id,
+                _runtime.User,
+                member);
+            SetStatus($"Access removed for {FormatMember(member)}. Future Host/Join admission will reject that member.");
+        });
+    }
+
     private async Task ReloadAsync(bool preserveStatus = false)
     {
         _world = await _runtime.Storage.LoadWorldAsync(_world.Id)
             ?? throw new InvalidOperationException(
                 "The canonical peer World is no longer available on this Steward installation.");
 
-        _members.ItemsSource = _world.Members
+        _displayedMembers = _world.Members
             .OrderBy(member => SameUser(member, _runtime.User) ? 0 : 1)
             .ThenBy(member => member.Provider, StringComparer.OrdinalIgnoreCase)
             .ThenBy(member => member.ExternalId, StringComparer.Ordinal)
+            .ToArray();
+        _members.ItemsSource = _displayedMembers
             .Select(FormatMember)
             .ToArray();
 
-        var canManage = _world.PeerAuthority is { } authority &&
-                        SameUser(authority.Holder, _runtime.User);
-        _summary.Text = canManage
-            ? "World membership is stored with the World. Add a Steam ID64 to grant access; Steam lobby invitation delivery is separate and retryable."
+        _canManage = _world.PeerAuthority is { } authority &&
+                     SameUser(authority.Holder, _runtime.User);
+        _summary.Text = _canManage
+            ? "World membership is stored with the World. Add grants access before Steam invite delivery. Remove access is available only while the World is inactive."
             : "World membership is read-only here because this Steward identity is not the current persistent peer authority holder.";
-        _steamId.IsEnabled = !_busy && canManage;
-        _addButton.IsEnabled = !_busy && canManage;
+        UpdateActionState();
         if (!preserveStatus)
         {
             _status.Text = string.Empty;
@@ -219,8 +272,7 @@ internal sealed class PeerWorldAccessDialog : Window
         }
 
         _busy = true;
-        _steamId.IsEnabled = false;
-        _addButton.IsEnabled = false;
+        UpdateActionState();
         try
         {
             await operation();
@@ -238,10 +290,34 @@ internal sealed class PeerWorldAccessDialog : Window
             }
             catch
             {
-                _steamId.IsEnabled = false;
-                _addButton.IsEnabled = false;
+                _canManage = false;
+                UpdateActionState();
             }
         }
+    }
+
+    private void UpdateActionState()
+    {
+        var canMutate = !_busy && _canManage;
+        _steamId.IsEnabled = canMutate;
+        _addButton.IsEnabled = canMutate;
+        _removeButton.IsEnabled = canMutate &&
+                                  TryGetSelectedRemovableMember(out _);
+    }
+
+    private bool TryGetSelectedRemovableMember(out UserIdentity member)
+    {
+        var index = _members.SelectedIndex;
+        if (index >= 0 &&
+            index < _displayedMembers.Count &&
+            !SameUser(_displayedMembers[index], _runtime.User))
+        {
+            member = _displayedMembers[index];
+            return true;
+        }
+
+        member = null!;
+        return false;
     }
 
     private string FormatMember(UserIdentity member)

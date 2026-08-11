@@ -21,9 +21,13 @@ jobs:
     name: Build AppID 480 friend-test kit
     runs-on: windows-latest
     timeout-minutes: 30
+    env:
+      SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout exact friend-test revision
         uses: actions/checkout@v6
+        with:
+          ref: ${{ env.SOURCE_SHA }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -33,6 +37,11 @@ jobs:
       - name: Build and verify development friend-test kit
         shell: pwsh
         run: |
+          $actualSha = (& git rev-parse HEAD).Trim()
+          if (-not [string]::Equals($actualSha, $env:SOURCE_SHA, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Checkout SHA '$actualSha' does not match requested source SHA '$env:SOURCE_SHA'."
+          }
+
           $output = "$env:RUNNER_TEMP/steward-peer-friend-test"
           ./tools/build-steam-peer-friend-test.ps1 `
             -Version '3.0.0-peer-friend-test.1' `
@@ -54,6 +63,11 @@ jobs:
             throw 'Development steam_appid.txt does not contain Valve SpaceWar AppID 480.'
           }
 
+          $kit = Get-Content -LiteralPath $friendManifest -Raw | ConvertFrom-Json
+          if (-not [string]::Equals([string]$kit.sourceCommitSha, $env:SOURCE_SHA, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Friend-test manifest source SHA '$($kit.sourceCommitSha)' does not match exact branch head '$env:SOURCE_SHA'."
+          }
+
           & $probe --verify-package --package-root $product
           if ($LASTEXITCODE -ne 0) {
             throw "Final friend-test product verification failed with exit code $LASTEXITCODE."
@@ -65,7 +79,7 @@ jobs:
       - name: Upload downloadable friend-test kit
         uses: actions/upload-artifact@v6
         with:
-          name: steward-peer-friend-test-v1-${{ github.sha }}
+          name: steward-peer-friend-test-v1-${{ env.SOURCE_SHA }}
           path: ${{ runner.temp }}/steward-peer-friend-test
           if-no-files-found: error
           retention-days: 14

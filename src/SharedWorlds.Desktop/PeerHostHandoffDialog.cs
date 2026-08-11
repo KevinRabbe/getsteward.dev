@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -7,10 +8,10 @@ using SharedWorlds.Core.Domain;
 namespace SharedWorlds.Desktop;
 
 /// <summary>
-/// Selects one already-canonical remote member as the requested next peer host. This dialog does not
-/// change authority. The lifecycle/session coordinator remains responsible for proving that the target
-/// is currently in the live private lobby, stopping the outgoing host safely, committing the final
-/// revision, transferring generation N+1, and moving lobby ownership.
+/// Selects one already-canonical remote Steam member as the requested next peer host. This dialog does
+/// not change authority. The lifecycle/session coordinator remains responsible for proving that the
+/// target is currently in the live private lobby, stopping the outgoing host safely, committing the
+/// final revision, transferring generation N+1, and moving lobby ownership.
 /// </summary>
 internal sealed class PeerHostHandoffDialog : Window
 {
@@ -31,9 +32,8 @@ internal sealed class PeerHostHandoffDialog : Window
         ArgumentNullException.ThrowIfNull(localHolder);
 
         _candidates = world.Members
-            .Where(member => !SameUser(member, localHolder))
-            .OrderBy(member => member.Provider, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(member => member.ExternalId, StringComparer.Ordinal)
+            .Where(member => !SameUser(member, localHolder) && IsSteamAuthorityCandidate(member))
+            .OrderBy(member => member.ExternalId, StringComparer.Ordinal)
             .ToArray();
 
         Title = $"Hand off host — {world.Name}";
@@ -47,7 +47,8 @@ internal sealed class PeerHostHandoffDialog : Window
         Content = BuildContent(world.Name);
 
         _list.SelectionChanged += (_, _) =>
-            _confirm.IsEnabled = _list.SelectedIndex >= 0;
+            _confirm.IsEnabled = _list.SelectedIndex >= 0 &&
+                                 _list.SelectedIndex < _candidates.Count;
         _confirm.Click += (_, _) =>
         {
             if (SelectedHost is null)
@@ -103,7 +104,7 @@ internal sealed class PeerHostHandoffDialog : Window
         AutomationProperties.SetName(_list, "Eligible World members");
         AutomationProperties.SetHelpText(
             _list,
-            "Choose a canonical World member who is already connected to the active private Steam lobby.");
+            "Choose a canonical Steam World member who is already connected to the active private Steam lobby.");
         Grid.SetRow(_list, 1);
         root.Children.Add(_list);
 
@@ -130,7 +131,7 @@ internal sealed class PeerHostHandoffDialog : Window
             _confirm.IsEnabled = false;
             _list.ItemsSource = new[]
             {
-                "No other canonical World member is available. Add a person before hosting if you want to hand the World over."
+                "No other Steam member can take authority. Add a Steam person before hosting if you want to hand the World over."
             };
         }
 
@@ -138,9 +139,16 @@ internal sealed class PeerHostHandoffDialog : Window
     }
 
     private static string FormatMember(UserIdentity member)
-        => string.Equals(member.Provider, "steam", StringComparison.OrdinalIgnoreCase)
-            ? $"Steam ID {member.ExternalId}"
-            : $"{member.Provider}: {member.ExternalId}";
+        => $"Steam ID {member.ExternalId}";
+
+    private static bool IsSteamAuthorityCandidate(UserIdentity member)
+        => string.Equals(member.Provider, "steam", StringComparison.OrdinalIgnoreCase) &&
+           ulong.TryParse(
+               member.ExternalId,
+               NumberStyles.None,
+               CultureInfo.InvariantCulture,
+               out var steamId) &&
+           steamId != 0;
 
     private static bool SameUser(UserIdentity left, UserIdentity right)
         => string.Equals(left.Provider, right.Provider, StringComparison.OrdinalIgnoreCase) &&

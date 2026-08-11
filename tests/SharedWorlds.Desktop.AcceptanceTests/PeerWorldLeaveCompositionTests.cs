@@ -114,7 +114,7 @@ public sealed class PeerWorldLeaveCompositionTests
             "src/SharedWorlds.Desktop/MainWindow.WorldSharing.cs");
         var dialog = RequiredIndex(source, "var dialog = new PeerWorldAccessDialog(peer, canonical)");
         var left = RequiredIndex(source, "if (dialog.WorldWasLeft)", dialog);
-        var refresh = RequiredIndex(source, "selectedWorldId: null", left);
+        var refresh = RequiredIndex(source, "preferredWorldId: null", left);
         var warning = RequiredIndex(source, "dialog.LeaveWarning", refresh);
 
         Assert.True(dialog < left);

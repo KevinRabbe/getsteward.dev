@@ -25,21 +25,25 @@ public sealed class LiveMemberRevocationFenceCompositionTests
     }
 
     [Fact]
-    public void SameRegistryFencesCatchUpMembershipAndGameAdmission()
+    public void SameRegistryFencesCatchUpMembershipGameAdmissionAndRemoval()
     {
         var source = ReadRepositoryFile("src/SharedWorlds.Desktop/StewardDesktopPeerRuntime.cs");
 
         var catchUp = RequiredIndex(source, "var catchUpRouter = new PeerWorldCatchUpRequestRouter(");
         var catchUpFence = RequiredIndex(source, "liveMemberRevocations);", catchUp);
         var membership = RequiredIndex(source, "var membership = new PeerWorldMembershipService(", catchUpFence);
-        var membershipFence = RequiredIndex(source, "liveMemberRevocations);", membership);
-        var admission = RequiredIndex(source, "var gameBridgeAdmission = new PeerGameDatagramBridgeAdmissionService(", membershipFence);
+        var membershipFence = RequiredIndex(source, "liveMemberRevocations,", membership);
+        var removal = RequiredIndex(source, "var memberRemoval = new PeerWorldMemberRemovalService(", membershipFence);
+        var removalFence = RequiredIndex(source, "liveMemberRevocations,", removal);
+        var admission = RequiredIndex(source, "var gameBridgeAdmission = new PeerGameDatagramBridgeAdmissionService(", removalFence);
         var admissionFence = RequiredIndex(source, "liveMemberRevocations);", admission);
 
         Assert.True(catchUp < catchUpFence);
         Assert.True(catchUpFence < membership);
         Assert.True(membership < membershipFence);
-        Assert.True(membershipFence < admission);
+        Assert.True(membershipFence < removal);
+        Assert.True(removal < removalFence);
+        Assert.True(removalFence < admission);
         Assert.True(admission < admissionFence);
     }
 
@@ -105,23 +109,25 @@ public sealed class LiveMemberRevocationFenceCompositionTests
         Assert.True(clear < restoreBridge);
 
         var clearMethod = RequiredIndex(registry, "public int ClearWorld(");
-        var cancel = RequiredIndex(registry, "cancellation.Cancel();", clearMethod);
+        var cancel = RequiredIndex(registry, "CancelWithoutPropagation(cancellation);", clearMethod);
         var dispose = RequiredIndex(registry, "cancellation.Dispose();", cancel);
         Assert.True(clearMethod < cancel);
         Assert.True(cancel < dispose);
     }
 
     [Fact]
-    public void PrerequisiteDoesNotEnableLiveRemovalPrematurely()
+    public void LiveRemovalRequiresBothRevocationAndMutationBoundaries()
     {
         var runtime = ReadRepositoryFile("src/SharedWorlds.Desktop/StewardDesktopPeerRuntime.cs");
         var removal = ReadRepositoryFile("src/SharedWorlds.Infrastructure/Sessions/PeerWorldMemberRemovalService.cs");
 
         var memberRemoval = RequiredIndex(runtime, "var memberRemoval = new PeerWorldMemberRemovalService(");
-        var memberRemovalEnd = RequiredIndex(runtime, "lobby);", memberRemoval);
-        Assert.True(memberRemoval < memberRemovalEnd);
-        Assert.DoesNotContain("liveMemberRevocations", runtime[memberRemoval..memberRemovalEnd], StringComparison.Ordinal);
-        Assert.Contains("Stop hosting this World before removing access", removal, StringComparison.Ordinal);
+        var revocation = RequiredIndex(runtime, "liveMemberRevocations,", memberRemoval);
+        var mutation = RequiredIndex(runtime, "liveAuthorityMutations);", revocation);
+        Assert.True(memberRemoval < revocation);
+        Assert.True(revocation < mutation);
+        Assert.Contains("_liveRevocations.Revoke(", removal, StringComparison.Ordinal);
+        Assert.Contains("Remove access cannot run while a host handoff is in progress", removal, StringComparison.Ordinal);
     }
 
     private static int CountOccurrences(string source, string value)

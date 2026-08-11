@@ -140,7 +140,12 @@ public sealed class PeerWorldBootstrapTransferService
         EnvironmentRevision environment,
         StateRevision state)
     {
-        if (world.Id != environment.WorldId ||
+        var authority = world.PeerAuthority;
+        if (world.SharingMode != WorldSharingMode.Shared ||
+            authority is null ||
+            authority.Generation == 0 ||
+            !ContainsStableMember(world.Members, authority.Holder) ||
+            world.Id != environment.WorldId ||
             world.Id != state.WorldId ||
             world.CurrentEnvironmentRevisionId != environment.Id ||
             world.CurrentStateRevisionId != state.Id ||
@@ -149,7 +154,7 @@ public sealed class PeerWorldBootstrapTransferService
             !string.Equals(world.GameAdapterId, environment.Manifest.AdapterId, StringComparison.Ordinal))
         {
             throw new InvalidDataException(
-                "Canonical World bootstrap metadata contains mismatched World, revision, or adapter identities.");
+                "Canonical World bootstrap metadata contains missing peer authority or mismatched World, revision, membership, or adapter identities.");
         }
     }
 
@@ -166,7 +171,9 @@ public sealed class PeerWorldBootstrapTransferService
 /// <summary>
 /// Installs a first canonical snapshot for a user who has already been admitted to the active Steam
 /// lobby and appears in the host's canonical World membership. This preserves World/revision identity;
-/// it is not the public independent-copy import path.
+/// it is not the public independent-copy import path. The receiver records durable Observed authority
+/// before publishing the World catalog entry, so an interrupted bootstrap can never create an unfenced
+/// local replica that later participates in authority transitions.
 /// </summary>
 public sealed class PeerWorldBootstrapInstaller
 {
@@ -174,15 +181,18 @@ public sealed class PeerWorldBootstrapInstaller
 
     private readonly IWorldStorage _storage;
     private readonly UserIdentity _localUser;
+    private readonly IPeerAuthorityFenceStore _authorityFences;
     private readonly long _maximumPayloadBytes;
 
     public PeerWorldBootstrapInstaller(
         IWorldStorage storage,
         UserIdentity localUser,
+        IPeerAuthorityFenceStore authorityFences,
         long maximumPayloadBytes = PeerWorldRevisionReplicaInstaller.DefaultMaximumPayloadBytes)
     {
         ArgumentNullException.ThrowIfNull(storage);
         ArgumentNullException.ThrowIfNull(localUser);
+        ArgumentNullException.ThrowIfNull(authorityFences);
         if (maximumPayloadBytes <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(maximumPayloadBytes));
@@ -190,6 +200,7 @@ public sealed class PeerWorldBootstrapInstaller
 
         _storage = storage;
         _localUser = localUser;
+        _authorityFences = authorityFences;
         _maximumPayloadBytes = maximumPayloadBytes;
     }
 
@@ -214,6 +225,13 @@ public sealed class PeerWorldBootstrapInstaller
                 $"Local identity '{_localUser.ExternalId}' is not a canonical member of incoming World '{offer.World.Id}'.");
         }
 
+        var authority = offer.World.PeerAuthority!;
+        if (PeerWorldBootstrapTransferService.SameUser(authority.Holder, _localUser))
+        {
+            throw new InvalidOperationException(
+                "The persistent authority holder cannot bootstrap its own World through the observer path.");
+        }
+
         var expectedHash = ParseSha256(offer.PayloadSha256);
         var existingWorld = await _storage.LoadWorldAsync(
             offer.World.Id,
@@ -226,6 +244,7 @@ public sealed class PeerWorldBootstrapInstaller
                 statePayload,
                 expectedHash,
                 cancellationToken);
+            await EnsureObservedFenceAsync(offer, cancellationToken);
             return Receipt(offer);
         }
 
@@ -236,9 +255,10 @@ public sealed class PeerWorldBootstrapInstaller
             expectedHash,
             cancellationToken);
 
-        // Publishing the World catalog entry is the bootstrap transaction boundary. Immutable
-        // environment/state data may be safely orphaned after interruption; no partially received
-        // World becomes visible until every byte has been verified locally.
+        // Immutable metadata and payload are fully verified before durable authority evidence changes.
+        // The Observed fence is then persisted before the World catalog entry becomes visible. If the
+        // final World write fails, retrying the same exact bootstrap safely resumes from that fence.
+        await EnsureObservedFenceAsync(offer, cancellationToken);
         await _storage.SaveWorldAsync(offer.World, cancellationToken);
         return Receipt(offer);
     }
@@ -278,6 +298,45 @@ public sealed class PeerWorldBootstrapInstaller
             expectedHash,
             cancellationToken);
         await VerifyStoredPayloadAsync(offer, expectedHash, cancellationToken);
+    }
+
+    private async Task EnsureObservedFenceAsync(
+        PeerWorldRevisionOffer offer,
+        CancellationToken cancellationToken)
+    {
+        var authority = offer.World.PeerAuthority!;
+        var expected = new PeerAuthorityFence(
+            offer.World.Id,
+            authority.Holder,
+            authority.Generation,
+            offer.StateRevision.Id,
+            PeerAuthorityFenceState.Observed,
+            DateTimeOffset.UtcNow);
+        var current = await _authorityFences.LoadAsync(
+            offer.World.Id,
+            cancellationToken);
+        if (current is not null && EquivalentObservedFence(current, expected))
+        {
+            return;
+        }
+
+        if (current is not null && current.State == PeerAuthorityFenceState.Active)
+        {
+            throw new InvalidDataException(
+                $"World '{offer.World.Id}' cannot be bootstrapped over local Active peer authority.");
+        }
+
+        await _authorityFences.SaveAsync(expected, cancellationToken);
+        var persisted = await _authorityFences.LoadAsync(
+            offer.World.Id,
+            cancellationToken)
+            ?? throw new InvalidDataException(
+                $"Durable peer authority fence disappeared after bootstrap write for World '{offer.World.Id}'.");
+        if (!EquivalentObservedFence(persisted, expected))
+        {
+            throw new InvalidDataException(
+                $"Durable peer authority fence does not match the exact bootstrap authority for World '{offer.World.Id}'.");
+        }
     }
 
     private async Task EnsureEnvironmentAsync(
@@ -455,8 +514,34 @@ public sealed class PeerWorldBootstrapInstaller
            left.JoinPolicy == right.JoinPolicy &&
            left.StartYourOwnPolicy == right.StartYourOwnPolicy &&
            EquivalentUsers(left.Members, right.Members) &&
+           EquivalentPeerAuthority(left.PeerAuthority, right.PeerAuthority) &&
            left.StartedFrom == right.StartedFrom &&
            EquivalentCheckpoints(left.Checkpoints, right.Checkpoints);
+
+    private static bool EquivalentPeerAuthority(
+        WorldPeerAuthority? left,
+        WorldPeerAuthority? right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+
+        return left is not null &&
+               right is not null &&
+               left.Generation == right.Generation &&
+               PeerWorldBootstrapTransferService.SameUser(left.Holder, right.Holder);
+    }
+
+    private static bool EquivalentObservedFence(
+        PeerAuthorityFence left,
+        PeerAuthorityFence right)
+        => left.WorldId == right.WorldId &&
+           left.State == PeerAuthorityFenceState.Observed &&
+           right.State == PeerAuthorityFenceState.Observed &&
+           left.Generation == right.Generation &&
+           left.StateRevisionId == right.StateRevisionId &&
+           PeerWorldBootstrapTransferService.SameUser(left.Holder, right.Holder);
 
     private static bool EquivalentEnvironment(
         EnvironmentRevision left,

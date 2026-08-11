@@ -208,6 +208,17 @@ if ($null -ne $normalizedFriendsBuildApiBaseUrl) {
 }
 
 if ($steamReleaseRequested) {
+    $steamPlatformConfiguration = [ordered]@{
+        schemaVersion = 1
+        steamAppId = $SteamReleaseAppId
+    }
+    $steamPlatformConfigurationJson = $steamPlatformConfiguration | ConvertTo-Json -Compress
+    $steamPlatformConfigurationPath = Join-Path $output 'steward-steam.json'
+    [IO.File]::WriteAllText(
+        $steamPlatformConfigurationPath,
+        $steamPlatformConfigurationJson,
+        [Text.UTF8Encoding]::new($false))
+
     $steamReleaseConfiguration = [ordered]@{
         schemaVersion = 1
         apiBaseUrl = $normalizedSteamReleaseApiBaseUrl
@@ -277,7 +288,8 @@ if ($null -ne $normalizedFriendsBuildApiBaseUrl) {
     Write-Host 'No private friend credential, Steam AppID, Web API identity, ticket, or backend secret is embedded.'
 }
 elseif ($steamReleaseRequested) {
-    Write-Host 'The Steam release HTTPS API coordinate, expected AppID, and Web API identity are embedded in steward-steam-release.json and covered by the package manifest.'
+    Write-Host 'The expected Steam AppID is embedded independently in steward-steam.json and covered by the package manifest.'
+    Write-Host 'Legacy Steam release API coordinates remain in steward-steam-release.json during migration.'
     Write-Host 'No publisher API key, Steam ticket, Steward session credential, or other backend secret is embedded.'
 }
 else {

@@ -526,7 +526,7 @@ public sealed class WorldLifecycleService
                 var revision = new StateRevision(
                     Id: nextRevisionId,
                     WorldId: context.World.Id,
-                    ParentRevisionId: context.World.CurrentStateRevisionId,
+                    ParentRevisionId: workspaceRecord.BaseStateRevisionId,
                     CreatedAt: captured.CapturedAt,
                     CreatedBy: user,
                     AdapterId: adapter.Id,
@@ -539,13 +539,31 @@ public sealed class WorldLifecycleService
                     await _storage.StoreRevisionAsync(revision, package, cancellationToken);
                 }
 
-                var updatedWorld = context.World with
-                {
-                    CurrentStateRevisionId = nextRevisionId
-                };
-
                 Notify(worldId, mode, WorldLifecyclePhase.Committing);
-                await _storage.SaveWorldAsync(updatedWorld, cancellationToken);
+                World updatedWorld;
+                if (_storage is IWorldStateHeadAdvancer stateHeadAdvancer)
+                {
+                    // Peer-hosted storage owns state-head publication as a CAS against the exact
+                    // revision this managed session started from. The implementation reloads the
+                    // latest canonical World under its mutation gate, so membership/environment/
+                    // authority changes made while the game was running are preserved.
+                    updatedWorld = await stateHeadAdvancer.AdvanceStateHeadAsync(
+                        worldId,
+                        workspaceRecord.BaseStateRevisionId,
+                        nextRevisionId,
+                        cancellationToken);
+                }
+                else
+                {
+                    // Compatibility for local/non-peer storage. Peer-hosted production storage uses
+                    // IWorldStateHeadAdvancer and therefore never publishes this retained snapshot.
+                    updatedWorld = context.World with
+                    {
+                        CurrentStateRevisionId = nextRevisionId
+                    };
+                    await _storage.SaveWorldAsync(updatedWorld, cancellationToken);
+                }
+
                 committedStateRevisionId = nextRevisionId;
 
                 Notify(worldId, mode, WorldLifecyclePhase.Finalizing);

@@ -6,8 +6,6 @@ namespace SharedWorlds.GameAdapters.Factorio;
 internal static partial class FactorioWorldOperations
 {
     private const string ManagedLaunchRuntimeDirectoryName = "launch-runtime";
-    private const string SteamAppIdFileName = "steam_appid.txt";
-    private const string FactorioSteamAppId = "427520";
 
     public static Task<GameSessionHandle> LaunchLocalAsync(
         PreparedWorld world,

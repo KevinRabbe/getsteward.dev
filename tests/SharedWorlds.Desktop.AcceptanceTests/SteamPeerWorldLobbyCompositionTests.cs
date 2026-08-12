@@ -158,25 +158,60 @@ public sealed class SteamPeerWorldLobbyCompositionTests
     }
 
     [Fact]
-    public void NormalHostExitCannotLetSteamChooseReplacementBehindSteward()
+    public void NormalHostExitRetiresSessionBeforeLeavingEvenWithRemainingSteamParticipants()
     {
         var source = ReadLobby();
         var leave = RequiredIndex(source, "public async Task LeaveAsync(");
-        var remainingMembers = RequiredIndex(
+        var stopAdmissions = RequiredIndex(
             source,
-            "SteamMatchmaking.GetNumLobbyMembers(lobbyId) > 1",
+            "SteamMatchmaking.SetLobbyJoinable(lobbyId, false)",
             leave);
-        var conflict = RequiredIndex(
+        var retiredWrite = RequiredIndex(
             source,
-            "Steward must complete host handoff before the current host leaves.",
-            remainingMembers);
+            "EnsureSetLobbyData(lobbyId, RetiredKey, RetiredValue, worldId);",
+            stopAdmissions);
         var steamLeave = RequiredIndex(
             source,
             "SteamMatchmaking.LeaveLobby(lobbyId);",
-            conflict);
+            retiredWrite);
+        var detach = RequiredIndex(
+            source,
+            "_knownLobbies.Remove(worldId);",
+            steamLeave);
 
-        Assert.True(remainingMembers < conflict);
-        Assert.True(conflict < steamLeave);
+        Assert.DoesNotContain(
+            "SteamMatchmaking.GetNumLobbyMembers(lobbyId) > 1",
+            source,
+            StringComparison.Ordinal);
+        Assert.True(stopAdmissions < retiredWrite);
+        Assert.True(retiredWrite < steamLeave);
+        Assert.True(steamLeave < detach);
+    }
+
+    [Fact]
+    public void RetiredLobbyCannotBeReinterpretedAsARecoveryOrAuthoritySession()
+    {
+        var source = ReadLobby();
+        var tryRead = RequiredIndex(source, "private PeerWorldLobbySnapshot? TryReadKnownLobby(");
+        var retiredGuard = RequiredIndex(source, "if (IsRetiredLobby(lobbyId))", tryRead);
+        var leave = RequiredIndex(source, "SteamMatchmaking.LeaveLobby(lobbyId);", retiredGuard);
+        var remove = RequiredIndex(source, "_knownLobbies.Remove(worldId);", leave);
+        var returnNull = RequiredIndex(source, "return null;", remove);
+        var readSnapshot = RequiredIndex(source, "private PeerWorldLobbySnapshot ReadSnapshot(\n        WorldId worldId,\n        CSteamID lobbyId,\n        CSteamID observedOwner)");
+        var rejectRetired = RequiredIndex(source, "if (IsRetiredLobby(lobbyId))", readSnapshot);
+
+        Assert.Contains(
+            "private const string RetiredKey = \"steward.retired\";",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "EnsureSetLobbyData(lobbyId, RetiredKey, ActiveValue, worldId);",
+            source,
+            StringComparison.Ordinal);
+        Assert.True(retiredGuard < leave);
+        Assert.True(leave < remove);
+        Assert.True(remove < returnNull);
+        Assert.True(readSnapshot < rejectRetired);
     }
 
     [Fact]

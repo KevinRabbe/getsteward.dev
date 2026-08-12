@@ -44,6 +44,24 @@ internal static class FactorioManagedProcessLifetime
         }
     }
 
+    public static bool IsAttached(Process process)
+    {
+        ArgumentNullException.ThrowIfNull(process);
+        if (!OperatingSystem.IsWindows())
+        {
+            return true;
+        }
+
+        if (!IsProcessInJob(process.Handle, StewardJob.Value, out var isInJob))
+        {
+            throw new Win32Exception(
+                Marshal.GetLastWin32Error(),
+                $"Windows could not verify Steward lifetime ownership for Factorio process {process.Id}.");
+        }
+
+        return isInJob;
+    }
+
     private static IntPtr CreateStewardJob()
     {
         var job = CreateJobObjectW(IntPtr.Zero, null);
@@ -113,6 +131,13 @@ internal static class FactorioManagedProcessLifetime
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsProcessInJob(
+        IntPtr processHandle,
+        IntPtr jobHandle,
+        [MarshalAs(UnmanagedType.Bool)] out bool result);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

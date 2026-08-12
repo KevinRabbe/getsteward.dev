@@ -31,6 +31,8 @@ internal sealed partial class SteamPeerWorldLobby : IPeerWorldLobby
     private readonly SteamPlatformRuntime _platform;
     private readonly SemaphoreSlim _mutationGate = new(1, 1);
     private readonly Dictionary<WorldId, CSteamID> _knownLobbies = [];
+    private readonly object _lateCreateGate = new();
+    private readonly HashSet<SteamLateCallGuard<LobbyCreated_t>> _lateCreateCalls = [];
 
     public SteamPeerWorldLobby(SteamPlatformRuntime platform)
     {
@@ -510,56 +512,124 @@ internal sealed partial class SteamPeerWorldLobby : IPeerWorldLobby
     private async Task<CSteamID> CreateLobbyAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var completion = new TaskCompletionSource<LobbyCreated_t>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        using var callResult = CallResult<LobbyCreated_t>.Create(
+        var attempt = new SteamLateCallGuard<LobbyCreated_t>(
+            CleanupLateCreateResult,
+            ReleaseLateCreateAttempt);
+        var keepAliveForLateResult = false;
+        var callResult = CallResult<LobbyCreated_t>.Create(
             (result, ioFailure) =>
             {
                 if (ioFailure)
                 {
-                    completion.TrySetException(
+                    attempt.Fail(
                         new IOException("Steam lobby creation failed because the Steam API call failed."));
                     return;
                 }
 
-                completion.TrySetResult(result);
+                attempt.Complete(result);
             });
+        attempt.AttachRegistration(callResult);
 
-        await InvokeSteamAsync(
-            () =>
-            {
-                var call = SteamMatchmaking.CreateLobby(
-                    ELobbyType.k_ELobbyTypeFriendsOnly,
-                    MaxLobbyMembers);
-                if (call == SteamAPICall_t.Invalid)
-                {
-                    throw new IOException("Steam rejected the Steward lobby creation request.");
-                }
-
-                callResult.Set(call);
-            },
-            cancellationToken);
-
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(SteamCallTimeout);
-
-        LobbyCreated_t created;
         try
         {
-            created = await completion.Task.WaitAsync(timeout.Token);
+            await InvokeSteamAsync(
+                () =>
+                {
+                    var call = SteamMatchmaking.CreateLobby(
+                        ELobbyType.k_ELobbyTypeFriendsOnly,
+                        MaxLobbyMembers);
+                    if (call == SteamAPICall_t.Invalid)
+                    {
+                        throw new IOException("Steam rejected the Steward lobby creation request.");
+                    }
+
+                    callResult.Set(call);
+                },
+                cancellationToken);
+
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(SteamCallTimeout);
+
+            LobbyCreated_t created;
+            try
+            {
+                created = await attempt.Completion.WaitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                keepAliveForLateResult = await AbandonCreateAttemptAsync(attempt);
+                throw new TimeoutException(
+                    "Steam did not finish creating the Steward lobby in time.");
+            }
+            catch (OperationCanceledException)
+            {
+                keepAliveForLateResult = await AbandonCreateAttemptAsync(attempt);
+                throw;
+            }
+
+            if (created.m_eResult != EResult.k_EResultOK || created.m_ulSteamIDLobby == 0)
+            {
+                throw new IOException(
+                    $"Steam could not create the Steward lobby: {created.m_eResult}.");
+            }
+
+            return new CSteamID(created.m_ulSteamIDLobby);
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        finally
         {
-            throw new TimeoutException("Steam did not finish creating the Steward lobby in time.");
+            if (!keepAliveForLateResult)
+            {
+                attempt.Dispose();
+            }
+        }
+    }
+
+    private async Task<bool> AbandonCreateAttemptAsync(
+        SteamLateCallGuard<LobbyCreated_t> attempt)
+    {
+        RetainLateCreateAttempt(attempt);
+        if (attempt.TryAbandon())
+        {
+            return true;
         }
 
-        if (created.m_eResult != EResult.k_EResultOK || created.m_ulSteamIDLobby == 0)
+        // A successful create can race the timeout token. If Steam already delivered the result,
+        // clean that lobby up before reporting the timeout/cancellation to the caller.
+        await attempt.CleanupCompletedResultAsync();
+        return true;
+    }
+
+    private void CleanupLateCreateResult(LobbyCreated_t result)
+    {
+        if (result.m_eResult != EResult.k_EResultOK || result.m_ulSteamIDLobby == 0)
         {
-            throw new IOException(
-                $"Steam could not create the Steward lobby: {created.m_eResult}.");
+            return;
         }
 
-        return new CSteamID(created.m_ulSteamIDLobby);
+        var lobbyId = new CSteamID(result.m_ulSteamIDLobby);
+        if (_platform.Dispatcher.CheckAccess())
+        {
+            SteamMatchmaking.LeaveLobby(lobbyId);
+            return;
+        }
+
+        _platform.Dispatcher.Invoke(() => SteamMatchmaking.LeaveLobby(lobbyId));
+    }
+
+    private void RetainLateCreateAttempt(SteamLateCallGuard<LobbyCreated_t> attempt)
+    {
+        lock (_lateCreateGate)
+        {
+            _lateCreateCalls.Add(attempt);
+        }
+    }
+
+    private void ReleaseLateCreateAttempt(SteamLateCallGuard<LobbyCreated_t> attempt)
+    {
+        lock (_lateCreateGate)
+        {
+            _lateCreateCalls.Remove(attempt);
+        }
     }
 
     private CSteamID RequireKnownLobby(WorldId worldId)

@@ -9,15 +9,22 @@ namespace SharedWorlds.Infrastructure.Sessions;
 /// new canonical state head at the same authority generation, this decorator advances the durable
 /// Active authority fence first and only then publishes the World head.
 ///
-/// That ordering is intentional. If the fence write fails, the old World head remains canonical. If
-/// the World-head write fails after the fence advanced, the account is conservatively fenced ahead and
-/// cannot restart the stale head; retrying the exact same direct-child publication is idempotent.
+/// All mutable World-document publications are serialized through the same storage boundary. State
+/// commits therefore reload the latest canonical World while holding the mutation gate and change
+/// only CurrentStateRevisionId. Concurrent membership or other metadata changes cannot be overwritten
+/// by a stale World snapshot retained by a long-running game session.
+///
+/// The fence-before-head ordering is intentional. If the fence write fails, the old World head remains
+/// canonical. If the World-head write fails after the fence advanced, the account is conservatively
+/// fenced ahead and cannot restart the stale head; retrying the exact same direct-child publication is
+/// idempotent.
 /// </summary>
-public sealed class PeerAuthorityFencedWorldStorage : IWorldStorage
+public sealed class PeerAuthorityFencedWorldStorage : IWorldStorage, IWorldStateHeadAdvancer
 {
     private readonly IWorldStorage _inner;
     private readonly IPeerAuthorityActiveRevisionFenceStore _authorityFences;
     private readonly UserIdentity _localUser;
+    private readonly SemaphoreSlim _worldMutationGate = new(1, 1);
 
     public PeerAuthorityFencedWorldStorage(
         IWorldStorage inner,
@@ -37,16 +44,79 @@ public sealed class PeerAuthorityFencedWorldStorage : IWorldStorage
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(world);
-        var current = await _inner.LoadWorldAsync(world.Id, cancellationToken);
-        if (current is not null)
+        await _worldMutationGate.WaitAsync(cancellationToken);
+        try
         {
+            var current = await _inner.LoadWorldAsync(world.Id, cancellationToken);
+            if (current is not null)
+            {
+                await FenceActiveRevisionAdvanceIfRequiredAsync(
+                    current,
+                    world,
+                    cancellationToken);
+            }
+
+            await _inner.SaveWorldAsync(world, cancellationToken);
+        }
+        finally
+        {
+            _worldMutationGate.Release();
+        }
+    }
+
+    public async Task<World> AdvanceStateHeadAsync(
+        WorldId worldId,
+        RevisionId expectedStateRevisionId,
+        RevisionId nextStateRevisionId,
+        CancellationToken cancellationToken = default)
+    {
+        await _worldMutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            var current = await _inner.LoadWorldAsync(worldId, cancellationToken)
+                ?? throw new InvalidDataException(
+                    $"World '{worldId}' disappeared before its canonical state head could advance.");
+            var observedStateRevisionId = current.CurrentStateRevisionId
+                ?? throw new InvalidDataException(
+                    $"World '{worldId}' has no canonical state revision to advance.");
+            if (observedStateRevisionId != expectedStateRevisionId)
+            {
+                throw new InvalidDataException(
+                    $"World '{worldId}' state head changed while the managed session was running. Expected '{expectedStateRevisionId}', observed '{observedStateRevisionId}'. Steward will preserve the newer canonical World instead of overwriting it.");
+            }
+
+            var revision = await _inner.LoadStateRevisionAsync(
+                worldId,
+                nextStateRevisionId,
+                cancellationToken)
+                ?? throw new InvalidDataException(
+                    $"World '{worldId}' cannot publish state revision '{nextStateRevisionId}' before its immutable revision metadata is stored.");
+            if (revision.WorldId != worldId ||
+                revision.Id != nextStateRevisionId ||
+                revision.ParentRevisionId != expectedStateRevisionId ||
+                revision.EnvironmentRevisionId != current.CurrentEnvironmentRevisionId ||
+                !string.Equals(revision.AdapterId, current.GameAdapterId, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"World '{worldId}' next state revision is not the exact direct child required for the canonical state-head advance.");
+            }
+
+            var next = current with
+            {
+                CurrentStateRevisionId = nextStateRevisionId
+            };
+
             await FenceActiveRevisionAdvanceIfRequiredAsync(
                 current,
-                world,
+                next,
                 cancellationToken);
+            await _inner.SaveWorldAsync(next, cancellationToken);
+            return next;
         }
-
-        await _inner.SaveWorldAsync(world, cancellationToken);
+        finally
+        {
+            _worldMutationGate.Release();
+        }
     }
 
     public Task<World?> LoadWorldAsync(

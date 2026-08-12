@@ -29,6 +29,8 @@ internal sealed class SteamPeerWorldLobbyJoinService : IDisposable
     private readonly SteamPlatformRuntime _platform;
     private readonly SteamPeerWorldLobby _lobby;
     private readonly Callback<GameLobbyJoinRequested_t> _joinRequestedCallback;
+    private readonly object _lateJoinGate = new();
+    private readonly HashSet<SteamLateCallGuard<LobbyEnter_t>> _lateJoinCalls = [];
     private bool _disposed;
 
     public SteamPeerWorldLobbyJoinService(
@@ -169,43 +171,107 @@ internal sealed class SteamPeerWorldLobbyJoinService : IDisposable
         _disposed = true;
         _joinRequestedCallback.Dispose();
         JoinRequested = null;
+
+        // Abandoned native calls deliberately stay registered until Steam reports their result so a
+        // late successful Join can still be undone. SteamPlatformRuntime shuts the callback pump down
+        // after its dependent services are disposed, which then clears any remaining platform state.
     }
 
     private async Task<LobbyEnter_t> JoinSteamLobbyAsync(
         CSteamID lobbyId,
         CancellationToken cancellationToken)
     {
-        var completion = new TaskCompletionSource<LobbyEnter_t>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        using var callResult = CallResult<LobbyEnter_t>.Create(
+        var attempt = new SteamLateCallGuard<LobbyEnter_t>(
+            CleanupLateJoinResult,
+            ReleaseLateJoinAttempt);
+        var keepAliveForLateResult = false;
+        var callResult = CallResult<LobbyEnter_t>.Create(
             (result, ioFailure) =>
             {
                 if (ioFailure)
                 {
-                    completion.TrySetException(
+                    attempt.Fail(
                         new IOException("Steam lobby join failed because the Steam API call failed."));
                     return;
                 }
 
-                completion.TrySetResult(result);
+                attempt.Complete(result);
             });
+        attempt.AttachRegistration(callResult);
 
-        var call = SteamMatchmaking.JoinLobby(lobbyId);
-        if (call == SteamAPICall_t.Invalid)
-        {
-            throw new IOException("Steam rejected the Steward lobby join request.");
-        }
-
-        callResult.Set(call);
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(JoinTimeout);
         try
         {
-            return await completion.Task.WaitAsync(timeout.Token);
+            var call = SteamMatchmaking.JoinLobby(lobbyId);
+            if (call == SteamAPICall_t.Invalid)
+            {
+                throw new IOException("Steam rejected the Steward lobby join request.");
+            }
+
+            callResult.Set(call);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(JoinTimeout);
+            try
+            {
+                return await attempt.Completion.WaitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                keepAliveForLateResult = await AbandonJoinAttemptAsync(attempt);
+                throw new TimeoutException(
+                    "Steam did not finish joining the Steward lobby in time.");
+            }
+            catch (OperationCanceledException)
+            {
+                keepAliveForLateResult = await AbandonJoinAttemptAsync(attempt);
+                throw;
+            }
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        finally
         {
-            throw new TimeoutException("Steam did not finish joining the Steward lobby in time.");
+            if (!keepAliveForLateResult)
+            {
+                attempt.Dispose();
+            }
+        }
+    }
+
+    private async Task<bool> AbandonJoinAttemptAsync(
+        SteamLateCallGuard<LobbyEnter_t> attempt)
+    {
+        RetainLateJoinAttempt(attempt);
+        if (attempt.TryAbandon())
+        {
+            return true;
+        }
+
+        // The Steam callback won the cancellation/timeout race. Cleanup its already-completed result
+        // synchronously with this operation before surfacing cancellation so no admitted lobby is lost.
+        await attempt.CleanupCompletedResultAsync();
+        return true;
+    }
+
+    private void CleanupLateJoinResult(LobbyEnter_t result)
+    {
+        var joinedLobbyId = new CSteamID(result.m_ulSteamIDLobby);
+        if (joinedLobbyId.m_SteamID != 0)
+        {
+            SteamMatchmaking.LeaveLobby(joinedLobbyId);
+        }
+    }
+
+    private void RetainLateJoinAttempt(SteamLateCallGuard<LobbyEnter_t> attempt)
+    {
+        lock (_lateJoinGate)
+        {
+            _lateJoinCalls.Add(attempt);
+        }
+    }
+
+    private void ReleaseLateJoinAttempt(SteamLateCallGuard<LobbyEnter_t> attempt)
+    {
+        lock (_lateJoinGate)
+        {
+            _lateJoinCalls.Remove(attempt);
         }
     }
 

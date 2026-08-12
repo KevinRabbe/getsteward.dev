@@ -92,3 +92,18 @@ public interface IWorldStorage
         => throw new NotSupportedException(
             "This World storage backend does not support state-payload eviction.");
 }
+
+/// <summary>
+/// Atomic canonical mutation boundary for advancing only a World's state head.
+/// Implementations must compare the current head with <paramref name="expectedStateRevisionId"/>
+/// and, on success, preserve all concurrently changed World metadata (membership, environment,
+/// authority and presentation fields). The immutable next revision must already be durable.
+/// </summary>
+public interface IWorldStateHeadAdvancer
+{
+    Task<World> AdvanceStateHeadAsync(
+        WorldId worldId,
+        RevisionId expectedStateRevisionId,
+        RevisionId nextStateRevisionId,
+        CancellationToken cancellationToken = default);
+}

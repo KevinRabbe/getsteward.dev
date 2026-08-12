@@ -25,6 +25,7 @@ public sealed partial class FactorioAdapter : IGameAdapter
         GameAdapterCapabilities.Mods |
         GameAdapterCapabilities.AutomaticLocalLaunch |
         GameAdapterCapabilities.AutomaticHostLaunch |
+        GameAdapterCapabilities.AutomaticHostStop |
         GameAdapterCapabilities.AutomaticClientJoin |
         GameAdapterCapabilities.ExactGameVersion |
         GameAdapterCapabilities.NativeWorldCreation;

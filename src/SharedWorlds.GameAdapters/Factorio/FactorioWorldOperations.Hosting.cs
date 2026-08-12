@@ -369,6 +369,16 @@ internal static class FactorioHostingOperations
             throw new InvalidOperationException($"Failed to start Factorio executable '{executable}'.");
         }
 
+        try
+        {
+            FactorioManagedProcessLifetime.RequireAttached(process);
+        }
+        catch
+        {
+            process.Dispose();
+            throw;
+        }
+
         if (captureDiagnostics)
         {
             process.BeginOutputReadLine();

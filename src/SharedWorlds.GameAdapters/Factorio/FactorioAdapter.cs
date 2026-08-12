@@ -260,8 +260,12 @@ public sealed partial class FactorioAdapter : IGameAdapter
 
                     try
                     {
-                        if (!process.HasExited)
+                        if (!process.HasExited &&
+                            FactorioManagedProcessLifetime.IsAttached(process))
                         {
+                            // Never adopt an arbitrary new Factorio process as a Steam replacement.
+                            // A valid replacement must already have inherited Steward's lifetime job
+                            // from the process Steward launched; otherwise it is not a managed session.
                             return process.Id;
                         }
                     }

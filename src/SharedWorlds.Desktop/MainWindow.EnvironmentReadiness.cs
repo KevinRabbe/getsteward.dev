@@ -7,9 +7,7 @@ namespace SharedWorlds.Desktop;
 
 public partial class MainWindow
 {
-    private EnvironmentVerificationReport? _environmentVerification;
-    private WorldId? _environmentVerificationWorldId;
-    private RevisionId? _environmentVerificationRevisionId;
+    private readonly Dictionary<EnvironmentVerificationKey, EnvironmentVerificationReport> _environmentVerifications = [];
 
     private async void VerifyEnvironmentButton_Click(object sender, System.Windows.RoutedEventArgs e)
     {
@@ -96,31 +94,40 @@ public partial class MainWindow
 
     private EnvironmentVerificationReport? GetEnvironmentVerificationFor(World? world)
     {
-        if (world is null ||
-            _environmentVerification is null ||
-            _environmentVerificationWorldId != world.Id ||
-            _environmentVerificationRevisionId != world.CurrentEnvironmentRevisionId)
+        if (world is null)
         {
             return null;
         }
 
-        return _environmentVerification;
+        return _environmentVerifications.TryGetValue(
+            GetEnvironmentVerificationKey(world),
+            out var verification)
+            ? verification
+            : null;
     }
 
     private void RememberEnvironmentVerification(
         World world,
         EnvironmentVerificationReport verification)
     {
-        _environmentVerification = verification;
-        _environmentVerificationWorldId = world.Id;
-        _environmentVerificationRevisionId = world.CurrentEnvironmentRevisionId;
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(verification);
+        _environmentVerifications[GetEnvironmentVerificationKey(world)] = verification;
+    }
+
+    private static EnvironmentVerificationKey GetEnvironmentVerificationKey(World world)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        return new EnvironmentVerificationKey(
+            world.Id,
+            world.CurrentEnvironmentRevisionId);
     }
 
     private void ResetEnvironmentReadinessUi()
     {
-        _environmentVerification = null;
-        _environmentVerificationWorldId = null;
-        _environmentVerificationRevisionId = null;
+        // Navigation and ordinary presentation refreshes must not discard a successful verification
+        // for the same exact canonical environment revision. The revision-aware key itself makes a
+        // changed environment fail closed without treating UI movement as an environment mutation.
         UpdateEnvironmentReadinessUi();
     }
 
@@ -191,4 +198,8 @@ public partial class MainWindow
         AutomationProperties.SetHelpText(VerifyEnvironmentButton, verifyHelp);
         AutomationProperties.SetHelpText(RepairEnvironmentButton, repairHelp);
     }
+
+    private readonly record struct EnvironmentVerificationKey(
+        WorldId WorldId,
+        RevisionId? EnvironmentRevisionId);
 }

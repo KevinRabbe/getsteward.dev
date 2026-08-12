@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - "release/steward-peer-friend-test-v1"
+      - "release/steward-peer-friend-test-v2"
+      - "hardening/**"
+      - "fix/steward-friend-test-package-*"
   pull_request:
     branches:
       - "agent/steward-steam-kit-with-steampipe-v1"
@@ -81,5 +84,16 @@ jobs:
         with:
           name: steward-peer-friend-test-v1-${{ env.SOURCE_SHA }}
           path: ${{ runner.temp }}/steward-peer-friend-test
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload runnable friend-test package
+        uses: actions/upload-artifact@v6
+        with:
+          name: steward-peer-friend-test-runnable-${{ env.SOURCE_SHA }}
+          path: |
+            ${{ runner.temp }}/steward-peer-friend-test/product
+            ${{ runner.temp }}/steward-peer-friend-test/START-STEWARD-FRIEND-TEST.cmd
+            ${{ runner.temp }}/steward-peer-friend-test/START-HERE-FRIEND-TEST.txt
           if-no-files-found: error
           retention-days: 14

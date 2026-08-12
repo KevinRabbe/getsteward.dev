@@ -44,6 +44,36 @@ public sealed class FriendTestUiRegressionTests
     }
 
     [Fact]
+    public void DelayedLifecyclePresentationCannotOverwriteANewerPhaseOrSessionProjection()
+    {
+        var tray = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/MainWindow.Tray.cs"));
+
+        Assert.Contains("private long _lifecyclePresentationEpoch;", tray, StringComparison.Ordinal);
+        Assert.Contains(
+            "var presentationEpoch = Interlocked.Increment(ref _lifecyclePresentationEpoch);",
+            tray,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "() => RefreshRuntimePresentation(change, presentationEpoch)",
+            tray,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "epoch != Volatile.Read(ref _lifecyclePresentationEpoch)",
+            tray,
+            StringComparison.Ordinal);
+
+        var epochGuard = tray.IndexOf(
+            "epoch != Volatile.Read(ref _lifecyclePresentationEpoch)",
+            StringComparison.Ordinal);
+        var hostedShellMutation = tray.IndexOf(
+            "ApplyHostedLifecycleShellState(change);",
+            epochGuard,
+            StringComparison.Ordinal);
+        Assert.True(epochGuard >= 0 && hostedShellMutation > epochGuard);
+    }
+
+    [Fact]
     public void VerificationIsRetainedPerExactWorldEnvironmentRevisionAcrossPresentationRefreshes()
     {
         var readiness = File.ReadAllText(FindRepositoryFile(

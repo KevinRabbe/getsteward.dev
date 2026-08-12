@@ -5,6 +5,8 @@ namespace SharedWorlds.GameAdapters.Factorio;
 
 internal static partial class FactorioWorldOperations
 {
+    private const string ManagedLaunchRuntimeDirectoryName = "launch-runtime";
+
     public static Task<GameSessionHandle> LaunchLocalAsync(
         PreparedWorld world,
         CancellationToken cancellationToken)
@@ -96,13 +98,32 @@ internal static partial class FactorioWorldOperations
                 $"The isolated Factorio workspace mod directory does not exist: '{workspaceModDirectory}'.");
         }
 
+        var workingDirectory = executableDirectory;
+        if (string.Equals(world.Installation.Source, "steam", StringComparison.OrdinalIgnoreCase))
+        {
+            // Steam Factorio may call SteamAPI_RestartAppIfNecessary when started directly. That
+            // replacement is launched by Steam rather than by Steward and therefore cannot inherit
+            // Steward's KILL_ON_JOB_CLOSE lifetime job. Keep Steam's restart check satisfied from an
+            // adapter-owned disposable directory so the exact process Steward starts remains the
+            // managed process for local play and Join as well as for the dedicated-host path.
+            var launchRuntimeDirectory = Path.Combine(
+                world.WorkingDirectory,
+                ManagedLaunchRuntimeDirectoryName);
+            FactorioWorkspaceOwnership.RequireOwnedPath(
+                world.WorkingDirectory,
+                launchRuntimeDirectory,
+                "managed launch runtime");
+            Directory.CreateDirectory(launchRuntimeDirectory);
+            File.WriteAllText(
+                Path.Combine(launchRuntimeDirectory, SteamAppIdFileName),
+                FactorioSteamAppId);
+            workingDirectory = launchRuntimeDirectory;
+        }
+
         var startInfo = new ProcessStartInfo
         {
             FileName = executable,
-            // Steam Factorio resolves steam_appid.txt relative to the process working directory.
-            // Starting in the installation root can trigger SteamAPI_RestartAppIfNecessary,
-            // causing the bootstrap PID to exit before the actual game session starts.
-            WorkingDirectory = executableDirectory,
+            WorkingDirectory = workingDirectory,
             UseShellExecute = false
         };
 
@@ -122,8 +143,18 @@ internal static partial class FactorioWorldOperations
             startInfo.ArgumentList.Add(argument);
         }
 
-        return Process.Start(startInfo)
+        var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException($"Failed to start Factorio executable '{executable}'.");
+        try
+        {
+            FactorioManagedProcessLifetime.RequireAttached(process);
+            return process;
+        }
+        catch
+        {
+            process.Dispose();
+            throw;
+        }
     }
 
     private static void EnsurePreparedSaveExists(string savePath, string operation)

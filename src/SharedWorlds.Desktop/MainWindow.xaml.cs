@@ -30,6 +30,8 @@ public partial class MainWindow : Window
     private World? _selectedWorld;
     private DeviceSettings _deviceSettings = DeviceSettingsStore.CreateInitial(hasManagedWorlds: false);
     private bool _deviceSettingsUsableForRemote;
+    private bool _foregroundBusy;
+    private bool _lifecycleBusy;
     private bool _isBusy;
 
     public MainWindow()
@@ -193,8 +195,26 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Sets foreground-operation presentation ownership only. Lifecycle-critical capture/commit owns
+    /// a separate busy reason, so an unrelated operation finishing cannot unlock the shell while the
+    /// hosted World is being captured or committed.
+    /// </summary>
     private void SetBusy(bool isBusy)
     {
+        _foregroundBusy = isBusy;
+        ApplyBusyState();
+    }
+
+    private void SetLifecycleBusy(bool isBusy)
+    {
+        _lifecycleBusy = isBusy;
+        ApplyBusyState();
+    }
+
+    private void ApplyBusyState()
+    {
+        var isBusy = _foregroundBusy || _lifecycleBusy;
         _isBusy = isBusy;
         RefreshButton.IsEnabled = !isBusy;
         RefreshGameButton.IsEnabled = !isBusy;

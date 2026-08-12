@@ -25,6 +25,7 @@ public partial class MainWindow
     private WorldId? _selectedPeerLobbyWorldId;
     private int _hostPresenceRefreshVersion;
     private bool _joinPresenceRefreshInProgress;
+    private bool _joinPresenceRefreshPending;
     private bool _peerInviteInProgress;
 
     internal async Task InitializeWorldJoinUiAsync()
@@ -359,8 +360,17 @@ public partial class MainWindow
 
     private async Task RefreshSelectedWorldHostPresenceAsync()
     {
-        if (_joinButton is null || _joinPresenceRefreshInProgress)
+        if (_joinButton is null)
         {
+            return;
+        }
+
+        if (_joinPresenceRefreshInProgress)
+        {
+            // Selection/timer refreshes are coalesced instead of dropped. In particular, if World B
+            // is selected while World A is awaiting presence, A's stale result is discarded and B is
+            // refreshed immediately after the in-flight request releases ownership.
+            _joinPresenceRefreshPending = true;
             return;
         }
 
@@ -403,20 +413,24 @@ public partial class MainWindow
                     failure = exception;
                 }
 
-                if (refreshVersion != _hostPresenceRefreshVersion ||
-                    _selectedWorld?.Id != world.Id)
+                if (refreshVersion == _hostPresenceRefreshVersion &&
+                    _selectedWorld?.Id == world.Id)
                 {
-                    return;
+                    _selectedPeerLobby = snapshot;
+                    _selectedPeerLobbyError = failure;
+                    _selectedPeerLobbyWorldId = world.Id;
                 }
-
-                _selectedPeerLobby = snapshot;
-                _selectedPeerLobbyError = failure;
-                _selectedPeerLobbyWorldId = world.Id;
             }
             finally
             {
                 _joinPresenceRefreshInProgress = false;
                 UpdateWorldJoinActionState();
+            }
+
+            if (_joinPresenceRefreshPending)
+            {
+                _joinPresenceRefreshPending = false;
+                await RefreshSelectedWorldHostPresenceAsync();
             }
 
             return;
@@ -442,19 +456,23 @@ public partial class MainWindow
                 failure = exception;
             }
 
-            if (refreshVersion != _hostPresenceRefreshVersion || _selectedWorld?.Id != world.Id)
+            if (refreshVersion == _hostPresenceRefreshVersion && _selectedWorld?.Id == world.Id)
             {
-                return;
+                _selectedHostPresence = presence;
+                _selectedHostPresenceError = failure;
+                _selectedHostPresenceWorldId = world.Id;
             }
-
-            _selectedHostPresence = presence;
-            _selectedHostPresenceError = failure;
-            _selectedHostPresenceWorldId = world.Id;
         }
         finally
         {
             _joinPresenceRefreshInProgress = false;
             UpdateWorldJoinActionState();
+        }
+
+        if (_joinPresenceRefreshPending)
+        {
+            _joinPresenceRefreshPending = false;
+            await RefreshSelectedWorldHostPresenceAsync();
         }
     }
 

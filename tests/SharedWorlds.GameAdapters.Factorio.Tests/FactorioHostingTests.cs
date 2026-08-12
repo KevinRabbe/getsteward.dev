@@ -32,6 +32,25 @@ public sealed class FactorioHostingTests : IDisposable
     }
 
     [Fact]
+    public async Task Adapter_AdvertisesAndImplementsManagedHostStop()
+    {
+        var adapter = new FactorioAdapter();
+        Assert.True(
+            adapter.Capabilities.HasFlag(GameAdapterCapabilities.AutomaticHostStop));
+
+        var contract = (IGameAdapter)adapter;
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            contract.RequestHostStopAsync(
+                new GameSessionHandle(int.MaxValue, DateTimeOffset.UtcNow),
+                CancellationToken.None));
+
+        Assert.Contains(
+            "running Steward-managed Host session",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task CreatePrivateServerSettings_HidesServerAndRequiresGeneratedPassword()
     {
         var installationRoot = Path.Combine(_root, "Factorio");

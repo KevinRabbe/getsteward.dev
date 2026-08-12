@@ -9,15 +9,23 @@ namespace SharedWorlds.Infrastructure.Sessions;
 /// new canonical state head at the same authority generation, this decorator advances the durable
 /// Active authority fence first and only then publishes the World head.
 ///
-/// That ordering is intentional. If the fence write fails, the old World head remains canonical. If
-/// the World-head write fails after the fence advanced, the account is conservatively fenced ahead and
-/// cannot restart the stale head; retrying the exact same direct-child publication is idempotent.
+/// All mutable World-document publications are serialized through the same storage boundary. State
+/// commits therefore reload the latest canonical World while holding the mutation gate and change
+/// only CurrentStateRevisionId. Concurrent membership or other metadata changes cannot be overwritten
+/// by a stale World snapshot retained by a long-running game session. This rule is also applied to the
+/// legacy SaveWorldAsync path so old callers cannot accidentally reintroduce whole-document stale writes.
+///
+/// The fence-before-head ordering is intentional. If the fence write fails, the old World head remains
+/// canonical. If the World-head write fails after the fence advanced, the account is conservatively
+/// fenced ahead and cannot restart the stale head; retrying the exact same direct-child publication is
+/// idempotent.
 /// </summary>
-public sealed class PeerAuthorityFencedWorldStorage : IWorldStorage
+public sealed class PeerAuthorityFencedWorldStorage : IWorldStorage, IWorldStateHeadAdvancer
 {
     private readonly IWorldStorage _inner;
     private readonly IPeerAuthorityActiveRevisionFenceStore _authorityFences;
     private readonly UserIdentity _localUser;
+    private readonly SemaphoreSlim _worldMutationGate = new(1, 1);
 
     public PeerAuthorityFencedWorldStorage(
         IWorldStorage inner,
@@ -37,16 +45,72 @@ public sealed class PeerAuthorityFencedWorldStorage : IWorldStorage
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(world);
-        var current = await _inner.LoadWorldAsync(world.Id, cancellationToken);
-        if (current is not null)
+        await _worldMutationGate.WaitAsync(cancellationToken);
+        try
         {
+            var current = await _inner.LoadWorldAsync(world.Id, cancellationToken);
+            var effectiveWorld = current is null
+                ? world
+                : ReduceLegacyActiveStateCommitToHeadOnly(current, world);
+            if (current is not null)
+            {
+                await FenceActiveRevisionAdvanceIfRequiredAsync(
+                    current,
+                    effectiveWorld,
+                    cancellationToken);
+            }
+
+            await _inner.SaveWorldAsync(effectiveWorld, cancellationToken);
+        }
+        finally
+        {
+            _worldMutationGate.Release();
+        }
+    }
+
+    public async Task<World> AdvanceStateHeadAsync(
+        WorldId worldId,
+        RevisionId expectedStateRevisionId,
+        RevisionId nextStateRevisionId,
+        CancellationToken cancellationToken = default)
+    {
+        await _worldMutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            var current = await _inner.LoadWorldAsync(worldId, cancellationToken)
+                ?? throw new InvalidDataException(
+                    $"World '{worldId}' disappeared before its canonical state head could advance.");
+            var observedStateRevisionId = current.CurrentStateRevisionId
+                ?? throw new InvalidDataException(
+                    $"World '{worldId}' has no canonical state revision to advance.");
+            if (observedStateRevisionId != expectedStateRevisionId)
+            {
+                throw new InvalidDataException(
+                    $"World '{worldId}' state head changed while the managed session was running. Expected '{expectedStateRevisionId}', observed '{observedStateRevisionId}'. Steward will preserve the newer canonical World instead of overwriting it.");
+            }
+
+            await ValidateDirectChildRevisionAsync(
+                current,
+                expectedStateRevisionId,
+                nextStateRevisionId,
+                cancellationToken);
+
+            var next = current with
+            {
+                CurrentStateRevisionId = nextStateRevisionId
+            };
+
             await FenceActiveRevisionAdvanceIfRequiredAsync(
                 current,
-                world,
+                next,
                 cancellationToken);
+            await _inner.SaveWorldAsync(next, cancellationToken);
+            return next;
         }
-
-        await _inner.SaveWorldAsync(world, cancellationToken);
+        finally
+        {
+            _worldMutationGate.Release();
+        }
     }
 
     public Task<World?> LoadWorldAsync(
@@ -110,6 +174,52 @@ public sealed class PeerAuthorityFencedWorldStorage : IWorldStorage
         CancellationToken cancellationToken = default)
         => _inner.EvictRevisionPayloadAsync(worldId, revisionId, cancellationToken);
 
+    private World ReduceLegacyActiveStateCommitToHeadOnly(World current, World proposed)
+    {
+        if (current.SharingMode != WorldSharingMode.Shared ||
+            proposed.SharingMode != WorldSharingMode.Shared ||
+            current.PeerAuthority is not { } currentAuthority ||
+            proposed.PeerAuthority is not { } proposedAuthority ||
+            currentAuthority.Generation != proposedAuthority.Generation ||
+            !SameUser(currentAuthority.Holder, _localUser) ||
+            !SameUser(proposedAuthority.Holder, _localUser) ||
+            current.CurrentStateRevisionId == proposed.CurrentStateRevisionId)
+        {
+            return proposed;
+        }
+
+        // A managed active-host commit owns only the canonical state head. Membership, environment,
+        // authority and all other World metadata belong to their own mutation paths and are taken
+        // from the latest canonical document loaded under this gate.
+        return current with
+        {
+            CurrentStateRevisionId = proposed.CurrentStateRevisionId
+        };
+    }
+
+    private async Task ValidateDirectChildRevisionAsync(
+        World current,
+        RevisionId expectedStateRevisionId,
+        RevisionId nextStateRevisionId,
+        CancellationToken cancellationToken)
+    {
+        var revision = await _inner.LoadStateRevisionAsync(
+            current.Id,
+            nextStateRevisionId,
+            cancellationToken)
+            ?? throw new InvalidDataException(
+                $"World '{current.Id}' cannot publish state revision '{nextStateRevisionId}' before its immutable revision metadata is stored.");
+        if (revision.WorldId != current.Id ||
+            revision.Id != nextStateRevisionId ||
+            revision.ParentRevisionId != expectedStateRevisionId ||
+            revision.EnvironmentRevisionId != current.CurrentEnvironmentRevisionId ||
+            !string.Equals(revision.AdapterId, current.GameAdapterId, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                $"World '{current.Id}' next state revision is not the exact direct child required for the canonical state-head advance.");
+        }
+    }
+
     private async Task FenceActiveRevisionAdvanceIfRequiredAsync(
         World current,
         World next,
@@ -155,21 +265,11 @@ public sealed class PeerAuthorityFencedWorldStorage : IWorldStorage
                 $"World '{next.Id}' cannot combine an environment-head change with an active peer state commit.");
         }
 
-        var revision = await _inner.LoadStateRevisionAsync(
-            next.Id,
+        await ValidateDirectChildRevisionAsync(
+            current,
+            currentState,
             nextState,
-            cancellationToken)
-            ?? throw new InvalidDataException(
-                $"World '{next.Id}' cannot publish state revision '{nextState}' before its immutable revision metadata is stored.");
-        if (revision.WorldId != next.Id ||
-            revision.Id != nextState ||
-            revision.ParentRevisionId != currentState ||
-            revision.EnvironmentRevisionId != next.CurrentEnvironmentRevisionId ||
-            !string.Equals(revision.AdapterId, next.GameAdapterId, StringComparison.Ordinal))
-        {
-            throw new InvalidDataException(
-                $"World '{next.Id}' next state revision is not the exact direct child required for an active peer commit.");
-        }
+            cancellationToken);
 
         _ = await _authorityFences.AdvanceActiveRevisionAsync(
             next.Id,

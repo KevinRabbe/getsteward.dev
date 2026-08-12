@@ -131,13 +131,23 @@ public sealed partial class FactorioAdapter : IManagedHostEndpointProvider
         GameSessionHandle session,
         CancellationToken cancellationToken)
     {
-        if (!_hostedSessions.TryRemove(session.ProcessId, out var hostedSession))
+        if (!_hostedSessions.TryGetValue(session.ProcessId, out var hostedSession))
         {
             await WaitForSessionEndAsync(session, cancellationToken);
             return;
         }
 
-        await WaitForHostedSessionEndAsync(session, hostedSession, cancellationToken);
+        try
+        {
+            await WaitForHostedSessionEndAsync(session, hostedSession, cancellationToken);
+        }
+        finally
+        {
+            // Retain the exact hosted-session identity while it is Running and while its clean quit /
+            // final-save boundary is in progress. RequestHostStopAsync uses this entry to prove that a
+            // process handle still belongs to the managed Host before sending a normal close request.
+            _hostedSessions.TryRemove(session.ProcessId, out _);
+        }
     }
 
     private async Task WaitForHostedSessionEndAsync(
@@ -148,7 +158,8 @@ public sealed partial class FactorioAdapter : IManagedHostEndpointProvider
         try
         {
             // The host player is a normal client. Ending that client ends the current local hosting
-            // session for now; future host handoff can keep the authority alive until a successor is ready.
+            // session. The dedicated server remains the sole authoritative live state until the clean
+            // /quit below begins its final save and termination boundary.
             await WaitForSessionEndAsync(clientSession, cancellationToken);
 
             EnsureProcessIsAlive(
@@ -162,20 +173,51 @@ public sealed partial class FactorioAdapter : IManagedHostEndpointProvider
                 cancellationToken,
                 saveTimeout.Token);
 
-            await FactorioRconClient.ExecuteAsync(
-                "127.0.0.1",
-                hostedSession.RconPort,
-                hostedSession.RconPassword,
-                "/server-save",
-                linkedSaveCancellation.Token);
-            await WaitForSaveRefreshAsync(
-                hostedSession.SavePath,
-                previousWriteTime,
-                previousLength,
-                linkedSaveCancellation.Token);
+            Exception? uncertainQuitResult = null;
+            try
+            {
+                // Factorio's clean server quit saves the map as part of shutdown. This is stronger
+                // than issuing /server-save and then killing a still-running simulation: once /quit is
+                // processed there is no valid post-save gameplay window whose mutations could be lost.
+                await FactorioRconClient.ExecuteAsync(
+                    "127.0.0.1",
+                    hostedSession.RconPort,
+                    hostedSession.RconPassword,
+                    "/quit",
+                    linkedSaveCancellation.Token);
+            }
+            catch (Exception exception) when (
+                exception is IOException or SocketException or InvalidDataException)
+            {
+                // A clean quit may close RCON before the command-response packet is observed. Treat
+                // that as ambiguous, not success: the required proof is the exact save file changing
+                // below. If the command never reached Factorio, that proof will time out and recovery
+                // will preserve the workspace rather than publish stale state.
+                uncertainQuitResult = exception;
+            }
+
+            try
+            {
+                await WaitForSaveRefreshAsync(
+                    hostedSession.SavePath,
+                    previousWriteTime,
+                    previousLength,
+                    linkedSaveCancellation.Token);
+            }
+            catch (OperationCanceledException exception) when (
+                saveTimeout.IsCancellationRequested &&
+                !cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    "Factorio did not produce a verifiable final save while shutting down the managed Host. Steward preserved recovery responsibility instead of committing an older save.",
+                    uncertainQuitResult ?? exception);
+            }
         }
         finally
         {
+            // /quit normally terminates the process itself. A historical Windows Factorio edge can
+            // leave the process lingering after its save has completed; this bounded fallback runs
+            // only after the save-verification boundary above, or while entering recovery on failure.
             await TryStopProcessAsync(hostedSession.ServerProcessId);
         }
 

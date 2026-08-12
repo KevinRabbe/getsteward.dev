@@ -15,6 +15,7 @@ public partial class MainWindow
     private bool _allowExplicitClose;
     private bool _quitRequestInProgress;
     private bool _quitRequestScheduledAfterClosing;
+    private long _lifecyclePresentationEpoch;
 
     private IWorldLifecycleObserver CreateDesktopLifecycleObserver()
         => new DesktopLifecycleObserver(
@@ -94,17 +95,31 @@ public partial class MainWindow
     {
         ArgumentNullException.ThrowIfNull(change);
 
+        // Core responsibility is already updated synchronously by DesktopLifecycleObserver. This
+        // monotonically increasing presentation epoch fences only delayed WPF work: if an older
+        // callback is still queued when a newer lifecycle phase/session arrives, that old projection
+        // must not unlock controls or overwrite the newer runtime presentation.
+        var presentationEpoch = Interlocked.Increment(ref _lifecyclePresentationEpoch);
         if (!Dispatcher.CheckAccess())
         {
-            _ = Dispatcher.BeginInvoke(new Action(() => RefreshRuntimePresentation(change)));
+            _ = Dispatcher.BeginInvoke(new Action(
+                () => RefreshRuntimePresentation(change, presentationEpoch)));
             return;
         }
 
-        RefreshRuntimePresentation(change);
+        RefreshRuntimePresentation(change, presentationEpoch);
     }
 
-    private void RefreshRuntimePresentation(WorldLifecyclePhaseChange? change = null)
+    private void RefreshRuntimePresentation(
+        WorldLifecyclePhaseChange? change = null,
+        long? lifecyclePresentationEpoch = null)
     {
+        if (lifecyclePresentationEpoch is { } epoch &&
+            epoch != Volatile.Read(ref _lifecyclePresentationEpoch))
+        {
+            return;
+        }
+
         if (change is not null)
         {
             ApplyHostedLifecycleShellState(change);
@@ -128,9 +143,10 @@ public partial class MainWindow
         switch (change.Phase)
         {
             case WorldLifecyclePhase.Running:
-                // A hosted game can run for hours. The lifecycle responsibility tracker and managed
-                // writable-session gate already prevent a second writer, so global presentation busy
-                // must end here. Keep navigation, Manage access, Stop & Save, and Handoff usable.
+                // The Host launch operation remains awaiting Factorio for the lifetime of the session.
+                // Release that preparation-era foreground busy reason here, but keep lifecycle busy
+                // independent so later capture/commit cannot be unlocked by another operation's finally.
+                SetLifecycleBusy(false);
                 SetBusy(false);
                 break;
 
@@ -139,9 +155,15 @@ public partial class MainWindow
             case WorldLifecyclePhase.StoringCandidate:
             case WorldLifecyclePhase.Committing:
             case WorldLifecyclePhase.Finalizing:
-                // Once gameplay ends, briefly restore the blocking shell while the canonical revision
-                // is captured/committed. These phases mutate protected state and should not look idle.
-                SetBusy(true);
+                SetLifecycleBusy(true);
+                break;
+
+            case WorldLifecyclePhase.Completed:
+            case WorldLifecyclePhase.RecoveryNeeded:
+            case WorldLifecyclePhase.CleanupPending:
+                // Completion/recovery actions must become usable again. This clears only lifecycle
+                // ownership; any independent foreground operation remains busy on its own.
+                SetLifecycleBusy(false);
                 break;
         }
     }

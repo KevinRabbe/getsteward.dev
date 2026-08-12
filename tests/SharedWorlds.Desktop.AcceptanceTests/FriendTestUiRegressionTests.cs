@@ -9,6 +9,8 @@ public sealed class FriendTestUiRegressionTests
     {
         var tray = File.ReadAllText(FindRepositoryFile(
             "src/SharedWorlds.Desktop/MainWindow.Tray.cs"));
+        var window = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/MainWindow.xaml.cs"));
         var lifecycle = File.ReadAllText(FindRepositoryFile(
             "src/SharedWorlds.Core/Worlds/WorldLifecycleService.cs"));
         var responsibility = File.ReadAllText(FindRepositoryFile(
@@ -17,10 +19,20 @@ public sealed class FriendTestUiRegressionTests
         Assert.Contains("ApplyHostedLifecycleShellState(change);", tray, StringComparison.Ordinal);
         Assert.Contains("change.Mode != ManagedWorldSessionMode.Hosted", tray, StringComparison.Ordinal);
         Assert.Contains("case WorldLifecyclePhase.Running:", tray, StringComparison.Ordinal);
+        Assert.Contains("SetLifecycleBusy(false);", tray, StringComparison.Ordinal);
         Assert.Contains("SetBusy(false);", tray, StringComparison.Ordinal);
         Assert.Contains("case WorldLifecyclePhase.WaitingForSafeCapture:", tray, StringComparison.Ordinal);
         Assert.Contains("case WorldLifecyclePhase.Committing:", tray, StringComparison.Ordinal);
-        Assert.Contains("SetBusy(true);", tray, StringComparison.Ordinal);
+        Assert.Contains("SetLifecycleBusy(true);", tray, StringComparison.Ordinal);
+
+        // Lifecycle-critical capture/commit blocking must not share ownership with an unrelated shell
+        // operation. An operation finishing while capture is active may clear only _foregroundBusy;
+        // _lifecycleBusy keeps the shell blocked until the lifecycle observer releases it.
+        Assert.Contains("private bool _foregroundBusy;", window, StringComparison.Ordinal);
+        Assert.Contains("private bool _lifecycleBusy;", window, StringComparison.Ordinal);
+        Assert.Contains("_foregroundBusy = isBusy;", window, StringComparison.Ordinal);
+        Assert.Contains("_lifecycleBusy = isBusy;", window, StringComparison.Ordinal);
+        Assert.Contains("var isBusy = _foregroundBusy || _lifecycleBusy;", window, StringComparison.Ordinal);
 
         var registerHost = lifecycle.IndexOf("_activeHostedSessions.TryAdd(worldId, activeHostedSession)", StringComparison.Ordinal);
         var running = lifecycle.IndexOf("Notify(worldId, mode, WorldLifecyclePhase.Running);", StringComparison.Ordinal);
@@ -29,6 +41,36 @@ public sealed class FriendTestUiRegressionTests
 
         Assert.Contains("_kind = WorldLifecycleResponsibilityKind.ActiveLifecycle;", responsibility, StringComparison.Ordinal);
         Assert.Contains("_mode = change.Mode;", responsibility, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DelayedLifecyclePresentationCannotOverwriteANewerPhaseOrSessionProjection()
+    {
+        var tray = File.ReadAllText(FindRepositoryFile(
+            "src/SharedWorlds.Desktop/MainWindow.Tray.cs"));
+
+        Assert.Contains("private long _lifecyclePresentationEpoch;", tray, StringComparison.Ordinal);
+        Assert.Contains(
+            "var presentationEpoch = Interlocked.Increment(ref _lifecyclePresentationEpoch);",
+            tray,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "() => RefreshRuntimePresentation(change, presentationEpoch)",
+            tray,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "epoch != Volatile.Read(ref _lifecyclePresentationEpoch)",
+            tray,
+            StringComparison.Ordinal);
+
+        var epochGuard = tray.IndexOf(
+            "epoch != Volatile.Read(ref _lifecyclePresentationEpoch)",
+            StringComparison.Ordinal);
+        var hostedShellMutation = tray.IndexOf(
+            "ApplyHostedLifecycleShellState(change);",
+            epochGuard,
+            StringComparison.Ordinal);
+        Assert.True(epochGuard >= 0 && hostedShellMutation > epochGuard);
     }
 
     [Fact]

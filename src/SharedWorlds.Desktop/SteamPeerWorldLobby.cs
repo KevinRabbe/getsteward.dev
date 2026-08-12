@@ -22,12 +22,17 @@ internal sealed partial class SteamPeerWorldLobby : IPeerWorldLobby
     private const string AuthorityGenerationKey = "steward.authority-generation";
     private const string RequestedHostKey = "steward.requested-host";
     private const string CommittedRevisionKey = "steward.committed-revision";
+    private const string RetiredKey = "steward.retired";
+    private const string RetiredValue = "1";
+    private const string ActiveValue = "0";
     private const string UpdatedAtKey = "steward.updated-at";
     private static readonly TimeSpan SteamCallTimeout = TimeSpan.FromSeconds(20);
 
     private readonly SteamPlatformRuntime _platform;
     private readonly SemaphoreSlim _mutationGate = new(1, 1);
     private readonly Dictionary<WorldId, CSteamID> _knownLobbies = [];
+    private readonly object _lateCreateGate = new();
+    private readonly HashSet<SteamLateCallGuard<LobbyCreated_t>> _lateCreateCalls = [];
 
     public SteamPeerWorldLobby(SteamPlatformRuntime platform)
     {
@@ -81,6 +86,7 @@ internal sealed partial class SteamPeerWorldLobby : IPeerWorldLobby
                             AuthorityGenerationKey,
                             GenerationText(authorityGeneration),
                             worldId);
+                        EnsureSetLobbyData(lobbyId, RetiredKey, ActiveValue, worldId);
                         EnsureSetLobbyData(
                             lobbyId,
                             UpdatedAtKey,
@@ -240,17 +246,24 @@ internal sealed partial class SteamPeerWorldLobby : IPeerWorldLobby
                             "The pending host handoff must resolve before leaving.");
                     }
 
-                    // A normal host exit with remaining participants must use Steward's explicit
-                    // handoff path. Letting Steam choose a replacement here would create an
-                    // unverified writer. Unexpected process/network loss is different: Steam may
-                    // auto-select an owner, but authority-owner then deliberately disagrees and
-                    // all surviving clients observe RecoveryPending.
-                    if (SteamMatchmaking.GetNumLobbyMembers(lobbyId) > 1)
+                    // Normal Stop & Save ends this active session even if other Steward clients are
+                    // still members of the Steam lobby. Steward first makes the lobby non-joinable and
+                    // durably marks the lobby metadata retired while the confirmed host still owns it.
+                    // Only then may the host leave. Steam is free to pick a platform lobby owner after
+                    // that point, but the retired marker means the old lobby can never become a new
+                    // Steward authority/session merely because Steam transferred ownership.
+                    if (!SteamMatchmaking.SetLobbyJoinable(lobbyId, false))
                     {
-                        throw new WorldSessionConflictException(
-                            worldId,
-                            "Other participants are still connected. Steward must complete host handoff before the current host leaves.");
+                        throw new IOException(
+                            $"Steam did not close new admissions for World '{worldId}' before session retirement.");
                     }
+
+                    EnsureSetLobbyData(
+                        lobbyId,
+                        UpdatedAtKey,
+                        TimestampText(DateTimeOffset.UtcNow),
+                        worldId);
+                    EnsureSetLobbyData(lobbyId, RetiredKey, RetiredValue, worldId);
 
                     SteamMatchmaking.LeaveLobby(lobbyId);
                     _knownLobbies.Remove(worldId);
@@ -399,6 +412,16 @@ internal sealed partial class SteamPeerWorldLobby : IPeerWorldLobby
             return null;
         }
 
+        if (IsRetiredLobby(lobbyId))
+        {
+            // Retired lobbies are session tombstones, not recovery candidates. A surviving Steam
+            // participant may temporarily become platform owner after the real Host leaves, but this
+            // installation must detach instead of interpreting that platform transition as authority.
+            SteamMatchmaking.LeaveLobby(lobbyId);
+            _knownLobbies.Remove(worldId);
+            return null;
+        }
+
         var owner = SteamMatchmaking.GetLobbyOwner(lobbyId);
         if (owner.m_SteamID == 0)
         {
@@ -448,6 +471,13 @@ internal sealed partial class SteamPeerWorldLobby : IPeerWorldLobby
                 $"Steam lobby does not belong to expected Steward World '{worldId}'.");
         }
 
+        if (IsRetiredLobby(lobbyId))
+        {
+            throw new WorldSessionConflictException(
+                worldId,
+                "This Steam lobby belongs to a Steward session that has already ended.");
+        }
+
         var authorityOwnerText = SteamMatchmaking.GetLobbyData(lobbyId, AuthorityOwnerKey);
         if (!TryParseSteamId(authorityOwnerText, out var authorityOwner))
         {
@@ -482,56 +512,124 @@ internal sealed partial class SteamPeerWorldLobby : IPeerWorldLobby
     private async Task<CSteamID> CreateLobbyAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var completion = new TaskCompletionSource<LobbyCreated_t>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        using var callResult = CallResult<LobbyCreated_t>.Create(
+        var attempt = new SteamLateCallGuard<LobbyCreated_t>(
+            CleanupLateCreateResult,
+            ReleaseLateCreateAttempt);
+        var keepAliveForLateResult = false;
+        var callResult = CallResult<LobbyCreated_t>.Create(
             (result, ioFailure) =>
             {
                 if (ioFailure)
                 {
-                    completion.TrySetException(
+                    attempt.Fail(
                         new IOException("Steam lobby creation failed because the Steam API call failed."));
                     return;
                 }
 
-                completion.TrySetResult(result);
+                attempt.Complete(result);
             });
+        attempt.AttachRegistration(callResult);
 
-        await InvokeSteamAsync(
-            () =>
-            {
-                var call = SteamMatchmaking.CreateLobby(
-                    ELobbyType.k_ELobbyTypeFriendsOnly,
-                    MaxLobbyMembers);
-                if (call == SteamAPICall_t.Invalid)
-                {
-                    throw new IOException("Steam rejected the Steward lobby creation request.");
-                }
-
-                callResult.Set(call);
-            },
-            cancellationToken);
-
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(SteamCallTimeout);
-
-        LobbyCreated_t created;
         try
         {
-            created = await completion.Task.WaitAsync(timeout.Token);
+            await InvokeSteamAsync(
+                () =>
+                {
+                    var call = SteamMatchmaking.CreateLobby(
+                        ELobbyType.k_ELobbyTypeFriendsOnly,
+                        MaxLobbyMembers);
+                    if (call == SteamAPICall_t.Invalid)
+                    {
+                        throw new IOException("Steam rejected the Steward lobby creation request.");
+                    }
+
+                    callResult.Set(call);
+                },
+                cancellationToken);
+
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(SteamCallTimeout);
+
+            LobbyCreated_t created;
+            try
+            {
+                created = await attempt.Completion.WaitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                keepAliveForLateResult = await AbandonCreateAttemptAsync(attempt);
+                throw new TimeoutException(
+                    "Steam did not finish creating the Steward lobby in time.");
+            }
+            catch (OperationCanceledException)
+            {
+                keepAliveForLateResult = await AbandonCreateAttemptAsync(attempt);
+                throw;
+            }
+
+            if (created.m_eResult != EResult.k_EResultOK || created.m_ulSteamIDLobby == 0)
+            {
+                throw new IOException(
+                    $"Steam could not create the Steward lobby: {created.m_eResult}.");
+            }
+
+            return new CSteamID(created.m_ulSteamIDLobby);
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        finally
         {
-            throw new TimeoutException("Steam did not finish creating the Steward lobby in time.");
+            if (!keepAliveForLateResult)
+            {
+                attempt.Dispose();
+            }
+        }
+    }
+
+    private async Task<bool> AbandonCreateAttemptAsync(
+        SteamLateCallGuard<LobbyCreated_t> attempt)
+    {
+        RetainLateCreateAttempt(attempt);
+        if (attempt.TryAbandon())
+        {
+            return true;
         }
 
-        if (created.m_eResult != EResult.k_EResultOK || created.m_ulSteamIDLobby == 0)
+        // A successful create can race the timeout token. If Steam already delivered the result,
+        // clean that lobby up before reporting the timeout/cancellation to the caller.
+        await attempt.CleanupCompletedResultAsync();
+        return true;
+    }
+
+    private void CleanupLateCreateResult(LobbyCreated_t result)
+    {
+        if (result.m_eResult != EResult.k_EResultOK || result.m_ulSteamIDLobby == 0)
         {
-            throw new IOException(
-                $"Steam could not create the Steward lobby: {created.m_eResult}.");
+            return;
         }
 
-        return new CSteamID(created.m_ulSteamIDLobby);
+        var lobbyId = new CSteamID(result.m_ulSteamIDLobby);
+        if (_platform.Dispatcher.CheckAccess())
+        {
+            SteamMatchmaking.LeaveLobby(lobbyId);
+            return;
+        }
+
+        _platform.Dispatcher.Invoke(() => SteamMatchmaking.LeaveLobby(lobbyId));
+    }
+
+    private void RetainLateCreateAttempt(SteamLateCallGuard<LobbyCreated_t> attempt)
+    {
+        lock (_lateCreateGate)
+        {
+            _lateCreateCalls.Add(attempt);
+        }
+    }
+
+    private void ReleaseLateCreateAttempt(SteamLateCallGuard<LobbyCreated_t> attempt)
+    {
+        lock (_lateCreateGate)
+        {
+            _lateCreateCalls.Remove(attempt);
+        }
     }
 
     private CSteamID RequireKnownLobby(WorldId worldId)
@@ -599,6 +697,12 @@ internal sealed partial class SteamPeerWorldLobby : IPeerWorldLobby
             worldId,
             "The requested next host is not currently joined to the Steam lobby.");
     }
+
+    private static bool IsRetiredLobby(CSteamID lobbyId)
+        => string.Equals(
+            SteamMatchmaking.GetLobbyData(lobbyId, RetiredKey),
+            RetiredValue,
+            StringComparison.Ordinal);
 
     private static void EnsureSetLobbyData(
         CSteamID lobbyId,

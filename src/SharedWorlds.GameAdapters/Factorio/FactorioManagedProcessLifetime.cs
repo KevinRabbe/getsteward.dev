@@ -13,7 +13,7 @@ namespace SharedWorlds.GameAdapters.Factorio;
 internal static class FactorioManagedProcessLifetime
 {
     private const uint JobObjectLimitKillOnJobClose = 0x00002000;
-    private const int JobObjectExtendedLimitInformation = 9;
+    private const int JobObjectExtendedLimitInformationClass = 9;
     private static readonly Lazy<IntPtr> StewardJob = new(CreateStewardJob);
 
     public static void RequireAttached(Process process)
@@ -82,7 +82,7 @@ internal static class FactorioManagedProcessLifetime
 
         if (!SetInformationJobObject(
                 job,
-                JobObjectExtendedLimitInformation,
+                JobObjectExtendedLimitInformationClass,
                 ref information,
                 (uint)Marshal.SizeOf<JobObjectExtendedLimitInformation>()))
         {

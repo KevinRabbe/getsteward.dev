@@ -15,6 +15,7 @@ public partial class MainWindow
     private bool _allowExplicitClose;
     private bool _quitRequestInProgress;
     private bool _quitRequestScheduledAfterClosing;
+    private long _lifecyclePresentationEpoch;
 
     private IWorldLifecycleObserver CreateDesktopLifecycleObserver()
         => new DesktopLifecycleObserver(
@@ -94,17 +95,31 @@ public partial class MainWindow
     {
         ArgumentNullException.ThrowIfNull(change);
 
+        // Core responsibility is already updated synchronously by DesktopLifecycleObserver. This
+        // monotonically increasing presentation epoch fences only delayed WPF work: if an older
+        // callback is still queued when a newer lifecycle phase/session arrives, that old projection
+        // must not unlock controls or overwrite the newer runtime presentation.
+        var presentationEpoch = Interlocked.Increment(ref _lifecyclePresentationEpoch);
         if (!Dispatcher.CheckAccess())
         {
-            _ = Dispatcher.BeginInvoke(new Action(() => RefreshRuntimePresentation(change)));
+            _ = Dispatcher.BeginInvoke(new Action(
+                () => RefreshRuntimePresentation(change, presentationEpoch)));
             return;
         }
 
-        RefreshRuntimePresentation(change);
+        RefreshRuntimePresentation(change, presentationEpoch);
     }
 
-    private void RefreshRuntimePresentation(WorldLifecyclePhaseChange? change = null)
+    private void RefreshRuntimePresentation(
+        WorldLifecyclePhaseChange? change = null,
+        long? lifecyclePresentationEpoch = null)
     {
+        if (lifecyclePresentationEpoch is { } epoch &&
+            epoch != Volatile.Read(ref _lifecyclePresentationEpoch))
+        {
+            return;
+        }
+
         if (change is not null)
         {
             ApplyHostedLifecycleShellState(change);

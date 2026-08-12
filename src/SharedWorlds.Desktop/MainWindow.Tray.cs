@@ -96,21 +96,54 @@ public partial class MainWindow
 
         if (!Dispatcher.CheckAccess())
         {
-            _ = Dispatcher.BeginInvoke(new Action(RefreshRuntimePresentation));
+            _ = Dispatcher.BeginInvoke(new Action(() => RefreshRuntimePresentation(change)));
             return;
         }
 
-        RefreshRuntimePresentation();
+        RefreshRuntimePresentation(change);
     }
 
-    private void RefreshRuntimePresentation()
+    private void RefreshRuntimePresentation(WorldLifecyclePhaseChange? change = null)
     {
+        if (change is not null)
+        {
+            ApplyHostedLifecycleShellState(change);
+        }
+
         UpdateTrayStatus();
         UpdateUnifiedActionState();
         UpdateWorldSharingActionState();
         UpdateManagedHostStopUi();
         UpdateResponsibilityPresentation();
         RebuildManagedGameTiles();
+    }
+
+    private void ApplyHostedLifecycleShellState(WorldLifecyclePhaseChange change)
+    {
+        if (change.Mode != ManagedWorldSessionMode.Hosted)
+        {
+            return;
+        }
+
+        switch (change.Phase)
+        {
+            case WorldLifecyclePhase.Running:
+                // A hosted game can run for hours. The lifecycle responsibility tracker and managed
+                // writable-session gate already prevent a second writer, so global presentation busy
+                // must end here. Keep navigation, Manage access, Stop & Save, and Handoff usable.
+                SetBusy(false);
+                break;
+
+            case WorldLifecyclePhase.WaitingForSafeCapture:
+            case WorldLifecyclePhase.Capturing:
+            case WorldLifecyclePhase.StoringCandidate:
+            case WorldLifecyclePhase.Committing:
+            case WorldLifecyclePhase.Finalizing:
+                // Once gameplay ends, briefly restore the blocking shell while the canonical revision
+                // is captured/committed. These phases mutate protected state and should not look idle.
+                SetBusy(true);
+                break;
+        }
     }
 
     private void UpdateTrayStatus()

@@ -34,6 +34,8 @@ public partial class MainWindow
             return;
         }
 
+        // Acquire the Host-control intent before the first await. Stop and Handoff are mutually
+        // exclusive lifecycle intents; neither may be prepared while the other is already in flight.
         _hostStopRequestInFlight = true;
         UpdateManagedHostStopUi();
         StatusText.Text = $"Saving and stopping {world.Name}...";
@@ -81,6 +83,13 @@ public partial class MainWindow
             return;
         }
 
+        // Claim the single Host-control intent before any asynchronous canonical/member lookup or
+        // modal target selection. A double click or Stop request can no longer race handoff setup.
+        _hostHandoffRequestInFlight = true;
+        UpdateManagedHostStopUi();
+        StatusText.Text = $"Preparing host handoff for {world.Name}...";
+        var handoffAccepted = false;
+
         try
         {
             var canonical = await peer.Storage.LoadWorldAsync(world.Id)
@@ -106,11 +115,10 @@ public partial class MainWindow
             };
             if (dialog.ShowDialog() != true || dialog.SelectedHost is not { } requestedHost)
             {
+                StatusText.Text = $"Host handoff for {world.Name} was cancelled.";
                 return;
             }
 
-            _hostHandoffRequestInFlight = true;
-            UpdateManagedHostStopUi();
             StatusText.Text =
                 $"Handing '{world.Name}' to {FormatPeerHandoffTarget(requestedHost)}. Steward is stopping safely and will transfer the final saved World before authority moves...";
 
@@ -119,20 +127,29 @@ public partial class MainWindow
                     world.Id,
                     requestedHost))
             {
-                _hostHandoffRequestInFlight = false;
                 StatusText.Text =
                     "The managed host is not ready for handoff yet. Try again once the hosted session is running.";
+                return;
             }
+
+            // Keep the intent claimed after the handoff request has been durably accepted. The
+            // lifecycle leaving Running clears it through UpdateManagedHostStopUi; re-enabling the
+            // controls in the narrow stop/capture transition would allow a competing Stop request.
+            handoffAccepted = true;
         }
         catch (Exception exception)
         {
-            _hostHandoffRequestInFlight = false;
             StatusText.Text =
                 $"Could not request safe host handoff for {world.Name}. The current host still retains protected authority.";
             ShowError("Could not hand off hosting", exception);
         }
         finally
         {
+            if (!handoffAccepted)
+            {
+                _hostHandoffRequestInFlight = false;
+            }
+
             UpdateManagedHostStopUi();
         }
     }
@@ -184,7 +201,7 @@ public partial class MainWindow
                                            !_hostStopRequestInFlight &&
                                            !_hostHandoffRequestInFlight;
             _handoffHostButton.Content = _hostHandoffRequestInFlight
-                ? "Handing off..."
+                ? "Preparing handoff..."
                 : "Hand off host";
             _handoffHostButton.ToolTip = canHandoff ? handoffHelp : null;
             AutomationProperties.SetHelpText(

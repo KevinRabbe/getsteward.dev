@@ -122,8 +122,18 @@ internal static partial class FactorioWorldOperations
             startInfo.ArgumentList.Add(argument);
         }
 
-        return Process.Start(startInfo)
+        var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException($"Failed to start Factorio executable '{executable}'.");
+        try
+        {
+            FactorioManagedProcessLifetime.RequireAttached(process);
+            return process;
+        }
+        catch
+        {
+            process.Dispose();
+            throw;
+        }
     }
 
     private static void EnsurePreparedSaveExists(string savePath, string operation)

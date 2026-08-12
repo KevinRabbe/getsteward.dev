@@ -131,13 +131,23 @@ public sealed partial class FactorioAdapter : IManagedHostEndpointProvider
         GameSessionHandle session,
         CancellationToken cancellationToken)
     {
-        if (!_hostedSessions.TryRemove(session.ProcessId, out var hostedSession))
+        if (!_hostedSessions.TryGetValue(session.ProcessId, out var hostedSession))
         {
             await WaitForSessionEndAsync(session, cancellationToken);
             return;
         }
 
-        await WaitForHostedSessionEndAsync(session, hostedSession, cancellationToken);
+        try
+        {
+            await WaitForHostedSessionEndAsync(session, hostedSession, cancellationToken);
+        }
+        finally
+        {
+            // Retain the exact hosted-session identity while it is Running and while its RCON save /
+            // server teardown is in progress. RequestHostStopAsync uses this entry to prove that a
+            // process handle still belongs to the managed Host before sending a normal close request.
+            _hostedSessions.TryRemove(session.ProcessId, out _);
+        }
     }
 
     private async Task WaitForHostedSessionEndAsync(

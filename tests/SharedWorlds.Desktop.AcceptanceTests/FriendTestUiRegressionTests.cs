@@ -26,13 +26,13 @@ public sealed class FriendTestUiRegressionTests
         Assert.Contains("SetLifecycleBusy(true);", tray, StringComparison.Ordinal);
 
         // Lifecycle-critical capture/commit blocking must not share ownership with an unrelated shell
-        // operation. An operation finishing while capture is active may clear only _operationBusy;
+        // operation. An operation finishing while capture is active may clear only _foregroundBusy;
         // _lifecycleBusy keeps the shell blocked until the lifecycle observer releases it.
-        Assert.Contains("private bool _operationBusy;", window, StringComparison.Ordinal);
+        Assert.Contains("private bool _foregroundBusy;", window, StringComparison.Ordinal);
         Assert.Contains("private bool _lifecycleBusy;", window, StringComparison.Ordinal);
-        Assert.Contains("_operationBusy = isBusy;", window, StringComparison.Ordinal);
+        Assert.Contains("_foregroundBusy = isBusy;", window, StringComparison.Ordinal);
         Assert.Contains("_lifecycleBusy = isBusy;", window, StringComparison.Ordinal);
-        Assert.Contains("var isBusy = _operationBusy || _lifecycleBusy;", window, StringComparison.Ordinal);
+        Assert.Contains("var isBusy = _foregroundBusy || _lifecycleBusy;", window, StringComparison.Ordinal);
 
         var registerHost = lifecycle.IndexOf("_activeHostedSessions.TryAdd(worldId, activeHostedSession)", StringComparison.Ordinal);
         var running = lifecycle.IndexOf("Notify(worldId, mode, WorldLifecyclePhase.Running);", StringComparison.Ordinal);

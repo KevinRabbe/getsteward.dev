@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - "release/steward-peer-friend-test-v1"
+      - "release/steward-peer-friend-test-v2"
+      - "hardening/**"
+      - "fix/steward-friend-test-package-*"
   pull_request:
     branches:
       - "agent/steward-steam-kit-with-steampipe-v1"

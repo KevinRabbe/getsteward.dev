@@ -23,6 +23,7 @@ public sealed class DesktopTextAcceptanceTests
                 Assert.False(
                     string.IsNullOrWhiteSpace(value),
                     $"Desktop resource '{property.Name}' resolved to an empty value.");
+                Assert.DoesNotContain("Safe World", value, StringComparison.Ordinal);
             }
 
             Assert.Equal("Add World", DesktopText.Import);

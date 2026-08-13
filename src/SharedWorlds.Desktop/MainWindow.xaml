@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:SharedWorlds.Desktop"
-        Title="Safe World"
+        Title="SafeWorld"
         Width="1280"
         Height="820"
         MinWidth="760"
@@ -42,7 +42,7 @@
                     </Border>
                     <StackPanel Margin="12,0,0,0"
                                 VerticalAlignment="Center">
-                        <TextBlock Text="Safe World"
+                        <TextBlock Text="SafeWorld"
                                    FontSize="21"
                                    FontWeight="SemiBold" />
                         <TextBlock Text="{x:Static local:DesktopText.Tagline}"
@@ -89,12 +89,12 @@
                             <Button x:Name="OpenImportButton"
                                     Grid.Column="1"
                                     Content="{x:Static local:DesktopText.Import}"
-                                    AutomationProperties.HelpText="Import a detected game World into Safe World on this PC."
+                                    AutomationProperties.HelpText="Import a detected game World into SafeWorld on this PC."
                                     Margin="0,0,8,0" />
                             <Button x:Name="RefreshButton"
                                     Grid.Column="2"
                                     Content="{x:Static local:DesktopText.Refresh}"
-                                    AutomationProperties.HelpText="Refresh installed games, Worlds, and current Safe World state." />
+                                    AutomationProperties.HelpText="Refresh installed games, Worlds, and current SafeWorld state." />
                         </Grid>
 
                         <ListBox x:Name="GameLibraryList"
@@ -230,7 +230,7 @@
                             <Button x:Name="RefreshGameButton"
                                     DockPanel.Dock="Right"
                                     Content="{x:Static local:DesktopText.Refresh}"
-                                    AutomationProperties.HelpText="Refresh Worlds and current Safe World state."
+                                    AutomationProperties.HelpText="Refresh Worlds and current SafeWorld state."
                                     Style="{StaticResource GhostButtonStyle}" />
                         </DockPanel>
                         <TextBlock x:Name="SelectedGameNameText"
@@ -317,7 +317,7 @@
                             <StackPanel>
                                 <CheckBox x:Name="AllowHostingCheckBox"
                                           Content="{x:Static local:DesktopText.AllowDeviceHosting}"
-                                          AutomationProperties.HelpText="Allow Safe World to use this device for temporary World hosting when the selected game supports it." />
+                                          AutomationProperties.HelpText="Allow SafeWorld to use this device for temporary World hosting when the selected game supports it." />
                                 <TextBlock x:Name="HostingPreferenceText"
                                            Margin="28,7,0,0"
                                            Foreground="{StaticResource MutedTextBrush}"
@@ -419,7 +419,7 @@
                                             Click="StopHostingButton_Click" />
                                     <Button x:Name="ShareButton"
                                             Content="{x:Static local:DesktopText.ShareWorld}"
-                                            AutomationProperties.HelpText="Share this Safe World-managed World with other Steam identities."
+                                            AutomationProperties.HelpText="Share this SafeWorld-managed World with other Steam identities."
                                             Style="{StaticResource GhostButtonStyle}"
                                             Margin="0,0,10,10" />
                                 </WrapPanel>
@@ -446,7 +446,7 @@
                                                Foreground="{StaticResource MutedTextBrush}" />
                                     <CheckBox x:Name="KeepExactGameVersionCheckBox"
                                               Content="{x:Static local:DesktopText.KeepExactGameVersion}"
-                                              AutomationProperties.HelpText="Require Safe World to verify this World against its recorded exact game environment before writable play."
+                                              AutomationProperties.HelpText="Require SafeWorld to verify this World against its recorded exact game environment before writable play."
                                               IsEnabled="{Binding IsEnabled, ElementName=WorldList}"
                                               Click="KeepExactGameVersionCheckBox_Click" />
                                     <TextBlock x:Name="GameVersionPolicyText"

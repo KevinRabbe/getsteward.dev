@@ -1,42 +1,119 @@
 # Product Boundary
 
-## Commercial product definition
+## Product definition
 
-Steward is a commercial product moving beyond prototype validation into a durable, user-facing system.
+SafeWorld is a Windows desktop product for continuing the same game World across trusted Steam players, PCs, hosts, and times.
 
 Its core promise is:
 
 > **One shared World. Different Steam players. Different times. No always-on game server.**
 
-Steward makes a game World portable between trusted players and devices. A player starts or hosts the latest valid World state, plays, and leaves the updated state ready for whoever continues next.
-
 Steam is the primary platform surface. Games are adapters. Worlds are the product.
 
-## What Steward must do
+## What SafeWorld owns
 
-Steward owns the complete World handoff lifecycle:
+SafeWorld owns the complete World continuity lifecycle:
 
 ```text
 get latest valid World state
--> reserve one writable session
+-> establish one writable authority
 -> prepare the correct game environment
--> restore the World on the selected device
--> launch the local game or temporary host
--> monitor the game or server process
--> determine when the session has ended safely
+-> restore the World on the active device
+-> start local play or temporary hosting
+-> observe the adapter-defined session lifecycle
+-> stop/save safely
 -> capture the updated World state
--> store and verify the new state
--> advance the shared World only after successful storage
--> make the World available to the next player
+-> store and verify it
+-> commit the new current state
+-> make the World available for the next session
 ```
 
-These are not optional convenience features. They are the product's essential operating responsibilities.
+Launching the game is not enough. SafeWorld is responsible for returning a valid updated World after play.
+
+## Peer-hosted topology
+
+Ordinary SafeWorld use is peer-hosted.
+
+There is no permanent SafeWorld backend or separate SafeWorld server distribution required for Host, Join, membership, handoff, or normal World continuity.
+
+When a World is active, one peer Host carries the authoritative live state. When no Host is active, the World is inactive.
+
+## One World, one writer
+
+A SafeWorld-managed World has one current valid state and at most one active writable authority.
+
+```text
+World inactive / available
+-> one Host or local player starts
+-> that device becomes the temporary writer
+-> other members may join the active game
+-> session ends safely
+-> updated state commits
+-> World becomes available again
+```
+
+SafeWorld does not create competing save histories and does not provide generic save merging.
+
+## Steam's role
+
+SafeWorld should reuse Steam wherever Steam already solves the platform problem well:
+
+- identity;
+- friends;
+- invitations;
+- lobby discovery;
+- peer networking;
+- distribution and updates;
+- game ownership and installation where useful.
+
+Steam lobby ownership is temporary platform state. It is not durable World authority by itself.
+
+## World membership
+
+Canonical membership belongs to the World.
+
+Steam supplies identity and invitation transport, but SafeWorld decides whether a Steam identity is currently authorized for that World.
+
+Adding, removing, leaving, joining, and handoff must preserve the current World authority generation and fail closed when evidence is stale or ambiguous.
+
+## Host handoff
+
+Host switching is not live process migration.
+
+```text
+stop outgoing Host
+-> final save/capture
+-> commit exact final revision
+-> transfer and verify that revision
+-> activate the target Host
+-> advance durable authority generation
+```
+
+Writable responsibility moves only after the outgoing Host has safely finished its state transition.
+
+## Adapter boundary
+
+Core owns the universal transaction. Each adapter owns game-specific truth.
+
+An adapter is responsible for facts such as:
+
+- game installation and World discovery;
+- required environment description;
+- environment preparation;
+- state restore;
+- local/host/join launch behavior;
+- relevant process lifecycle;
+- readiness;
+- safe stop/save behavior;
+- capture and validation.
+
+Core must never guess game-specific process names, save paths, shutdown rules, or file-completion semantics.
 
 ## Background-first behavior
 
-Steward should be used briefly and then stay mostly in the background.
+SafeWorld should require little attention while the user plays.
 
-The normal user interaction is:
+The normal interaction is:
 
 ```text
 select World
@@ -44,129 +121,51 @@ select World
 -> play
 ```
 
-While the game or server is running, Steward continues to:
+SafeWorld remains active in the background because it must observe the session and complete the final save/capture/commit boundary.
 
-- observe the adapter-defined session process or processes;
-- keep the World unavailable to competing writable Steward sessions;
-- wait for the adapter-defined safe capture point;
-- capture, store, verify, and commit the updated state;
-- preserve the last valid state when anything fails.
+Background-first never means launcher-only.
 
-A background-first product is not a passive launcher. Steward remains responsible for the handoff from latest shared state to playable session and back to the next valid shared state.
+## Windows product boundary
 
-## Switching host and switching game
+Public beta and release use a normal installed Windows application.
 
-Both operations reuse the same lifecycle.
+The user-facing product identity is **SafeWorld** and the installed executable is `SafeWorld.Desktop.exe`.
 
-### Switching host
+The release path must not depend on command-script launchers or expose engineering executable names.
 
-```text
-same World
-+ same game adapter
-+ different device
-```
+World data lives outside the application installation directory so uninstalling SafeWorld does not delete Worlds.
 
-The previous session finishes and commits its state. Another player later starts or hosts that same World on another device.
+## Steam package boundary
 
-There is no live process migration.
+New SafeWorld packages use only the SafeWorld Steam configuration surface:
 
-### Switching game
+- `safeworld-steam.json`;
+- `SAFEWORLD_STEAM_APP_ID` as the environment override.
 
-```text
-different World
-+ that World's adapter
-+ selected device
-```
+A public-beta package must not ship `steam_appid.txt` or development AppID 480.
 
-The user finishes one World, selects another World belonging to another game, and Steward runs the same generic lifecycle through the other adapter.
-
-Steward does not convert save data between games.
-
-## Essential state rule
-
-A Steward-managed World has one current valid state and at most one active writable session.
-
-```text
-World available
--> one player starts
--> that device becomes the temporary writer
--> others may join through the game or Steam
--> session ends
--> updated state commits
--> World becomes available again
-```
-
-This rule prevents Steward itself from creating competing save histories. It does not attempt to control manual copies outside Steward.
-
-## Steam's role
-
-Steward should reuse Steam wherever Steam already solves the problem well:
-
-- identity;
-- game ownership and installation;
-- launching;
-- friends and invitations;
-- native multiplayer joining;
-- Workshop and dedicated-server tooling;
-- Steward distribution and updates.
-
-Steward must not rebuild Steam into a second platform.
-
-## Adapter boundary
-
-The Core owns the universal transaction. Each adapter owns game-specific facts.
-
-An adapter is responsible for:
-
-- finding installations and Worlds;
-- describing the required environment;
-- preparing that environment;
-- restoring the World state;
-- launching local play or hosting;
-- identifying the relevant game or server process lifecycle;
-- determining when capture is safe;
-- capturing and validating the updated World state.
-
-The Core must never guess game-specific process names, save locations, shutdown behavior, or file-completion rules.
-
-## Commercial product scope
-
-The project is no longer treated as a disposable prototype. The current Factorio and Palworld work are product foundation and validation assets.
-
-Commercial-quality work means:
-
-- durable state handling;
-- conservative failure behavior;
-- recoverable interrupted sessions;
-- testable contracts;
-- stable adapter boundaries;
-- clear user-facing states;
-- maintainable code that can support additional games without rewriting the product.
-
-The product should still grow narrowly. Commercial quality does not justify unnecessary scope.
+Compatibility with older local package names may be read only at explicit migration boundaries; new SafeWorld packages must not emit them.
 
 ## Explicit non-goals
 
-Steward is not:
+SafeWorld is not:
 
-- a GitHub-style branching and merging system for save files;
+- a Git-style branching/merging system for saves;
 - a universal save merger;
 - a social network;
 - a Discord replacement;
-- a public server browser;
-- a complex ownership, role, or governance platform;
+- a public game-server browser;
 - a permanent game-server provider;
-- a system that guarantees external copies can be deleted;
-- a system that understands gameplay semantics inside arbitrary saves.
+- a complex governance platform;
+- DRM for external World copies;
+- a system that interprets arbitrary gameplay semantics inside save files.
 
-Groups can organize themselves. Steward's responsibility is to keep the selected shared World state safe, current, portable, and playable.
+## Scope test
 
-## Product test
+Every proposed feature must answer at least one of these questions with yes:
 
-Every proposed feature must pass both questions:
+> **Does this directly help a group continue the same World safely across different Steam players, devices, hosts, or times?**
 
-> **Does this directly help a group continue the same World state safely across different Steam players, devices, hosts, or times?**
+> **Does this help a game adapter complete that lifecycle without expanding Core unnecessarily?**
 
-> **Or does it help another game's adapter complete that same lifecycle without expanding Core unnecessarily?**
-
-If neither answer is yes, the feature should be removed, deferred, or left to Steam, the game, or another existing platform.
+If neither answer is yes, the feature should be removed, deferred, or delegated to Steam, the game, or another existing platform.

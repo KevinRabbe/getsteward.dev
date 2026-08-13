@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **CURRENT — peer-hosted Steward product architecture.**
+Status: **CURRENT — peer-hosted SafeWorld product architecture.**
 
 ## Product kernel
 
@@ -8,22 +8,22 @@ The product is the **World**.
 
 > **One shared World. Different Steam players. Different times. No always-on game server.**
 
-A World is the latest valid playable state plus the environment information required to reproduce it. Steward moves responsibility for that World between trusted Steam players/PCs while preserving one writable authority and one canonical history.
+A World is the latest valid playable state plus the environment information required to reproduce it. SafeWorld moves responsibility for that World between trusted Steam players and PCs while preserving one writable authority and one canonical history.
 
-Steam is the platform. Games are adapters. Steward owns World continuity.
+Steam is the platform. Games are adapters. SafeWorld owns World continuity.
 
-The central code rule remains:
+The central code rule is:
 
 > **Core knows what must happen. Adapters know how a specific game makes it happen.**
 
-Core must never contain game-name branches merely because one adapter has unusual runtime or save semantics.
+Core must not contain game-name branches merely because one adapter has unusual runtime or save semantics.
 
 ## Normal product topology
 
-Ordinary Steward use is peer-hosted. There is no permanent central Steward authority/backend required for normal Host/Join/access/handoff/Leave behavior.
+Ordinary SafeWorld use is peer-hosted. There is no permanent central SafeWorld backend required for normal Host, Join, access management, handoff, or Leave behavior.
 
 ```text
-Steward.exe
+SafeWorld.Desktop.exe
    |
    +-- SharedWorlds.Core
    |      universal lifecycle/revision/safety contracts
@@ -31,7 +31,7 @@ Steward.exe
    +-- SharedWorlds.Infrastructure
    |      local durable storage
    |      peer authority fences
-   |      bootstrap/catch-up/replication
+   |      bootstrap/catch-up
    |      membership/removal/Leave
    |      generation-fenced session coordination
    |
@@ -39,17 +39,14 @@ Steward.exe
    |      Windows UI/background runtime
    |      one process-lifetime Steam runtime
    |      private lobby Host/Join
-   |      port 71 World/control exchange
-   |      port 72 game bridge
+   |      peer World/control transport
+   |      game traffic bridge
    |
-   +-- SharedWorlds.GameAdapters/*
-   |      game-specific behavior
-   |
-   `-- explicit legacy migration compatibility
-          Backend.Api/PostgreSQL/S3 paths retained only when deliberately activated
+   `-- SharedWorlds.GameAdapters/*
+          game-specific behavior
 ```
 
-There is one Steward product distribution. A second Steward server executable is not part of the ordinary topology.
+There is one SafeWorld product distribution. If no Host is active, the World is inactive.
 
 ## Dependency direction
 
@@ -58,11 +55,8 @@ Windows Desktop / background runtime / engineering tools
                     |
                     v
              SharedWorlds.Core
-              |      |      |
-              |      |      `-> session/lifecycle contracts
-              |      |
-              |      `-> IWorldStorage
-              |            `-> local durable World/revision storage
+              |             |
+              |             `-> session/lifecycle contracts
               |
               `-> IGameAdapter
                      `-> independently compiled game-specific adapters
@@ -71,16 +65,14 @@ SharedWorlds.Infrastructure
   implements peer/local coordination and durable persistence around Core contracts
 
 SharedWorlds.Desktop
-  composes Steamworks transport/platform behavior around Infrastructure/Core
+  composes Steam platform/transport behavior around Infrastructure/Core
 ```
 
-Core does not depend on Steamworks, Desktop, PostgreSQL, S3, launcher SDKs, or concrete games.
-
-Legacy remote/backend implementations remain compiled for explicit migration compatibility but are outside normal peer-product activation.
+Core does not depend on Steamworks, Desktop, launcher SDKs, or concrete games.
 
 ## Three authority layers
 
-Steward separates durable World authority, ephemeral Steam transport state, and game/session evidence.
+SafeWorld separates durable World authority, temporary Steam platform state, and game/session evidence.
 
 ### 1. Durable World authority
 
@@ -92,31 +84,29 @@ WorldPeerAuthority
   Generation: ulong > 0
 ```
 
-This is the durable statement of who may create/continue writable peer authority for the World.
-
 Rules:
 
-- LocalOnly Worlds have no peer authority;
+- Local Worlds have no peer authority;
 - explicit Share creates generation 1 only after durable World/fence preparation succeeds;
 - ordinary Host stop/restart preserves the same generation;
 - successful deliberate handoff increments generation exactly once;
 - stale or conflicting generation evidence fails closed;
-- no live host means the World is inactive, not centrally hosted elsewhere.
+- no live Host means the World is inactive.
 
-### 2. Steam lobby/transport state
+### 2. Steam platform state
 
-Steam owns platform primitives:
+Steam provides:
 
-- Steward distribution/update;
+- SafeWorld distribution/update;
 - Steam identity;
 - friend enumeration;
 - private lobby creation;
-- invites and `+connect_lobby` delivery;
+- invites and lobby discovery;
 - peer networking transport.
 
 A Steam lobby is **not** canonical World membership or persistent World authority.
 
-Before writable/transfer/game operations, Steward requires the live lobby owner/generation to agree with durable peer authority.
+Before writable, transfer, or game operations, SafeWorld requires temporary Steam state to agree with durable peer authority.
 
 ### 3. Game/session evidence
 
@@ -125,28 +115,28 @@ Before writable/transfer/game operations, Steward requires the live lobby owner/
 - installation and World discovery;
 - environment inspection/preparation;
 - state restore/capture;
-- local/host/join launch behavior;
+- local/Host/Join launch behavior;
 - server/client process lifecycle;
 - readiness;
 - safe stop/save boundary;
 - capture validity.
 
-Neither durable authority nor Steam presence may manufacture game-specific readiness/capture truth.
+Neither durable authority nor Steam presence may invent game-specific readiness/capture truth.
 
 ## Local -> Shared cutover
 
 Sharing is explicit.
 
 ```text
-LocalOnly World
+Local World
 -> capture/validate current durable head
 -> persist Shared membership/authority prerequisites
--> create durable active authority fence
+-> create durable authority fence
 -> publish WorldPeerAuthority(holder = local Steam identity, generation = 1)
 -> World is peer-shared
 ```
 
-Authority is published only after the required durable state exists. Steward does not create a backend World or upload state to a central authority during normal Share.
+Authority is published only after the required durable state exists.
 
 ## Host lifecycle
 
@@ -158,10 +148,10 @@ Managed Host performs conceptually:
 load canonical World
 -> validate holder + generation + current state
 -> validate durable authority fence
--> create private FriendsOnly Steam lobby
+-> create private Steam lobby
 -> bind lobby metadata to World + generation
 -> launch/observe managed game Host through adapter
--> publish Ready managed-host presence only when actually usable
+-> publish Ready presence only when actually usable
 -> invite canonical Steam members
 -> serve peer World/control traffic
 -> bridge admitted game traffic
@@ -172,271 +162,150 @@ load canonical World
 -> finalize managed-host presence/lobby state
 ```
 
-The host PC contains the live authoritative save state while the World is active.
-
-## Peer networking
-
-Steward uses two Steam virtual-port responsibilities:
-
-### Port 71 — World/control traffic
-
-Used for bounded reliable Steward protocol work such as:
-
-- bootstrap/catch-up;
-- revision transfer;
-- observer synchronization;
-- handoff control/activation acknowledgement;
-- authenticated Leave request/result.
-
-Authorization is bound to:
-
-- World ID;
-- exact authority generation;
-- authenticated remote Steam identity;
-- canonical World membership;
-- current holder/lobby state.
-
-### Port 72 — game traffic bridge
-
-Used to bridge game traffic through Steward/Steam networking while keeping the game-facing endpoint local to the joining client/host bridge.
-
-Admission rechecks canonical membership, holder/generation, lobby state, and live revocation state before granting a bridge.
-
-Member revocation closes only matching `(World, generation, remote Steam identity)` sessions. Whole-listener reset is reserved for managed Host end, not individual member kicks.
+The Host PC contains the live authoritative save state while the World is active.
 
 ## Join/bootstrap/catch-up
 
-A member may join from a Steam invite or cold `+connect_lobby` launch.
+A member may join from a Steam invitation or lobby target.
 
-The Join path:
+The Join path conceptually performs:
 
 ```text
-Steam lobby target
--> resolve World + generation + holder
--> confirm lobby owner against persistent authority
+resolve World + generation + holder
+-> confirm Steam lobby owner against persistent authority
 -> authenticate remote Steam identity
 -> confirm canonical membership
--> bootstrap or catch up exact World/environment state
+-> bootstrap or catch up exact World state
 -> verify revision/package integrity
--> attach local game bridge
--> launch/join through adapter
+-> prepare local game environment
+-> launch graphical Join client
+-> connect through the SafeWorld bridge
 ```
 
-A joining replica never becomes writable authority merely because it possesses state bytes or is present in the lobby.
+The graphical game client uses the player's normal game profile where the adapter requires player identity/preferences. SafeWorld must not replace language, account identity, controls, or equivalent player-profile state merely to isolate authoritative server data.
 
-Steward may also import/share a World ZIP outside live hosting. The product deliberately does not own how users transfer that ZIP to each other.
+For games such as Factorio, authoritative dedicated-server write-data may be isolated while the graphical Host/Join client uses the player's normal profile.
+
+## Peer networking
+
+SafeWorld separates World/control traffic from bridged game traffic.
+
+Authorization is bound to the current World, authority generation, authenticated Steam identity, canonical membership, and current Host state.
+
+Removing a member closes only the matching live sessions for that World/generation/member. Whole-session retirement belongs to managed Host end, not an individual member kick.
 
 ## Safe host handoff
 
-Host handoff reuses the managed lifecycle; it does not migrate a live process.
-
-The authority transaction is:
+Host handoff is not live process migration.
 
 ```text
-current holder generation N
--> request canonical live member as next host
--> serialize against membership mutations
--> record requested host on confirmed live lobby
--> safely stop outgoing managed Host
+request next Host
+-> serialize authority mutation
+-> stop outgoing Host safely
 -> final save/capture
 -> commit exact final revision
--> finalize outgoing workspace
--> transfer/verify exact committed revision to target
--> target activates durable authority generation N+1
--> target acknowledges exact activation
--> move Steam lobby ownership
+-> transfer/verify that exact revision
+-> target activates durable generation N+1
+-> acknowledge activation
+-> move temporary Steam lobby ownership last
 ```
 
-The outgoing holder does not directly write generation N+1 in Desktop UI code. The lifecycle/session coordinator owns the transaction.
+The protocol rechecks membership and presence immediately before authority mutation.
 
-If final save, commit, transfer, verification, activation, or acknowledgement fails, Steward does not pretend handoff completed.
+## Membership and revocation
 
-## Handoff candidate presentation
-
-The handoff dialog is presentation only.
-
-Candidates are:
-
-```text
-canonical World members
-∩ valid Steam identities
-∩ current exact-generation live lobby participants
-- current holder
-```
-
-The real protocol rechecks live membership again immediately before requested-host mutation. Therefore a disconnect after the dialog opens is refused rather than converted into stale authority.
-
-## Membership authority
-
-`World.Members` is canonical access authority.
-
-Steam friends/lobby members are not automatically World members.
+Canonical membership is stored on the World and controlled by the current persistent authority holder.
 
 ### Add person
 
-The holder selects an immediate Steam friend. Steward persists canonical membership first. Invitation delivery through the private lobby happens afterward and can be retried.
+The holder selects a Steam friend. SafeWorld persists canonical membership before relying on the Steam invitation flow.
 
-### Remove access while inactive
+### Remove access
 
-Canonical membership can be removed directly after holder/fence validation because no live peer work exists to revoke.
-
-### Remove access while live
-
-Live removal executes under the shared live-authority mutation gate:
+For a live World, removal is fail-closed and ordered:
 
 ```text
-validate exact holder/generation/lobby/current head
--> refuse if handoff requested/in progress
--> set exact member revocation deny
--> cancel matching port-71 work
--> notify/close matching port-72 contexts
--> persist canonical member removal
--> reload/verify member absent and holder/generation/head unchanged
+revoke exact (World, generation, member)
+-> cancel matching World/control work
+-> close matching game sessions
+-> persist canonical membership removal
+-> verify holder/generation/current head stayed coherent
 ```
 
-If canonical persistence becomes ambiguous after revocation, the deny remains active. Safety is preferred over silently reopening access.
+A failed or ambiguous persistence step must not silently reopen access.
 
-Explicit holder-controlled re-add restores the revocation key only after canonical membership exists again.
+### Leave World
 
-## Leave World
+A non-holder requests canonical removal from the current authority holder before deleting its local replica.
 
-Leave is an authoritative membership operation, not local deletion.
+The current holder must hand off authority before using the normal member Leave path.
 
-The request contains only:
+## State safety
 
-- World ID;
-- expected authority generation.
-
-The authenticated Steam port-71 connection supplies the requester identity, preventing one participant from naming another member as the Leave target.
-
-Requester ordering:
-
-```text
-validate local non-holder replica
--> require confirmed current holder/generation/no handoff
--> send authenticated Leave request
--> holder performs exact-generation safe canonical removal
--> receive exact acknowledgement
--> switch to non-cancellable local cleanup
--> delete/verify local replica
--> best-effort detach from Steam lobby
-```
-
-The current holder must hand off first.
-
-## State/revision persistence
-
-`LocalWorldStorage` is the normal durable persistence implementation for peer Worlds on each participating PC.
-
-Published state/environment revisions remain immutable. Current World metadata points at the selected canonical head.
-
-Peer replication/install paths validate identity, revision relationships, package availability, and payload integrity before advancing local replica state.
-
-A stale replica cannot become writable merely by being copied back onto a machine because persistent authority/fence/generation checks remain required.
-
-## Background responsibility
-
-Steward is background-first, not launcher-only.
-
-After Start/Host begins, Steward remains responsible for:
-
-- managed game/session observation;
-- safe capture boundaries;
-- immutable state persistence;
-- verification;
-- canonical head commit;
-- authority/lobby cleanup;
-- recovery preservation on uncertainty.
-
-Closing or minimizing UI must not manufacture a completed handoff while Steward still owns unresolved writable responsibility.
-
-## Steam package/configuration boundary
-
-The normal Steam package contains one platform file:
-
-`steward-steam.json`
-
-Normal schema:
-
-```json
-{
-  "schemaVersion": 1,
-  "steamAppId": 123456789
-}
-```
-
-The normal package contains no central API coordinate or remote-session credential.
-
-Legacy remote migration can be enabled only through explicit compatibility configuration, including explicit migration package files or the explicit environment gate:
-
-`STEWARD_ENABLE_LEGACY_REMOTE_MIGRATION=true`
-
-Ambient stale `STEWARD_API_BASE_URL`, auth mode, AppID, or Web API identity variables cannot activate legacy remote mode by themselves.
-
-## Legacy backend boundary
-
-Backend.Api, PostgreSQL, S3-compatible storage, Friends Build, Owned Private catalog, and Bring Here code remain in the repository for old-World migration, engineering evidence, and historical provenance.
-
-They are not ordinary peer-product authority.
-
-Normal AppID-only startup:
-
-- initializes peer runtime independently;
-- does not construct the legacy invitation inbox;
-- does not construct Owned Private/Bring Here UI;
-- does not allocate the legacy owned-location publication worker;
-- does not establish remote runtime from ambient legacy variables.
-
-Explicit migration activation may still construct/use those compatibility paths.
-
-## Adapter architecture
-
-Game adapters continue to own all game-specific behavior. `GameAdapterCapabilities` is the executable capability boundary.
-
-Catalog registration alone never grants Start/Host/Join/Stop/Create claims.
-
-The repository currently contains 19 first-party adapters with intentionally different capability/evidence levels. Peer authority logic remains game-agnostic.
-
-## CI architecture
-
-The normal peer product is qualified separately from legacy/backend/physical tooling.
-
-Always-required ordinary peer workflows:
-
-1. `Peer product CI`;
-2. `Windows acceptance package`.
-
-`Peer exact-head qualification` observes the exact PR head and requires those plus only path-relevant adapter workflows.
-
-Adapter workflows are path-scoped. Portable and Steam physical two-PC kits are manual-only. Legacy backend CI is path-scoped/manual for compatibility work.
-
-The exact-head status must belong to the same SHA being qualified; superseded/cancelled/different-head evidence is not accepted.
-
-## Closed-beta release boundary
-
-The current peer closed-beta RC is frozen at:
-
-`9acf25f7696dfe9056028e4201ca380a94883f0e`
-
-The remaining release gate is physical Steam/game evidence on two Windows PCs/two Steam accounts. See issue #349 and the two-PC acceptance kit.
-
-Repository branch/trunk cleanup is intentionally deferred until that physical evidence succeeds so repository administration cannot disturb the product bytes being tested.
-
-## Stable invariants
+SafeWorld keeps the same core invariants regardless of adapter:
 
 - one current valid World state;
-- at most one writable Steward authority;
-- immutable revisions;
-- current head advances last;
-- persistent peer authority is not inferred from Steam lobby ownership;
-- Steam lobby presence is not canonical membership;
-- generation increments only for deliberate successful handoff;
-- ordinary restart preserves generation;
-- stale/ambiguous authority fails closed;
-- live member removal revokes active work before canonical removal;
-- Leave removes canonical access before local replica deletion;
+- at most one writable authority;
+- immutable published revisions;
+- canonical head advances only after replacement bytes are captured, stored, verified, and committed;
+- failed work preserves the previous valid state and recovery evidence;
+- adapters own game-specific lifecycle/save/capture truth;
 - no generic save merging;
-- no live process migration;
-- no permanent Steward-owned game-server fleet;
-- no required central Steward backend for normal product use;
-- one Steward product distribution.
+- no live process/memory migration.
+
+## Windows application lifetime
+
+SafeWorld is a normal installed Windows desktop application.
+
+The public executable is `SafeWorld.Desktop.exe`.
+
+Managed child processes that belong to a SafeWorld-controlled session must not survive SafeWorld unexpectedly when the adapter/runtime contract says they are owned by SafeWorld.
+
+Public beta/release does not require a command-script launcher.
+
+## Steam package boundary
+
+New SafeWorld packages use `safeworld-steam.json` and may accept `SAFEWORLD_STEAM_APP_ID` as an environment override.
+
+Public beta/release must not ship development `steam_appid.txt` or use AppID 480.
+
+Older configuration names may be read only as explicit compatibility inputs. New SafeWorld beta packages must not emit them.
+
+## Installer boundary
+
+The SafeWorld installer owns application files and Windows integration, not user World data.
+
+Uninstall must:
+
+- remove package-owned application files;
+- remove SafeWorld shortcuts/registration;
+- preserve unrelated files in the installation directory;
+- preserve World data outside the installation directory.
+
+In-place upgrade may remove known package-owned legacy configuration files when needed to prevent ambiguous runtime configuration.
+
+## Release qualification
+
+A source revision is qualified only when all required checks pass on that exact revision.
+
+The public-beta path validates:
+
+- product build/tests;
+- Windows acceptance;
+- installer construction;
+- installed launch boundary;
+- uninstall/data preservation;
+- exact-head aggregation.
+
+The real release candidate additionally uses the real SafeWorld Steam AppID and final Windows code signing before the physical two-PC beta test.
+
+## Final architectural invariant
+
+```text
+one active peer Host
+-> one authoritative live state
+-> one writer
+-> stop/save before authority moves
+-> Steam discovery/connectivity
+-> no permanent central SafeWorld authority
+```

@@ -1,4 +1,0 @@
-{$STEWARD_BETA_DOMAIN} {
-    encode zstd gzip
-    reverse_proxy 172.30.0.20:8080
-}

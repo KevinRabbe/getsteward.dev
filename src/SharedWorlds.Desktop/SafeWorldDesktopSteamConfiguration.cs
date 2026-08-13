@@ -47,10 +47,10 @@ internal sealed record SafeWorldDesktopSteamConfiguration(uint AppId)
             !string.IsNullOrWhiteSpace(canonicalEnvironmentAppId))
         {
             if (!StewardDesktopSteamConfiguration.TryLoad(
-                    canonicalPath,
-                    canonicalEnvironmentAppId,
-                    out parsed,
-                    out problem))
+                canonicalPath,
+                canonicalEnvironmentAppId,
+                out parsed,
+                out problem))
             {
                 return false;
             }
@@ -58,8 +58,8 @@ internal sealed record SafeWorldDesktopSteamConfiguration(uint AppId)
         else
         {
             if (!StewardDesktopSteamConfiguration.TryLoad(
-                    out parsed,
-                    out problem))
+                out parsed,
+                out problem))
             {
                 return false;
             }

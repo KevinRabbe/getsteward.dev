@@ -28,7 +28,7 @@ env:
 
 jobs:
   package:
-    name: Build and install SafeWorld beta package
+    name: Build and verify SafeWorld beta package
     runs-on: windows-2022
     timeout-minutes: 30
     env:
@@ -110,30 +110,13 @@ jobs:
             throw 'Public beta product must not require or ship a command-script launcher.'
           }
 
-      - name: Silent install smoke test
+      - name: Verify install and uninstall lifecycle
         shell: pwsh
         run: |
-          $output = "$env:RUNNER_TEMP/safeworld-public-beta"
-          $installer = Join-Path $output 'SafeWorld-Setup-${{ steps.identity.outputs.version }}.exe'
-          $installRoot = Join-Path $env:LOCALAPPDATA 'Programs/SafeWorld'
-          $process = Start-Process `
-            -FilePath $installer `
-            -ArgumentList '/S' `
-            -Wait `
-            -PassThru
-          if ($process.ExitCode -ne 0) {
-            throw "SafeWorld installer exited with code $($process.ExitCode)."
-          }
-          if (-not (Test-Path -LiteralPath (Join-Path $installRoot 'SafeWorld.Desktop.exe') -PathType Leaf)) {
-            Write-Host "Expected install root: $installRoot"
-            if (Test-Path -LiteralPath $installRoot) {
-              Get-ChildItem -LiteralPath $installRoot -Recurse -File | ForEach-Object { Write-Host $_.FullName }
-            }
-            throw 'Installed SafeWorld.Desktop.exe is missing.'
-          }
-          if (Test-Path -LiteralPath (Join-Path $installRoot 'SharedWorlds.Desktop.exe')) {
-            throw 'Installed product exposes the engineering executable name.'
-          }
+          $installer = Join-Path `
+            "$env:RUNNER_TEMP/safeworld-public-beta" `
+            'SafeWorld-Setup-${{ steps.identity.outputs.version }}.exe'
+          ./tools/verify-safeworld-installer-lifecycle.ps1 -InstallerPath $installer
 
       - name: Upload real public-beta candidate
         if: ${{ github.event_name == 'workflow_dispatch' && steps.identity.outputs.candidate == 'true' }}

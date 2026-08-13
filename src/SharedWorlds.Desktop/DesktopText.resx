@@ -16,7 +16,7 @@
   <data name="NoSharedWorlds" xml:space="preserve"><value>Shared Worlds will appear here once you share or join one.</value></data>
   <data name="Settings" xml:space="preserve"><value>Settings</value></data>
   <data name="Back" xml:space="preserve"><value>← Back</value></data>
-  <data name="SettingsDescription" xml:space="preserve"><value>Preferences for how this PC participates in Safe World.</value></data>
+  <data name="SettingsDescription" xml:space="preserve"><value>Preferences for how this PC participates in SafeWorld.</value></data>
   <data name="DeviceSettings" xml:space="preserve"><value>Device settings</value></data>
   <data name="HostingOnThisDevice" xml:space="preserve"><value>Hosting on this device</value></data>
   <data name="AllowDeviceHosting" xml:space="preserve"><value>Allow this device to host</value></data>
@@ -48,7 +48,7 @@
   <data name="KeepExactGameVersion" xml:space="preserve"><value>Keep this World on this exact game version</value></data>
   <data name="DangerZone" xml:space="preserve"><value>Danger zone</value></data>
   <data name="DeleteWorld" xml:space="preserve"><value>Delete World</value></data>
-  <data name="DeleteWorldDescription" xml:space="preserve"><value>Remove Safe World’s managed copy and revision history from this PC. The game’s own save is not deleted.</value></data>
+  <data name="DeleteWorldDescription" xml:space="preserve"><value>Remove SafeWorld’s managed copy and revision history from this PC. The game’s own save is not deleted.</value></data>
   <data name="EnvironmentReadiness" xml:space="preserve"><value>Environment</value></data>
   <data name="NotCheckedYet" xml:space="preserve"><value>Not checked yet.</value></data>
   <data name="TechnicalDetails" xml:space="preserve"><value>Technical details</value></data>
@@ -94,8 +94,8 @@
   <data name="Close" xml:space="preserve"><value>Close</value></data>
   <data name="VerifyEnvironment" xml:space="preserve"><value>Verify</value></data>
   <data name="Repair" xml:space="preserve"><value>Repair</value></data>
-  <data name="OpenSteward" xml:space="preserve"><value>Open Safe World</value></data>
-  <data name="QuitSteward" xml:space="preserve"><value>Quit Safe World</value></data>
+  <data name="OpenSteward" xml:space="preserve"><value>Open SafeWorld</value></data>
+  <data name="QuitSteward" xml:space="preserve"><value>Quit SafeWorld</value></data>
   <data name="WorldLobby" xml:space="preserve"><value>World Lobby</value></data>
   <data name="PlayingNow" xml:space="preserve"><value>Playing now</value></data>
   <data name="WorldGroup" xml:space="preserve"><value>World group</value></data>

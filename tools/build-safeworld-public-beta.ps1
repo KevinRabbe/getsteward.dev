@@ -37,6 +37,7 @@ $publishArguments = @(
     '--nologo',
     '--verbosity', 'minimal',
     '-p:SafeWorldPublicAssemblyName=SafeWorld.Desktop',
+    "-p:Version=$Version",
     "-p:InformationalVersion=$Version",
     '-p:IncludeSourceRevisionInInformationalVersion=false',
     '-p:DebugType=None',
@@ -56,9 +57,12 @@ if ([IO.File]::Exists((Join-Path $product 'steam_appid.txt'))) {
 
 $steamConfiguration = [ordered]@{ schemaVersion = 1; steamAppId = $SteamAppId }
 [IO.File]::WriteAllText(
-    (Join-Path $product 'steward-steam.json'),
+    (Join-Path $product 'safeworld-steam.json'),
     ($steamConfiguration | ConvertTo-Json -Compress),
     [Text.UTF8Encoding]::new($false))
+if ([IO.File]::Exists((Join-Path $product 'steward-steam.json'))) {
+    throw 'Public beta product must not contain the legacy Steam configuration filename.'
+}
 
 $commit = (& git -C $repoRoot rev-parse HEAD).Trim()
 $productFiles = @(Get-ChildItem -LiteralPath $product -Recurse -File | Sort-Object FullName | ForEach-Object {
@@ -76,6 +80,7 @@ $manifest = [ordered]@{
     runtime = 'win-x64'
     steamAppId = $SteamAppId
     executable = 'SafeWorld.Desktop.exe'
+    steamConfiguration = 'safeworld-steam.json'
     files = $productFiles
 }
 [IO.File]::WriteAllText(

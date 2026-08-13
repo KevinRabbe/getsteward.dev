@@ -32,6 +32,47 @@ public sealed class FactorioHostingTests : IDisposable
     }
 
     [Fact]
+    public void HostClientProcessArguments_UseNativePlayerProfile()
+    {
+        var arguments = FactorioHostingOperations.BuildProcessArguments(
+            configPath: null,
+            workspaceModDirectory: @"C:\SafeWorld\mods",
+            operationArguments: FactorioHostingOperations.BuildClientOperationArguments(
+                new HostConnection("127.0.0.1", 34197, "session-secret")));
+
+        Assert.DoesNotContain("--config", arguments);
+        Assert.Equal("--mod-directory", arguments[0]);
+        Assert.Equal(@"C:\SafeWorld\mods", arguments[1]);
+        Assert.Contains("--mp-connect", arguments);
+    }
+
+    [Fact]
+    public void DedicatedServerProcessArguments_KeepIsolatedConfig()
+    {
+        var arguments = FactorioHostingOperations.BuildProcessArguments(
+            configPath: @"C:\SafeWorld\config\config.ini",
+            workspaceModDirectory: @"C:\SafeWorld\mods",
+            operationArguments: ["--start-server", @"C:\SafeWorld\world.zip"]);
+
+        Assert.Equal("--config", arguments[0]);
+        Assert.Equal(@"C:\SafeWorld\config\config.ini", arguments[1]);
+        Assert.Contains("--start-server", arguments);
+    }
+
+    [Fact]
+    public void JoinedClientProcessArguments_UseNativePlayerProfile()
+    {
+        var arguments = FactorioWorldOperations.BuildProcessArguments(
+            configPath: null,
+            workspaceModDirectory: @"C:\SafeWorld\mods",
+            operationArguments: ["--mp-connect", "friend-host"]);
+
+        Assert.DoesNotContain("--config", arguments);
+        Assert.Equal("--mod-directory", arguments[0]);
+        Assert.Contains("--mp-connect", arguments);
+    }
+
+    [Fact]
     public async Task Adapter_AdvertisesAndImplementsManagedHostStop()
     {
         var adapter = new FactorioAdapter();
@@ -45,7 +86,7 @@ public sealed class FactorioHostingTests : IDisposable
                 CancellationToken.None));
 
         Assert.Contains(
-            "running Steward-managed Host session",
+            "running SafeWorld-managed Host session",
             exception.Message,
             StringComparison.Ordinal);
     }

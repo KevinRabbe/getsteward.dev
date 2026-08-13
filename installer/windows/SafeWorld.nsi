@@ -12,7 +12,6 @@ Name "SafeWorld"
 OutFile "${OUTPUT_FILE}"
 InstallDir "$LOCALAPPDATA\Programs\SafeWorld"
 RequestExecutionLevel user
-SetShellVarContext current
 SetCompressor /SOLID lzma
 BrandingText "SafeWorld"
 

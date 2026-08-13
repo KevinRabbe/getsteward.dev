@@ -18,16 +18,16 @@ public partial class App : Application
         var startupPortableWorldPath = PortableWorldStartupActivation.ResolvePath(e.Args);
         if (!TryBecomePrimaryDesktop(startupPortableWorldPath))
         {
-            // A primary Safe World process already owns this user/session. The activation request was
+            // A primary SafeWorld process already owns this user/session. The activation request was
             // handed off (or failed closed); never construct a second local storage/runtime writer.
             // Normal duplicate launches get one explicit explanation so test/release builds cannot
             // appear to launch while Windows actually brings an older already-running process forward.
             if (startupPortableWorldPath is null)
             {
                 MessageBox.Show(
-                    "Safe World is already running. The existing window was activated.\n\n" +
-                    "To switch to a different Safe World build, quit the running copy first.",
-                    "Safe World is already running",
+                    "SafeWorld is already running. The existing window was activated.\n\n" +
+                    "To switch to a different SafeWorld build, quit the running copy first.",
+                    "SafeWorld is already running",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
             }
@@ -42,7 +42,7 @@ public partial class App : Application
 
         var window = new MainWindow
         {
-            Title = "Safe World"
+            Title = "SafeWorld"
         };
         window.InitializeProfessionalWindowChrome();
         MainWindow = window;
@@ -64,7 +64,7 @@ public partial class App : Application
         if (!Dispatcher.CheckAccess())
         {
             throw new InvalidOperationException(
-                "Steam platform access must run on Steward's UI dispatcher.");
+                "Steam platform access must run on SafeWorld's UI dispatcher.");
         }
 
         var existing = _steamPlatformRuntime;
@@ -74,7 +74,7 @@ public partial class App : Application
             {
                 runtime = null;
                 problem =
-                    $"Steam is already initialized for AppID {existing.AppId}, but Steward requested AppID {expectedAppId}.";
+                    $"Steam is already initialized for AppID {existing.AppId}, but SafeWorld requested AppID {expectedAppId}.";
                 return false;
             }
 
@@ -117,9 +117,9 @@ public partial class App : Application
             ? $"Incident ID: {incident.Id}"
             : $"Incident ID: {incident.Id}{Environment.NewLine}Diagnostic log: {incident.LogPath}";
         MessageBox.Show(
-            $"Safe World encountered an unexpected failure and will stop rather than continue in an unknown state.{Environment.NewLine}{Environment.NewLine}" +
+            $"SafeWorld encountered an unexpected failure and will stop rather than continue in an unknown state.{Environment.NewLine}{Environment.NewLine}" +
             $"{DesktopErrorMessage.Safe(e.Exception)}{Environment.NewLine}{Environment.NewLine}{diagnosticReference}",
-            "Safe World unexpected failure",
+            "SafeWorld unexpected failure",
             MessageBoxButton.OK,
             MessageBoxImage.Error);
 
@@ -142,6 +142,7 @@ public partial class App : Application
             localDataRoot = Path.GetTempPath();
         }
 
+        // Keep the existing storage root until a compatibility migration moves persisted user data.
         return Path.Combine(localDataRoot, "SharedWorlds", "logs");
     }
 }

@@ -1,0 +1,140 @@
+name: SafeWorld public beta package
+
+on:
+  push:
+    branches:
+      - "safeworld-public-beta-*"
+  pull_request:
+    branches:
+      - "hardening/steward-peer-architecture-v1"
+  workflow_dispatch:
+    inputs:
+      steam_app_id:
+        description: "Real SafeWorld Steam AppID. Leave blank for structural CI only."
+        required: false
+        type: string
+      version:
+        description: "SafeWorld beta version"
+        required: false
+        default: "0.1.0-beta.1"
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  package:
+    name: Build and verify SafeWorld beta package
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      REQUESTED_STEAM_APP_ID: ${{ github.event.inputs.steam_app_id }}
+      REQUESTED_VERSION: ${{ github.event.inputs.version }}
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Resolve package identity
+        id: identity
+        shell: pwsh
+        run: |
+          $actualSha = (& git rev-parse HEAD).Trim()
+          if (-not [string]::Equals($actualSha, $env:SOURCE_SHA, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Checkout SHA '$actualSha' does not match '$env:SOURCE_SHA'."
+          }
+
+          $candidate = -not [string]::IsNullOrWhiteSpace($env:REQUESTED_STEAM_APP_ID)
+          if ($candidate) {
+            [uint32]$appId = 0
+            if (-not [uint32]::TryParse($env:REQUESTED_STEAM_APP_ID, [ref]$appId) -or $appId -eq 0) {
+              throw 'steam_app_id must be a positive UInt32.'
+            }
+            if ($appId -eq 480) {
+              throw 'AppID 480 is development-only and cannot qualify as a SafeWorld public beta.'
+            }
+            $version = if ([string]::IsNullOrWhiteSpace($env:REQUESTED_VERSION)) { '0.1.0-beta.1' } else { $env:REQUESTED_VERSION }
+          }
+          else {
+            [uint32]$appId = 123456789
+            $version = "0.1.0-beta-ci.${{ github.run_number }}"
+          }
+
+          "app_id=$appId" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "candidate=$($candidate.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $output = "$env:RUNNER_TEMP/safeworld-public-beta"
+          ./tools/build-safeworld-public-beta.ps1 `
+            -SteamAppId ${{ steps.identity.outputs.app_id }} `
+            -Version '${{ steps.identity.outputs.version }}' `
+            -OutputDirectory $output
+
+      - name: Verify product boundary
+        shell: pwsh
+        run: |
+          $output = "$env:RUNNER_TEMP/safeworld-public-beta"
+          $product = Join-Path $output 'product'
+          $installer = Join-Path $output 'SafeWorld-Setup-${{ steps.identity.outputs.version }}.exe'
+          foreach ($required in @(
+            (Join-Path $product 'SafeWorld.Desktop.exe'),
+            (Join-Path $product 'SafeWorld.Desktop.dll'),
+            (Join-Path $product 'steam_api64.dll'),
+            (Join-Path $output 'safeworld-public-beta.json'),
+            $installer)) {
+            if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
+              throw "SafeWorld beta output is missing '$required'."
+            }
+          }
+          if (Test-Path -LiteralPath (Join-Path $product 'SharedWorlds.Desktop.exe')) {
+            throw 'Public beta product still exposes the engineering Desktop executable name.'
+          }
+          if (Test-Path -LiteralPath (Join-Path $product 'steam_appid.txt')) {
+            throw 'Public beta product contains development steam_appid.txt.'
+          }
+          if (@(Get-ChildItem -LiteralPath $product -Recurse -File -Filter '*.cmd').Count -ne 0) {
+            throw 'Public beta product must not require or ship a command-script launcher.'
+          }
+
+      - name: Verify install and uninstall lifecycle
+        shell: pwsh
+        run: |
+          $installer = Join-Path `
+            "$env:RUNNER_TEMP/safeworld-public-beta" `
+            'SafeWorld-Setup-${{ steps.identity.outputs.version }}.exe'
+          ./tools/verify-safeworld-installer-lifecycle.ps1 -InstallerPath $installer
+
+      - name: Verify real candidate signatures
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.identity.outputs.candidate == 'true' }}
+        shell: pwsh
+        run: |
+          $output = "$env:RUNNER_TEMP/safeworld-public-beta"
+          ./tools/verify-safeworld-signatures.ps1 -FilePath @(
+            (Join-Path $output 'product/SafeWorld.Desktop.exe'),
+            (Join-Path $output 'SafeWorld-Setup-${{ steps.identity.outputs.version }}.exe'))
+
+      - name: Upload real public-beta candidate
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.identity.outputs.candidate == 'true' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: safeworld-public-beta-${{ steps.identity.outputs.version }}-${{ env.SOURCE_SHA }}
+          path: |
+            ${{ runner.temp }}/safeworld-public-beta/SafeWorld-Setup-${{ steps.identity.outputs.version }}.exe
+            ${{ runner.temp }}/safeworld-public-beta/SafeWorld-Setup-${{ steps.identity.outputs.version }}.sha256
+            ${{ runner.temp }}/safeworld-public-beta/safeworld-public-beta.json
+          if-no-files-found: error
+          retention-days: 14

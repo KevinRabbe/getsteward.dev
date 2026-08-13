@@ -103,8 +103,7 @@ public sealed partial class FactorioAdapter : IManagedHostEndpointProvider
                 GamePassword: gamePassword,
                 RconPort: rconPort,
                 RconPassword: rconPassword,
-                SavePath: serverLaunch.SavePath,
-                PreparedWorld: world);
+                SavePath: serverLaunch.SavePath);
 
             return clientSession;
         }
@@ -209,7 +208,7 @@ public sealed partial class FactorioAdapter : IManagedHostEndpointProvider
                 !cancellationToken.IsCancellationRequested)
             {
                 throw new TimeoutException(
-                    "Factorio did not produce a verifiable final save while shutting down the managed Host. Steward preserved recovery responsibility instead of committing an older save.",
+                    "Factorio did not produce a verifiable final save while shutting down the managed Host. SafeWorld preserved recovery responsibility instead of committing an older save.",
                     uncertainQuitResult ?? exception);
             }
         }
@@ -220,13 +219,6 @@ public sealed partial class FactorioAdapter : IManagedHostEndpointProvider
             // only after the save-verification boundary above, or while entering recovery on failure.
             await TryStopProcessAsync(hostedSession.ServerProcessId);
         }
-
-        // The graphical host client has its own isolated write-data directory. Copy its config back
-        // into the prepared workspace only after the server is gone; existing finalization then merges
-        // player-owned preferences while preserving the real player's [path] section.
-        await FactorioHostingOperations.PromoteHostClientPreferencesAsync(
-            hostedSession.PreparedWorld,
-            CancellationToken.None);
     }
 
     private static async Task WaitForDedicatedServerReadyAsync(
@@ -390,8 +382,8 @@ public sealed partial class FactorioAdapter : IManagedHostEndpointProvider
         var sections = new List<string>
         {
             exitCode is { } code
-                ? $"Factorio's dedicated-server process exited with code {code} before SharedWorlds could identify a running server process."
-                : "Factorio's dedicated-server process exited before SharedWorlds could identify a running server process."
+                ? $"Factorio's dedicated-server process exited with code {code} before SafeWorld could identify a running server process."
+                : "Factorio's dedicated-server process exited before SafeWorld could identify a running server process."
         };
 
         if (!string.IsNullOrWhiteSpace(consoleLogTail))
@@ -551,6 +543,5 @@ public sealed partial class FactorioAdapter : IManagedHostEndpointProvider
         string GamePassword,
         int RconPort,
         string RconPassword,
-        string SavePath,
-        PreparedWorld PreparedWorld);
+        string SavePath);
 }

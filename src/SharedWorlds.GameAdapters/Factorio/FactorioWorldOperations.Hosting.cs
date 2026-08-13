@@ -49,7 +49,7 @@ internal static class FactorioHostingOperations
         // The Steam build otherwise calls SteamAPI_RestartAppIfNecessary when started directly.
         // A workspace-local steam_appid.txt keeps the dedicated server as the process we launched,
         // so its exact --start-server arguments and lifecycle remain adapter-owned. The marker lives
-        // only inside the disposable SharedWorlds workspace and never modifies the Factorio install.
+        // only inside the disposable SafeWorld workspace and never modifies the Factorio install.
         await File.WriteAllTextAsync(
             Path.Combine(hostRuntimeDirectory, SteamAppIdFileName),
             FactorioSteamAppId,
@@ -100,9 +100,15 @@ internal static class FactorioHostingOperations
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var clientConfigPath = await CreateHostClientConfigAsync(world, cancellationToken);
         var hostClientDirectory = Path.Combine(world.WorkingDirectory, HostClientDirectoryName);
+        Directory.CreateDirectory(hostClientDirectory);
 
+        // The graphical host is a normal Factorio player connecting to SafeWorld's isolated
+        // dedicated server. Do not redirect the graphical client's write-data directory: Factorio
+        // must use the player's real local profile so language, controls and multiplayer identity
+        // remain exactly the same as when the player starts Factorio normally. Only the dedicated
+        // server owns the authoritative save and therefore needs the isolated workspace config.
+        //
         // Keep the graphical client launch adapter-owned too. Without the local Steam App ID marker,
         // the Steam build can restart itself through Steam, which causes Steam to intercept our
         // --mp-connect/--password arguments and show a confirmation prompt before joining.
@@ -113,7 +119,7 @@ internal static class FactorioHostingOperations
 
         var process = StartFactorio(
             world,
-            clientConfigPath,
+            configPath: null,
             BuildClientOperationArguments(host),
             workingDirectoryOverride: hostClientDirectory);
         return new GameSessionHandle(process.Id, DateTimeOffset.UtcNow);
@@ -142,33 +148,25 @@ internal static class FactorioHostingOperations
         return arguments;
     }
 
-    internal static async Task PromoteHostClientPreferencesAsync(
-        PreparedWorld world,
-        CancellationToken cancellationToken)
+    internal static IReadOnlyList<string> BuildProcessArguments(
+        string? configPath,
+        string workspaceModDirectory,
+        IReadOnlyList<string> operationArguments)
     {
-        var clientConfigPath = GetHostClientConfigPath(world);
-        if (!File.Exists(clientConfigPath))
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceModDirectory);
+        ArgumentNullException.ThrowIfNull(operationArguments);
+
+        var arguments = new List<string>(operationArguments.Count + 4);
+        if (!string.IsNullOrWhiteSpace(configPath))
         {
-            return;
+            arguments.Add("--config");
+            arguments.Add(configPath);
         }
 
-        var workspaceConfigPath = GetWorkspaceConfigPath(world);
-        await using var source = new FileStream(
-            clientConfigPath,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            bufferSize: 64 * 1024,
-            useAsync: true);
-        await using var destination = new FileStream(
-            workspaceConfigPath,
-            FileMode.Create,
-            FileAccess.Write,
-            FileShare.None,
-            bufferSize: 64 * 1024,
-            useAsync: true);
-        await source.CopyToAsync(destination, cancellationToken);
-        await destination.FlushAsync(cancellationToken);
+        arguments.Add("--mod-directory");
+        arguments.Add(workspaceModDirectory);
+        arguments.AddRange(operationArguments);
+        return arguments;
     }
 
     internal static async Task CreatePrivateServerSettingsAsync(
@@ -196,7 +194,7 @@ internal static class FactorioHostingOperations
             ?? throw new JsonException("Factorio's server settings example did not contain a JSON object.");
 
         root["name"] = string.IsNullOrWhiteSpace(world.DisplayName)
-            ? "SharedWorlds"
+            ? "SafeWorld"
             : world.DisplayName;
         root["game_password"] = gamePassword;
         root["require_user_verification"] = false;
@@ -221,88 +219,9 @@ internal static class FactorioHostingOperations
             cancellationToken);
     }
 
-    private static async Task<string> CreateHostClientConfigAsync(
-        PreparedWorld world,
-        CancellationToken cancellationToken)
-    {
-        var sourceConfigPath = GetWorkspaceConfigPath(world);
-        if (!File.Exists(sourceConfigPath))
-        {
-            throw new FileNotFoundException(
-                "The isolated Factorio workspace config does not exist.",
-                sourceConfigPath);
-        }
-
-        var clientConfigPath = GetHostClientConfigPath(world);
-        var clientUserDataDirectory = Path.Combine(
-            world.WorkingDirectory,
-            HostClientDirectoryName,
-            UserDataDirectoryName);
-        Directory.CreateDirectory(Path.GetDirectoryName(clientConfigPath)!);
-        Directory.CreateDirectory(clientUserDataDirectory);
-
-        var lines = await File.ReadAllLinesAsync(sourceConfigPath, cancellationToken);
-        var rewritten = RewriteWriteDataPath(lines, Path.GetFullPath(clientUserDataDirectory));
-        await File.WriteAllLinesAsync(clientConfigPath, rewritten, cancellationToken);
-        return clientConfigPath;
-    }
-
-    private static IReadOnlyList<string> RewriteWriteDataPath(
-        IReadOnlyList<string> lines,
-        string writeDataDirectory)
-    {
-        var result = new List<string>(lines.Count + 2);
-        var inPathSection = false;
-        var pathSectionFound = false;
-        var writeDataReplaced = false;
-
-        foreach (var line in lines)
-        {
-            var trimmed = line.Trim();
-            if (trimmed.StartsWith("[", StringComparison.Ordinal) &&
-                trimmed.EndsWith("]", StringComparison.Ordinal))
-            {
-                if (inPathSection && !writeDataReplaced)
-                {
-                    result.Add($"write-data={writeDataDirectory}");
-                    writeDataReplaced = true;
-                }
-
-                inPathSection = string.Equals(trimmed, "[path]", StringComparison.OrdinalIgnoreCase);
-                pathSectionFound |= inPathSection;
-                result.Add(line);
-                continue;
-            }
-
-            if (inPathSection && trimmed.StartsWith("write-data=", StringComparison.OrdinalIgnoreCase))
-            {
-                result.Add($"write-data={writeDataDirectory}");
-                writeDataReplaced = true;
-                continue;
-            }
-
-            result.Add(line);
-        }
-
-        if (inPathSection && !writeDataReplaced)
-        {
-            result.Add($"write-data={writeDataDirectory}");
-        }
-
-        if (!pathSectionFound)
-        {
-            result.Add(string.Empty);
-            result.Add("[path]");
-            result.Add("read-data=__PATH__system-read-data__");
-            result.Add($"write-data={writeDataDirectory}");
-        }
-
-        return result;
-    }
-
     private static Process StartFactorio(
         PreparedWorld world,
-        string configPath,
+        string? configPath,
         IReadOnlyList<string> operationArguments,
         string? workingDirectoryOverride = null,
         string? diagnosticLogPath = null)
@@ -313,7 +232,7 @@ internal static class FactorioHostingOperations
                 $"Cannot determine Factorio executable directory for '{executable}'.");
         var workspaceModDirectory = Path.Combine(world.WorkingDirectory, ModsDirectoryName);
 
-        if (!File.Exists(configPath))
+        if (!string.IsNullOrWhiteSpace(configPath) && !File.Exists(configPath))
         {
             throw new FileNotFoundException(
                 "The Factorio session config does not exist.",
@@ -336,12 +255,11 @@ internal static class FactorioHostingOperations
             RedirectStandardError = captureDiagnostics,
             CreateNoWindow = captureDiagnostics
         };
-        startInfo.ArgumentList.Add("--config");
-        startInfo.ArgumentList.Add(configPath);
-        startInfo.ArgumentList.Add("--mod-directory");
-        startInfo.ArgumentList.Add(workspaceModDirectory);
 
-        foreach (var argument in operationArguments)
+        foreach (var argument in BuildProcessArguments(
+                     configPath,
+                     workspaceModDirectory,
+                     operationArguments))
         {
             startInfo.ArgumentList.Add(argument);
         }
@@ -440,13 +358,6 @@ internal static class FactorioHostingOperations
     private static string GetWorkspaceConfigPath(PreparedWorld world)
         => Path.Combine(
             world.WorkingDirectory,
-            ConfigDirectoryName,
-            ConfigFileName);
-
-    private static string GetHostClientConfigPath(PreparedWorld world)
-        => Path.Combine(
-            world.WorkingDirectory,
-            HostClientDirectoryName,
             ConfigDirectoryName,
             ConfigFileName);
 }

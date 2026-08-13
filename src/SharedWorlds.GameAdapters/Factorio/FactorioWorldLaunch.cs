@@ -22,7 +22,8 @@ internal static partial class FactorioWorldOperations
 
         var process = StartFactorio(
             world,
-            ["--load-game", savePath]);
+            ["--load-game", savePath],
+            useNativePlayerProfile: false);
         return Task.FromResult(new GameSessionHandle(process.Id, DateTimeOffset.UtcNow));
     }
 
@@ -41,7 +42,8 @@ internal static partial class FactorioWorldOperations
 
         var process = StartFactorio(
             world,
-            ["--host", savePath]);
+            ["--host", savePath],
+            useNativePlayerProfile: false);
         return Task.FromResult(new GameSessionHandle(process.Id, DateTimeOffset.UtcNow));
     }
 
@@ -56,36 +58,66 @@ internal static partial class FactorioWorldOperations
             ? host.Address
             : $"{host.Address}:{host.Port.Value}";
 
+        // A joining player must be the same Factorio player they are outside SafeWorld. Using the
+        // native Factorio profile preserves language, controls and multiplayer identity, so an
+        // existing save reconnects the player to the same character/inventory instead of creating a
+        // fresh player. The exact World mod set is still supplied from the isolated workspace.
         var process = StartFactorio(
             world,
-            ["--mp-connect", address]);
+            ["--mp-connect", address],
+            useNativePlayerProfile: true);
         return Task.FromResult(new GameSessionHandle(process.Id, DateTimeOffset.UtcNow));
     }
 
     internal static string GetExecutablePath(GameInstallation installation)
         => GetRequiredMetadata(installation, FactorioInstallationDiscovery.ExecutablePathKey);
 
+    internal static IReadOnlyList<string> BuildProcessArguments(
+        string? configPath,
+        string workspaceModDirectory,
+        IReadOnlyList<string> operationArguments)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceModDirectory);
+        ArgumentNullException.ThrowIfNull(operationArguments);
+
+        var arguments = new List<string>(operationArguments.Count + 4);
+        if (!string.IsNullOrWhiteSpace(configPath))
+        {
+            arguments.Add("--config");
+            arguments.Add(configPath);
+        }
+
+        arguments.Add("--mod-directory");
+        arguments.Add(workspaceModDirectory);
+        arguments.AddRange(operationArguments);
+        return arguments;
+    }
+
     private static Process StartFactorio(
         PreparedWorld world,
-        IReadOnlyList<string> operationArguments)
+        IReadOnlyList<string> operationArguments,
+        bool useNativePlayerProfile)
     {
         var executable = GetExecutablePath(world.Installation);
         var executableDirectory = Path.GetDirectoryName(executable)
             ?? throw new InvalidOperationException(
                 $"Cannot determine Factorio executable directory for '{executable}'.");
-        var configPath = GetWorkspaceConfigPath(world);
+        var configPath = useNativePlayerProfile ? null : GetWorkspaceConfigPath(world);
         var workspaceModDirectory = GetWorkspaceModsDirectory(world);
 
-        FactorioWorkspaceOwnership.RequireOwnedPath(
-            world.WorkingDirectory,
-            configPath,
-            "config");
+        if (!useNativePlayerProfile)
+        {
+            FactorioWorkspaceOwnership.RequireOwnedPath(
+                world.WorkingDirectory,
+                configPath!,
+                "config");
+        }
         FactorioWorkspaceOwnership.RequireOwnedPath(
             world.WorkingDirectory,
             workspaceModDirectory,
             "mod directory");
 
-        if (!File.Exists(configPath))
+        if (!useNativePlayerProfile && !File.Exists(configPath))
         {
             throw new FileNotFoundException(
                 "The isolated Factorio workspace config does not exist.",
@@ -102,9 +134,9 @@ internal static partial class FactorioWorldOperations
         if (string.Equals(world.Installation.Source, "steam", StringComparison.OrdinalIgnoreCase))
         {
             // Steam Factorio may call SteamAPI_RestartAppIfNecessary when started directly. That
-            // replacement is launched by Steam rather than by Steward and therefore cannot inherit
-            // Steward's KILL_ON_JOB_CLOSE lifetime job. Keep Steam's restart check satisfied from an
-            // adapter-owned disposable directory so the exact process Steward starts remains the
+            // replacement is launched by Steam rather than by SafeWorld and therefore cannot inherit
+            // SafeWorld's KILL_ON_JOB_CLOSE lifetime job. Keep Steam's restart check satisfied from an
+            // adapter-owned disposable directory so the exact process SafeWorld starts remains the
             // managed process for local play and Join as well as for the dedicated-host path.
             var launchRuntimeDirectory = Path.Combine(
                 world.WorkingDirectory,
@@ -127,18 +159,10 @@ internal static partial class FactorioWorldOperations
             UseShellExecute = false
         };
 
-        // The workspace config redirects Factorio's write-data directory away from the user's
-        // normal %APPDATA%/Factorio tree. This is what makes save writes session-local.
-        startInfo.ArgumentList.Add("--config");
-        startInfo.ArgumentList.Add(configPath);
-
-        // Factorio receives only the adapter-owned workspace mod directory. Required user mods
-        // are copied there at exact manifest versions during preparation; unrelated live mods are
-        // deliberately excluded so a World cannot silently inherit later changes to the user's mod set.
-        startInfo.ArgumentList.Add("--mod-directory");
-        startInfo.ArgumentList.Add(workspaceModDirectory);
-
-        foreach (var argument in operationArguments)
+        foreach (var argument in BuildProcessArguments(
+                     configPath,
+                     workspaceModDirectory,
+                     operationArguments))
         {
             startInfo.ArgumentList.Add(argument);
         }

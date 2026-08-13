@@ -8,7 +8,8 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets/SafeWorld.ico</ApplicationIcon>
     <NeutralLanguage>en</NeutralLanguage>
-    <AssemblyName>SharedWorlds.Desktop</AssemblyName>
+    <AssemblyName Condition="'$(SafeWorldPublicAssemblyName)' == ''">SharedWorlds.Desktop</AssemblyName>
+    <AssemblyName Condition="'$(SafeWorldPublicAssemblyName)' != ''">$(SafeWorldPublicAssemblyName)</AssemblyName>
     <RootNamespace>SharedWorlds.Desktop</RootNamespace>
   </PropertyGroup>
   <ItemGroup>

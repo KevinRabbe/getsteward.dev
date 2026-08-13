@@ -33,6 +33,10 @@ BrandingText "SafeWorld"
 
 Section "SafeWorld"
   SetOutPath "$INSTDIR"
+  ; Earlier SafeWorld beta packages owned this legacy Steam configuration filename. Remove only
+  ; that known package-owned file before copying the canonical safeworld-steam.json so an in-place
+  ; upgrade cannot leave both sources behind and trigger the runtime's intentional ambiguity fence.
+  Delete "$INSTDIR\steward-steam.json"
   File /r "${PRODUCT_ROOT}\*.*"
   CreateDirectory "$SMPROGRAMS\SafeWorld"
   CreateShortcut "$SMPROGRAMS\SafeWorld\SafeWorld.lnk" "$INSTDIR\SafeWorld.Desktop.exe"

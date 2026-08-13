@@ -10,6 +10,8 @@ internal sealed record SafeWorldDesktopSteamConfiguration(uint AppId)
 {
     internal const string PackageConfigurationFileName = "safeworld-steam.json";
     internal const string SteamAppIdVariable = "SAFEWORLD_STEAM_APP_ID";
+    private const string LegacyPackageConfigurationFileName = "steward-steam.json";
+    private const string LegacySteamAppIdVariable = "STEWARD_STEAM_APP_ID";
 
     public static bool TryLoad(
         out SafeWorldDesktopSteamConfiguration? configuration,
@@ -24,9 +26,9 @@ internal sealed record SafeWorldDesktopSteamConfiguration(uint AppId)
             SteamAppIdVariable);
         var legacyPath = Path.Combine(
             AppContext.BaseDirectory,
-            StewardDesktopSteamConfiguration.PackageConfigurationFileName);
+            LegacyPackageConfigurationFileName);
         var legacyEnvironmentAppId = Environment.GetEnvironmentVariable(
-            StewardDesktopSteamConfiguration.SteamAppIdVariable);
+            LegacySteamAppIdVariable);
 
         var configuredSourceCount = 0;
         configuredSourceCount += File.Exists(canonicalPath) ? 1 : 0;

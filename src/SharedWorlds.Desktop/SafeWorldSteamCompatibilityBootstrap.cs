@@ -9,6 +9,7 @@ namespace SharedWorlds.Desktop;
 /// </summary>
 internal static class SafeWorldSteamCompatibilityBootstrap
 {
+    private const string LegacySteamAppIdVariable = "STEWARD_STEAM_APP_ID";
     private const string InvalidConfiguration = "invalid-mixed-safeworld-steam-configuration";
 
     [ModuleInitializer]
@@ -30,13 +31,13 @@ internal static class SafeWorldSteamCompatibilityBootstrap
             configuration is null)
         {
             Environment.SetEnvironmentVariable(
-                StewardDesktopSteamConfiguration.SteamAppIdVariable,
+                LegacySteamAppIdVariable,
                 InvalidConfiguration);
             return;
         }
 
         Environment.SetEnvironmentVariable(
-            StewardDesktopSteamConfiguration.SteamAppIdVariable,
+            LegacySteamAppIdVariable,
             configuration.AppId.ToString(CultureInfo.InvariantCulture));
     }
 }

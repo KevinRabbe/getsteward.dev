@@ -19,7 +19,7 @@ if ([string]::IsNullOrWhiteSpace($Version) -or $Version -notmatch '^[0-9A-Za-z][
 
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $project = Join-Path $repoRoot 'src/SharedWorlds.Desktop/SharedWorlds.Desktop.csproj'
-$installerScript = Join-Path $repoRoot 'installer/windows/SafeWorld.nsi'
+$installerScript = Join-Path $repoRoot 'installer/windows/SafeWorldInstaller.nsi'
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 $product = Join-Path $output 'product'
 
@@ -83,6 +83,25 @@ $manifest = [ordered]@{
     ($manifest | ConvertTo-Json -Depth 6),
     [Text.UTF8Encoding]::new($false))
 
+# Generate the uninstaller from the exact product file set instead of recursively deleting the
+# install directory. This preserves any unrelated file a user may have placed beside SafeWorld.
+$uninstallIncludePath = Join-Path $output 'SafeWorld.UninstallFiles.nsh'
+$uninstallLines = [Collections.Generic.List[string]]::new()
+foreach ($entry in $productFiles) {
+    $relativePath = ([string]$entry.path).Replace('/', '\')
+    $uninstallLines.Add(('  Delete "$INSTDIR\{0}"' -f $relativePath))
+}
+$directories = @(Get-ChildItem -LiteralPath $product -Recurse -Directory |
+    Sort-Object { $_.FullName.Length } -Descending)
+foreach ($directory in $directories) {
+    $relativePath = [IO.Path]::GetRelativePath($product, $directory.FullName)
+    $uninstallLines.Add(('  RMDir "$INSTDIR\{0}"' -f $relativePath))
+}
+[IO.File]::WriteAllLines(
+    $uninstallIncludePath,
+    $uninstallLines,
+    [Text.UTF8Encoding]::new($false))
+
 if ([string]::IsNullOrWhiteSpace($MakensisPath)) {
     $candidate = Join-Path ${env:ProgramFiles(x86)} 'NSIS/makensis.exe'
     if ([IO.File]::Exists($candidate)) { $MakensisPath = $candidate }
@@ -92,7 +111,13 @@ if ([string]::IsNullOrWhiteSpace($MakensisPath) -or -not [IO.File]::Exists($Make
 }
 
 $installerPath = Join-Path $output "SafeWorld-Setup-$Version.exe"
-& $MakensisPath '/V3' "/DPRODUCT_ROOT=$product" "/DOUTPUT_FILE=$installerPath" $installerScript
+& $MakensisPath `
+    '/V3' `
+    "/DPRODUCT_ROOT=$product" `
+    "/DOUTPUT_FILE=$installerPath" `
+    "/DPRODUCT_VERSION=$Version" `
+    "/DUNINSTALL_FILES=$uninstallIncludePath" `
+    $installerScript
 if ($LASTEXITCODE -ne 0) { throw "SafeWorld installer build failed with exit code $LASTEXITCODE." }
 if (-not [IO.File]::Exists($installerPath)) { throw 'SafeWorld installer was not produced.' }
 

@@ -69,7 +69,7 @@ public sealed class WorldWorkspaceCompletenessTests
         Assert.Contains("BackToWorldsButton.Visibility = Visibility.Collapsed;", gamesHomeLayout, StringComparison.Ordinal);
         Assert.DoesNotContain("Visibility.Visible", gamesHomeLayout, StringComparison.Ordinal);
 
-        Assert.Contains("Title = \"Safe World\"", app, StringComparison.Ordinal);
+        Assert.Contains("Title = \"SafeWorld\"", app, StringComparison.Ordinal);
         Assert.DoesNotContain("StewardBuildVersion.Current", app, StringComparison.Ordinal);
     }
 

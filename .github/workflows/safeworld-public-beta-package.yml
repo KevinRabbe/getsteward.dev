@@ -118,6 +118,15 @@ jobs:
             'SafeWorld-Setup-${{ steps.identity.outputs.version }}.exe'
           ./tools/verify-safeworld-installer-lifecycle.ps1 -InstallerPath $installer
 
+      - name: Verify real candidate signatures
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.identity.outputs.candidate == 'true' }}
+        shell: pwsh
+        run: |
+          $output = "$env:RUNNER_TEMP/safeworld-public-beta"
+          ./tools/verify-safeworld-signatures.ps1 -FilePath @(
+            (Join-Path $output 'product/SafeWorld.Desktop.exe'),
+            (Join-Path $output 'SafeWorld-Setup-${{ steps.identity.outputs.version }}.exe'))
+
       - name: Upload real public-beta candidate
         if: ${{ github.event_name == 'workflow_dispatch' && steps.identity.outputs.candidate == 'true' }}
         uses: actions/upload-artifact@v6

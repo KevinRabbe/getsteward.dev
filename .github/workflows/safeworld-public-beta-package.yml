@@ -115,16 +115,20 @@ jobs:
         run: |
           $output = "$env:RUNNER_TEMP/safeworld-public-beta"
           $installer = Join-Path $output 'SafeWorld-Setup-${{ steps.identity.outputs.version }}.exe'
-          $installRoot = "$env:RUNNER_TEMP/SafeWorldInstalled"
+          $installRoot = Join-Path $env:LOCALAPPDATA 'Programs/SafeWorld'
           $process = Start-Process `
             -FilePath $installer `
-            -ArgumentList @('/S', "/D=$installRoot") `
+            -ArgumentList '/S' `
             -Wait `
             -PassThru
           if ($process.ExitCode -ne 0) {
             throw "SafeWorld installer exited with code $($process.ExitCode)."
           }
           if (-not (Test-Path -LiteralPath (Join-Path $installRoot 'SafeWorld.Desktop.exe') -PathType Leaf)) {
+            Write-Host "Expected install root: $installRoot"
+            if (Test-Path -LiteralPath $installRoot) {
+              Get-ChildItem -LiteralPath $installRoot -Recurse -File | ForEach-Object { Write-Host $_.FullName }
+            }
             throw 'Installed SafeWorld.Desktop.exe is missing.'
           }
           if (Test-Path -LiteralPath (Join-Path $installRoot 'SharedWorlds.Desktop.exe')) {

@@ -1,8 +1,0 @@
-<Project>
-  <PropertyGroup>
-    <Product>SafeWorld</Product>
-    <AssemblyTitle>SafeWorld</AssemblyTitle>
-    <Company>SafeWorld</Company>
-    <Description>SafeWorld manages portable, peer-hosted game Worlds.</Description>
-  </PropertyGroup>
-</Project>

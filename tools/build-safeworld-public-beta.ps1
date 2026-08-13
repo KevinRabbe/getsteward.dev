@@ -36,7 +36,7 @@ $publishArguments = @(
     '--output', $product,
     '--nologo',
     '--verbosity', 'minimal',
-    '-p:AssemblyName=SafeWorld.Desktop',
+    '-p:SafeWorldPublicAssemblyName=SafeWorld.Desktop',
     "-p:InformationalVersion=$Version",
     '-p:IncludeSourceRevisionInInformationalVersion=false',
     '-p:DebugType=None',

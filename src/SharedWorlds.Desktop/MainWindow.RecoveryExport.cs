@@ -11,7 +11,7 @@ public partial class MainWindow
     private async void ExportRecoveryCopyButton_Click(object sender, RoutedEventArgs e)
     {
         var world = _selectedWorld;
-        if (world is null)
+        if (world is null || !TryGetAdapter(world.GameAdapterId, out var adapter))
         {
             return;
         }
@@ -48,11 +48,53 @@ public partial class MainWindow
             return;
         }
 
-        var sourceDirectory = Path.GetFullPath(record.WorkingDirectory);
+        string sourceDirectory;
+        try
+        {
+            var resolver = CreatePreparedWorldRecoveryResolver();
+            var resolvedWithoutInstallation = resolver.ResolveWorkingDirectoryWithoutInstallation(
+                record,
+                adapter.Id);
+            if (resolvedWithoutInstallation is not null)
+            {
+                sourceDirectory = resolvedWithoutInstallation;
+            }
+            else
+            {
+                // Native-game recovery identity is deliberately not a pathname. Reconstruct its
+                // current location from the exact environment plus current installation metadata.
+                var installation = await GetReadyInstallationForRecoveryRecordAsync(
+                    world,
+                    adapter,
+                    record);
+                var environmentId = record.EnvironmentRevisionId
+                    ?? throw new InvalidOperationException(
+                        "This recovery journal does not identify the exact environment required to locate native recovery state.");
+                var environment = await GetStorageForWorld(world).LoadEnvironmentRevisionAsync(
+                    world.Id,
+                    environmentId)
+                    ?? throw new InvalidOperationException(
+                        "The exact environment required to locate native recovery state is unavailable.");
+                sourceDirectory = resolver.Resolve(
+                    record,
+                    adapter,
+                    installation,
+                    environment.Manifest,
+                    world.Name).WorkingDirectory;
+            }
+
+            sourceDirectory = Path.GetFullPath(sourceDirectory);
+        }
+        catch (Exception exception)
+        {
+            ShowError("Could not resolve recovery workspace", exception);
+            return;
+        }
+
         if (!Directory.Exists(sourceDirectory))
         {
             StatusText.Text =
-                "The recovery journal still exists, but its preserved workspace is no longer present on disk.";
+                "The recovery journal still exists, but its resolved preserved workspace is no longer present on disk.";
             return;
         }
 

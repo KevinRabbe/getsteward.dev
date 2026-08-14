@@ -2,6 +2,12 @@ namespace SharedWorlds.Core.Domain;
 
 public enum WorkspaceRecoveryStatus
 {
+    /// <summary>
+    /// Stable recovery identity has been journaled, but Safe World has not yet proven that adapter
+    /// preparation/materialization completed. This state is deliberately not cleanup permission.
+    /// </summary>
+    PreparationPending,
+
     Active,
     RecoveryPending,
     CleanupPending,

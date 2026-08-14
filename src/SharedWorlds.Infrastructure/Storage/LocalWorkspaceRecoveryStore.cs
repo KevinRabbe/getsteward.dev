@@ -19,6 +19,7 @@ public sealed class LocalWorkspaceRecoveryStore : IWorkspaceRecoveryStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(record);
+        record.RecoveryLocation?.Validate();
 
         var destination = GetPath(record.Id);
         var temporary = destination + $".{Guid.NewGuid():N}.tmp";
@@ -85,6 +86,7 @@ public sealed class LocalWorkspaceRecoveryStore : IWorkspaceRecoveryStore
                 stream,
                 StorageDocumentSchemas.WorkspaceRecovery,
                 cancellationToken);
+            record.RecoveryLocation?.Validate();
             var storageKey = Path.GetFileNameWithoutExtension(path);
             if (!string.Equals(storageKey, record.Id.ToString(), StringComparison.OrdinalIgnoreCase))
             {

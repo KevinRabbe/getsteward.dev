@@ -160,9 +160,11 @@ public sealed class PortableWorldCreatorViewerAcceptanceTests
         {
             if (preparedViewer is not null)
             {
+                // The fixture owns the outer temporary root. For a descriptor-managed runtime the
+                // adapter only releases game-specific resources; Core owns managed-root deletion.
                 await adapter.FinalizePreparedWorldAsync(
                     preparedViewer,
-                    PreparedWorldDisposition.Discard);
+                    PreparedWorldDisposition.ReleaseForCoreManagedDiscard);
             }
 
             if (viewerRecapture is not null && File.Exists(viewerRecapture.Package.Path))

@@ -8,46 +8,52 @@ public sealed class SevenDaysToDieWorkspaceOwnershipTests : IDisposable
     private readonly string _root = Path.Combine(
         Path.GetTempPath(),
         $"sharedworlds-7dtd-ownership-{Guid.NewGuid():N}");
+    private readonly List<string> _ownedWorkspaces = [];
 
     [Fact]
-    public void RecognizedStewardWorkspaceShapeIsAccepted()
+    public void CentralDisposableWorkspaceIsAcceptedAsExactRoot()
     {
-        var workingDirectory = Path.Combine(
-            GetExpectedWorkRoot(),
-            Guid.NewGuid().ToString("N"),
-            "user-data");
+        var workingDirectory = CreateOwnedWorkspace();
 
-        SevenDaysToDieWorkspaceOwnership.RequireOwned(workingDirectory);
+        var accepted = SevenDaysToDieWorkspaceOwnership.RequireOwned(workingDirectory);
+
+        Assert.Equal(Path.GetFullPath(workingDirectory), accepted);
+        Assert.True(Guid.TryParseExact(
+            Path.GetFileName(Path.TrimEndingDirectorySeparator(workingDirectory)),
+            "N",
+            out _));
+        Assert.NotEqual(
+            "user-data",
+            Path.GetFileName(Path.TrimEndingDirectorySeparator(workingDirectory)));
     }
 
     [Fact]
     public async Task AdapterRefusesArbitraryRecoveryWorkspaceBeforeCaptureRestoreOrDelete()
     {
-        var operationRoot = Path.Combine(_root, "unowned-operation");
-        var workingDirectory = Path.Combine(operationRoot, "user-data");
+        var workingDirectory = Path.Combine(_root, "unowned-workspace");
         Directory.CreateDirectory(workingDirectory);
-        var sentinel = Path.Combine(operationRoot, "sentinel.txt");
+        var sentinel = Path.Combine(workingDirectory, "sentinel.txt");
         await File.WriteAllTextAsync(sentinel, "keep-me");
         var prepared = Prepared(workingDirectory);
         var adapter = new SevenDaysToDieAdapter();
 
         var capture = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             adapter.CaptureStateAsync(prepared));
-        Assert.Contains("unrecognized 7 Days to Die Steward workspace", capture.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("disposable prepared workspace", capture.Message, StringComparison.OrdinalIgnoreCase);
 
         var restore = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             adapter.RestoreStateAsync(
                 prepared,
                 new StatePackage("missing", Path.Combine(_root, "missing.zip"))));
-        Assert.Contains("unrecognized 7 Days to Die Steward workspace", restore.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("disposable prepared workspace", restore.Message, StringComparison.OrdinalIgnoreCase);
 
         var finalize = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             adapter.FinalizePreparedWorldAsync(
                 prepared,
                 PreparedWorldDisposition.Discard));
-        Assert.Contains("unrecognized 7 Days to Die Steward workspace", finalize.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("disposable prepared workspace", finalize.Message, StringComparison.OrdinalIgnoreCase);
 
-        Assert.True(Directory.Exists(operationRoot));
+        Assert.True(Directory.Exists(workingDirectory));
         Assert.Equal("keep-me", await File.ReadAllTextAsync(sentinel));
     }
 
@@ -62,19 +68,29 @@ public sealed class SevenDaysToDieWorkspaceOwnershipTests : IDisposable
                 [],
                 new Dictionary<string, string>()));
 
-    private static string GetExpectedWorkRoot()
+    private string CreateOwnedWorkspace()
     {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.Combine(localData, "Steward", "workspaces", "7-days-to-die");
+        var workspace = SevenDaysToDieWorkspaceOwnership.Create();
+        _ownedWorkspaces.Add(workspace);
+        return workspace;
     }
 
     public void Dispose()
     {
+        foreach (var workspace in _ownedWorkspaces)
+        {
+            try
+            {
+                if (Directory.Exists(workspace))
+                {
+                    SevenDaysToDieWorkspaceOwnership.DeleteOwned(workspace);
+                }
+            }
+            catch
+            {
+            }
+        }
+
         try
         {
             if (Directory.Exists(_root))

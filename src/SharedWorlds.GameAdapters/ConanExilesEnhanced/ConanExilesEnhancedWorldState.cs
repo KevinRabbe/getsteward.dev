@@ -1,5 +1,7 @@
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
+using SharedWorlds.Core.Storage;
 
 namespace SharedWorlds.GameAdapters.ConanExilesEnhanced;
 
@@ -32,7 +34,7 @@ internal static class ConanExilesEnhancedWorldState
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(world);
-        ConanExilesEnhancedWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        ConanExilesEnhancedWorkspaceOwnership.RequireOwned(world);
         return CaptureFileAsync(
             GetPreparedWorldPath(world.WorkingDirectory),
             world.DisplayName ?? "world",
@@ -53,6 +55,30 @@ internal static class ConanExilesEnhancedWorldState
             DisplayName: null);
     }
 
+    public static PreparedWorld PrepareEnvironment(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        PreparedWorldPreparationContext preparation)
+    {
+        ArgumentNullException.ThrowIfNull(preparation);
+        ConanExilesEnhancedEnvironment.RequireCompatible(
+            installation,
+            requiredEnvironment);
+        var workspace = Path.GetFullPath(preparation.ManagedWorkingDirectory);
+        if (!Directory.Exists(workspace))
+        {
+            throw new InvalidOperationException(
+                "Conan Exiles Enhanced managed workspace must be created by Core before adapter materialization.");
+        }
+
+        return new PreparedWorld(
+            installation,
+            workspace,
+            requiredEnvironment,
+            DisplayName: null,
+            RecoveryLocation: PreparedWorldRecoveryLocation.Managed());
+    }
+
     public static async Task RestorePreparedWorldAsync(
         PreparedWorld world,
         StatePackage state,
@@ -61,7 +87,7 @@ internal static class ConanExilesEnhancedWorldState
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(state);
         cancellationToken.ThrowIfCancellationRequested();
-        ConanExilesEnhancedWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        ConanExilesEnhancedWorkspaceOwnership.RequireOwned(world);
 
         var sourcePath = Path.GetFullPath(state.Path);
         RequireRegularDatabase(sourcePath, "Conan Exiles Enhanced state package");
@@ -125,13 +151,20 @@ internal static class ConanExilesEnhancedWorldState
     {
         ArgumentNullException.ThrowIfNull(world);
         cancellationToken.ThrowIfCancellationRequested();
-        ConanExilesEnhancedWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        ConanExilesEnhancedWorkspaceOwnership.RequireOwned(world);
 
-        if (disposition == PreparedWorldDisposition.Discard &&
-            Directory.Exists(world.WorkingDirectory))
+        switch (disposition)
         {
-            ConanExilesEnhancedWorkspaceOwnership.RequireOwnedTree(world.WorkingDirectory);
-            Directory.Delete(world.WorkingDirectory, recursive: true);
+            case PreparedWorldDisposition.Discard:
+                ConanExilesEnhancedWorkspaceOwnership.DeleteAdapterOwned(world);
+                break;
+            case PreparedWorldDisposition.ReleaseForCoreManagedDiscard:
+                ConanExilesEnhancedWorkspaceOwnership.RequireManaged(world);
+                break;
+            case PreparedWorldDisposition.PreserveForRecovery:
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(disposition), disposition, null);
         }
 
         return Task.CompletedTask;
@@ -146,7 +179,10 @@ internal static class ConanExilesEnhancedWorldState
         var fullSourcePath = Path.GetFullPath(sourcePath);
         RequireRegularDatabase(fullSourcePath, "Conan Exiles Enhanced World");
 
-        var packagePath = CreatePackagePath(worldName);
+        var packagePath = DisposableStatePackageStorage.CreatePackagePath(
+            "conan-exiles-enhanced",
+            worldName,
+            ".db");
         try
         {
             await CopyFileAsync(fullSourcePath, packagePath, cancellationToken);
@@ -273,40 +309,6 @@ internal static class ConanExilesEnhancedWorldState
         }
     }
 
-    private static string CreatePackagePath(string worldName)
-    {
-        var root = GetPackageRoot();
-        Directory.CreateDirectory(root);
-        var safeName = SanitizeFileName(worldName);
-        return Path.Combine(root, $"{safeName}-{Guid.NewGuid():N}.db");
-    }
-
-    private static string GetPackageRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.Combine(
-            localData,
-            "SharedWorlds",
-            "conan-exiles-enhanced",
-            "packages");
-    }
-
-    private static string SanitizeFileName(string value)
-    {
-        var result = string.IsNullOrWhiteSpace(value) ? "world" : value;
-        foreach (var invalidCharacter in Path.GetInvalidFileNameChars())
-        {
-            result = result.Replace(invalidCharacter, '_');
-        }
-
-        return string.IsNullOrWhiteSpace(result) ? "world" : result;
-    }
-
     private static void TryDeleteFile(string path)
     {
         try
@@ -327,37 +329,56 @@ internal static class ConanExilesEnhancedWorldState
 
 internal static class ConanExilesEnhancedWorkspaceOwnership
 {
+    private const string AdapterId = "conan-exiles-enhanced";
+
     public static string Create()
+        => DisposablePreparedWorkspaceStorage.Create(AdapterId);
+
+    public static void RequireOwned(PreparedWorld world)
     {
-        var root = GetExpectedWorkRoot();
-        Directory.CreateDirectory(root);
-        var workspace = Path.Combine(root, Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(workspace);
-        return Path.GetFullPath(workspace);
+        ArgumentNullException.ThrowIfNull(world);
+        if (world.RecoveryLocation is null)
+        {
+            _ = DisposablePreparedWorkspaceStorage.RequireOwned(
+                AdapterId,
+                world.WorkingDirectory);
+            return;
+        }
+
+        RequireManaged(world);
     }
 
-    public static void RequireOwned(string workingDirectory)
+    public static void RequireManaged(PreparedWorld world)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        var location = world.RecoveryLocation
+            ?? throw Refuse(world.WorkingDirectory);
+        location.Validate();
+        if (location.Kind != PreparedWorldRecoveryLocationKind.SafeWorldManaged)
+        {
+            throw Refuse(world.WorkingDirectory);
+        }
+
+        RequireRegularManagedTree(world.WorkingDirectory);
+    }
+
+    public static void DeleteAdapterOwned(PreparedWorld world)
+    {
+        RequireOwned(world);
+        if (world.RecoveryLocation is not null)
+        {
+            throw new InvalidOperationException(
+                "Conan Exiles Enhanced cannot delete a SafeWorld-managed workspace root; Core owns that deletion by durable WorkspaceId.");
+        }
+
+        DisposablePreparedWorkspaceStorage.DeleteOwned(
+            AdapterId,
+            world.WorkingDirectory);
+    }
+
+    private static void RequireRegularManagedTree(string workingDirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
-        var workspace = Path.GetFullPath(workingDirectory);
-        var leaf = Path.GetFileName(Path.TrimEndingDirectorySeparator(workspace));
-        if (!Guid.TryParseExact(leaf, "N", out _) ||
-            Directory.GetParent(workspace)?.FullName is not string ownerRoot ||
-            !PathsEqual(ownerRoot, GetExpectedWorkRoot()))
-        {
-            throw Refuse(workingDirectory);
-        }
-
-        RejectReparsePoint(ownerRoot, workingDirectory);
-        if (Directory.Exists(workspace))
-        {
-            RejectReparsePoint(workspace, workingDirectory);
-        }
-    }
-
-    public static void RequireOwnedTree(string workingDirectory)
-    {
-        RequireOwned(workingDirectory);
         if (!Directory.Exists(workingDirectory))
         {
             return;
@@ -391,21 +412,6 @@ internal static class ConanExilesEnhancedWorkspaceOwnership
         }
     }
 
-    private static string GetExpectedWorkRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.GetFullPath(Path.Combine(
-            localData,
-            "Steward",
-            "workspaces",
-            "conan-exiles-enhanced"));
-    }
-
     private static void RejectReparsePoint(
         string path,
         string originalPath)
@@ -417,15 +423,7 @@ internal static class ConanExilesEnhancedWorkspaceOwnership
         }
     }
 
-    private static bool PathsEqual(string left, string right)
-        => string.Equals(
-            Path.GetFullPath(left),
-            Path.GetFullPath(right),
-            OperatingSystem.IsWindows()
-                ? StringComparison.OrdinalIgnoreCase
-                : StringComparison.Ordinal);
-
     private static InvalidOperationException Refuse(string path)
         => new(
-            $"Refusing to use unrecognized or linked Conan Exiles Enhanced Steward workspace '{path}'.");
+            $"Refusing to use unrecognized or linked Conan Exiles Enhanced SafeWorld workspace '{path}'.");
 }

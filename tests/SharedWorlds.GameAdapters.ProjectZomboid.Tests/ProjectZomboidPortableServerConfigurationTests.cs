@@ -11,6 +11,7 @@ public sealed class ProjectZomboidPortableServerConfigurationTests : IDisposable
         Path.GetTempPath(),
         $"sharedworlds-pz-portable-config-{Guid.NewGuid():N}");
     private readonly List<string> _packages = [];
+    private readonly List<string> _ownedWorkspaces = [];
 
     [Fact]
     public void SanitizerBlanksOnlyLocalManagementSecrets()
@@ -84,7 +85,8 @@ public sealed class ProjectZomboidPortableServerConfigurationTests : IDisposable
                 "PublicName=Steward\nPassword=join-secret\nRCONPassword=legacy-admin-secret\nDiscordToken=legacy-discord-secret\n");
         }
 
-        var destination = Path.Combine(_root, "prepared", "Zomboid");
+        var destination = ProjectZomboidWorkspaceOwnership.Create();
+        _ownedWorkspaces.Add(destination);
         var prepared = new PreparedWorld(
             Installation(Path.Combine(_root, "unused")),
             destination,
@@ -201,6 +203,20 @@ public sealed class ProjectZomboidPortableServerConfigurationTests : IDisposable
                 {
                     File.Delete(package);
                 }
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
+        foreach (var workspace in _ownedWorkspaces)
+        {
+            try
+            {
+                ProjectZomboidWorkspaceOwnership.DeleteOwned(workspace);
             }
             catch (IOException)
             {

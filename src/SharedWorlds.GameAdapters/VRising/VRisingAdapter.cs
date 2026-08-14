@@ -1,9 +1,10 @@
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
 
 namespace SharedWorlds.GameAdapters.VRising;
 
-public sealed class VRisingAdapter : IGameAdapter
+public sealed class VRisingAdapter : IGameAdapter, IPreparedWorldRecoveryPlanner
 {
     public string Id => "v-rising";
     public string DisplayName => "V Rising";
@@ -48,6 +49,39 @@ public sealed class VRisingAdapter : IGameAdapter
         DetectedWorld world,
         CancellationToken cancellationToken = default)
         => VRisingWorldState.CaptureDetectedWorldAsync(world, cancellationToken);
+
+    public Task<PreparedWorldRecoveryLocation> PlanPreparedWorldRecoveryAsync(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        PreparedWorldPreparationContext preparation,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(installation);
+        ArgumentNullException.ThrowIfNull(requiredEnvironment);
+        ArgumentNullException.ThrowIfNull(preparation);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!string.Equals(requiredEnvironment.AdapterId, Id, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                $"Environment belongs to adapter '{requiredEnvironment.AdapterId}', not V Rising.",
+                nameof(requiredEnvironment));
+        }
+
+        return Task.FromResult(PreparedWorldRecoveryLocation.Managed());
+    }
+
+    public Task<PreparedWorld> PrepareEnvironmentAsync(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        PreparedWorldPreparationContext preparation,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(VRisingWorldState.PrepareEnvironment(
+            installation,
+            requiredEnvironment,
+            preparation));
+    }
 
     public Task<PreparedWorld> PrepareEnvironmentAsync(
         GameInstallation installation,

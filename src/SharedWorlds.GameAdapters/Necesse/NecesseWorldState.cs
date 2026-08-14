@@ -1,5 +1,6 @@
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Environment;
+using SharedWorlds.Core.Storage;
 
 namespace SharedWorlds.GameAdapters.Necesse;
 
@@ -13,7 +14,10 @@ internal static class NecesseWorldState
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(world);
-        return CaptureWorldFileAsync(world.SourcePath, Path.GetFileNameWithoutExtension(world.SourcePath), cancellationToken);
+        return CaptureWorldFileAsync(
+            world.SourcePath,
+            Path.GetFileNameWithoutExtension(world.SourcePath),
+            cancellationToken);
     }
 
     public static Task<CapturedState> CapturePreparedWorldAsync(
@@ -52,7 +56,9 @@ internal static class NecesseWorldState
 
         var sourcePath = Path.GetFullPath(state.Path);
         RequireRegularZip(sourcePath, "Necesse state package");
-        EnsureSufficientFreeSpace(world.WorkingDirectory, new FileInfo(sourcePath).Length);
+        EnsureSufficientFreeSpace(
+            world.WorkingDirectory,
+            new FileInfo(sourcePath).Length);
 
         var destinationPath = GetPreparedWorldPath(world.WorkingDirectory);
         Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
@@ -66,7 +72,9 @@ internal static class NecesseWorldState
             await CopyFileAsync(sourcePath, stagingPath, cancellationToken);
             if (File.Exists(destinationPath))
             {
-                RequireRegularZip(destinationPath, "existing prepared Necesse World");
+                RequireRegularZip(
+                    destinationPath,
+                    "existing prepared Necesse World");
                 File.Move(destinationPath, rollbackPath);
                 movedExisting = true;
             }
@@ -80,7 +88,9 @@ internal static class NecesseWorldState
         catch (Exception restoreException)
         {
             TryDeleteFile(stagingPath);
-            if (movedExisting && !File.Exists(destinationPath) && File.Exists(rollbackPath))
+            if (movedExisting &&
+                !File.Exists(destinationPath) &&
+                File.Exists(rollbackPath))
             {
                 try
                 {
@@ -108,10 +118,9 @@ internal static class NecesseWorldState
         cancellationToken.ThrowIfCancellationRequested();
         NecesseWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
 
-        if (disposition == PreparedWorldDisposition.Discard && Directory.Exists(world.WorkingDirectory))
+        if (disposition == PreparedWorldDisposition.Discard)
         {
-            NecesseWorkspaceOwnership.RequireOwnedTree(world.WorkingDirectory);
-            Directory.Delete(world.WorkingDirectory, recursive: true);
+            NecesseWorkspaceOwnership.DeleteOwned(world.WorkingDirectory);
         }
 
         return Task.CompletedTask;
@@ -126,12 +135,17 @@ internal static class NecesseWorldState
         var fullSourcePath = Path.GetFullPath(sourcePath);
         RequireRegularZip(fullSourcePath, "Necesse World");
 
-        var packagePath = CreatePackagePath(worldName);
+        var packagePath = DisposableStatePackageStorage.CreatePackagePath(
+            "necesse",
+            worldName,
+            ".zip");
         try
         {
             await CopyFileAsync(fullSourcePath, packagePath, cancellationToken);
             return new CapturedState(
-                new StatePackage(Path.GetFileNameWithoutExtension(packagePath), packagePath),
+                new StatePackage(
+                    Path.GetFileNameWithoutExtension(packagePath),
+                    packagePath),
                 DateTimeOffset.UtcNow);
         }
         catch
@@ -173,7 +187,8 @@ internal static class NecesseWorldState
     {
         if (!string.Equals(Path.GetExtension(path), ".zip", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException($"{description} must be a .zip file: {path}");
+            throw new InvalidOperationException(
+                $"{description} must be a .zip file: {path}");
         }
 
         FileAttributes attributes;
@@ -182,19 +197,27 @@ internal static class NecesseWorldState
             attributes = File.GetAttributes(path);
         }
         catch (Exception exception) when (
-            exception is FileNotFoundException or DirectoryNotFoundException or IOException or UnauthorizedAccessException)
+            exception is FileNotFoundException or
+                DirectoryNotFoundException or
+                IOException or
+                UnauthorizedAccessException)
         {
-            throw new InvalidOperationException($"{description} could not be inspected safely: {path}", exception);
+            throw new InvalidOperationException(
+                $"{description} could not be inspected safely: {path}",
+                exception);
         }
 
         if ((attributes & FileAttributes.Directory) != 0 ||
             (attributes & FileAttributes.ReparsePoint) != 0)
         {
-            throw new InvalidOperationException($"{description} must be a regular non-linked file: {path}");
+            throw new InvalidOperationException(
+                $"{description} must be a regular non-linked file: {path}");
         }
     }
 
-    private static void EnsureSufficientFreeSpace(string workingDirectory, long packageBytes)
+    private static void EnsureSufficientFreeSpace(
+        string workingDirectory,
+        long packageBytes)
     {
         long required;
         try
@@ -203,7 +226,9 @@ internal static class NecesseWorldState
         }
         catch (OverflowException exception)
         {
-            throw new InvalidDataException("Necesse state package declares an impossible file size.", exception);
+            throw new InvalidDataException(
+                "Necesse state package declares an impossible file size.",
+                exception);
         }
 
         var root = Path.GetPathRoot(Path.GetFullPath(workingDirectory));
@@ -226,36 +251,6 @@ internal static class NecesseWorldState
         }
     }
 
-    private static string CreatePackagePath(string worldName)
-    {
-        var root = GetPackageRoot();
-        Directory.CreateDirectory(root);
-        var safeName = SanitizeFileName(worldName);
-        return Path.Combine(root, $"{safeName}-{Guid.NewGuid():N}.zip");
-    }
-
-    private static string GetPackageRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.Combine(localData, "SharedWorlds", "necesse", "packages");
-    }
-
-    private static string SanitizeFileName(string value)
-    {
-        var result = string.IsNullOrWhiteSpace(value) ? "world" : value;
-        foreach (var invalidCharacter in Path.GetInvalidFileNameChars())
-        {
-            result = result.Replace(invalidCharacter, '_');
-        }
-
-        return string.IsNullOrWhiteSpace(result) ? "world" : result;
-    }
-
     private static void TryDeleteFile(string path)
     {
         try
@@ -276,90 +271,18 @@ internal static class NecesseWorldState
 
 internal static class NecesseWorkspaceOwnership
 {
+    private const string AdapterId = "necesse";
+
     public static string Create()
-    {
-        var root = GetExpectedWorkRoot();
-        Directory.CreateDirectory(root);
-        var workspace = Path.Combine(root, Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(workspace);
-        return Path.GetFullPath(workspace);
-    }
+        => DisposablePreparedWorkspaceStorage.Create(AdapterId);
 
     public static void RequireOwned(string workingDirectory)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
-        var workspace = Path.GetFullPath(workingDirectory);
-        var leaf = Path.GetFileName(Path.TrimEndingDirectorySeparator(workspace));
-        if (!Guid.TryParseExact(leaf, "N", out _) ||
-            Directory.GetParent(workspace)?.FullName is not string ownerRoot ||
-            !PathsEqual(ownerRoot, GetExpectedWorkRoot()))
-        {
-            throw Refuse(workingDirectory);
-        }
+        => _ = DisposablePreparedWorkspaceStorage.RequireOwned(
+            AdapterId,
+            workingDirectory);
 
-        RejectReparsePoint(ownerRoot, workingDirectory);
-        if (Directory.Exists(workspace))
-        {
-            RejectReparsePoint(workspace, workingDirectory);
-        }
-    }
-
-    public static void RequireOwnedTree(string workingDirectory)
-    {
-        RequireOwned(workingDirectory);
-        if (!Directory.Exists(workingDirectory))
-        {
-            return;
-        }
-
-        var pending = new Stack<string>();
-        pending.Push(Path.GetFullPath(workingDirectory));
-        while (pending.Count > 0)
-        {
-            var current = pending.Pop();
-            RejectReparsePoint(current, workingDirectory);
-            foreach (var directory in Directory.EnumerateDirectories(current, "*", SearchOption.TopDirectoryOnly))
-            {
-                RejectReparsePoint(directory, workingDirectory);
-                pending.Push(directory);
-            }
-
-            foreach (var file in Directory.EnumerateFiles(current, "*", SearchOption.TopDirectoryOnly))
-            {
-                if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
-                {
-                    throw Refuse(workingDirectory);
-                }
-            }
-        }
-    }
-
-    private static string GetExpectedWorkRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.GetFullPath(Path.Combine(localData, "Steward", "workspaces", "necesse"));
-    }
-
-    private static void RejectReparsePoint(string path, string originalPath)
-    {
-        if (Directory.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
-        {
-            throw Refuse(originalPath);
-        }
-    }
-
-    private static bool PathsEqual(string left, string right)
-        => string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), PathComparison);
-
-    private static StringComparison PathComparison => OperatingSystem.IsWindows()
-        ? StringComparison.OrdinalIgnoreCase
-        : StringComparison.Ordinal;
-
-    private static InvalidOperationException Refuse(string path)
-        => new($"Refusing to use unrecognized or linked Necesse Steward workspace '{path}'.");
+    public static void DeleteOwned(string workingDirectory)
+        => DisposablePreparedWorkspaceStorage.DeleteOwned(
+            AdapterId,
+            workingDirectory);
 }

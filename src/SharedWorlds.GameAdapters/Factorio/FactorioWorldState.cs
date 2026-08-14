@@ -53,7 +53,7 @@ internal static partial class FactorioWorldOperations
 
         var destination = GetPreparedSavePath(world);
         FactorioWorkspaceOwnership.RequireOwnedPath(
-            world.WorkingDirectory,
+            world,
             destination,
             "prepared save");
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
@@ -66,7 +66,7 @@ internal static partial class FactorioWorldOperations
     {
         var savesDirectory = GetWorkspaceSavesDirectory(world);
         FactorioWorkspaceOwnership.RequireOwnedPath(
-            world.WorkingDirectory,
+            world,
             savesDirectory,
             "saves directory");
 
@@ -86,7 +86,7 @@ internal static partial class FactorioWorldOperations
         }
 
         FactorioWorkspaceOwnership.RequireOwnedPath(
-            world.WorkingDirectory,
+            world,
             savePath,
             "captured save");
 

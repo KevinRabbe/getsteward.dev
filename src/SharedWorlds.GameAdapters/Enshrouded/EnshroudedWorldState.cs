@@ -1,7 +1,9 @@
 using System.IO.Compression;
 using System.Text.Json;
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
+using SharedWorlds.Core.Storage;
 
 namespace SharedWorlds.GameAdapters.Enshrouded;
 
@@ -25,7 +27,7 @@ internal static class EnshroudedWorldState
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(world);
-        EnshroudedWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        EnshroudedWorkspaceOwnership.RequireOwned(world);
         return CaptureBundleAsync(
             FindSinglePreparedBundle(world.WorkingDirectory),
             cancellationToken);
@@ -43,6 +45,28 @@ internal static class EnshroudedWorldState
             DisplayName: null);
     }
 
+    public static PreparedWorld PrepareEnvironment(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        PreparedWorldPreparationContext preparation)
+    {
+        ArgumentNullException.ThrowIfNull(preparation);
+        EnshroudedEnvironment.RequireCompatible(installation, requiredEnvironment);
+        var workspace = Path.GetFullPath(preparation.ManagedWorkingDirectory);
+        if (!Directory.Exists(workspace))
+        {
+            throw new InvalidOperationException(
+                "Enshrouded managed workspace must be created by Core before adapter materialization.");
+        }
+
+        return new PreparedWorld(
+            installation,
+            workspace,
+            requiredEnvironment,
+            DisplayName: null,
+            RecoveryLocation: PreparedWorldRecoveryLocation.Managed());
+    }
+
     public static async Task RestorePreparedWorldAsync(
         PreparedWorld world,
         StatePackage state,
@@ -51,7 +75,7 @@ internal static class EnshroudedWorldState
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(state);
         cancellationToken.ThrowIfCancellationRequested();
-        EnshroudedWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        EnshroudedWorkspaceOwnership.RequireOwned(world);
 
         var packagePath = Path.GetFullPath(state.Path);
         RequireRegularPackage(packagePath);
@@ -82,9 +106,7 @@ internal static class EnshroudedWorldState
 
             if (Directory.Exists(savePath))
             {
-                EnshroudedWorkspaceOwnership.RequireOwnedTree(
-                    world.WorkingDirectory,
-                    savePath);
+                EnshroudedWorkspaceOwnership.RequireOwnedTree(world, savePath);
                 Directory.Move(savePath, rollbackPath);
                 movedExisting = true;
             }
@@ -127,15 +149,20 @@ internal static class EnshroudedWorldState
     {
         ArgumentNullException.ThrowIfNull(world);
         cancellationToken.ThrowIfCancellationRequested();
-        EnshroudedWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        EnshroudedWorkspaceOwnership.RequireOwned(world);
 
-        if (disposition == PreparedWorldDisposition.Discard &&
-            Directory.Exists(world.WorkingDirectory))
+        switch (disposition)
         {
-            EnshroudedWorkspaceOwnership.RequireOwnedTree(
-                world.WorkingDirectory,
-                world.WorkingDirectory);
-            Directory.Delete(world.WorkingDirectory, recursive: true);
+            case PreparedWorldDisposition.Discard:
+                EnshroudedWorkspaceOwnership.DeleteAdapterOwned(world);
+                break;
+            case PreparedWorldDisposition.ReleaseForCoreManagedDiscard:
+                EnshroudedWorkspaceOwnership.RequireManaged(world);
+                break;
+            case PreparedWorldDisposition.PreserveForRecovery:
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(disposition), disposition, null);
         }
 
         return Task.CompletedTask;
@@ -146,7 +173,10 @@ internal static class EnshroudedWorldState
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var packagePath = CreatePackagePath(bundle.WorldId);
+        var packagePath = DisposableStatePackageStorage.CreatePackagePath(
+            "enshrouded",
+            bundle.WorldId,
+            ".zip");
         try
         {
             await using var packageStream = new FileStream(
@@ -490,28 +520,6 @@ internal static class EnshroudedWorldState
         }
     }
 
-    private static string CreatePackagePath(string worldId)
-    {
-        var root = GetPackageRoot();
-        Directory.CreateDirectory(root);
-        return Path.Combine(root, $"{worldId}-{Guid.NewGuid():N}.zip");
-    }
-
-    private static string GetPackageRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.Combine(
-            localData,
-            "SharedWorlds",
-            "enshrouded",
-            "packages");
-    }
-
     private static void TryDeleteFile(string path)
     {
         try
@@ -554,53 +562,91 @@ internal sealed record EnshroudedPackageInspection(
 
 internal static class EnshroudedWorkspaceOwnership
 {
+    private const string AdapterId = "enshrouded";
+
     public static string Create()
-    {
-        var root = GetExpectedWorkRoot();
-        Directory.CreateDirectory(root);
-        var workspace = Path.Combine(root, Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(workspace);
-        return Path.GetFullPath(workspace);
-    }
+        => DisposablePreparedWorkspaceStorage.Create(AdapterId);
 
-    public static void RequireOwned(string workingDirectory)
+    public static void RequireOwned(PreparedWorld world)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
-        var workspace = Path.GetFullPath(workingDirectory);
-        var leaf = Path.GetFileName(Path.TrimEndingDirectorySeparator(workspace));
-        if (!Guid.TryParseExact(leaf, "N", out _) ||
-            Directory.GetParent(workspace)?.FullName is not string ownerRoot ||
-            !PathsEqual(ownerRoot, GetExpectedWorkRoot()))
+        ArgumentNullException.ThrowIfNull(world);
+        if (world.RecoveryLocation is null)
         {
-            throw Refuse(workingDirectory);
-        }
-
-        RejectReparsePoint(ownerRoot, workingDirectory);
-        if (Directory.Exists(workspace))
-        {
-            RejectReparsePoint(workspace, workingDirectory);
-        }
-    }
-
-    public static void RequireOwnedTree(
-        string workingDirectory,
-        string treeRoot)
-    {
-        RequireOwned(workingDirectory);
-        if (!Directory.Exists(treeRoot))
-        {
+            _ = DisposablePreparedWorkspaceStorage.RequireOwned(
+                AdapterId,
+                world.WorkingDirectory);
             return;
         }
 
-        var fullWorkspace = Path.GetFullPath(workingDirectory);
-        var fullTreeRoot = Path.GetFullPath(treeRoot);
-        if (!IsDescendantOrSame(fullTreeRoot, fullWorkspace))
+        RequireManaged(world);
+    }
+
+    public static void RequireManaged(PreparedWorld world)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        var location = world.RecoveryLocation
+            ?? throw Refuse(world.WorkingDirectory);
+        location.Validate();
+        if (location.Kind != PreparedWorldRecoveryLocationKind.SafeWorldManaged)
+        {
+            throw Refuse(world.WorkingDirectory);
+        }
+
+        RequireRegularManagedTree(world.WorkingDirectory, world.WorkingDirectory);
+    }
+
+    public static void RequireOwnedTree(PreparedWorld world, string treeRoot)
+    {
+        RequireOwned(world);
+        if (world.RecoveryLocation is null)
+        {
+            DisposablePreparedWorkspaceStorage.RequireOwnedTree(
+                AdapterId,
+                world.WorkingDirectory,
+                treeRoot);
+            return;
+        }
+
+        RequireRegularManagedTree(world.WorkingDirectory, treeRoot);
+    }
+
+    public static void DeleteAdapterOwned(PreparedWorld world)
+    {
+        RequireOwned(world);
+        if (world.RecoveryLocation is not null)
+        {
+            throw new InvalidOperationException(
+                "Enshrouded cannot delete a SafeWorld-managed workspace root; Core owns that deletion by durable WorkspaceId.");
+        }
+
+        DisposablePreparedWorkspaceStorage.DeleteOwned(
+            AdapterId,
+            world.WorkingDirectory);
+    }
+
+    private static void RequireRegularManagedTree(
+        string workingDirectory,
+        string treeRoot)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
+        var workspace = Path.GetFullPath(workingDirectory);
+        var root = Path.GetFullPath(treeRoot);
+        var relative = Path.GetRelativePath(workspace, root);
+        if (Path.IsPathRooted(relative) ||
+            string.Equals(relative, "..", StringComparison.Ordinal) ||
+            relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ||
+            relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal))
         {
             throw Refuse(treeRoot);
         }
 
+        if (!Directory.Exists(root))
+        {
+            return;
+        }
+
         var pending = new Stack<string>();
-        pending.Push(fullTreeRoot);
+        pending.Push(root);
         while (pending.Count > 0)
         {
             var current = pending.Pop();
@@ -627,21 +673,6 @@ internal static class EnshroudedWorkspaceOwnership
         }
     }
 
-    private static string GetExpectedWorkRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.GetFullPath(Path.Combine(
-            localData,
-            "Steward",
-            "workspaces",
-            "enshrouded"));
-    }
-
     private static void RejectReparsePoint(string path, string originalPath)
     {
         if (Directory.Exists(path) &&
@@ -651,26 +682,7 @@ internal static class EnshroudedWorkspaceOwnership
         }
     }
 
-    private static bool IsDescendantOrSame(string candidate, string root)
-    {
-        var relative = Path.GetRelativePath(root, candidate);
-        return string.Equals(relative, ".", StringComparison.Ordinal) ||
-               (!Path.IsPathRooted(relative) &&
-                !relative.Equals("..", StringComparison.Ordinal) &&
-                !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal));
-    }
-
-    private static bool PathsEqual(string left, string right)
-        => string.Equals(
-            Path.GetFullPath(left),
-            Path.GetFullPath(right),
-            PathComparison);
-
-    private static StringComparison PathComparison => OperatingSystem.IsWindows()
-        ? StringComparison.OrdinalIgnoreCase
-        : StringComparison.Ordinal;
-
     private static InvalidOperationException Refuse(string path)
         => new(
-            $"Refusing to use unrecognized or linked Enshrouded Steward workspace '{path}'.");
+            $"Refusing to use unrecognized or linked Enshrouded SafeWorld workspace '{path}'.");
 }

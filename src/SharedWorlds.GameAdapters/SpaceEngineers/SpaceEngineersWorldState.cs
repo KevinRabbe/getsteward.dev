@@ -1,6 +1,8 @@
 using System.IO.Compression;
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
+using SharedWorlds.Core.Storage;
 
 namespace SharedWorlds.GameAdapters.SpaceEngineers;
 
@@ -27,7 +29,7 @@ internal static class SpaceEngineersWorldState
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(world);
-        SpaceEngineersWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        SpaceEngineersWorkspaceOwnership.RequireOwned(world);
         return CaptureDirectoryAsync(
             GetPreparedWorldPath(world.WorkingDirectory),
             world.DisplayName ?? "world",
@@ -46,6 +48,28 @@ internal static class SpaceEngineersWorldState
             DisplayName: null);
     }
 
+    public static PreparedWorld PrepareEnvironment(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        PreparedWorldPreparationContext preparation)
+    {
+        ArgumentNullException.ThrowIfNull(preparation);
+        SpaceEngineersEnvironment.RequireCompatible(installation, requiredEnvironment);
+        var workspace = Path.GetFullPath(preparation.ManagedWorkingDirectory);
+        if (!Directory.Exists(workspace))
+        {
+            throw new InvalidOperationException(
+                "Space Engineers managed workspace must be created by Core before adapter materialization.");
+        }
+
+        return new PreparedWorld(
+            installation,
+            workspace,
+            requiredEnvironment,
+            DisplayName: null,
+            RecoveryLocation: PreparedWorldRecoveryLocation.Managed());
+    }
+
     public static async Task RestorePreparedWorldAsync(
         PreparedWorld world,
         StatePackage state,
@@ -54,7 +78,7 @@ internal static class SpaceEngineersWorldState
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(state);
         cancellationToken.ThrowIfCancellationRequested();
-        SpaceEngineersWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        SpaceEngineersWorkspaceOwnership.RequireOwned(world);
 
         var packagePath = Path.GetFullPath(state.Path);
         RequireRegularPackageFile(packagePath);
@@ -108,9 +132,7 @@ internal static class SpaceEngineersWorldState
             Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
             if (Directory.Exists(destinationPath))
             {
-                SpaceEngineersWorkspaceOwnership.RequireOwnedTree(
-                    world.WorkingDirectory,
-                    destinationPath);
+                SpaceEngineersWorkspaceOwnership.RequireOwnedTree(world, destinationPath);
                 Directory.Move(destinationPath, rollbackPath);
                 movedExisting = true;
             }
@@ -152,15 +174,11 @@ internal static class SpaceEngineersWorldState
     {
         ArgumentNullException.ThrowIfNull(world);
         cancellationToken.ThrowIfCancellationRequested();
-        SpaceEngineersWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        SpaceEngineersWorkspaceOwnership.RequireOwned(world);
 
-        if (disposition == PreparedWorldDisposition.Discard &&
-            Directory.Exists(world.WorkingDirectory))
+        if (disposition == PreparedWorldDisposition.Discard)
         {
-            SpaceEngineersWorkspaceOwnership.RequireOwnedTree(
-                world.WorkingDirectory,
-                world.WorkingDirectory);
-            Directory.Delete(world.WorkingDirectory, recursive: true);
+            SpaceEngineersWorkspaceOwnership.DeleteOwned(world);
         }
 
         return Task.CompletedTask;
@@ -175,7 +193,10 @@ internal static class SpaceEngineersWorldState
         var root = Path.GetFullPath(sourcePath);
         SpaceEngineersEnvironment.RequireVanillaWorld(root);
         var files = EnumerateCurrentWorldFiles(root, cancellationToken);
-        var packagePath = CreatePackagePath(worldName);
+        var packagePath = DisposableStatePackageStorage.CreatePackagePath(
+            "space-engineers",
+            worldName,
+            ".zip");
 
         try
         {
@@ -499,40 +520,6 @@ internal static class SpaceEngineersWorldState
         }
     }
 
-    private static string CreatePackagePath(string worldName)
-    {
-        var root = GetPackageRoot();
-        Directory.CreateDirectory(root);
-        var safeName = SanitizeFileName(worldName);
-        return Path.Combine(root, $"{safeName}-{Guid.NewGuid():N}.zip");
-    }
-
-    private static string GetPackageRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.Combine(
-            localData,
-            "SharedWorlds",
-            "space-engineers",
-            "packages");
-    }
-
-    private static string SanitizeFileName(string value)
-    {
-        var result = string.IsNullOrWhiteSpace(value) ? "world" : value;
-        foreach (var invalid in Path.GetInvalidFileNameChars())
-        {
-            result = result.Replace(invalid, '_');
-        }
-
-        return string.IsNullOrWhiteSpace(result) ? "world" : result;
-    }
-
     private static bool PathsEqual(string left, string right)
         => string.Equals(
             Path.GetFullPath(left),
@@ -583,37 +570,72 @@ internal static class SpaceEngineersWorldState
 
 internal static class SpaceEngineersWorkspaceOwnership
 {
+    private const string AdapterId = "space-engineers";
+
     public static string Create()
+        => DisposablePreparedWorkspaceStorage.Create(AdapterId);
+
+    public static void RequireOwned(PreparedWorld world)
     {
-        var root = GetExpectedWorkRoot();
-        Directory.CreateDirectory(root);
-        var workspace = Path.Combine(root, Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(workspace);
-        return Path.GetFullPath(workspace);
+        ArgumentNullException.ThrowIfNull(world);
+        if (world.RecoveryLocation is null)
+        {
+            _ = DisposablePreparedWorkspaceStorage.RequireOwned(
+                AdapterId,
+                world.WorkingDirectory);
+            return;
+        }
+
+        world.RecoveryLocation.Validate();
+        if (world.RecoveryLocation.Kind != PreparedWorldRecoveryLocationKind.SafeWorldManaged)
+        {
+            throw Refuse(world.WorkingDirectory);
+        }
+
+        RequireRegularManagedTree(world.WorkingDirectory, world.WorkingDirectory);
     }
 
-    public static void RequireOwned(string workingDirectory)
+    public static void RequireOwnedTree(PreparedWorld world, string treeRoot)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        RequireOwned(world);
+        if (world.RecoveryLocation is null)
+        {
+            DisposablePreparedWorkspaceStorage.RequireOwnedTree(
+                AdapterId,
+                world.WorkingDirectory,
+                treeRoot);
+            return;
+        }
+
+        RequireRegularManagedTree(world.WorkingDirectory, treeRoot);
+    }
+
+    public static void DeleteOwned(PreparedWorld world)
+    {
+        RequireOwned(world);
+        if (!Directory.Exists(world.WorkingDirectory))
+        {
+            return;
+        }
+
+        if (world.RecoveryLocation is null)
+        {
+            DisposablePreparedWorkspaceStorage.DeleteOwned(
+                AdapterId,
+                world.WorkingDirectory);
+            return;
+        }
+
+        // Transitional compatibility until normal lifecycle finalization is routed through Core.
+        RequireRegularManagedTree(world.WorkingDirectory, world.WorkingDirectory);
+        Directory.Delete(world.WorkingDirectory, recursive: true);
+    }
+
+    private static void RequireRegularManagedTree(string workingDirectory, string treeRoot)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
-        var workspace = Path.GetFullPath(workingDirectory);
-        var leaf = Path.GetFileName(Path.TrimEndingDirectorySeparator(workspace));
-        if (!Guid.TryParseExact(leaf, "N", out _) ||
-            Directory.GetParent(workspace)?.FullName is not string ownerRoot ||
-            !PathsEqual(ownerRoot, GetExpectedWorkRoot()))
-        {
-            throw Refuse(workingDirectory);
-        }
-
-        RejectReparsePoint(ownerRoot, workingDirectory);
-        if (Directory.Exists(workspace))
-        {
-            RejectReparsePoint(workspace, workingDirectory);
-        }
-    }
-
-    public static void RequireOwnedTree(string workingDirectory, string treeRoot)
-    {
-        RequireOwned(workingDirectory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(treeRoot);
         var workspace = Path.GetFullPath(workingDirectory);
         var root = Path.GetFullPath(treeRoot);
         var prefix = Path.TrimEndingDirectorySeparator(workspace) + Path.DirectorySeparatorChar;
@@ -656,21 +678,6 @@ internal static class SpaceEngineersWorkspaceOwnership
         }
     }
 
-    private static string GetExpectedWorkRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.GetFullPath(Path.Combine(
-            localData,
-            "Steward",
-            "workspaces",
-            "space-engineers"));
-    }
-
     private static void RejectReparsePoint(string path, string originalPath)
     {
         if (Directory.Exists(path) &&
@@ -692,5 +699,5 @@ internal static class SpaceEngineersWorkspaceOwnership
 
     private static InvalidOperationException Refuse(string path)
         => new(
-            $"Refusing to use unrecognized or linked Space Engineers Steward workspace '{path}'.");
+            $"Refusing to use unrecognized or linked Space Engineers Safe World workspace '{path}'.");
 }

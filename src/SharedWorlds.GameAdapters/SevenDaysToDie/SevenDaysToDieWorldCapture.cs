@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Storage;
 
 namespace SharedWorlds.GameAdapters.SevenDaysToDie;
 
@@ -26,7 +27,8 @@ internal static partial class SevenDaysToDieWorldState
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(world);
-        var userDataRoot = Path.GetFullPath(world.WorkingDirectory);
+        var userDataRoot = SevenDaysToDieWorkspaceOwnership.RequireOwned(
+            world.WorkingDirectory);
         var identity = ValidateSingleWorldBundle(userDataRoot);
         return CaptureWorldBundleAsync(
             userDataRoot,
@@ -49,9 +51,10 @@ internal static partial class SevenDaysToDieWorldState
             gameName,
             requireExclusiveBundle: false);
 
-        var packagePath = Path.Combine(
-            Path.GetTempPath(),
-            $"sharedworlds-7dtd-{Guid.NewGuid():N}.zip");
+        var packagePath = DisposableStatePackageStorage.CreatePackagePath(
+            "7-days-to-die",
+            $"{worldName}-{gameName}",
+            ".zip");
         try
         {
             await using var packageStream = new FileStream(
@@ -61,7 +64,10 @@ internal static partial class SevenDaysToDieWorldState
                 FileShare.None,
                 bufferSize: 128 * 1024,
                 useAsync: true);
-            using var archive = new ZipArchive(packageStream, ZipArchiveMode.Create, leaveOpen: true);
+            using var archive = new ZipArchive(
+                packageStream,
+                ZipArchiveMode.Create,
+                leaveOpen: true);
 
             var saveRoot = Path.Combine(fullUserDataRoot, "Saves", worldName, gameName);
             await AddDirectoryAsync(
@@ -70,7 +76,10 @@ internal static partial class SevenDaysToDieWorldState
                 Path.Combine("Saves", worldName, gameName),
                 cancellationToken);
 
-            var generatedWorldRoot = Path.Combine(fullUserDataRoot, "GeneratedWorlds", worldName);
+            var generatedWorldRoot = Path.Combine(
+                fullUserDataRoot,
+                "GeneratedWorlds",
+                worldName);
             if (Directory.Exists(generatedWorldRoot))
             {
                 await AddDirectoryAsync(
@@ -81,7 +90,9 @@ internal static partial class SevenDaysToDieWorldState
             }
 
             return new CapturedState(
-                new StatePackage(Path.GetFileNameWithoutExtension(packagePath), packagePath),
+                new StatePackage(
+                    Path.GetFileNameWithoutExtension(packagePath),
+                    packagePath),
                 DateTimeOffset.UtcNow);
         }
         catch
@@ -159,7 +170,10 @@ internal static partial class SevenDaysToDieWorldState
             attributes = File.GetAttributes(path);
         }
         catch (Exception exception) when (
-            exception is IOException or UnauthorizedAccessException or FileNotFoundException or DirectoryNotFoundException)
+            exception is IOException or
+                UnauthorizedAccessException or
+                FileNotFoundException or
+                DirectoryNotFoundException)
         {
             throw new InvalidOperationException(
                 $"Steward could not inspect 7 Days to Die capture path '{path}'.",

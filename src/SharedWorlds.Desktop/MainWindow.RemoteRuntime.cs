@@ -37,8 +37,7 @@ public partial class MainWindow
         // same one-journal/one-worker state for this MainWindow lifetime.
         var migrationPublication = EnsureOwnedWorldLocationMigrationState();
         var remoteRoot = Path.Combine(
-            GetLocalDataRoot(),
-            "SharedWorlds",
+            DesktopLocalDataRoot.RequireResolvedRoot(),
             "remote");
         var next = StewardDesktopRemoteRuntime.Create(
             apiBaseAddress,

@@ -134,8 +134,7 @@ public partial class MainWindow
         CancellationToken cancellationToken)
     {
         var credentialStore = new FriendsBuildCredentialStore(Path.Combine(
-            GetLocalDataRoot(),
-            "SharedWorlds",
+            DesktopLocalDataRoot.RequireResolvedRoot(),
             "settings",
             "friends-build-credential.bin"));
 

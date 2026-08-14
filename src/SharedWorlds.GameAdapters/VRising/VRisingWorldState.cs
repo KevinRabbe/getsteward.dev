@@ -2,7 +2,9 @@ using System.Globalization;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
+using SharedWorlds.Core.Storage;
 
 namespace SharedWorlds.GameAdapters.VRising;
 
@@ -27,7 +29,7 @@ internal static partial class VRisingWorldState
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(world);
-        VRisingWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        VRisingWorkspaceOwnership.RequireOwned(world);
         return CaptureSessionAsync(
             GetPreparedSessionPath(world.WorkingDirectory),
             world.DisplayName ?? "world",
@@ -46,6 +48,28 @@ internal static partial class VRisingWorldState
             DisplayName: null);
     }
 
+    public static PreparedWorld PrepareEnvironment(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        PreparedWorldPreparationContext preparation)
+    {
+        ArgumentNullException.ThrowIfNull(preparation);
+        VRisingEnvironment.RequireCompatible(installation, requiredEnvironment);
+        var workspace = Path.GetFullPath(preparation.ManagedWorkingDirectory);
+        if (!Directory.Exists(workspace))
+        {
+            throw new InvalidOperationException(
+                "V Rising managed workspace must be created by Core before adapter materialization.");
+        }
+
+        return new PreparedWorld(
+            installation,
+            workspace,
+            requiredEnvironment,
+            DisplayName: null,
+            RecoveryLocation: PreparedWorldRecoveryLocation.Managed());
+    }
+
     public static async Task RestorePreparedWorldAsync(
         PreparedWorld world,
         StatePackage state,
@@ -54,7 +78,7 @@ internal static partial class VRisingWorldState
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(state);
         cancellationToken.ThrowIfCancellationRequested();
-        VRisingWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        VRisingWorkspaceOwnership.RequireOwned(world);
 
         var packagePath = Path.GetFullPath(state.Path);
         RequireRegularPackageFile(packagePath);
@@ -88,9 +112,7 @@ internal static partial class VRisingWorldState
 
             if (Directory.Exists(sessionPath))
             {
-                VRisingWorkspaceOwnership.RequireOwnedTree(
-                    world.WorkingDirectory,
-                    sessionPath);
+                VRisingWorkspaceOwnership.RequireOwnedTree(world, sessionPath);
                 Directory.Move(sessionPath, rollbackPath);
                 movedExisting = true;
             }
@@ -133,15 +155,11 @@ internal static partial class VRisingWorldState
     {
         ArgumentNullException.ThrowIfNull(world);
         cancellationToken.ThrowIfCancellationRequested();
-        VRisingWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        VRisingWorkspaceOwnership.RequireOwned(world);
 
-        if (disposition == PreparedWorldDisposition.Discard &&
-            Directory.Exists(world.WorkingDirectory))
+        if (disposition == PreparedWorldDisposition.Discard)
         {
-            VRisingWorkspaceOwnership.RequireOwnedTree(
-                world.WorkingDirectory,
-                world.WorkingDirectory);
-            Directory.Delete(world.WorkingDirectory, recursive: true);
+            VRisingWorkspaceOwnership.DeleteOwned(world);
         }
 
         return Task.CompletedTask;
@@ -155,7 +173,10 @@ internal static partial class VRisingWorldState
         cancellationToken.ThrowIfCancellationRequested();
         var before = VRisingWorldDiscovery.ResolveCurrentBundle(sessionPath);
         var beforeFingerprint = Snapshot(before);
-        var packagePath = CreatePackagePath(worldName);
+        var packagePath = DisposableStatePackageStorage.CreatePackagePath(
+            "v-rising",
+            worldName,
+            ".zip");
 
         try
         {
@@ -451,40 +472,6 @@ internal static partial class VRisingWorldState
             workingDirectory,
             PreparedSessionDirectoryName));
 
-    private static string CreatePackagePath(string worldName)
-    {
-        var root = GetPackageRoot();
-        Directory.CreateDirectory(root);
-        var safeName = SanitizeFileName(worldName);
-        return Path.Combine(root, $"{safeName}-{Guid.NewGuid():N}.zip");
-    }
-
-    private static string GetPackageRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.Combine(
-            localData,
-            "SharedWorlds",
-            "v-rising",
-            "packages");
-    }
-
-    private static string SanitizeFileName(string value)
-    {
-        var result = string.IsNullOrWhiteSpace(value) ? "world" : value;
-        foreach (var invalid in Path.GetInvalidFileNameChars())
-        {
-            result = result.Replace(invalid, '_');
-        }
-
-        return string.IsNullOrWhiteSpace(result) ? "world" : result;
-    }
-
     private static void TryDeleteFile(string path)
     {
         try
@@ -525,52 +512,91 @@ internal static partial class VRisingWorldState
 
 internal static class VRisingWorkspaceOwnership
 {
+    private const string AdapterId = "v-rising";
+
     public static string Create()
-    {
-        var root = GetExpectedWorkRoot();
-        Directory.CreateDirectory(root);
-        var workspace = Path.Combine(root, Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(workspace);
-        return Path.GetFullPath(workspace);
-    }
+        => DisposablePreparedWorkspaceStorage.Create(AdapterId);
 
-    public static void RequireOwned(string workingDirectory)
+    public static void RequireOwned(PreparedWorld world)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
-        var workspace = Path.GetFullPath(workingDirectory);
-        var leaf = Path.GetFileName(Path.TrimEndingDirectorySeparator(workspace));
-        if (!Guid.TryParseExact(leaf, "N", out _) ||
-            Directory.GetParent(workspace)?.FullName is not string ownerRoot ||
-            !PathsEqual(ownerRoot, GetExpectedWorkRoot()))
+        ArgumentNullException.ThrowIfNull(world);
+        if (world.RecoveryLocation is null)
         {
-            throw Refuse(workingDirectory);
+            _ = DisposablePreparedWorkspaceStorage.RequireOwned(
+                AdapterId,
+                world.WorkingDirectory);
+            return;
         }
 
-        RejectReparsePoint(ownerRoot, workingDirectory);
-        if (Directory.Exists(workspace))
+        world.RecoveryLocation.Validate();
+        if (world.RecoveryLocation.Kind != PreparedWorldRecoveryLocationKind.SafeWorldManaged)
         {
-            RejectReparsePoint(workspace, workingDirectory);
+            throw Refuse(world.WorkingDirectory);
         }
+
+        RequireRegularManagedTree(world.WorkingDirectory, world.WorkingDirectory);
     }
 
     public static void RequireOwnedTree(
-        string workingDirectory,
+        PreparedWorld world,
         string treePath)
     {
-        RequireOwned(workingDirectory);
-        if (!Directory.Exists(treePath))
+        ArgumentNullException.ThrowIfNull(world);
+        RequireOwned(world);
+        if (world.RecoveryLocation is null)
+        {
+            DisposablePreparedWorkspaceStorage.RequireOwnedTree(
+                AdapterId,
+                world.WorkingDirectory,
+                treePath);
+            return;
+        }
+
+        RequireRegularManagedTree(world.WorkingDirectory, treePath);
+    }
+
+    public static void DeleteOwned(PreparedWorld world)
+    {
+        RequireOwned(world);
+        if (!Directory.Exists(world.WorkingDirectory))
         {
             return;
         }
 
+        if (world.RecoveryLocation is null)
+        {
+            DisposablePreparedWorkspaceStorage.DeleteOwned(
+                AdapterId,
+                world.WorkingDirectory);
+            return;
+        }
+
+        // Transitional compatibility until normal writable lifecycle finalization is routed through
+        // PreparedWorldFinalizationCoordinator. Core already owns managed deletion during recovery.
+        RequireRegularManagedTree(world.WorkingDirectory, world.WorkingDirectory);
+        Directory.Delete(world.WorkingDirectory, recursive: true);
+    }
+
+    private static void RequireRegularManagedTree(
+        string workingDirectory,
+        string treePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(treePath);
         var workspace = Path.GetFullPath(workingDirectory);
         var root = Path.GetFullPath(treePath);
         var relative = Path.GetRelativePath(workspace, root);
-        if (relative == ".." ||
+        if (Path.IsPathRooted(relative) ||
+            string.Equals(relative, "..", StringComparison.Ordinal) ||
             relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ||
-            Path.IsPathRooted(relative))
+            relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal))
         {
             throw Refuse(treePath);
+        }
+
+        if (!Directory.Exists(root))
+        {
+            return;
         }
 
         var pending = new Stack<string>();
@@ -601,21 +627,6 @@ internal static class VRisingWorkspaceOwnership
         }
     }
 
-    private static string GetExpectedWorkRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.GetFullPath(Path.Combine(
-            localData,
-            "Steward",
-            "workspaces",
-            "v-rising"));
-    }
-
     private static void RejectReparsePoint(
         string path,
         string originalPath)
@@ -627,17 +638,9 @@ internal static class VRisingWorkspaceOwnership
         }
     }
 
-    private static bool PathsEqual(string left, string right)
-        => string.Equals(
-            Path.GetFullPath(left),
-            Path.GetFullPath(right),
-            OperatingSystem.IsWindows()
-                ? StringComparison.OrdinalIgnoreCase
-                : StringComparison.Ordinal);
-
     private static InvalidOperationException Refuse(string path)
         => new(
-            $"Refusing to use unrecognized or linked V Rising Steward workspace '{path}'.");
+            $"Refusing to use unrecognized or linked V Rising Safe World workspace '{path}'.");
 }
 
 internal sealed record VRisingPackageInspection(

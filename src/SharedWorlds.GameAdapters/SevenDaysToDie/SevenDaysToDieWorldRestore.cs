@@ -7,6 +7,12 @@ namespace SharedWorlds.GameAdapters.SevenDaysToDie;
 
 internal static partial class SevenDaysToDieWorldState
 {
+    private static readonly string[] PreparedPayloadDirectoryNames =
+    [
+        "Saves",
+        "GeneratedWorlds"
+    ];
+
     public static PreparedWorld PrepareEnvironment(
         GameInstallation installation,
         EnvironmentManifest requiredEnvironment)
@@ -21,14 +27,9 @@ internal static partial class SevenDaysToDieWorldState
                 string.Join("; ", verification.Issues.Select(issue => issue.Message)));
         }
 
-        var operationRoot = Path.Combine(
-            GetLocalWorkRoot(),
-            Guid.NewGuid().ToString("N"));
-        var userDataRoot = Path.Combine(operationRoot, "user-data");
-        Directory.CreateDirectory(operationRoot);
         return new PreparedWorld(
             installation,
-            userDataRoot,
+            SevenDaysToDieWorkspaceOwnership.Create(),
             requiredEnvironment);
     }
 
@@ -41,6 +42,8 @@ internal static partial class SevenDaysToDieWorldState
         ArgumentNullException.ThrowIfNull(state);
         cancellationToken.ThrowIfCancellationRequested();
 
+        var destinationRoot = SevenDaysToDieWorkspaceOwnership.RequireOwned(
+            world.WorkingDirectory);
         var packagePath = Path.GetFullPath(state.Path);
         if (!File.Exists(packagePath))
         {
@@ -49,52 +52,97 @@ internal static partial class SevenDaysToDieWorldState
                 packagePath);
         }
 
-        var destinationRoot = Path.GetFullPath(world.WorkingDirectory);
-        var parentRoot = Path.GetDirectoryName(destinationRoot)
-            ?? throw new InvalidOperationException(
-                $"Could not determine the parent directory for 7 Days to Die workspace '{destinationRoot}'.");
-        Directory.CreateDirectory(parentRoot);
-
         var operationId = Guid.NewGuid().ToString("N");
-        var stagingRoot = destinationRoot + ".sharedworlds-staging-" + operationId;
-        var rollbackRoot = destinationRoot + ".sharedworlds-rollback-" + operationId;
-        var movedExisting = false;
+        var stagingRoot = Path.Combine(
+            destinationRoot,
+            $".sharedworlds-staging-{operationId}");
+        var rollbackRoot = Path.Combine(
+            destinationRoot,
+            $".sharedworlds-rollback-{operationId}");
+        var movedExisting = new List<string>();
+        var promoted = new List<string>();
 
         try
         {
             await ExtractPackageAsync(packagePath, stagingRoot, cancellationToken);
             ValidateSingleWorldBundle(stagingRoot);
 
-            if (Directory.Exists(destinationRoot))
+            Directory.CreateDirectory(rollbackRoot);
+            foreach (var name in PreparedPayloadDirectoryNames)
             {
-                Directory.Move(destinationRoot, rollbackRoot);
-                movedExisting = true;
+                cancellationToken.ThrowIfCancellationRequested();
+                var current = Path.Combine(destinationRoot, name);
+                if (File.Exists(current))
+                {
+                    throw new InvalidOperationException(
+                        $"Prepared 7 Days to Die workspace contains a file where payload directory '{name}' is required.");
+                }
+
+                if (!Directory.Exists(current))
+                {
+                    continue;
+                }
+
+                Directory.Move(current, Path.Combine(rollbackRoot, name));
+                movedExisting.Add(name);
             }
 
-            Directory.Move(stagingRoot, destinationRoot);
-            if (movedExisting)
+            foreach (var name in PreparedPayloadDirectoryNames)
             {
-                TryDeleteDirectory(rollbackRoot);
+                cancellationToken.ThrowIfCancellationRequested();
+                var staged = Path.Combine(stagingRoot, name);
+                if (!Directory.Exists(staged))
+                {
+                    continue;
+                }
+
+                Directory.Move(staged, Path.Combine(destinationRoot, name));
+                promoted.Add(name);
             }
+
+            TryDeleteDirectory(stagingRoot);
+            TryDeleteDirectory(rollbackRoot);
         }
         catch (Exception restoreException)
         {
-            TryDeleteDirectory(stagingRoot);
-            if (movedExisting &&
-                !Directory.Exists(destinationRoot) &&
-                Directory.Exists(rollbackRoot))
+            Exception? rollbackException = null;
+            try
             {
-                try
+                foreach (var name in promoted.AsEnumerable().Reverse())
                 {
-                    Directory.Move(rollbackRoot, destinationRoot);
+                    var promotedPath = Path.Combine(destinationRoot, name);
+                    if (Directory.Exists(promotedPath))
+                    {
+                        Directory.Delete(promotedPath, recursive: true);
+                    }
                 }
-                catch (Exception rollbackException)
+
+                foreach (var name in movedExisting.AsEnumerable().Reverse())
                 {
-                    throw new AggregateException(
-                        "7 Days to Die state restore failed and the previous prepared World could not be rolled back automatically.",
-                        restoreException,
-                        rollbackException);
+                    var saved = Path.Combine(rollbackRoot, name);
+                    var original = Path.Combine(destinationRoot, name);
+                    if (Directory.Exists(saved) &&
+                        !Directory.Exists(original) &&
+                        !File.Exists(original))
+                    {
+                        Directory.Move(saved, original);
+                    }
                 }
+            }
+            catch (Exception exception)
+            {
+                rollbackException = exception;
+            }
+
+            TryDeleteDirectory(stagingRoot);
+            TryDeleteDirectory(rollbackRoot);
+
+            if (rollbackException is not null)
+            {
+                throw new AggregateException(
+                    "7 Days to Die state restore failed and the previous prepared World could not be rolled back automatically.",
+                    restoreException,
+                    rollbackException);
             }
 
             throw;
@@ -108,16 +156,11 @@ internal static partial class SevenDaysToDieWorldState
     {
         ArgumentNullException.ThrowIfNull(world);
         cancellationToken.ThrowIfCancellationRequested();
-        if (disposition == PreparedWorldDisposition.PreserveForRecovery)
-        {
-            return Task.CompletedTask;
-        }
+        _ = SevenDaysToDieWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
 
-        var userDataRoot = Path.GetFullPath(world.WorkingDirectory);
-        var operationRoot = Directory.GetParent(userDataRoot)?.FullName;
-        if (operationRoot is not null)
+        if (disposition == PreparedWorldDisposition.Discard)
         {
-            TryDeleteDirectory(operationRoot);
+            SevenDaysToDieWorkspaceOwnership.DeleteOwned(world.WorkingDirectory);
         }
 
         return Task.CompletedTask;
@@ -188,19 +231,6 @@ internal static partial class SevenDaysToDieWorldState
             await sourceStream.CopyToAsync(destinationStream, cancellationToken);
             await destinationStream.FlushAsync(cancellationToken);
         }
-    }
-
-    private static string GetLocalWorkRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        var root = Path.Combine(localData, "Steward", "workspaces", "7-days-to-die");
-        Directory.CreateDirectory(root);
-        return root;
     }
 
     private static void TryDeleteDirectory(string path)

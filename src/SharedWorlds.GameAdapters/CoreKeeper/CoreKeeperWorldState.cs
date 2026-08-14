@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO.Compression;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Environment;
+using SharedWorlds.Core.Storage;
 
 namespace SharedWorlds.GameAdapters.CoreKeeper;
 
@@ -151,13 +152,9 @@ internal static class CoreKeeperWorldState
         cancellationToken.ThrowIfCancellationRequested();
         CoreKeeperWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
 
-        if (disposition == PreparedWorldDisposition.Discard &&
-            Directory.Exists(world.WorkingDirectory))
+        if (disposition == PreparedWorldDisposition.Discard)
         {
-            CoreKeeperWorkspaceOwnership.RequireOwnedTree(
-                world.WorkingDirectory,
-                world.WorkingDirectory);
-            Directory.Delete(world.WorkingDirectory, recursive: true);
+            CoreKeeperWorkspaceOwnership.DeleteOwned(world.WorkingDirectory);
         }
 
         return Task.CompletedTask;
@@ -168,7 +165,10 @@ internal static class CoreKeeperWorldState
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var packagePath = CreatePackagePath(bundle.Slot);
+        var packagePath = DisposableStatePackageStorage.CreatePackagePath(
+            "core-keeper",
+            $"world-{bundle.Slot}",
+            ".zip");
         try
         {
             await using var packageStream = new FileStream(
@@ -577,29 +577,6 @@ internal static class CoreKeeperWorldState
         }
     }
 
-    private static string CreatePackagePath(string slot)
-    {
-        var root = GetPackageRoot();
-        Directory.CreateDirectory(root);
-        return Path.Combine(root, $"world-{slot}-{Guid.NewGuid():N}.zip");
-    }
-
-    private static string GetPackageRoot()
-    {
-        var localData = Environment.GetFolderPath(
-            Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.Combine(
-            localData,
-            "SharedWorlds",
-            "core-keeper",
-            "packages");
-    }
-
     private static void TryDeleteFile(string path)
     {
         try
@@ -650,120 +627,26 @@ internal static class CoreKeeperWorldState
 
 internal static class CoreKeeperWorkspaceOwnership
 {
+    private const string AdapterId = "core-keeper";
+
     public static string Create()
-    {
-        var root = GetExpectedWorkRoot();
-        Directory.CreateDirectory(root);
-        var workspace = Path.Combine(root, Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(workspace);
-        return Path.GetFullPath(workspace);
-    }
+        => DisposablePreparedWorkspaceStorage.Create(AdapterId);
 
     public static void RequireOwned(string workingDirectory)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
-        var workspace = Path.GetFullPath(workingDirectory);
-        var leaf = Path.GetFileName(
-            Path.TrimEndingDirectorySeparator(workspace));
-        if (!Guid.TryParseExact(leaf, "N", out _) ||
-            Directory.GetParent(workspace)?.FullName is not string ownerRoot ||
-            !PathsEqual(ownerRoot, GetExpectedWorkRoot()))
-        {
-            throw Refuse(workingDirectory);
-        }
-
-        RejectReparsePoint(ownerRoot, workingDirectory);
-        if (Directory.Exists(workspace))
-        {
-            RejectReparsePoint(workspace, workingDirectory);
-        }
-    }
+        => _ = DisposablePreparedWorkspaceStorage.RequireOwned(
+            AdapterId,
+            workingDirectory);
 
     public static void RequireOwnedTree(
         string workingDirectory,
         string treeRoot)
-    {
-        RequireOwned(workingDirectory);
-        var workspace = Path.GetFullPath(workingDirectory);
-        var root = Path.GetFullPath(treeRoot);
-        var prefix = workspace + Path.DirectorySeparatorChar;
-        if (!PathsEqual(root, workspace) &&
-            !root.StartsWith(prefix, PathComparison))
-        {
-            throw Refuse(treeRoot);
-        }
+        => DisposablePreparedWorkspaceStorage.RequireOwnedTree(
+            AdapterId,
+            workingDirectory,
+            treeRoot);
 
-        if (!Directory.Exists(root))
-        {
-            return;
-        }
-
-        var pending = new Stack<string>();
-        pending.Push(root);
-        while (pending.Count > 0)
-        {
-            var current = pending.Pop();
-            RejectReparsePoint(current, treeRoot);
-            foreach (var directory in Directory.EnumerateDirectories(
-                         current,
-                         "*",
-                         SearchOption.TopDirectoryOnly))
-            {
-                RejectReparsePoint(directory, treeRoot);
-                pending.Push(directory);
-            }
-
-            foreach (var file in Directory.EnumerateFiles(
-                         current,
-                         "*",
-                         SearchOption.TopDirectoryOnly))
-            {
-                if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
-                {
-                    throw Refuse(treeRoot);
-                }
-            }
-        }
-    }
-
-    private static string GetExpectedWorkRoot()
-    {
-        var localData = Environment.GetFolderPath(
-            Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.GetFullPath(Path.Combine(
-            localData,
-            "Steward",
-            "workspaces",
-            "core-keeper"));
-    }
-
-    private static void RejectReparsePoint(
-        string path,
-        string originalPath)
-    {
-        if (Directory.Exists(path) &&
-            (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
-        {
-            throw Refuse(originalPath);
-        }
-    }
-
-    private static bool PathsEqual(string left, string right)
-        => string.Equals(
-            Path.GetFullPath(left),
-            Path.GetFullPath(right),
-            PathComparison);
-
-    private static StringComparison PathComparison => OperatingSystem.IsWindows()
-        ? StringComparison.OrdinalIgnoreCase
-        : StringComparison.Ordinal;
-
-    private static InvalidOperationException Refuse(string path)
-        => new(
-            $"Refusing to use unrecognized or linked Core Keeper Steward workspace '{path}'.");
+    public static void DeleteOwned(string workingDirectory)
+        => DisposablePreparedWorkspaceStorage.DeleteOwned(
+            AdapterId,
+            workingDirectory);
 }

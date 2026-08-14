@@ -56,7 +56,8 @@ public sealed partial class FactorioAdapter
         {
             if (prepared is not null)
             {
-                DeleteOwnedWorkspace(prepared.WorkingDirectory);
+                // Verify uses legacy/no-context disposable scratch, never a managed writable runtime.
+                DeleteAdapterOwnedWorkspace(prepared);
             }
         }
     }

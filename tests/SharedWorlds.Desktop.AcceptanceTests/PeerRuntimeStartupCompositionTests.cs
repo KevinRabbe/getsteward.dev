@@ -46,14 +46,15 @@ public sealed class PeerRuntimeStartupCompositionTests
     }
 
     [Fact]
-    public void PeerStartupUsesRawCanonicalLocalStorageRootNotRemoteObservedWrapper()
+    public void PeerStartupUsesTheSameResolvedCanonicalStorageRootAsDesktopStorage()
     {
         var source = Read("src/SharedWorlds.Desktop/MainWindow.PeerRuntime.cs");
 
         Assert.Contains("CreatePeerCanonicalStorage()", source, StringComparison.Ordinal);
-        Assert.Contains("new(Path.Combine(", source, StringComparison.Ordinal);
-        Assert.Contains("GetLocalDataRoot(),\n            \"SharedWorlds\",\n            \"data\"", source, StringComparison.Ordinal);
+        Assert.Contains("=> new(_storageRoot);", source, StringComparison.Ordinal);
         Assert.Contains("LocalWorldStorage", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetLocalDataRoot", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"SharedWorlds\"", source, StringComparison.Ordinal);
         Assert.DoesNotContain("OwnedWorldLocationObservedWorldStorage", source, StringComparison.Ordinal);
         Assert.DoesNotContain("OwnedWorldLocation", source, StringComparison.Ordinal);
     }

@@ -65,15 +65,14 @@ public partial class MainWindow
             return;
         }
 
-        // Discard is intentionally local. It never writes a canonical World revision and therefore
-        // must remain available when an incomplete/disconnected shared World has no backend authority.
+        // Discard is intentionally local for SafeWorld-managed workspaces. Native-game recovery is
+        // refused by the Core decision service because game-native state is not a disposable workspace.
         var confirmation = MessageBox.Show(
             this,
             $"Continue '{world.Name}' from its last safe state?\n\n" +
-            "Gameplay changes that were never committed will be permanently abandoned. " +
+            "Gameplay changes that were never committed will be permanently abandoned only when Safe World can prove the interrupted runtime is safely disposable. " +
             "The last committed World revision remains unchanged.\n\n" +
-            "If this is an older workspace without exact environment evidence, Safe World will preserve " +
-            "its files as abandoned evidence instead of guessing how to delete them.",
+            "Game-native interrupted state is preserved instead of being deleted or overwritten by this generic action.",
             "Continue from last safe state?",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning,
@@ -93,19 +92,33 @@ public partial class MainWindow
 
                     var decision = new InterruptedWorkspaceRecoveryDecisionService(
                         _workspaceRecoveryStore);
-                    var discard = await decision.PrepareDiscardAsync(world.Id, adapter.Id);
+                    var discard = await decision.PrepareDiscardAsync(world.Id, adapter);
 
                     if (discard.Status == WorkspaceRecoveryStatus.CleanupPending)
                     {
+                        var resolver = CreatePreparedWorldRecoveryResolver();
+                        var pathWithoutInstallation = resolver.ResolveWorkingDirectoryWithoutInstallation(
+                            discard,
+                            adapter.Id);
+                        GameInstallation? installation = null;
+                        if (pathWithoutInstallation is null || Directory.Exists(pathWithoutInstallation))
+                        {
+                            installation = await GetReadyInstallationForRecoveryRecordAsync(
+                                world,
+                                adapter,
+                                discard);
+                        }
+
                         var cleanup = new WorkspaceCleanupRecoveryService(
                             GetStorageForWorld(world),
-                            _workspaceRecoveryStore);
+                            _workspaceRecoveryStore,
+                            resolver);
                         await cleanup.RetryAsync(
                             world.Id,
                             adapter,
-                            installation: null);
+                            installation);
                         StatusText.Text =
-                            $"'{world.Name}' is back on its last safe state. Its interrupted workspace was removed.";
+                            $"'{world.Name}' is back on its last safe state. Its interrupted managed workspace was removed.";
                     }
                     else if (discard.Status == WorkspaceRecoveryStatus.Abandoned)
                     {

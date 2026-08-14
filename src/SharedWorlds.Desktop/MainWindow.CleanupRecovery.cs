@@ -1,4 +1,3 @@
-using System.IO;
 using System.Windows;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
@@ -39,11 +38,16 @@ public partial class MainWindow
                         ?? throw new InvalidOperationException(
                             "No cleanup-only workspace responsibility exists for this World.");
 
-                    // A missing installation is valid only when adapter-owned workspace cleanup already
-                    // succeeded and journal removal is the sole remaining work. Otherwise select an
-                    // installation by the exact environment that created the preserved workspace.
+                    var resolver = CreatePreparedWorldRecoveryResolver();
+                    var pathWithoutInstallation = resolver.ResolveWorkingDirectoryWithoutInstallation(
+                        record,
+                        adapter.Id);
+
+                    // Managed/legacy runtime that is already absent needs only journal removal. Native
+                    // identity cannot be located without the current game installation, and present
+                    // managed/legacy runtime also needs the adapter to finalize it safely.
                     GameInstallation? installation = null;
-                    if (Directory.Exists(record.WorkingDirectory))
+                    if (pathWithoutInstallation is null || Directory.Exists(pathWithoutInstallation))
                     {
                         installation = await GetReadyInstallationForRecoveryRecordAsync(
                             world,
@@ -53,7 +57,8 @@ public partial class MainWindow
 
                     var cleanup = new WorkspaceCleanupRecoveryService(
                         GetStorageForWorld(world),
-                        _workspaceRecoveryStore);
+                        _workspaceRecoveryStore,
+                        resolver);
                     await cleanup.RetryAsync(
                         world.Id,
                         adapter,

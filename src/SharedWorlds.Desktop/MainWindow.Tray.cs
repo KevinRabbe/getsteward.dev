@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Windows;
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Domain;
+using SharedWorlds.Core.Storage;
 using SharedWorlds.Core.Worlds;
 using Drawing = System.Drawing;
 using Forms = System.Windows.Forms;
@@ -87,6 +89,50 @@ public partial class MainWindow
     private async Task InitializeRuntimeResponsibilityAsync()
     {
         var records = await _workspaceRecoveryStore.ListAsync();
+
+        // PreparationPending means Core journaled stable identity before materialization but never
+        // confirmed that preparation completed. A SafeWorld-managed workspace is the one case Core
+        // can reconcile generically: WorkspaceId proves exclusive ownership and no session started.
+        // Native/missing/malformed identity remains durable evidence and is projected as guarded
+        // responsibility below; startup never guesses that game-owned state is disposable.
+        var managedPending = records
+            .Where(record =>
+                record.Status == WorkspaceRecoveryStatus.PreparationPending &&
+                record.RecoveryLocation?.Kind ==
+                    PreparedWorldRecoveryLocationKind.SafeWorldManaged)
+            .OrderBy(record => record.CreatedAt)
+            .ThenBy(record => record.Id.ToString(), StringComparer.Ordinal)
+            .ToArray();
+        if (managedPending.Length > 0)
+        {
+            var layout = DesktopStorageLayout.FromResolvedRoot();
+            var reconciliation = new PreparationPendingRecoveryService(
+                _workspaceRecoveryStore,
+                new ManagedWorkspaceStorage(layout.ManagedWorkspacesRoot));
+
+            foreach (var record in managedPending)
+            {
+                try
+                {
+                    // Exact WorkspaceId is the deletion authority. WorldId is deliberately not used:
+                    // one World can contain multiple preserved records and sibling evidence must remain.
+                    await reconciliation.ResolveManagedAsync(record.Id);
+                }
+                catch (Exception exception) when (
+                    exception is PreparationPendingRecoveryException or
+                        InvalidDataException or
+                        IOException or
+                        UnauthorizedAccessException or
+                        ArgumentException)
+                {
+                    // Fail closed. The durable record remains and the responsibility tracker below
+                    // blocks writable work instead of turning an ownership/IO ambiguity into deletion.
+                }
+            }
+
+            records = await _workspaceRecoveryStore.ListAsync();
+        }
+
         _responsibilityTracker.InitializeFromRecoveryRecords(records);
         UpdateTrayStatus();
     }

@@ -125,9 +125,9 @@ public sealed class PortableWorldCreatorViewerAcceptanceTests
                 await File.WriteAllBytesAsync(viewerPackagePath, copied.ToArray());
             }
 
-            // Complete the game-owned boundary that the normal Continue lifecycle invokes after it
-            // materializes the viewer's current immutable state revision.
-            var viewerWorkspace = CreateOwnedViewerWorkspace();
+            // Complete the same managed-workspace boundary that the normal Continue lifecycle uses
+            // after Core allocates recovery identity and materializes the viewer's current immutable state.
+            var viewerWorkspace = CreateManagedViewerWorkspace(root);
             preparedViewer = new PreparedWorld(
                 Installation: new GameInstallation(
                     Id: "viewer-factorio-installation",
@@ -135,7 +135,8 @@ public sealed class PortableWorldCreatorViewerAcceptanceTests
                     Source: "acceptance"),
                 WorkingDirectory: viewerWorkspace,
                 Environment: environment,
-                DisplayName: imported.World.Name);
+                DisplayName: imported.World.Name,
+                RecoveryLocation: PreparedWorldRecoveryLocation.Managed());
 
             await adapter.RestoreStateAsync(
                 preparedViewer,
@@ -159,9 +160,11 @@ public sealed class PortableWorldCreatorViewerAcceptanceTests
         {
             if (preparedViewer is not null)
             {
+                // The fixture owns the outer temporary root. For a descriptor-managed runtime the
+                // adapter only releases game-specific resources; Core owns managed-root deletion.
                 await adapter.FinalizePreparedWorldAsync(
                     preparedViewer,
-                    PreparedWorldDisposition.Discard);
+                    PreparedWorldDisposition.ReleaseForCoreManagedDiscard);
             }
 
             if (viewerRecapture is not null && File.Exists(viewerRecapture.Package.Path))
@@ -204,19 +207,12 @@ public sealed class PortableWorldCreatorViewerAcceptanceTests
         return output.ToArray();
     }
 
-    private static string CreateOwnedViewerWorkspace()
+    private static string CreateManagedViewerWorkspace(string root)
     {
-        var localDataRoot = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localDataRoot))
-        {
-            localDataRoot = Path.GetTempPath();
-        }
-
         var workspace = Path.Combine(
-            localDataRoot,
-            "SharedWorlds",
-            "factorio",
-            Guid.NewGuid().ToString("N"));
+            root,
+            "managed-workspaces",
+            WorkspaceId.New().ToString());
         Directory.CreateDirectory(workspace);
         return workspace;
     }

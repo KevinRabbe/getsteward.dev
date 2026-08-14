@@ -1,4 +1,5 @@
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Storage;
 
 namespace SharedWorlds.GameAdapters.Factorio;
 
@@ -60,22 +61,23 @@ internal static partial class FactorioWorldOperations
         => Path.Combine(world.WorkingDirectory, ModsDirectoryName);
 
     private static string CreatePackagePath()
-    {
-        var root = Path.Combine(GetLocalWorkRoot(), "packages");
-        Directory.CreateDirectory(root);
-        return Path.Combine(root, $"{Guid.NewGuid():N}.zip");
-    }
+        => DisposableStatePackageStorage.CreatePackagePath(
+            "factorio",
+            "world",
+            ".zip");
+
+    /// <summary>
+    /// Compatibility scratch for no-context/non-writable preparation only. Writable sessions receive
+    /// their managed workspace from Core and never use this adapter-owned temp root.
+    /// </summary>
+    internal static string GetLegacyScratchRoot()
+        => Path.GetFullPath(Path.Combine(
+            Path.GetTempPath(),
+            "SafeWorld",
+            "factorio-preparation"));
 
     private static string GetLocalWorkRoot()
-    {
-        var basePath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(basePath))
-        {
-            basePath = Path.GetTempPath();
-        }
-
-        return Path.Combine(basePath, "SharedWorlds", "factorio");
-    }
+        => GetLegacyScratchRoot();
 
     private static string GetRequiredMetadata(GameInstallation installation, string key)
     {

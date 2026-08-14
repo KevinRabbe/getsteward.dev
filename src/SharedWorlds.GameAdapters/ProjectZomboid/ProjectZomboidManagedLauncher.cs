@@ -9,6 +9,7 @@ internal sealed record ProjectZomboidManagedLauncher(
 internal static class ProjectZomboidManagedLauncherWriter
 {
     internal const long MaximumSourceLauncherBytes = 4L * 1024 * 1024;
+    internal const string RuntimeDirectoryName = ".safeworld-runtime";
     private const string ManagedLauncherFileName = "StartServer64.sharedworlds.bat";
     private const string QuotedSourceDirectoryToken = "\"%~dp0\"";
     private const string SourceDirectoryToken = "%~dp0";
@@ -19,13 +20,23 @@ internal static class ProjectZomboidManagedLauncherWriter
         ProjectZomboidDedicatedServerHostInputs inputs)
     {
         ArgumentNullException.ThrowIfNull(inputs);
-        ProjectZomboidWorkspaceOwnership.RequireOwned(inputs.CacheDirectory);
+        var workspace = ProjectZomboidWorkspaceOwnership.RequireOwned(inputs.CacheDirectory);
         PreflightSourceLauncher(inputs);
 
-        var operationRoot = Directory.GetParent(inputs.CacheDirectory)?.FullName
-            ?? throw new InvalidOperationException(
-                "Could not determine the Steward Project Zomboid operation root.");
-        var managedPath = Path.Combine(operationRoot, ManagedLauncherFileName);
+        var runtimeRoot = ProjectZomboidWorkspaceOwnership.RequireOwnedPath(
+            workspace,
+            Path.Combine(workspace, RuntimeDirectoryName),
+            "runtime directory");
+        Directory.CreateDirectory(runtimeRoot);
+        _ = ProjectZomboidWorkspaceOwnership.RequireOwnedPath(
+            workspace,
+            runtimeRoot,
+            "runtime directory");
+
+        var managedPath = ProjectZomboidWorkspaceOwnership.RequireOwnedPath(
+            workspace,
+            Path.Combine(runtimeRoot, ManagedLauncherFileName),
+            "managed launcher");
         var sourceText = File.ReadAllText(Path.GetFullPath(inputs.LaunchPath));
         var managedText = Transform(sourceText, inputs);
 

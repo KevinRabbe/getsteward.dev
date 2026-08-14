@@ -6,6 +6,7 @@ public enum WorldLifecycleResponsibilityKind
 {
     None,
     ActiveLifecycle,
+    PreparationInterrupted,
     InterruptedSession,
     RecoveryNeeded,
     CleanupPending
@@ -110,6 +111,13 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
             _mode = null;
             switch (selected.Status)
             {
+                case WorkspaceRecoveryStatus.PreparationPending:
+                    // Recovery identity exists, but materialization never reached a confirmed boundary.
+                    // Do not expose interrupted-session recovery or cleanup actions: neither is proven safe.
+                    _kind = WorldLifecycleResponsibilityKind.PreparationInterrupted;
+                    _phase = WorldLifecyclePhase.RecoveryNeeded;
+                    break;
+
                 case WorkspaceRecoveryStatus.RecoveryPending:
                     _kind = WorldLifecycleResponsibilityKind.RecoveryNeeded;
                     _phase = WorldLifecyclePhase.RecoveryNeeded;
@@ -159,6 +167,7 @@ public sealed class WorldLifecycleResponsibilityTracker : IWorldLifecycleObserve
     private static int Priority(WorkspaceRecoveryStatus status)
         => status switch
         {
+            WorkspaceRecoveryStatus.PreparationPending => 4,
             WorkspaceRecoveryStatus.RecoveryPending => 3,
             WorkspaceRecoveryStatus.Active => 2,
             WorkspaceRecoveryStatus.CleanupPending => 1,

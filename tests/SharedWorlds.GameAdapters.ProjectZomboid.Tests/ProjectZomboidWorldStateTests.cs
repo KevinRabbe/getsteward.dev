@@ -10,6 +10,7 @@ public sealed class ProjectZomboidWorldStateTests : IDisposable
         Path.GetTempPath(),
         $"sharedworlds-pz-state-{Guid.NewGuid():N}");
     private readonly List<string> _packages = [];
+    private readonly List<string> _ownedWorkspaces = [];
 
     [Fact]
     public async Task CaptureIncludesOnlySelectedWorldConfigAndDatabase()
@@ -59,11 +60,8 @@ public sealed class ProjectZomboidWorldStateTests : IDisposable
             CancellationToken.None);
         _packages.Add(captured.Package.Path);
 
-        var destination = Path.Combine(_root, "prepared", "Zomboid");
-        var prepared = new PreparedWorld(
-            installation,
-            destination,
-            EmptyEnvironment());
+        var prepared = CreateOwnedPrepared(installation);
+        var destination = prepared.WorkingDirectory;
         await ProjectZomboidWorldState.RestorePreparedWorldAsync(
             prepared,
             captured.Package,
@@ -144,7 +142,7 @@ public sealed class ProjectZomboidWorldStateTests : IDisposable
     }
 
     [Fact]
-    public async Task RestoreRejectsAdditionalServerPresetBeforeReplacingWorkspace()
+    public async Task RestoreRejectsAdditionalServerPresetWithoutReplacingWorkspaceIdentity()
     {
         var package = Path.Combine(_root, "multiple-server-presets.zip");
         Directory.CreateDirectory(_root);
@@ -155,13 +153,9 @@ public sealed class ProjectZomboidWorldStateTests : IDisposable
             await WriteTextEntryAsync(archive, "Server/other.ini", "PublicName=Other");
         }
 
-        var destination = Path.Combine(_root, "prepared", "Zomboid");
-        Directory.CreateDirectory(destination);
+        var prepared = CreateOwnedPrepared(Installation(Path.Combine(_root, "unused")));
+        var destination = prepared.WorkingDirectory;
         await File.WriteAllTextAsync(Path.Combine(destination, "sentinel.txt"), "original");
-        var prepared = new PreparedWorld(
-            Installation(Path.Combine(_root, "unused")),
-            destination,
-            EmptyEnvironment());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             ProjectZomboidWorldState.RestorePreparedWorldAsync(
@@ -170,10 +164,11 @@ public sealed class ProjectZomboidWorldStateTests : IDisposable
                 CancellationToken.None));
 
         Assert.Equal("original", await File.ReadAllTextAsync(Path.Combine(destination, "sentinel.txt")));
+        Assert.True(Directory.Exists(destination));
     }
 
     [Fact]
-    public async Task RestoreRejectsPathTraversalBeforeReplacingWorkspace()
+    public async Task RestoreRejectsPathTraversalWithoutReplacingWorkspaceIdentity()
     {
         var package = Path.Combine(_root, "malicious.zip");
         Directory.CreateDirectory(_root);
@@ -184,13 +179,9 @@ public sealed class ProjectZomboidWorldStateTests : IDisposable
             await WriteEntryAsync(archive, "../escaped.txt", [2]);
         }
 
-        var destination = Path.Combine(_root, "prepared-traversal", "Zomboid");
-        Directory.CreateDirectory(destination);
+        var prepared = CreateOwnedPrepared(Installation(Path.Combine(_root, "unused-2")));
+        var destination = prepared.WorkingDirectory;
         await File.WriteAllTextAsync(Path.Combine(destination, "sentinel.txt"), "original");
-        var prepared = new PreparedWorld(
-            Installation(Path.Combine(_root, "unused-2")),
-            destination,
-            EmptyEnvironment());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             ProjectZomboidWorldState.RestorePreparedWorldAsync(
@@ -199,19 +190,15 @@ public sealed class ProjectZomboidWorldStateTests : IDisposable
                 CancellationToken.None));
 
         Assert.Equal("original", await File.ReadAllTextAsync(Path.Combine(destination, "sentinel.txt")));
-        Assert.False(File.Exists(Path.Combine(_root, "prepared-traversal", "escaped.txt")));
+        Assert.False(File.Exists(Path.Combine(Directory.GetParent(destination)!.FullName, "escaped.txt")));
+        Assert.True(Directory.Exists(destination));
     }
 
     [Fact]
     public async Task FinalizePreservesRecoveryWorkspaceButDeletesDiscardedWorkspace()
     {
-        var preserveRoot = Path.Combine(_root, "preserve");
-        var preserveUserData = Path.Combine(preserveRoot, "Zomboid");
-        Directory.CreateDirectory(preserveUserData);
-        var preparedPreserve = new PreparedWorld(
-            Installation(Path.Combine(_root, "unused-3")),
-            preserveUserData,
-            EmptyEnvironment());
+        var preparedPreserve = CreateOwnedPrepared(Installation(Path.Combine(_root, "unused-3")));
+        var preserveRoot = preparedPreserve.WorkingDirectory;
 
         await ProjectZomboidWorldState.FinalizePreparedWorldAsync(
             preparedPreserve,
@@ -219,15 +206,14 @@ public sealed class ProjectZomboidWorldStateTests : IDisposable
             CancellationToken.None);
         Assert.True(Directory.Exists(preserveRoot));
 
-        var discardRoot = Path.Combine(_root, "discard");
-        var discardUserData = Path.Combine(discardRoot, "Zomboid");
-        Directory.CreateDirectory(discardUserData);
-        var preparedDiscard = preparedPreserve with { WorkingDirectory = discardUserData };
+        var preparedDiscard = CreateOwnedPrepared(Installation(Path.Combine(_root, "unused-4")));
+        var discardRoot = preparedDiscard.WorkingDirectory;
 
         await ProjectZomboidWorldState.FinalizePreparedWorldAsync(
             preparedDiscard,
             PreparedWorldDisposition.Discard,
             CancellationToken.None);
+        _ownedWorkspaces.Remove(discardRoot);
         Assert.False(Directory.Exists(discardRoot));
     }
 
@@ -248,6 +234,16 @@ public sealed class ProjectZomboidWorldStateTests : IDisposable
         File.WriteAllText(Path.Combine(server, serverName + "_spawnregions.lua"), "function SpawnRegions() return {} end");
         File.WriteAllBytes(Path.Combine(db, serverName + ".db"), [7, 8, 9]);
         return userData;
+    }
+
+    private PreparedWorld CreateOwnedPrepared(GameInstallation installation)
+    {
+        var workspace = ProjectZomboidWorkspaceOwnership.Create();
+        _ownedWorkspaces.Add(workspace);
+        return new PreparedWorld(
+            installation,
+            workspace,
+            EmptyEnvironment());
     }
 
     private static GameInstallation Installation(string userData)
@@ -284,6 +280,20 @@ public sealed class ProjectZomboidWorldStateTests : IDisposable
 
     public void Dispose()
     {
+        foreach (var workspace in _ownedWorkspaces.ToArray())
+        {
+            try
+            {
+                if (Directory.Exists(workspace))
+                {
+                    ProjectZomboidWorkspaceOwnership.DeleteOwned(workspace);
+                }
+            }
+            catch
+            {
+            }
+        }
+
         foreach (var package in _packages)
         {
             try

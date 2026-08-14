@@ -1,9 +1,10 @@
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
 
 namespace SharedWorlds.GameAdapters.ConanExilesEnhanced;
 
-public sealed class ConanExilesEnhancedAdapter : IGameAdapter
+public sealed class ConanExilesEnhancedAdapter : IGameAdapter, IPreparedWorldRecoveryPlanner
 {
     public string Id => "conan-exiles-enhanced";
     public string DisplayName => "Conan Exiles Enhanced";
@@ -74,6 +75,40 @@ public sealed class ConanExilesEnhancedAdapter : IGameAdapter
 
         throw new InvalidOperationException(
             $"Conan Exiles Enhanced save slot became active while Steward was capturing it: {sourcePath}");
+    }
+
+    public Task<PreparedWorldRecoveryLocation> PlanPreparedWorldRecoveryAsync(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        PreparedWorldPreparationContext preparation,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(installation);
+        ArgumentNullException.ThrowIfNull(requiredEnvironment);
+        ArgumentNullException.ThrowIfNull(preparation);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!string.Equals(requiredEnvironment.AdapterId, Id, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                $"Environment belongs to adapter '{requiredEnvironment.AdapterId}', not Conan Exiles Enhanced.",
+                nameof(requiredEnvironment));
+        }
+
+        return Task.FromResult(PreparedWorldRecoveryLocation.Managed());
+    }
+
+    public Task<PreparedWorld> PrepareEnvironmentAsync(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        PreparedWorldPreparationContext preparation,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(
+            ConanExilesEnhancedWorldState.PrepareEnvironment(
+                installation,
+                requiredEnvironment,
+                preparation));
     }
 
     public Task<PreparedWorld> PrepareEnvironmentAsync(

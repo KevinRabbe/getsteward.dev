@@ -16,9 +16,9 @@ public sealed class InterruptedWorkspaceRecoveryDecisionException : InvalidOpera
 
 /// <summary>
 /// Records the user's explicit decision for an Active workspace found after a Safe World restart.
-/// It does not capture, publish, commit, or delete state itself. Recovery and cleanup then proceed
-/// through their existing status-specific services so a crash between the decision and the work
-/// remains deterministic and retryable.
+/// It does not capture, publish, commit, delete, or locate runtime state itself. Recovery and cleanup
+/// proceed through descriptor-aware services so this decision layer never treats a persisted pathname
+/// as authority.
 /// </summary>
 public sealed class InterruptedWorkspaceRecoveryDecisionService
 {
@@ -39,15 +39,11 @@ public sealed class InterruptedWorkspaceRecoveryDecisionService
 
         var record = await LoadActiveAsync(worldId, cancellationToken);
         EnsureAdapter(record, adapterId);
-        EnsureExactEnvironmentWhenWorkspaceExists(record);
+        EnsureExactEnvironmentForRecovery(record);
 
-        if (!Directory.Exists(record.WorkingDirectory))
-        {
-            throw new InterruptedWorkspaceRecoveryDecisionException(
-                "WorkspaceMissing",
-                "The interrupted workspace is missing, so Safe World cannot recover uncommitted changes from it.");
-        }
-
+        // Do not probe WorkingDirectory here. Current records are identity-based and may intentionally
+        // persist no machine path at all. The recovery executor resolves the current runtime location
+        // and fails closed if the recoverable material is unavailable.
         var updated = record with
         {
             Status = WorkspaceRecoveryStatus.RecoveryPending,
@@ -55,7 +51,7 @@ public sealed class InterruptedWorkspaceRecoveryDecisionService
             UpdatedAt = DateTimeOffset.UtcNow,
             Reason =
                 "The user explicitly chose to recover changes from an interrupted Safe World session. " +
-                "The committed World remains unchanged until candidate recovery commits successfully."
+                "The committed World remains unchanged until descriptor-aware candidate recovery commits successfully."
         };
         await _recovery.SaveAsync(updated, cancellationToken);
         return updated;
@@ -63,30 +59,31 @@ public sealed class InterruptedWorkspaceRecoveryDecisionService
 
     public async Task<WorkspaceRecoveryRecord> PrepareDiscardAsync(
         WorldId worldId,
-        string adapterId,
+        IGameAdapter adapter,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(adapterId);
+        ArgumentNullException.ThrowIfNull(adapter);
 
         var record = await LoadActiveAsync(worldId, cancellationToken);
-        EnsureAdapter(record, adapterId);
+        EnsureAdapter(record, adapter.Id);
+        EnsureGenericDiscardIsSafe(record, adapter);
 
-        var legacyWorkspaceCannotBeCleanedExactly =
-            Directory.Exists(record.WorkingDirectory) &&
-            record.EnvironmentRevisionId is null;
+        // A legacy record with no exact environment cannot safely reconstruct adapter cleanup. Preserve
+        // it as abandoned evidence regardless of whether its historical path happens to exist today.
+        var cannotCleanExactly = record.EnvironmentRevisionId is null;
         var updated = record with
         {
-            Status = legacyWorkspaceCannotBeCleanedExactly
+            Status = cannotCleanExactly
                 ? WorkspaceRecoveryStatus.Abandoned
                 : WorkspaceRecoveryStatus.CleanupPending,
             UpdatedAt = DateTimeOffset.UtcNow,
-            Reason = legacyWorkspaceCannotBeCleanedExactly
+            Reason = cannotCleanExactly
                 ? "The user explicitly chose to continue from the last safe state. The legacy workspace " +
-                  "does not identify its exact environment, so Safe World preserved it as abandoned evidence " +
-                  "instead of guessing how to clean it. The committed World remains unchanged and this record " +
-                  "no longer owns runtime responsibility."
-                : "The user explicitly chose to discard the interrupted workspace. " +
-                  "The previous committed World remains authoritative; only controlled workspace cleanup is allowed."
+                  "does not identify its exact environment, so Safe World preserved the journal as abandoned " +
+                  "evidence instead of guessing how to clean runtime state. The committed World remains unchanged " +
+                  "and this record no longer owns runtime responsibility."
+                : "The user explicitly chose to discard the interrupted SafeWorld-managed runtime state. " +
+                  "The previous committed World remains authoritative; only descriptor-aware cleanup is allowed."
         };
         await _recovery.SaveAsync(updated, cancellationToken);
         return updated;
@@ -119,13 +116,26 @@ public sealed class InterruptedWorkspaceRecoveryDecisionService
         }
     }
 
-    private static void EnsureExactEnvironmentWhenWorkspaceExists(WorkspaceRecoveryRecord record)
+    private static void EnsureExactEnvironmentForRecovery(WorkspaceRecoveryRecord record)
     {
-        if (Directory.Exists(record.WorkingDirectory) && record.EnvironmentRevisionId is null)
+        if (record.EnvironmentRevisionId is null)
         {
             throw new InterruptedWorkspaceRecoveryDecisionException(
                 "EnvironmentUnknown",
-                "This interrupted workspace predates exact environment journaling. Safe World will preserve it rather than guessing which environment owns the workspace.");
+                "This interrupted workspace predates exact environment journaling. Safe World will preserve it rather than guess which environment owns recoverable changes.");
+        }
+    }
+
+    private static void EnsureGenericDiscardIsSafe(
+        WorkspaceRecoveryRecord record,
+        IGameAdapter adapter)
+    {
+        if (record.RecoveryLocation?.Kind == PreparedWorldRecoveryLocationKind.NativeGame ||
+            (record.RecoveryLocation is null && adapter is INativePreparedWorldRecoveryAdapter))
+        {
+            throw new InterruptedWorkspaceRecoveryDecisionException(
+                "NativeDiscardUnsupported",
+                "This interrupted session lives in game-native state. Safe World will preserve it rather than treat native game data as a disposable workspace. Recover the changes, or use a future adapter-defined native rollback path.");
         }
     }
 }

@@ -1,4 +1,3 @@
-using System.IO;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Infrastructure.Diagnostics;
 using SharedWorlds.Infrastructure.Remote;
@@ -82,14 +81,10 @@ public partial class MainWindow
 
     private static void RecordOwnedWorldLocationPublicationFailure(Exception exception)
     {
-        var diagnosticsRoot = Path.Combine(
-            GetLocalDataRoot(),
-            "SharedWorlds",
-            "logs");
         LocalDiagnosticLog.TryWriteException(
             new InvalidOperationException(
                 "Safe World could not accelerate owned-World location or private snapshot publication. Local World changes remain committed. Exact pending work remains durable, and resumable snapshot transfer can continue after the next storage change, authentication activation, or startup.",
                 exception),
-            diagnosticsRoot);
+            DesktopLocalDataRoot.GetDiagnosticsRoot());
     }
 }

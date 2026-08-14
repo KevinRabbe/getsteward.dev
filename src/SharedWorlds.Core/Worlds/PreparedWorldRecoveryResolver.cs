@@ -21,6 +21,39 @@ public sealed class PreparedWorldRecoveryResolver
         _managedWorkspaces = managedWorkspaces;
     }
 
+    /// <summary>
+    /// Resolves a current working directory without a game installation when durable identity makes
+    /// that possible. Legacy journals return their historical path as an explicit compatibility case;
+    /// managed journals derive a current path from WorkspaceId; native-game identity returns null
+    /// because only the adapter plus current installation metadata can reconstruct it safely.
+    /// </summary>
+    public string? ResolveWorkingDirectoryWithoutInstallation(
+        WorkspaceRecoveryRecord recovery,
+        string adapterId)
+    {
+        ArgumentNullException.ThrowIfNull(recovery);
+        ArgumentException.ThrowIfNullOrWhiteSpace(adapterId);
+        EnsureAdapter(recovery, adapterId);
+
+        var location = recovery.RecoveryLocation;
+        if (location is null)
+        {
+            // Compatibility only. New journals must never place current-machine location authority here.
+            ArgumentException.ThrowIfNullOrWhiteSpace(recovery.WorkingDirectory);
+            return Path.GetFullPath(recovery.WorkingDirectory);
+        }
+
+        location.Validate();
+        return location.Kind switch
+        {
+            PreparedWorldRecoveryLocationKind.SafeWorldManaged =>
+                _managedWorkspaces.GetWorkspaceDirectory(recovery.Id, adapterId),
+            PreparedWorldRecoveryLocationKind.NativeGame => null,
+            _ => throw new InvalidDataException(
+                $"Unsupported prepared-World recovery location kind '{location.Kind}'.")
+        };
+    }
+
     public PreparedWorld Resolve(
         WorkspaceRecoveryRecord recovery,
         IGameAdapter adapter,
@@ -33,11 +66,7 @@ public sealed class PreparedWorldRecoveryResolver
         ArgumentNullException.ThrowIfNull(installation);
         ArgumentNullException.ThrowIfNull(environment);
 
-        if (!string.Equals(recovery.AdapterId, adapter.Id, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"Recovery workspace '{recovery.Id}' belongs to adapter '{recovery.AdapterId}', not '{adapter.Id}'.");
-        }
+        EnsureAdapter(recovery, adapter.Id);
 
         if (!string.Equals(environment.AdapterId, adapter.Id, StringComparison.Ordinal))
         {
@@ -48,11 +77,14 @@ public sealed class PreparedWorldRecoveryResolver
         var location = recovery.RecoveryLocation;
         if (location is null)
         {
-            // Compatibility only. New journals must provide a stable recovery descriptor.
-            ArgumentException.ThrowIfNullOrWhiteSpace(recovery.WorkingDirectory);
+            var legacyWorkingDirectory = ResolveWorkingDirectoryWithoutInstallation(
+                recovery,
+                adapter.Id)
+                ?? throw new InvalidOperationException(
+                    "Legacy prepared-World recovery unexpectedly required installation-based resolution.");
             return new PreparedWorld(
                 installation,
-                recovery.WorkingDirectory,
+                legacyWorkingDirectory,
                 environment,
                 displayName);
         }
@@ -86,6 +118,15 @@ public sealed class PreparedWorldRecoveryResolver
             default:
                 throw new InvalidDataException(
                     $"Unsupported prepared-World recovery location kind '{location.Kind}'.");
+        }
+    }
+
+    private static void EnsureAdapter(WorkspaceRecoveryRecord recovery, string adapterId)
+    {
+        if (!string.Equals(recovery.AdapterId, adapterId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Recovery workspace '{recovery.Id}' belongs to adapter '{recovery.AdapterId}', not '{adapterId}'.");
         }
     }
 }

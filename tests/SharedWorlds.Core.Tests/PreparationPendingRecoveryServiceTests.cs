@@ -20,7 +20,7 @@ public sealed class PreparationPendingRecoveryServiceTests : IDisposable
         var recovery = new RecoveryStore(record);
         var service = new PreparationPendingRecoveryService(recovery, managed);
 
-        await service.ResolveManagedAsync(record.WorldId);
+        await service.ResolveManagedAsync(record.Id);
 
         Assert.Empty(recovery.Records);
     }
@@ -38,10 +38,39 @@ public sealed class PreparationPendingRecoveryServiceTests : IDisposable
         var recovery = new RecoveryStore(record);
         var service = new PreparationPendingRecoveryService(recovery, managed);
 
-        await service.ResolveManagedAsync(record.WorldId);
+        await service.ResolveManagedAsync(record.Id);
 
         Assert.False(Directory.Exists(managedPath));
         Assert.Empty(recovery.Records);
+    }
+
+    [Fact]
+    public async Task ExactWorkspaceIdentityCannotSelectSiblingPendingRecordForSameWorld()
+    {
+        var managed = new ManagedWorkspaceStorage(Path.Combine(_root, "managed"));
+        var worldId = WorldId.New();
+        var managedRecord = CreateRecord(PreparedWorldRecoveryLocation.Managed()) with
+        {
+            WorldId = worldId
+        };
+        var nativeRecord = CreateRecord(
+            PreparedWorldRecoveryLocation.Native(
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["worldId"] = "NATIVE-KEEP"
+                })) with
+        {
+            WorldId = worldId
+        };
+        var managedPath = managed.Create(managedRecord.Id, managedRecord.AdapterId);
+        await File.WriteAllTextAsync(Path.Combine(managedPath, "partial.txt"), "partial");
+        var recovery = new RecoveryStore(nativeRecord, managedRecord);
+        var service = new PreparationPendingRecoveryService(recovery, managed);
+
+        await service.ResolveManagedAsync(managedRecord.Id);
+
+        Assert.False(Directory.Exists(managedPath));
+        Assert.Equal(nativeRecord, Assert.Single(recovery.Records));
     }
 
     [Fact]
@@ -58,7 +87,7 @@ public sealed class PreparationPendingRecoveryServiceTests : IDisposable
         var service = new PreparationPendingRecoveryService(recovery, managed);
 
         var exception = await Assert.ThrowsAsync<PreparationPendingRecoveryException>(() =>
-            service.ResolveManagedAsync(record.WorldId));
+            service.ResolveManagedAsync(record.Id));
 
         Assert.Equal("NativeResolutionRequired", exception.Code);
         Assert.Equal(record, Assert.Single(recovery.Records));
@@ -73,7 +102,7 @@ public sealed class PreparationPendingRecoveryServiceTests : IDisposable
         var service = new PreparationPendingRecoveryService(recovery, managed);
 
         var exception = await Assert.ThrowsAsync<PreparationPendingRecoveryException>(() =>
-            service.ResolveManagedAsync(record.WorldId));
+            service.ResolveManagedAsync(record.Id));
 
         Assert.Equal("RecoveryIdentityMissing", exception.Code);
         Assert.Single(recovery.Records);
@@ -106,9 +135,9 @@ public sealed class PreparationPendingRecoveryServiceTests : IDisposable
 
     private sealed class RecoveryStore : IWorkspaceRecoveryStore
     {
-        public RecoveryStore(WorkspaceRecoveryRecord record)
+        public RecoveryStore(params WorkspaceRecoveryRecord[] records)
         {
-            Records.Add(record);
+            Records.AddRange(records);
         }
 
         public List<WorkspaceRecoveryRecord> Records { get; } = [];

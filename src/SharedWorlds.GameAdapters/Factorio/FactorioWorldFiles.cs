@@ -74,7 +74,7 @@ internal static partial class FactorioWorldOperations
             basePath = Path.GetTempPath();
         }
 
-        return Path.Combine(basePath, "SharedWorlds", "factorio");
+        return Path.Combine(basePath, "SafeWorld", "factorio");
     }
 
     private static string GetRequiredMetadata(GameInstallation installation, string key)

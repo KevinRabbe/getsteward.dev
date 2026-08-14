@@ -12,7 +12,7 @@ public partial class MainWindow
     /// </summary>
     private static PreparedWorldRecoveryResolver CreatePreparedWorldRecoveryResolver()
     {
-        var layout = new DesktopStorageLayout(DesktopLocalDataRoot.RequireResolvedRoot());
+        var layout = DesktopStorageLayout.FromResolvedRoot();
         return new PreparedWorldRecoveryResolver(
             new ManagedWorkspaceStorage(layout.ManagedWorkspacesRoot));
     }

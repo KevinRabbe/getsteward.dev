@@ -21,7 +21,10 @@ public sealed class LocalWorkspaceRecoveryStoreTests : IDisposable
     public async Task RecoveryRecord_RoundTripsAndCanBeRemoved()
     {
         var store = new LocalWorkspaceRecoveryStore(_root);
-        var record = CreateRecord();
+        var record = CreateRecord() with
+        {
+            RecoveryLocation = PreparedWorldRecoveryLocation.Managed()
+        };
 
         await store.SaveAsync(record);
         var records = await store.ListAsync();
@@ -50,11 +53,14 @@ public sealed class LocalWorkspaceRecoveryStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task LegacySchema1RecoveryRecordWithoutIntegrityProofRemainsReadable()
+    public async Task LegacySchema1RecoveryRecordWithoutLocationDescriptorRemainsReadable()
     {
         var store = new LocalWorkspaceRecoveryStore(_root);
         var record = CreateRecord();
         Directory.CreateDirectory(Path.Combine(_root, "recovery"));
+
+        var payload = JsonSerializer.SerializeToNode(record, CamelCaseJson)!.AsObject();
+        Assert.True(payload.Remove("recoveryLocation"));
         await File.WriteAllTextAsync(
             GetPath(record.Id),
             JsonSerializer.Serialize(
@@ -62,13 +68,30 @@ public sealed class LocalWorkspaceRecoveryStoreTests : IDisposable
                 {
                     documentType = "sharedworlds.workspace-recovery",
                     schemaVersion = 1,
-                    payload = record
+                    payload
                 },
                 CamelCaseJson));
 
         var loaded = Assert.Single(await store.ListAsync());
 
         Assert.Equal(record, loaded);
+        Assert.Null(loaded.RecoveryLocation);
+    }
+
+    [Fact]
+    public async Task InvalidRecoveryLocationIsRejectedBeforePersistence()
+    {
+        var store = new LocalWorkspaceRecoveryStore(_root);
+        var record = CreateRecord() with
+        {
+            RecoveryLocation = PreparedWorldRecoveryLocation.Managed() with
+            {
+                SchemaVersion = 999
+            }
+        };
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => store.SaveAsync(record));
+        Assert.False(File.Exists(GetPath(record.Id)));
     }
 
     [Fact]

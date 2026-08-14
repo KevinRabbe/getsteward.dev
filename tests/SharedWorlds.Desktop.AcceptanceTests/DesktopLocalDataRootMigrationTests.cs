@@ -137,17 +137,24 @@ public sealed class DesktopLocalDataRootMigrationTests
     public void DesktopPeerAndLegacyRemoteStateUseOnlyResolvedSafeWorldRoot()
     {
         var mainWindowSource = Read("src/SharedWorlds.Desktop/MainWindow.xaml.cs");
+        var storageLayoutSource = Read("src/SharedWorlds.Desktop/DesktopStorageLayout.cs");
         var peerRuntimeSource = Read("src/SharedWorlds.Desktop/MainWindow.PeerRuntime.cs");
         var remoteAuthenticationSource = Read(
             "src/SharedWorlds.Desktop/MainWindow.RemoteAuthentication.cs");
         var remoteRuntimeSource = Read("src/SharedWorlds.Desktop/MainWindow.RemoteRuntime.cs");
 
         Assert.Contains(
-            "DesktopLocalDataRoot.RequireResolvedRoot()",
+            "var storageLayout = DesktopStorageLayout.FromResolvedRoot();",
             mainWindowSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "=> new(DesktopLocalDataRoot.RequireResolvedRoot());",
+            storageLayoutSource,
             StringComparison.Ordinal);
         Assert.DoesNotContain("\"SharedWorlds\"", mainWindowSource, StringComparison.Ordinal);
         Assert.DoesNotContain("GetLocalDataRoot", mainWindowSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"SharedWorlds\"", storageLayoutSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetLocalDataRoot", storageLayoutSource, StringComparison.Ordinal);
 
         Assert.Contains("=> new(_storageRoot);", peerRuntimeSource, StringComparison.Ordinal);
         Assert.DoesNotContain("\"SharedWorlds\"", peerRuntimeSource, StringComparison.Ordinal);

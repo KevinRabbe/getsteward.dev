@@ -75,4 +75,42 @@ public sealed class DisposablePreparedWorkspaceStorageTests
             Directory.Delete(outside, recursive: true);
         }
     }
+
+    [Fact]
+    public void FileCandidateCannotTraverseLinkedWorkspaceAncestor()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var workspace = DisposablePreparedWorkspaceStorage.Create("scratch-linked-ancestor");
+        var outside = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(outside);
+        var linkedDirectory = Path.Combine(workspace, "Server");
+        Directory.CreateSymbolicLink(linkedDirectory, outside);
+        try
+        {
+            var existingCandidate = Path.Combine(linkedDirectory, "server.ini");
+            File.WriteAllText(Path.Combine(outside, "server.ini"), "state");
+            Assert.Throws<InvalidOperationException>(() =>
+                DisposablePreparedWorkspaceStorage.RequireOwnedTree(
+                    "scratch-linked-ancestor",
+                    workspace,
+                    existingCandidate));
+
+            var futureCandidate = Path.Combine(linkedDirectory, "future.tmp");
+            Assert.Throws<InvalidOperationException>(() =>
+                DisposablePreparedWorkspaceStorage.RequireOwnedTree(
+                    "scratch-linked-ancestor",
+                    workspace,
+                    futureCandidate));
+        }
+        finally
+        {
+            Directory.Delete(linkedDirectory);
+            DisposablePreparedWorkspaceStorage.DeleteOwned("scratch-linked-ancestor", workspace);
+            Directory.Delete(outside, recursive: true);
+        }
+    }
 }

@@ -1,9 +1,10 @@
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
 
 namespace SharedWorlds.GameAdapters.SpaceEngineers;
 
-public sealed class SpaceEngineersAdapter : IGameAdapter
+public sealed class SpaceEngineersAdapter : IGameAdapter, IPreparedWorldRecoveryPlanner
 {
     public string Id => "space-engineers";
     public string DisplayName => "Space Engineers";
@@ -47,6 +48,39 @@ public sealed class SpaceEngineersAdapter : IGameAdapter
         DetectedWorld world,
         CancellationToken cancellationToken = default)
         => SpaceEngineersWorldState.CaptureDetectedWorldAsync(world, cancellationToken);
+
+    public Task<PreparedWorldRecoveryLocation> PlanPreparedWorldRecoveryAsync(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        PreparedWorldPreparationContext preparation,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(installation);
+        ArgumentNullException.ThrowIfNull(requiredEnvironment);
+        ArgumentNullException.ThrowIfNull(preparation);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!string.Equals(requiredEnvironment.AdapterId, Id, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                $"Environment belongs to adapter '{requiredEnvironment.AdapterId}', not Space Engineers.",
+                nameof(requiredEnvironment));
+        }
+
+        return Task.FromResult(PreparedWorldRecoveryLocation.Managed());
+    }
+
+    public Task<PreparedWorld> PrepareEnvironmentAsync(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        PreparedWorldPreparationContext preparation,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(SpaceEngineersWorldState.PrepareEnvironment(
+            installation,
+            requiredEnvironment,
+            preparation));
+    }
 
     public Task<PreparedWorld> PrepareEnvironmentAsync(
         GameInstallation installation,

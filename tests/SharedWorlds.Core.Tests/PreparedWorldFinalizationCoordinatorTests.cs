@@ -37,6 +37,9 @@ public sealed class PreparedWorldFinalizationCoordinatorTests : IDisposable
             PreparedWorldDisposition.Discard);
 
         Assert.True(adapter.FinalizeCalled);
+        Assert.Equal(
+            PreparedWorldDisposition.ReleaseForCoreManagedDiscard,
+            adapter.ObservedDisposition);
         Assert.False(Directory.Exists(workingDirectory));
     }
 
@@ -60,6 +63,9 @@ public sealed class PreparedWorldFinalizationCoordinatorTests : IDisposable
             PreparedWorldDisposition.PreserveForRecovery);
 
         Assert.True(adapter.FinalizeCalled);
+        Assert.Equal(
+            PreparedWorldDisposition.PreserveForRecovery,
+            adapter.ObservedDisposition);
         Assert.True(Directory.Exists(workingDirectory));
     }
 
@@ -86,11 +92,12 @@ public sealed class PreparedWorldFinalizationCoordinatorTests : IDisposable
                 PreparedWorldDisposition.Discard));
 
         Assert.False(adapter.FinalizeCalled);
+        Assert.Null(adapter.ObservedDisposition);
         Assert.True(Directory.Exists(wrongPath));
     }
 
     [Fact]
-    public async Task NativeDiscardNeverUsesGenericManagedDeletion()
+    public async Task NativeDiscardNeverUsesGenericManagedDeletionOrManagedDisposition()
     {
         var managed = new ManagedWorkspaceStorage(Path.Combine(_root, "managed"));
         var location = PreparedWorldRecoveryLocation.Native(
@@ -112,6 +119,7 @@ public sealed class PreparedWorldFinalizationCoordinatorTests : IDisposable
             PreparedWorldDisposition.Discard);
 
         Assert.True(adapter.FinalizeCalled);
+        Assert.Equal(PreparedWorldDisposition.Discard, adapter.ObservedDisposition);
         Assert.True(Directory.Exists(nativePath));
     }
 
@@ -168,6 +176,7 @@ public sealed class PreparedWorldFinalizationCoordinatorTests : IDisposable
         public GameAdapterCapabilities Capabilities => GameAdapterCapabilities.None;
         public GameInstallation Installation { get; }
         public bool FinalizeCalled { get; private set; }
+        public PreparedWorldDisposition? ObservedDisposition { get; private set; }
         public Action<PreparedWorld>? OnFinalize { get; init; }
 
         public Task<IReadOnlyList<GameInstallation>> DiscoverInstallationsAsync(CancellationToken cancellationToken = default)
@@ -195,6 +204,7 @@ public sealed class PreparedWorldFinalizationCoordinatorTests : IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             OnFinalize?.Invoke(world);
+            ObservedDisposition = disposition;
             FinalizeCalled = true;
             return Task.CompletedTask;
         }

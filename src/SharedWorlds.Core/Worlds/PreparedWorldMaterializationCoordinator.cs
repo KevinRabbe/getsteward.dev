@@ -13,7 +13,7 @@ public sealed record PreparedWorldMaterialization(
 /// <summary>
 /// Owns the crash-safe boundary between recovery planning and prepared-runtime materialization for
 /// adapters that implement IPreparedWorldRecoveryPlanner. Stable recovery identity is always durable
-/// before adapter preparation may mutate anything.
+/// before Safe World creates managed runtime state or invokes adapter preparation.
 /// </summary>
 public sealed class PreparedWorldMaterializationCoordinator
 {
@@ -84,9 +84,25 @@ public sealed class PreparedWorldMaterializationCoordinator
             plannedLocation,
             now);
 
-        // From this write onward there is durable evidence before the adapter may materialize state.
-        // Do not let cancellation interrupt publication of that safety boundary.
+        // From this write onward there is durable evidence before any managed directory exists and
+        // before adapter code may materialize state. Cancellation cannot interrupt that safety fence.
         await _recovery.SaveAsync(record, CancellationToken.None);
+
+        if (plannedLocation.Kind == PreparedWorldRecoveryLocationKind.SafeWorldManaged)
+        {
+            var created = _managedWorkspaces.Create(workspaceId, adapter.Id);
+            var expected = Path.GetFullPath(preparation.ManagedWorkingDirectory);
+            if (!string.Equals(
+                    Path.GetFullPath(created),
+                    expected,
+                    OperatingSystem.IsWindows()
+                        ? StringComparison.OrdinalIgnoreCase
+                        : StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "Managed workspace creation did not resolve to the exact path offered during recovery planning.");
+            }
+        }
 
         var prepared = await adapter.PrepareEnvironmentAsync(
             installation,

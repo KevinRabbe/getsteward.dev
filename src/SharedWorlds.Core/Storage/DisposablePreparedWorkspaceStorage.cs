@@ -73,6 +73,8 @@ public static class DisposablePreparedWorkspaceStorage
             throw Refuse(adapterId, treeRoot);
         }
 
+        RequireSafeContainedPathChain(workspace, relative, treeRoot);
+
         if (!Directory.Exists(root))
         {
             return;
@@ -99,10 +101,7 @@ public static class DisposablePreparedWorkspaceStorage
                          "*",
                          SearchOption.TopDirectoryOnly))
             {
-                if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
-                {
-                    throw Refuse(adapterId, treeRoot);
-                }
+                RejectReparsePointIfPresent(file, treeRoot);
             }
         }
     }
@@ -113,6 +112,27 @@ public static class DisposablePreparedWorkspaceStorage
         if (Directory.Exists(workingDirectory))
         {
             Directory.Delete(workingDirectory, recursive: true);
+        }
+    }
+
+    private static void RequireSafeContainedPathChain(
+        string workspace,
+        string relativePath,
+        string originalPath)
+    {
+        RejectReparsePointIfPresent(workspace, originalPath);
+        if (string.Equals(relativePath, ".", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var current = workspace;
+        foreach (var segment in relativePath.Split(
+                     [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                     StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, segment);
+            RejectReparsePointIfPresent(current, originalPath);
         }
     }
 
@@ -166,12 +186,27 @@ public static class DisposablePreparedWorkspaceStorage
 
     private static void RejectReparsePointIfPresent(string path, string originalPath)
     {
-        if (!Directory.Exists(path) && !File.Exists(path))
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (FileNotFoundException)
         {
             return;
         }
+        catch (DirectoryNotFoundException)
+        {
+            return;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"Could not prove disposable prepared workspace path '{originalPath}' is safe because '{path}' could not be inspected.",
+                exception);
+        }
 
-        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
         {
             throw new InvalidOperationException(
                 $"Refusing linked disposable prepared workspace path '{originalPath}'.");

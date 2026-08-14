@@ -1,5 +1,6 @@
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Environment;
+using SharedWorlds.Core.Storage;
 
 namespace SharedWorlds.GameAdapters.Astroneer;
 
@@ -268,19 +269,9 @@ internal static class AstroneerWorldState
     }
 
     private static string GetPackageRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.Combine(
-            localData,
-            "SharedWorlds",
-            "astroneer",
+        => Path.Combine(
+            DisposableStatePackageStorage.GetAdapterRoot("astroneer"),
             "packages");
-    }
 
     private static string SanitizeFileName(string value)
     {

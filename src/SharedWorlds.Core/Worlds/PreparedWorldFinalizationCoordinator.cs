@@ -53,7 +53,9 @@ public sealed class PreparedWorldFinalizationCoordinator
             }
         }
 
-        if (recoveryLocation?.Kind == PreparedWorldRecoveryLocationKind.SafeWorldManaged)
+        var isManaged = recoveryLocation?.Kind ==
+            PreparedWorldRecoveryLocationKind.SafeWorldManaged;
+        if (isManaged)
         {
             // Prove exact WorkspaceId -> path ownership before adapter code can touch the runtime.
             _managedWorkspaces.RequireOwned(
@@ -62,13 +64,17 @@ public sealed class PreparedWorldFinalizationCoordinator
                 preparedWorld.WorkingDirectory);
         }
 
+        var adapterDisposition = isManaged &&
+                                 disposition == PreparedWorldDisposition.Discard
+            ? PreparedWorldDisposition.ReleaseForCoreManagedDiscard
+            : disposition;
+
         await adapter.FinalizePreparedWorldAsync(
             preparedWorld,
-            disposition,
+            adapterDisposition,
             cancellationToken);
 
-        if (disposition == PreparedWorldDisposition.Discard &&
-            recoveryLocation?.Kind == PreparedWorldRecoveryLocationKind.SafeWorldManaged)
+        if (isManaged && disposition == PreparedWorldDisposition.Discard)
         {
             _managedWorkspaces.DeleteOwned(
                 record.Id,

@@ -1,4 +1,5 @@
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
 using SharedWorlds.Core.Storage;
 
@@ -21,7 +22,7 @@ internal static class TerrariaWorldState
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(world);
-        TerrariaWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        TerrariaWorkspaceOwnership.RequireOwned(world);
         return CaptureFileAsync(
             Path.Combine(world.WorkingDirectory, PreparedWorldFileName),
             world.DisplayName ?? "world",
@@ -41,6 +42,28 @@ internal static class TerrariaWorldState
             DisplayName: null);
     }
 
+    public static PreparedWorld PrepareEnvironment(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        PreparedWorldPreparationContext preparation)
+    {
+        ArgumentNullException.ThrowIfNull(preparation);
+        TerrariaEnvironment.RequireCompatible(installation, requiredEnvironment);
+        var workspace = Path.GetFullPath(preparation.ManagedWorkingDirectory);
+        if (!Directory.Exists(workspace))
+        {
+            throw new InvalidOperationException(
+                "Terraria managed workspace must be created by Core before adapter materialization.");
+        }
+
+        return new PreparedWorld(
+            installation,
+            workspace,
+            requiredEnvironment,
+            DisplayName: null,
+            RecoveryLocation: PreparedWorldRecoveryLocation.Managed());
+    }
+
     public static async Task RestorePreparedWorldAsync(
         PreparedWorld world,
         StatePackage state,
@@ -49,7 +72,7 @@ internal static class TerrariaWorldState
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(state);
         cancellationToken.ThrowIfCancellationRequested();
-        TerrariaWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        TerrariaWorkspaceOwnership.RequireOwned(world);
 
         var sourcePath = Path.GetFullPath(state.Path);
         RequireRegularFile(sourcePath, "Terraria state package");
@@ -80,12 +103,11 @@ internal static class TerrariaWorldState
     {
         ArgumentNullException.ThrowIfNull(world);
         cancellationToken.ThrowIfCancellationRequested();
-        TerrariaWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        TerrariaWorkspaceOwnership.RequireOwned(world);
 
-        if (disposition == PreparedWorldDisposition.Discard &&
-            Directory.Exists(world.WorkingDirectory))
+        if (disposition == PreparedWorldDisposition.Discard)
         {
-            Directory.Delete(world.WorkingDirectory, recursive: true);
+            TerrariaWorkspaceOwnership.DeleteOwned(world);
         }
 
         return Task.CompletedTask;

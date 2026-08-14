@@ -35,7 +35,8 @@ internal static partial class ProjectZomboidWorldState
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(world);
-        var userDataRoot = Path.GetFullPath(world.WorkingDirectory);
+        var userDataRoot = ProjectZomboidWorkspaceOwnership.RequireOwned(
+            world.WorkingDirectory);
         var serverName = ValidateSingleServerBundle(userDataRoot);
         return CaptureServerBundleAsync(userDataRoot, serverName, cancellationToken);
     }

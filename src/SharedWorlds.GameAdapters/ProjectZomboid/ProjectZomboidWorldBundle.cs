@@ -68,7 +68,8 @@ internal static partial class ProjectZomboidWorldState
         {
             "Saves",
             "Server",
-            "db"
+            "db",
+            ProjectZomboidManagedLauncherWriter.RuntimeDirectoryName
         };
         foreach (var directory in Directory.EnumerateDirectories(userDataRoot, "*", SearchOption.TopDirectoryOnly))
         {

@@ -90,7 +90,7 @@ public sealed partial class FactorioAdapter : IGameAdapter
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(world);
-        FactorioWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        FactorioWorkspaceOwnership.RequireOwned(world);
         return FactorioWorldOperations.CaptureStateAsync(world, cancellationToken);
     }
 
@@ -100,7 +100,7 @@ public sealed partial class FactorioAdapter : IGameAdapter
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(world);
-        FactorioWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        FactorioWorkspaceOwnership.RequireOwned(world);
         return FactorioWorldOperations.RestoreStateAsync(world, state, cancellationToken);
     }
 
@@ -189,7 +189,7 @@ public sealed partial class FactorioAdapter : IGameAdapter
     {
         ArgumentNullException.ThrowIfNull(world);
         cancellationToken.ThrowIfCancellationRequested();
-        FactorioWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        FactorioWorkspaceOwnership.RequireOwned(world);
 
         await TryPersistPlayerPreferencesAsync(world, cancellationToken);
 
@@ -198,7 +198,7 @@ public sealed partial class FactorioAdapter : IGameAdapter
             return;
         }
 
-        DeleteOwnedWorkspace(world.WorkingDirectory);
+        DeleteOwnedWorkspace(world);
     }
 
     private async Task<GameSessionHandle> LaunchTrackedAsync(
@@ -207,7 +207,7 @@ public sealed partial class FactorioAdapter : IGameAdapter
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(world);
-        FactorioWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        FactorioWorkspaceOwnership.RequireOwned(world);
 
         var executable = FactorioWorldOperations.GetExecutablePath(world.Installation);
         var processName = Path.GetFileNameWithoutExtension(executable);
@@ -470,10 +470,10 @@ public sealed partial class FactorioAdapter : IGameAdapter
         }
     }
 
-    private static void DeleteOwnedWorkspace(string workingDirectory)
+    private static void DeleteOwnedWorkspace(PreparedWorld world)
     {
-        FactorioWorkspaceOwnership.RequireOwned(workingDirectory);
-        var fullPath = Path.GetFullPath(workingDirectory);
+        FactorioWorkspaceOwnership.RequireOwned(world);
+        var fullPath = Path.GetFullPath(world.WorkingDirectory);
         if (Directory.Exists(fullPath))
         {
             Directory.Delete(fullPath, recursive: true);

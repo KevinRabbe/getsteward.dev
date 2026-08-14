@@ -1,6 +1,7 @@
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
+using SharedWorlds.Core.Storage;
 using SharedWorlds.Core.Worlds;
 
 namespace SharedWorlds.Core.Tests;
@@ -17,7 +18,7 @@ public sealed class WorkspaceCleanupRecoveryServiceTests : IDisposable
     {
         Directory.CreateDirectory(_root);
         var fixture = CreateFixture(WorkspaceRecoveryStatus.CleanupPending, workspaceExists: true);
-        var service = new WorkspaceCleanupRecoveryService(fixture.Storage, fixture.Recovery);
+        var service = CreateService(fixture);
 
         await service.RetryAsync(
             fixture.World.Id,
@@ -39,7 +40,7 @@ public sealed class WorkspaceCleanupRecoveryServiceTests : IDisposable
         Directory.CreateDirectory(_root);
         var fixture = CreateFixture(WorkspaceRecoveryStatus.CleanupPending, workspaceExists: false);
         fixture.Storage.ThrowIfWorldLoaded = true;
-        var service = new WorkspaceCleanupRecoveryService(fixture.Storage, fixture.Recovery);
+        var service = CreateService(fixture);
 
         await service.RetryAsync(
             fixture.World.Id,
@@ -53,11 +54,64 @@ public sealed class WorkspaceCleanupRecoveryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ManagedDescriptorUsesWorkspaceIdentityInsteadOfPersistedLegacyPath()
+    {
+        Directory.CreateDirectory(_root);
+        var fixture = CreateFixture(WorkspaceRecoveryStatus.CleanupPending, workspaceExists: false);
+        var managedStorage = new ManagedWorkspaceStorage(Path.Combine(_root, "managed"));
+        var managedPath = managedStorage.Create(fixture.Record.Id, fixture.Record.AdapterId);
+        fixture.Recovery.Records[0] = fixture.Record with
+        {
+            WorkingDirectory = Path.Combine(_root, "wrong-legacy-path"),
+            RecoveryLocation = PreparedWorldRecoveryLocation.Managed()
+        };
+        var service = new WorkspaceCleanupRecoveryService(
+            fixture.Storage,
+            fixture.Recovery,
+            new PreparedWorldRecoveryResolver(managedStorage));
+
+        await service.RetryAsync(
+            fixture.World.Id,
+            fixture.Adapter,
+            fixture.Adapter.Installation);
+
+        Assert.Equal(1, fixture.Adapter.FinalizeCount);
+        Assert.False(Directory.Exists(managedPath));
+        Assert.Empty(fixture.Recovery.Records);
+    }
+
+    [Fact]
+    public async Task MissingManagedDescriptorRuntimeNeedsNoInstallation()
+    {
+        Directory.CreateDirectory(_root);
+        var fixture = CreateFixture(WorkspaceRecoveryStatus.CleanupPending, workspaceExists: false);
+        var managedStorage = new ManagedWorkspaceStorage(Path.Combine(_root, "managed"));
+        fixture.Recovery.Records[0] = fixture.Record with
+        {
+            WorkingDirectory = string.Empty,
+            RecoveryLocation = PreparedWorldRecoveryLocation.Managed()
+        };
+        var service = new WorkspaceCleanupRecoveryService(
+            fixture.Storage,
+            fixture.Recovery,
+            new PreparedWorldRecoveryResolver(managedStorage));
+
+        await service.RetryAsync(
+            fixture.World.Id,
+            fixture.Adapter,
+            installation: null);
+
+        Assert.Equal(0, fixture.Adapter.FinalizeCount);
+        Assert.Equal(0, fixture.Storage.EnvironmentLoadCount);
+        Assert.Empty(fixture.Recovery.Records);
+    }
+
+    [Fact]
     public async Task RecoveryPendingRecordIsNeverConsumedAsCleanupOnlyWork()
     {
         Directory.CreateDirectory(_root);
         var fixture = CreateFixture(WorkspaceRecoveryStatus.RecoveryPending, workspaceExists: true);
-        var service = new WorkspaceCleanupRecoveryService(fixture.Storage, fixture.Recovery);
+        var service = CreateService(fixture);
 
         var exception = await Assert.ThrowsAsync<WorkspaceCleanupRecoveryException>(() =>
             service.RetryAsync(
@@ -77,7 +131,7 @@ public sealed class WorkspaceCleanupRecoveryServiceTests : IDisposable
         Directory.CreateDirectory(_root);
         var fixture = CreateFixture(WorkspaceRecoveryStatus.CleanupPending, workspaceExists: true);
         fixture.Adapter.ThrowOnFinalize = true;
-        var service = new WorkspaceCleanupRecoveryService(fixture.Storage, fixture.Recovery);
+        var service = CreateService(fixture);
 
         await Assert.ThrowsAsync<IOException>(() => service.RetryAsync(
             fixture.World.Id,
@@ -95,7 +149,7 @@ public sealed class WorkspaceCleanupRecoveryServiceTests : IDisposable
         Directory.CreateDirectory(_root);
         var fixture = CreateFixture(WorkspaceRecoveryStatus.CleanupPending, workspaceExists: true);
         fixture.Recovery.Records[0] = fixture.Record with { EnvironmentRevisionId = null };
-        var service = new WorkspaceCleanupRecoveryService(fixture.Storage, fixture.Recovery);
+        var service = CreateService(fixture);
 
         var exception = await Assert.ThrowsAsync<WorkspaceCleanupRecoveryException>(() =>
             service.RetryAsync(
@@ -117,6 +171,13 @@ public sealed class WorkspaceCleanupRecoveryServiceTests : IDisposable
             Directory.Delete(_root, recursive: true);
         }
     }
+
+    private WorkspaceCleanupRecoveryService CreateService(Fixture fixture)
+        => new(
+            fixture.Storage,
+            fixture.Recovery,
+            new PreparedWorldRecoveryResolver(
+                new ManagedWorkspaceStorage(Path.Combine(_root, "managed"))));
 
     private Fixture CreateFixture(
         WorkspaceRecoveryStatus status,

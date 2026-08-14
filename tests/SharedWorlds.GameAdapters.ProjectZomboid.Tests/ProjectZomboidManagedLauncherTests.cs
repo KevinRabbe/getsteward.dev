@@ -12,7 +12,7 @@ public sealed class ProjectZomboidManagedLauncherTests : IDisposable
     private readonly string _root = Path.Combine(
         Path.GetTempPath(),
         $"sharedworlds-pz-managed-launcher-{Guid.NewGuid():N}");
-    private readonly List<string> _ownedOperationRoots = [];
+    private readonly List<string> _ownedWorkspaces = [];
 
     [Fact]
     public void TransformBindsServerRootCacheAndServerNameWithoutChangingOtherLines()
@@ -20,7 +20,7 @@ public sealed class ProjectZomboidManagedLauncherTests : IDisposable
         var inputs = Inputs(
             @"C:\Steam Library\Project Zomboid Dedicated Server\StartServer64.bat",
             @"C:\Steam Library\Project Zomboid Dedicated Server",
-            @"C:\Users\Test User\AppData\Local\Steward\workspaces\project-zomboid\abc\Zomboid",
+            @"C:\SafeWorld\prepared-workspace-scratch\project-zomboid\abc",
             "steward test");
 
         var result = ProjectZomboidManagedLauncherWriter.Transform(SourceBatch, inputs);
@@ -30,7 +30,7 @@ public sealed class ProjectZomboidManagedLauncherTests : IDisposable
             result,
             StringComparison.Ordinal);
         Assert.Contains(
-            "zombie.network.GameServer -statistic 0 \"-cachedir=C:\\Users\\Test User\\AppData\\Local\\Steward\\workspaces\\project-zomboid\\abc\\Zomboid\" -servername \"steward test\"",
+            "zombie.network.GameServer -statistic 0 \"-cachedir=C:\\SafeWorld\\prepared-workspace-scratch\\project-zomboid\\abc\" -servername \"steward test\"",
             result,
             StringComparison.Ordinal);
         Assert.False(result.Contains("%~dp0", StringComparison.OrdinalIgnoreCase));
@@ -92,7 +92,7 @@ public sealed class ProjectZomboidManagedLauncherTests : IDisposable
     }
 
     [Fact]
-    public void MaterializeWritesManagedCopyBesideOwnedCacheWithoutChangingSteamLauncher()
+    public void MaterializeWritesManagedCopyInsideExplicitRuntimeNamespaceWithoutChangingSteamLauncher()
     {
         Directory.CreateDirectory(_root);
         var serverRoot = Path.Combine(_root, "Project Zomboid Dedicated Server");
@@ -106,7 +106,10 @@ public sealed class ProjectZomboidManagedLauncherTests : IDisposable
 
         Assert.Equal(serverRoot, launcher.WorkingDirectory);
         Assert.Equal(
-            Path.Combine(Directory.GetParent(cacheDirectory)!.FullName, "StartServer64.sharedworlds.bat"),
+            Path.Combine(
+                cacheDirectory,
+                ProjectZomboidManagedLauncherWriter.RuntimeDirectoryName,
+                "StartServer64.sharedworlds.bat"),
             launcher.Path);
         Assert.True(File.Exists(launcher.Path));
         Assert.Equal(SourceBatch, File.ReadAllText(sourcePath));
@@ -134,7 +137,8 @@ public sealed class ProjectZomboidManagedLauncherTests : IDisposable
         var cacheDirectory = CreateOwnedCacheDirectory();
         var inputs = Inputs(sourcePath, serverRoot, cacheDirectory, "steward-test");
         var managedPath = Path.Combine(
-            Directory.GetParent(cacheDirectory)!.FullName,
+            cacheDirectory,
+            ProjectZomboidManagedLauncherWriter.RuntimeDirectoryName,
             "StartServer64.sharedworlds.bat");
 
         var exception = Assert.Throws<InvalidDataException>(() =>
@@ -160,7 +164,8 @@ public sealed class ProjectZomboidManagedLauncherTests : IDisposable
         var cacheDirectory = CreateOwnedCacheDirectory();
         var inputs = Inputs(sourcePath, serverRoot, cacheDirectory, "steward-test");
         var managedPath = Path.Combine(
-            Directory.GetParent(cacheDirectory)!.FullName,
+            cacheDirectory,
+            ProjectZomboidManagedLauncherWriter.RuntimeDirectoryName,
             "StartServer64.sharedworlds.bat");
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
@@ -188,7 +193,8 @@ public sealed class ProjectZomboidManagedLauncherTests : IDisposable
         var cacheDirectory = CreateOwnedCacheDirectory();
         var inputs = Inputs(sourcePath, serverRoot, cacheDirectory, "steward-test");
         var managedPath = Path.Combine(
-            Directory.GetParent(cacheDirectory)!.FullName,
+            cacheDirectory,
+            ProjectZomboidManagedLauncherWriter.RuntimeDirectoryName,
             "StartServer64.sharedworlds.bat");
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
@@ -202,7 +208,7 @@ public sealed class ProjectZomboidManagedLauncherTests : IDisposable
     private static ProjectZomboidDedicatedServerHostInputs Inputs(
         string launchPath = @"C:\PZ\StartServer64.bat",
         string workingDirectory = @"C:\PZ",
-        string cacheDirectory = @"C:\Steward\workspaces\project-zomboid\abc\Zomboid",
+        string cacheDirectory = @"C:\SafeWorld\prepared-workspace-scratch\project-zomboid\abc",
         string serverName = "steward-test")
         => new(
             launchPath,
@@ -213,29 +219,25 @@ public sealed class ProjectZomboidManagedLauncherTests : IDisposable
 
     private string CreateOwnedCacheDirectory()
     {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        var operationRoot = Path.Combine(
-            localData,
-            "Steward",
-            "workspaces",
-            "project-zomboid",
-            Guid.NewGuid().ToString("N"));
-        _ownedOperationRoots.Add(operationRoot);
-        var cacheDirectory = Path.Combine(operationRoot, "Zomboid");
-        Directory.CreateDirectory(cacheDirectory);
-        return Path.GetFullPath(cacheDirectory);
+        var workspace = ProjectZomboidWorkspaceOwnership.Create();
+        _ownedWorkspaces.Add(workspace);
+        return workspace;
     }
 
     public void Dispose()
     {
-        foreach (var operationRoot in _ownedOperationRoots)
+        foreach (var workspace in _ownedWorkspaces)
         {
-            TryDeleteDirectory(operationRoot);
+            try
+            {
+                if (Directory.Exists(workspace))
+                {
+                    ProjectZomboidWorkspaceOwnership.DeleteOwned(workspace);
+                }
+            }
+            catch
+            {
+            }
         }
 
         TryDeleteDirectory(_root);

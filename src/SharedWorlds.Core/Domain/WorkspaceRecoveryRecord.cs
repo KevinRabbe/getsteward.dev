@@ -20,4 +20,5 @@ public sealed record WorkspaceRecoveryRecord(
     WorkspaceRecoveryStatus Status,
     string? Reason = null,
     RevisionId? CandidateStateRevisionId = null,
-    RevisionId? EnvironmentRevisionId = null);
+    RevisionId? EnvironmentRevisionId = null,
+    PreparedWorldRecoveryLocation? RecoveryLocation = null);

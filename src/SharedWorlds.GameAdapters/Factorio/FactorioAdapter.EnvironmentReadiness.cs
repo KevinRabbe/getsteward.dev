@@ -56,7 +56,7 @@ public sealed partial class FactorioAdapter
         {
             if (prepared is not null)
             {
-                DeleteOwnedWorkspace(prepared.WorkingDirectory);
+                DeleteOwnedWorkspace(prepared);
             }
         }
     }

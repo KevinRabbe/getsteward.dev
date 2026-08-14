@@ -1,3 +1,4 @@
+using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
 
 namespace SharedWorlds.Core.Abstractions;
@@ -50,10 +51,37 @@ public interface IGameAdapter
             $"{DisplayName} does not expose a validated native World creation path.");
     }
 
+    /// <summary>
+    /// Legacy preparation boundary retained while adapters migrate to stable workspace identity.
+    /// New Core lifecycle code calls the context-aware overload below. The default implementation of
+    /// that overload delegates here, so an adapter can migrate without a product-wide flag day.
+    /// </summary>
     Task<PreparedWorld> PrepareEnvironmentAsync(
         GameInstallation installation,
         EnvironmentManifest requiredEnvironment,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Prepares a writable runtime using an identity allocated by Core before any filesystem state is
+    /// created. ManagedWorkingDirectory is the one SafeWorld-managed location offered for this
+    /// workspace. An adapter that deliberately uses a native game location may ignore that path, but
+    /// must return a native <see cref="PreparedWorld.RecoveryLocation"/> once migrated.
+    /// </summary>
+    Task<PreparedWorld> PrepareEnvironmentAsync(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        PreparedWorldPreparationContext preparation,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(installation);
+        ArgumentNullException.ThrowIfNull(requiredEnvironment);
+        ArgumentNullException.ThrowIfNull(preparation);
+        cancellationToken.ThrowIfCancellationRequested();
+        return PrepareEnvironmentAsync(
+            installation,
+            requiredEnvironment,
+            cancellationToken);
+    }
 
     /// <summary>
     /// Checks whether this device can reproduce the exact required environment without launching
@@ -274,11 +302,21 @@ public sealed record NativeWorldCreationResult(
     EnvironmentManifest Environment,
     CapturedState State);
 
+/// <summary>
+/// Stable preparation identity allocated by Core before an adapter creates writable state.
+/// ManagedWorkingDirectory is a runtime location derived from WorkspaceId and the current SafeWorld
+/// storage layout; the directory itself is not durable identity.
+/// </summary>
+public sealed record PreparedWorldPreparationContext(
+    WorkspaceId WorkspaceId,
+    string ManagedWorkingDirectory);
+
 public sealed record PreparedWorld(
     GameInstallation Installation,
     string WorkingDirectory,
     EnvironmentManifest Environment,
-    string? DisplayName = null);
+    string? DisplayName = null,
+    PreparedWorldRecoveryLocation? RecoveryLocation = null);
 
 /// <summary>
 /// A captured adapter state package. Captured packages are adapter-owned disposable artifacts by

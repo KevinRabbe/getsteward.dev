@@ -29,7 +29,7 @@ public sealed class WorkspaceRecoveryRecordFactoryTests
         Assert.Equal(workspaceId, record.Id);
         Assert.Equal(string.Empty, record.WorkingDirectory);
         Assert.Equal(location, record.RecoveryLocation);
-        Assert.Equal(WorkspaceRecoveryStatus.CleanupPending, record.Status);
+        Assert.Equal(WorkspaceRecoveryStatus.PreparationPending, record.Status);
         Assert.Equal(now, record.CreatedAt);
         Assert.Equal(now, record.UpdatedAt);
     }
@@ -48,6 +48,7 @@ public sealed class WorkspaceRecoveryRecordFactoryTests
             DateTimeOffset.UtcNow);
 
         Assert.Empty(record.WorkingDirectory);
+        Assert.Equal(WorkspaceRecoveryStatus.PreparationPending, record.Status);
         Assert.Equal(
             PreparedWorldRecoveryLocationKind.SafeWorldManaged,
             record.RecoveryLocation!.Kind);

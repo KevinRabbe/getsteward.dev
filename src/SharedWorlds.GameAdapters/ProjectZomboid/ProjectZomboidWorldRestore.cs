@@ -43,6 +43,8 @@ internal static partial class ProjectZomboidWorldState
         ArgumentNullException.ThrowIfNull(state);
         cancellationToken.ThrowIfCancellationRequested();
 
+        var destinationRoot = ProjectZomboidWorkspaceOwnership.RequireOwned(
+            world.WorkingDirectory);
         var packagePath = Path.GetFullPath(state.Path);
         if (!File.Exists(packagePath))
         {
@@ -50,9 +52,6 @@ internal static partial class ProjectZomboidWorldState
                 "The Project Zomboid state package does not exist.",
                 packagePath);
         }
-
-        var destinationRoot = Path.GetFullPath(world.WorkingDirectory);
-        Directory.CreateDirectory(destinationRoot);
 
         var operationId = Guid.NewGuid().ToString("N");
         var stagingRoot = Path.Combine(
@@ -126,7 +125,9 @@ internal static partial class ProjectZomboidWorldState
                 {
                     var saved = Path.Combine(rollbackRoot, name);
                     var original = Path.Combine(destinationRoot, name);
-                    if (Directory.Exists(saved) && !Directory.Exists(original) && !File.Exists(original))
+                    if (Directory.Exists(saved) &&
+                        !Directory.Exists(original) &&
+                        !File.Exists(original))
                     {
                         Directory.Move(saved, original);
                     }
@@ -159,6 +160,7 @@ internal static partial class ProjectZomboidWorldState
     {
         ArgumentNullException.ThrowIfNull(world);
         cancellationToken.ThrowIfCancellationRequested();
+        _ = ProjectZomboidWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
 
         if (disposition == PreparedWorldDisposition.Discard)
         {

@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Storage;
 
 namespace SharedWorlds.GameAdapters.ProjectZomboid;
 
@@ -48,9 +49,10 @@ internal static partial class ProjectZomboidWorldState
         var fullUserDataRoot = Path.GetFullPath(userDataRoot);
         ValidateServerBundle(fullUserDataRoot, serverName, requireExclusiveBundle: false);
 
-        var packagePath = Path.Combine(
-            Path.GetTempPath(),
-            $"sharedworlds-project-zomboid-{Guid.NewGuid():N}.zip");
+        var packagePath = DisposableStatePackageStorage.CreatePackagePath(
+            "project-zomboid",
+            serverName,
+            ".zip");
         try
         {
             await using var packageStream = new FileStream(

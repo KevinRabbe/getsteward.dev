@@ -1,9 +1,10 @@
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
 
 namespace SharedWorlds.GameAdapters.AbioticFactor;
 
-public sealed class AbioticFactorAdapter : IGameAdapter
+public sealed class AbioticFactorAdapter : IGameAdapter, IPreparedWorldRecoveryPlanner
 {
     public string Id => "abiotic-factor";
     public string DisplayName => "Abiotic Factor";
@@ -48,6 +49,39 @@ public sealed class AbioticFactorAdapter : IGameAdapter
         DetectedWorld world,
         CancellationToken cancellationToken = default)
         => AbioticFactorWorldState.CaptureDetectedWorldAsync(world, cancellationToken);
+
+    public Task<PreparedWorldRecoveryLocation> PlanPreparedWorldRecoveryAsync(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        PreparedWorldPreparationContext preparation,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(installation);
+        ArgumentNullException.ThrowIfNull(requiredEnvironment);
+        ArgumentNullException.ThrowIfNull(preparation);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!string.Equals(requiredEnvironment.AdapterId, Id, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                $"Environment belongs to adapter '{requiredEnvironment.AdapterId}', not Abiotic Factor.",
+                nameof(requiredEnvironment));
+        }
+
+        return Task.FromResult(PreparedWorldRecoveryLocation.Managed());
+    }
+
+    public Task<PreparedWorld> PrepareEnvironmentAsync(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        PreparedWorldPreparationContext preparation,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(AbioticFactorWorldState.PrepareEnvironment(
+            installation,
+            requiredEnvironment,
+            preparation));
+    }
 
     public Task<PreparedWorld> PrepareEnvironmentAsync(
         GameInstallation installation,

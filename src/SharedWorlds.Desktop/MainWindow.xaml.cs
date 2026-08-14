@@ -6,6 +6,7 @@ using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
+using SharedWorlds.Core.Storage;
 using SharedWorlds.Core.Worlds;
 using SharedWorlds.Infrastructure.Diagnostics;
 using SharedWorlds.Infrastructure.Remote;
@@ -43,9 +44,10 @@ public partial class MainWindow : Window
         InitializeGameTechnicalReadinessUi();
 
         // App resolves/migrates the one durable local root while it owns the desktop single-instance
-        // boundary, before this window can construct any storage/runtime writer.
-        var safeWorldRoot = DesktopLocalDataRoot.RequireResolvedRoot();
-        _storageRoot = Path.Combine(safeWorldRoot, "data");
+        // boundary, before this window can construct any storage/runtime writer. From here on every
+        // SafeWorld-owned location comes from one explicit storage layout.
+        var storageLayout = DesktopStorageLayout.FromResolvedRoot();
+        _storageRoot = storageLayout.WorldDataRoot;
         var localStorage = new LocalWorldStorage(_storageRoot);
         _storage = new OwnedWorldLocationObservedWorldStorage(
             localStorage,
@@ -58,9 +60,9 @@ public partial class MainWindow : Window
             _localSessionCoordinator,
             _workspaceRecoveryStore,
             _localManagedSessionGate,
-            CreateDesktopLifecycleObserver());
-        _deviceSettingsStore = new DeviceSettingsStore(
-            Path.Combine(safeWorldRoot, "settings", "device.json"));
+            CreateDesktopLifecycleObserver(),
+            new ManagedWorkspaceStorage(storageLayout.ManagedWorkspacesRoot));
+        _deviceSettingsStore = new DeviceSettingsStore(storageLayout.DeviceSettingsPath);
 
         Closed += (_, _) =>
         {

@@ -69,7 +69,7 @@ public static class DisposableStatePackageStorage
             normalized.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
             normalized.Contains(Path.DirectorySeparatorChar) ||
             normalized.Contains(Path.AltDirectorySeparatorChar) ||
-            normalized[1..].Contains('.', StringComparison.Ordinal))
+            normalized[1..].Contains(".", StringComparison.Ordinal))
         {
             throw new ArgumentException(
                 "Package extension must be one safe filename extension.",

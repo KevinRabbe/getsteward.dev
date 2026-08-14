@@ -193,12 +193,14 @@ public sealed partial class FactorioAdapter : IGameAdapter
 
         await TryPersistPlayerPreferencesAsync(world, cancellationToken);
 
-        if (disposition == PreparedWorldDisposition.PreserveForRecovery)
+        if (disposition is
+            PreparedWorldDisposition.PreserveForRecovery or
+            PreparedWorldDisposition.ReleaseForCoreManagedDiscard)
         {
             return;
         }
 
-        DeleteOwnedWorkspace(world);
+        DeleteAdapterOwnedWorkspace(world);
     }
 
     private async Task<GameSessionHandle> LaunchTrackedAsync(
@@ -470,9 +472,15 @@ public sealed partial class FactorioAdapter : IGameAdapter
         }
     }
 
-    private static void DeleteOwnedWorkspace(PreparedWorld world)
+    private static void DeleteAdapterOwnedWorkspace(PreparedWorld world)
     {
         FactorioWorkspaceOwnership.RequireOwned(world);
+        if (world.RecoveryLocation is not null)
+        {
+            throw new InvalidOperationException(
+                "Factorio cannot delete a SafeWorld-managed workspace root; Core owns that deletion by durable WorkspaceId.");
+        }
+
         var fullPath = Path.GetFullPath(world.WorkingDirectory);
         if (Directory.Exists(fullPath))
         {

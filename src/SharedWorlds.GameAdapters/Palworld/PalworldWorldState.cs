@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Storage;
 
 namespace SharedWorlds.GameAdapters.Palworld;
 
@@ -120,7 +121,10 @@ internal static class PalworldWorldState
                 $"Could not determine the Palworld world id from: {sourcePath}");
         }
 
-        var packagePath = CreatePackagePath(worldId);
+        var packagePath = DisposableStatePackageStorage.CreatePackagePath(
+            "palworld",
+            worldId,
+            ".zip");
         try
         {
             await CreatePackageAsync(sourcePath, packagePath, cancellationToken);
@@ -322,37 +326,6 @@ internal static class PalworldWorldState
             segment.Contains(".sharedworlds-backup", StringComparison.OrdinalIgnoreCase) ||
             segment.Contains(".sharedworlds-staging-", StringComparison.OrdinalIgnoreCase) ||
             segment.Contains(".sharedworlds-rollback-", StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static string CreatePackagePath(string worldId)
-    {
-        var root = Path.Combine(GetLocalWorkRoot(), "packages");
-        Directory.CreateDirectory(root);
-
-        var safeWorldId = SanitizeFileName(worldId);
-        return Path.Combine(root, $"{safeWorldId}-{Guid.NewGuid():N}.zip");
-    }
-
-    private static string GetLocalWorkRoot()
-    {
-        var basePath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(basePath))
-        {
-            basePath = Path.GetTempPath();
-        }
-
-        return Path.Combine(basePath, "SharedWorlds", "palworld");
-    }
-
-    private static string SanitizeFileName(string value)
-    {
-        var result = value;
-        foreach (var invalidCharacter in Path.GetInvalidFileNameChars())
-        {
-            result = result.Replace(invalidCharacter, '_');
-        }
-
-        return string.IsNullOrWhiteSpace(result) ? "world" : result;
     }
 
     private static void TryDeleteFile(string path)

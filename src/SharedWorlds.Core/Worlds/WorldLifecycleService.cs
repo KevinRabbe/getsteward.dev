@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Errors;
+using SharedWorlds.Core.Storage;
 
 namespace SharedWorlds.Core.Worlds;
 
@@ -16,6 +17,7 @@ public sealed class WorldLifecycleService
     private readonly IWorkspaceRecoveryStore _workspaceRecoveryStore;
     private readonly ManagedWritableSessionGate _managedSessionGate;
     private readonly IWorldLifecycleObserver _observer;
+    private readonly PreparedWorldMaterializationCoordinator? _preparedWorldMaterializationCoordinator;
     private readonly ConcurrentDictionary<WorldId, ActiveHostedSession> _activeHostedSessions = new();
     private readonly ConcurrentDictionary<WorldId, UserIdentity> _requestedHostHandoffs = new();
 
@@ -51,7 +53,8 @@ public sealed class WorldLifecycleService
         IWorldSessionCoordinator sessionCoordinator,
         IWorkspaceRecoveryStore workspaceRecoveryStore,
         ManagedWritableSessionGate managedSessionGate,
-        IWorldLifecycleObserver observer)
+        IWorldLifecycleObserver observer,
+        ManagedWorkspaceStorage? managedWorkspaces = null)
     {
         ArgumentNullException.ThrowIfNull(storage);
         ArgumentNullException.ThrowIfNull(sessionCoordinator);
@@ -63,6 +66,11 @@ public sealed class WorldLifecycleService
         _workspaceRecoveryStore = workspaceRecoveryStore;
         _managedSessionGate = managedSessionGate;
         _observer = observer;
+        _preparedWorldMaterializationCoordinator = managedWorkspaces is null
+            ? null
+            : new PreparedWorldMaterializationCoordinator(
+                workspaceRecoveryStore,
+                managedWorkspaces);
     }
 
     public async Task<World> ImportAsync(
@@ -239,6 +247,7 @@ public sealed class WorldLifecycleService
         GameInstallation installation,
         ManagedWorldSessionMode? mode,
         CancellationToken cancellationToken,
+        UserIdentity? preparationUser = null,
         Func<World, PreparedWorld, CancellationToken, Task>? registerPreparedWorkspace = null)
     {
         ArgumentNullException.ThrowIfNull(adapter);
@@ -304,17 +313,45 @@ public sealed class WorldLifecycleService
         EnsureCurrentStateEnvironmentMatches(world, environmentRevision, stateRevision);
 
         Notify(worldId, mode, WorldLifecyclePhase.PreparingEnvironment);
-        var prepared = (await adapter.PrepareEnvironmentAsync(
-            installation,
-            environmentRevision.Manifest,
-            cancellationToken)) with
+        PreparedWorld prepared;
+        if (registerPreparedWorkspace is not null &&
+            _preparedWorldMaterializationCoordinator is not null &&
+            adapter is IPreparedWorldRecoveryPlanner)
         {
-            DisplayName = world.Name
-        };
+            if (preparationUser is null)
+            {
+                throw new InvalidOperationException(
+                    "Writable recovery-planned preparation requires the user identity that owns the session.");
+            }
 
-        // Writable sessions register cleanup ownership immediately after the adapter creates a
-        // workspace. This durable bookkeeping is intentionally not a separate visible lifecycle
-        // phase; RegisteringRecovery remains the later promotion to active session responsibility.
+            var materialization = await _preparedWorldMaterializationCoordinator.MaterializeAsync(
+                worldId,
+                stateRevisionId,
+                environmentRevisionId,
+                adapter,
+                installation,
+                environmentRevision.Manifest,
+                preparationUser,
+                cancellationToken);
+            prepared = materialization.PreparedWorld with
+            {
+                DisplayName = world.Name
+            };
+        }
+        else
+        {
+            prepared = (await adapter.PrepareEnvironmentAsync(
+                installation,
+                environmentRevision.Manifest,
+                cancellationToken)) with
+            {
+                DisplayName = world.Name
+            };
+        }
+
+        // Writable sessions register or adopt durable cleanup ownership immediately after the
+        // prepared runtime exists. Planner-capable adapters already journaled identity before
+        // materialization; legacy adapters still create their compatibility record here.
         if (registerPreparedWorkspace is not null)
         {
             await registerPreparedWorkspace(world, prepared, CancellationToken.None);
@@ -433,6 +470,7 @@ public sealed class WorldLifecycleService
                 installation,
                 mode,
                 cancellationToken,
+                preparationUser: user,
                 registerPreparedWorkspace: async (preparedWorld, prepared, _) =>
                 {
                     preparedWorkspace = prepared;
@@ -444,6 +482,31 @@ public sealed class WorldLifecycleService
                         ?? throw new WorldIntegrityException(
                             worldId,
                             "The canonical environment revision disappeared during preparation.");
+
+                    if (prepared.RecoveryLocation is not null)
+                    {
+                        var matchingRecords = (await _workspaceRecoveryStore.ListAsync(CancellationToken.None))
+                            .Where(candidate =>
+                                candidate.WorldId == worldId &&
+                                candidate.BaseStateRevisionId == baseStateRevisionId &&
+                                candidate.EnvironmentRevisionId == environmentRevisionId &&
+                                string.Equals(candidate.AdapterId, adapter.Id, StringComparison.Ordinal) &&
+                                candidate.Status == WorkspaceRecoveryStatus.CleanupPending &&
+                                candidate.RecoveryLocation is not null &&
+                                PreparedWorldRecoveryPlanPolicy.LocationsEqual(
+                                    candidate.RecoveryLocation,
+                                    prepared.RecoveryLocation))
+                            .Take(2)
+                            .ToArray();
+                        if (matchingRecords.Length != 1)
+                        {
+                            throw new InvalidOperationException(
+                                "Recovery-planned preparation did not resolve to exactly one durable cleanup record.");
+                        }
+
+                        workspaceRecord = matchingRecords[0];
+                        return;
+                    }
 
                     var now = DateTimeOffset.UtcNow;
                     workspaceRecord = new WorkspaceRecoveryRecord(
@@ -465,14 +528,25 @@ public sealed class WorldLifecycleService
             workspaceRecord = workspaceRecord is null
                 ? throw new InvalidOperationException(
                     "Writable session preparation completed without durable workspace ownership.")
-                : workspaceRecord with
+                : workspaceRecord;
+            Notify(worldId, mode, WorldLifecyclePhase.RegisteringRecovery);
+            if (workspaceRecord.RecoveryLocation is not null &&
+                _preparedWorldMaterializationCoordinator is not null)
+            {
+                workspaceRecord = await _preparedWorldMaterializationCoordinator.MarkReadyForLaunchAsync(
+                    workspaceRecord,
+                    cancellationToken);
+            }
+            else
+            {
+                workspaceRecord = workspaceRecord with
                 {
                     Status = WorkspaceRecoveryStatus.Active,
                     UpdatedAt = DateTimeOffset.UtcNow,
                     Reason = null
                 };
-            Notify(worldId, mode, WorldLifecyclePhase.RegisteringRecovery);
-            await _workspaceRecoveryStore.SaveAsync(workspaceRecord, cancellationToken);
+                await _workspaceRecoveryStore.SaveAsync(workspaceRecord, cancellationToken);
+            }
 
             Notify(worldId, mode, WorldLifecyclePhase.StartingSession);
             var session = await launchSession(context.PreparedWorld, cancellationToken);
@@ -723,6 +797,7 @@ public sealed class WorldLifecycleService
     {
         var unresolved = (await _workspaceRecoveryStore.ListAsync(cancellationToken))
             .Where(record => record.Status is
+                WorkspaceRecoveryStatus.PreparationPending or
                 WorkspaceRecoveryStatus.Active or
                 WorkspaceRecoveryStatus.RecoveryPending or
                 WorkspaceRecoveryStatus.CleanupPending)

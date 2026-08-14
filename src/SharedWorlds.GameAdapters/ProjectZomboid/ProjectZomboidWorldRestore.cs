@@ -7,6 +7,13 @@ namespace SharedWorlds.GameAdapters.ProjectZomboid;
 
 internal static partial class ProjectZomboidWorldState
 {
+    private static readonly string[] PreparedPayloadDirectoryNames =
+    [
+        "Saves",
+        "Server",
+        "db"
+    ];
+
     public static PreparedWorld PrepareEnvironment(
         GameInstallation installation,
         EnvironmentManifest requiredEnvironment)
@@ -21,14 +28,9 @@ internal static partial class ProjectZomboidWorldState
                 string.Join("; ", verification.Issues.Select(issue => issue.Message)));
         }
 
-        var operationRoot = Path.Combine(
-            GetLocalWorkRoot(),
-            Guid.NewGuid().ToString("N"));
-        var userDataRoot = Path.Combine(operationRoot, "Zomboid");
-        Directory.CreateDirectory(operationRoot);
         return new PreparedWorld(
             installation,
-            userDataRoot,
+            ProjectZomboidWorkspaceOwnership.Create(),
             requiredEnvironment);
     }
 
@@ -50,15 +52,17 @@ internal static partial class ProjectZomboidWorldState
         }
 
         var destinationRoot = Path.GetFullPath(world.WorkingDirectory);
-        var parentRoot = Path.GetDirectoryName(destinationRoot)
-            ?? throw new InvalidOperationException(
-                $"Could not determine the parent directory for Project Zomboid workspace '{destinationRoot}'.");
-        Directory.CreateDirectory(parentRoot);
+        Directory.CreateDirectory(destinationRoot);
 
         var operationId = Guid.NewGuid().ToString("N");
-        var stagingRoot = destinationRoot + ".sharedworlds-staging-" + operationId;
-        var rollbackRoot = destinationRoot + ".sharedworlds-rollback-" + operationId;
-        var movedExisting = false;
+        var stagingRoot = Path.Combine(
+            destinationRoot,
+            $".sharedworlds-staging-{operationId}");
+        var rollbackRoot = Path.Combine(
+            destinationRoot,
+            $".sharedworlds-rollback-{operationId}");
+        var movedExisting = new List<string>();
+        var promoted = new List<string>();
 
         try
         {
@@ -68,36 +72,80 @@ internal static partial class ProjectZomboidWorldState
                 Path.Combine(stagingRoot, "Server", serverName + ".ini"),
                 cancellationToken);
 
-            if (Directory.Exists(destinationRoot))
+            Directory.CreateDirectory(rollbackRoot);
+            foreach (var name in PreparedPayloadDirectoryNames)
             {
-                Directory.Move(destinationRoot, rollbackRoot);
-                movedExisting = true;
+                cancellationToken.ThrowIfCancellationRequested();
+                var current = Path.Combine(destinationRoot, name);
+                if (File.Exists(current))
+                {
+                    throw new InvalidOperationException(
+                        $"Prepared Project Zomboid workspace contains a file where payload directory '{name}' is required.");
+                }
+
+                if (!Directory.Exists(current))
+                {
+                    continue;
+                }
+
+                Directory.Move(current, Path.Combine(rollbackRoot, name));
+                movedExisting.Add(name);
             }
 
-            Directory.Move(stagingRoot, destinationRoot);
-            if (movedExisting)
+            foreach (var name in PreparedPayloadDirectoryNames)
             {
-                TryDeleteDirectory(rollbackRoot);
+                cancellationToken.ThrowIfCancellationRequested();
+                var staged = Path.Combine(stagingRoot, name);
+                if (!Directory.Exists(staged))
+                {
+                    continue;
+                }
+
+                Directory.Move(staged, Path.Combine(destinationRoot, name));
+                promoted.Add(name);
             }
+
+            TryDeleteDirectory(stagingRoot);
+            TryDeleteDirectory(rollbackRoot);
         }
         catch (Exception restoreException)
         {
-            TryDeleteDirectory(stagingRoot);
-            if (movedExisting &&
-                !Directory.Exists(destinationRoot) &&
-                Directory.Exists(rollbackRoot))
+            Exception? rollbackException = null;
+            try
             {
-                try
+                foreach (var name in promoted.AsEnumerable().Reverse())
                 {
-                    Directory.Move(rollbackRoot, destinationRoot);
+                    var promotedPath = Path.Combine(destinationRoot, name);
+                    if (Directory.Exists(promotedPath))
+                    {
+                        Directory.Delete(promotedPath, recursive: true);
+                    }
                 }
-                catch (Exception rollbackException)
+
+                foreach (var name in movedExisting.AsEnumerable().Reverse())
                 {
-                    throw new AggregateException(
-                        "Project Zomboid state restore failed and the previous prepared server state could not be rolled back automatically.",
-                        restoreException,
-                        rollbackException);
+                    var saved = Path.Combine(rollbackRoot, name);
+                    var original = Path.Combine(destinationRoot, name);
+                    if (Directory.Exists(saved) && !Directory.Exists(original) && !File.Exists(original))
+                    {
+                        Directory.Move(saved, original);
+                    }
                 }
+            }
+            catch (Exception exception)
+            {
+                rollbackException = exception;
+            }
+
+            TryDeleteDirectory(stagingRoot);
+            TryDeleteDirectory(rollbackRoot);
+
+            if (rollbackException is not null)
+            {
+                throw new AggregateException(
+                    "Project Zomboid state restore failed and the previous prepared server state could not be rolled back automatically.",
+                    restoreException,
+                    rollbackException);
             }
 
             throw;
@@ -111,16 +159,10 @@ internal static partial class ProjectZomboidWorldState
     {
         ArgumentNullException.ThrowIfNull(world);
         cancellationToken.ThrowIfCancellationRequested();
-        if (disposition == PreparedWorldDisposition.PreserveForRecovery)
-        {
-            return Task.CompletedTask;
-        }
 
-        var userDataRoot = Path.GetFullPath(world.WorkingDirectory);
-        var operationRoot = Directory.GetParent(userDataRoot)?.FullName;
-        if (operationRoot is not null)
+        if (disposition == PreparedWorldDisposition.Discard)
         {
-            TryDeleteDirectory(operationRoot);
+            ProjectZomboidWorkspaceOwnership.DeleteOwned(world.WorkingDirectory);
         }
 
         return Task.CompletedTask;
@@ -191,19 +233,6 @@ internal static partial class ProjectZomboidWorldState
             await sourceStream.CopyToAsync(destinationStream, cancellationToken);
             await destinationStream.FlushAsync(cancellationToken);
         }
-    }
-
-    private static string GetLocalWorkRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        var root = Path.Combine(localData, "Steward", "workspaces", "project-zomboid");
-        Directory.CreateDirectory(root);
-        return root;
     }
 
     private static void TryDeleteDirectory(string path)

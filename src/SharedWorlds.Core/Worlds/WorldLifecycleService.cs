@@ -18,6 +18,7 @@ public sealed class WorldLifecycleService
     private readonly ManagedWritableSessionGate _managedSessionGate;
     private readonly IWorldLifecycleObserver _observer;
     private readonly PreparedWorldMaterializationCoordinator? _preparedWorldMaterializationCoordinator;
+    private readonly PreparedWorldFinalizationCoordinator? _preparedWorldFinalizationCoordinator;
     private readonly ConcurrentDictionary<WorldId, ActiveHostedSession> _activeHostedSessions = new();
     private readonly ConcurrentDictionary<WorldId, UserIdentity> _requestedHostHandoffs = new();
 
@@ -71,6 +72,9 @@ public sealed class WorldLifecycleService
             : new PreparedWorldMaterializationCoordinator(
                 workspaceRecoveryStore,
                 managedWorkspaces);
+        _preparedWorldFinalizationCoordinator = managedWorkspaces is null
+            ? null
+            : new PreparedWorldFinalizationCoordinator(managedWorkspaces);
     }
 
     public async Task<World> ImportAsync(
@@ -684,7 +688,7 @@ public sealed class WorldLifecycleService
             }
             else if (context is not null)
             {
-                var discarded = await TryFinalizePreparedWorldAsync(
+                var discarded = await TryFinalizePreparedWorldWithoutRecordAsync(
                     adapter,
                     context.PreparedWorld,
                     PreparedWorldDisposition.Discard);
@@ -700,7 +704,7 @@ public sealed class WorldLifecycleService
             }
             else if (preparedWorkspace is not null)
             {
-                var discarded = await TryFinalizePreparedWorldAsync(
+                var discarded = await TryFinalizePreparedWorldWithoutRecordAsync(
                     adapter,
                     preparedWorkspace,
                     PreparedWorldDisposition.Discard);
@@ -828,10 +832,11 @@ public sealed class WorldLifecycleService
     {
         try
         {
-            await adapter.FinalizePreparedWorldAsync(
+            await FinalizePreparedWorldAsync(
+                adapter,
                 preparedWorld,
-                PreparedWorldDisposition.Discard,
-                CancellationToken.None);
+                record,
+                PreparedWorldDisposition.Discard);
         }
         catch (Exception exception)
         {
@@ -875,6 +880,7 @@ public sealed class WorldLifecycleService
             await TryFinalizePreparedWorldAsync(
                 adapter,
                 preparedWorld,
+                record,
                 PreparedWorldDisposition.PreserveForRecovery);
             return true;
         }
@@ -882,6 +888,7 @@ public sealed class WorldLifecycleService
         var discarded = await TryFinalizePreparedWorldAsync(
             adapter,
             preparedWorld,
+            record,
             PreparedWorldDisposition.Discard);
 
         if (discarded)
@@ -909,11 +916,73 @@ public sealed class WorldLifecycleService
         return true;
     }
 
+    private Task FinalizePreparedWorldAsync(
+        IGameAdapter adapter,
+        PreparedWorld preparedWorld,
+        WorkspaceRecoveryRecord record,
+        PreparedWorldDisposition disposition)
+    {
+        if (record.RecoveryLocation is null)
+        {
+            if (preparedWorld.RecoveryLocation is not null)
+            {
+                throw new InvalidOperationException(
+                    "Prepared runtime has recovery identity but the durable recovery record does not.");
+            }
+
+            return adapter.FinalizePreparedWorldAsync(
+                preparedWorld,
+                disposition,
+                CancellationToken.None);
+        }
+
+        if (_preparedWorldFinalizationCoordinator is null)
+        {
+            throw new InvalidOperationException(
+                "Descriptor-based prepared runtime finalization requires Core managed-workspace services.");
+        }
+
+        return _preparedWorldFinalizationCoordinator.FinalizeAsync(
+            record,
+            adapter,
+            preparedWorld,
+            disposition,
+            CancellationToken.None);
+    }
+
     private async Task<bool> TryFinalizePreparedWorldAsync(
+        IGameAdapter adapter,
+        PreparedWorld preparedWorld,
+        WorkspaceRecoveryRecord record,
+        PreparedWorldDisposition disposition)
+    {
+        try
+        {
+            await FinalizePreparedWorldAsync(
+                adapter,
+                preparedWorld,
+                record,
+                disposition);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task<bool> TryFinalizePreparedWorldWithoutRecordAsync(
         IGameAdapter adapter,
         PreparedWorld preparedWorld,
         PreparedWorldDisposition disposition)
     {
+        if (preparedWorld.RecoveryLocation is not null)
+        {
+            // Descriptor-backed runtime deletion is allowed only when Core can prove the exact
+            // durable WorkspaceId that owns it. Preserve ambiguous state for startup recovery.
+            return false;
+        }
+
         try
         {
             await adapter.FinalizePreparedWorldAsync(

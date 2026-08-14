@@ -193,8 +193,7 @@ public partial class MainWindow
 
     private async Task<bool> IsRemoteInitialSnapshotCompleteAsync(
         World remoteWorld,
-        RevisionId revisionId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
         var remote = _remoteRuntime
             ?? throw new InvalidOperationException(

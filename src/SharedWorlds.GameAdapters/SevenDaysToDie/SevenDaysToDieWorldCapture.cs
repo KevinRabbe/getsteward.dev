@@ -27,7 +27,8 @@ internal static partial class SevenDaysToDieWorldState
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(world);
-        var userDataRoot = Path.GetFullPath(world.WorkingDirectory);
+        var userDataRoot = SevenDaysToDieWorkspaceOwnership.RequireOwned(
+            world.WorkingDirectory);
         var identity = ValidateSingleWorldBundle(userDataRoot);
         return CaptureWorldBundleAsync(
             userDataRoot,

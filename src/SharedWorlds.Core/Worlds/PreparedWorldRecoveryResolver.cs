@@ -21,6 +21,8 @@ public sealed class PreparedWorldRecoveryResolver
         _managedWorkspaces = managedWorkspaces;
     }
 
+    internal ManagedWorkspaceStorage ManagedWorkspaces => _managedWorkspaces;
+
     /// <summary>
     /// Resolves a current working directory without a game installation when durable identity makes
     /// that possible. Legacy journals return their historical path as an explicit compatibility case;

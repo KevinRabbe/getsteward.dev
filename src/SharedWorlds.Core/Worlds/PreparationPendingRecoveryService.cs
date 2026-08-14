@@ -18,8 +18,8 @@ public sealed class PreparationPendingRecoveryException : InvalidOperationExcept
 /// <summary>
 /// Reconciles a crash that happened after recovery identity was journaled but before prepared-runtime
 /// materialization was confirmed. Only SafeWorld-managed workspaces are automatically discardable:
-/// their identity proves exclusive SafeWorld ownership and no session has started. Native-game identity
-/// is preserved and requires an adapter-specific/manual decision because it may name pre-existing state.
+/// their exact WorkspaceId proves exclusive SafeWorld ownership and no session has started. Native-game
+/// identity is preserved and requires an adapter-specific/manual decision because it may name pre-existing state.
 /// </summary>
 public sealed class PreparationPendingRecoveryService
 {
@@ -37,10 +37,10 @@ public sealed class PreparationPendingRecoveryService
     }
 
     public async Task ResolveManagedAsync(
-        WorldId worldId,
+        WorkspaceId workspaceId,
         CancellationToken cancellationToken = default)
     {
-        var record = await LoadPendingAsync(worldId, cancellationToken);
+        var record = await LoadPendingAsync(workspaceId, cancellationToken);
         var location = record.RecoveryLocation
             ?? throw new PreparationPendingRecoveryException(
                 "RecoveryIdentityMissing",
@@ -79,19 +79,16 @@ public sealed class PreparationPendingRecoveryService
     }
 
     private async Task<WorkspaceRecoveryRecord> LoadPendingAsync(
-        WorldId worldId,
+        WorkspaceId workspaceId,
         CancellationToken cancellationToken)
     {
         var records = await _recovery.ListAsync(cancellationToken);
         return records
-                   .Where(record =>
-                       record.WorldId == worldId &&
+                   .SingleOrDefault(record =>
+                       record.Id == workspaceId &&
                        record.Status == WorkspaceRecoveryStatus.PreparationPending)
-                   .OrderBy(record => record.CreatedAt)
-                   .ThenBy(record => record.Id.ToString(), StringComparer.Ordinal)
-                   .FirstOrDefault()
                ?? throw new PreparationPendingRecoveryException(
                    "PreparationPendingNotFound",
-                   "No interrupted preparation responsibility exists for this World.");
+                   "No interrupted preparation responsibility exists for this exact workspace identity.");
     }
 }

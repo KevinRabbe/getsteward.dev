@@ -5,7 +5,7 @@ namespace SharedWorlds.Desktop.AcceptanceTests;
 public sealed class DesktopLocalDataRootSourceAuditTests
 {
     [Fact]
-    public void DesktopSourcesHaveNoIndependentLegacyLocalDataRoots()
+    public void DesktopSourcesHaveNoIndependentDurableLegacyLocalDataRoots()
     {
         var desktopRoot = FindRepositoryDirectory("src/SharedWorlds.Desktop");
         var violations = new List<string>();
@@ -25,9 +25,21 @@ public sealed class DesktopLocalDataRootSourceAuditTests
 
             var source = File.ReadAllText(path);
             var relativePath = Path.GetRelativePath(desktopRoot, path);
-            if (source.Contains("\"SharedWorlds\"", StringComparison.Ordinal))
+            var legacyLiteralCount = source.Split(
+                "\"SharedWorlds\"",
+                StringSplitOptions.None).Length - 1;
+            var isOneKnownEphemeralTransferBuffer =
+                string.Equals(
+                    relativePath,
+                    "SteamPeerWorldRevisionExchange.cs",
+                    StringComparison.Ordinal) &&
+                legacyLiteralCount == 1 &&
+                source.Contains("Path.GetTempPath()", StringComparison.Ordinal) &&
+                source.Contains("\"peer-world-transfer\"", StringComparison.Ordinal);
+            if (legacyLiteralCount > 0 && !isOneKnownEphemeralTransferBuffer)
             {
-                violations.Add($"{relativePath}: legacy SharedWorlds root literal");
+                violations.Add(
+                    $"{relativePath}: unexpected legacy SharedWorlds path literal");
             }
 
             if (source.Contains(
@@ -45,7 +57,7 @@ public sealed class DesktopLocalDataRootSourceAuditTests
 
         Assert.True(
             violations.Count == 0,
-            "Desktop local-data root violations:" + Environment.NewLine +
+            "Desktop durable local-data root violations:" + Environment.NewLine +
             string.Join(Environment.NewLine, violations));
     }
 

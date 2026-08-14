@@ -1,4 +1,5 @@
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Storage;
 
 namespace SharedWorlds.GameAdapters.Factorio;
 
@@ -61,7 +62,9 @@ internal static partial class FactorioWorldOperations
 
     private static string CreatePackagePath()
     {
-        var root = Path.Combine(GetLocalWorkRoot(), "packages");
+        var root = Path.Combine(
+            DisposableStatePackageStorage.GetAdapterRoot("factorio"),
+            "packages");
         Directory.CreateDirectory(root);
         return Path.Combine(root, $"{Guid.NewGuid():N}.zip");
     }

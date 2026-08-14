@@ -279,6 +279,8 @@ public partial class MainWindow
     private static string FormatResponsibility(WorldLifecycleResponsibilitySnapshot snapshot)
         => snapshot.Kind switch
         {
+            WorldLifecycleResponsibilityKind.PreparationInterrupted =>
+                "Safe World was interrupted while preparing this World. Recovery identity is preserved, but materialization was not confirmed, so no recovery or cleanup action will run automatically.",
             WorldLifecycleResponsibilityKind.InterruptedSession => DesktopText.InterruptedSessionResolution,
             WorldLifecycleResponsibilityKind.RecoveryNeeded => DesktopText.RecoveryNeeded,
             WorldLifecycleResponsibilityKind.CleanupPending => DesktopText.ActionRequired,

@@ -4,6 +4,13 @@ namespace SharedWorlds.Desktop.AcceptanceTests;
 
 public sealed class DesktopLocalDataRootSourceAuditTests
 {
+    private static readonly string[] ApplicationOwnedDirectoryNames =
+    [
+        "\"SharedWorlds\"",
+        "\"Steward\"",
+        "\"SafeWorld\""
+    ];
+
     [Fact]
     public void DesktopSourcesHaveNoIndependentDurableLegacyLocalDataRoots()
     {
@@ -62,7 +69,7 @@ public sealed class DesktopLocalDataRootSourceAuditTests
     }
 
     [Fact]
-    public void ProductSourcesDoNotRecreateLegacySharedWorldsLocalApplicationDataRoot()
+    public void ProductSourcesDoNotRecreateApplicationOwnedLocalApplicationDataRoots()
     {
         var sourceRoot = FindRepositoryDirectory("src");
         var violations = new List<string>();
@@ -78,26 +85,36 @@ public sealed class DesktopLocalDataRootSourceAuditTests
                     "SharedWorlds.Desktop/DesktopLocalDataRoot.cs",
                     StringComparison.Ordinal))
             {
-                // The migration authority must know the legacy directory name in order to move it and
-                // install the downgrade guard. No other product source may reconstruct that legacy
-                // root from LocalApplicationData.
+                // The migration/root authority must know the current and historical application
+                // directory names. No other source may use a product-generation name to derive an
+                // application-owned LocalApplicationData root. Game-native LocalApplicationData
+                // discovery remains valid because it does not use one of these product names.
                 continue;
             }
 
             var source = File.ReadAllText(path);
-            if (source.Contains(
+            if (!source.Contains(
                     "Environment.SpecialFolder.LocalApplicationData",
-                    StringComparison.Ordinal) &&
-                source.Contains("\"SharedWorlds\"", StringComparison.Ordinal))
+                    StringComparison.Ordinal))
             {
+                continue;
+            }
+
+            foreach (var directoryName in ApplicationOwnedDirectoryNames)
+            {
+                if (!source.Contains(directoryName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
                 violations.Add(
-                    $"{relativePath}: reconstructs the legacy SharedWorlds LocalApplicationData root");
+                    $"{relativePath}: reconstructs application-owned LocalApplicationData using {directoryName}");
             }
         }
 
         Assert.True(
             violations.Count == 0,
-            "Product legacy LocalApplicationData root violations:" + Environment.NewLine +
+            "Product application-owned LocalApplicationData root violations:" + Environment.NewLine +
             string.Join(Environment.NewLine, violations));
     }
 

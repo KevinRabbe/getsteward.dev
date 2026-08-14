@@ -25,6 +25,17 @@ public sealed class SingleProductCompositionSourceAuditTests
             "SafeWorld has one supported product lifecycle/storage composition surface. " +
             "The retired SharedWorlds.Cli must not regain source-backed lifecycle or durable-storage authority. " +
             "Found: " + string.Join(", ", sourceFiles));
+
+        var projectPath = Path.Combine(cliDirectory, "SharedWorlds.Cli.csproj");
+        if (!File.Exists(projectPath))
+        {
+            return;
+        }
+
+        var project = File.ReadAllText(projectPath);
+        Assert.DoesNotContain("<OutputType>Exe</OutputType>", project, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("<ProjectReference", project, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("SharedWorlds.Cli.Retired", project, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryRoot()

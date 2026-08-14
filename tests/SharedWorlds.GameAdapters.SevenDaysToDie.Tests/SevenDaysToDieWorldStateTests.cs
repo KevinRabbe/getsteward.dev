@@ -10,6 +10,7 @@ public sealed class SevenDaysToDieWorldStateTests : IDisposable
         Path.GetTempPath(),
         $"sharedworlds-7dtd-state-{Guid.NewGuid():N}");
     private readonly List<string> _packages = [];
+    private readonly List<string> _ownedWorkspaces = [];
 
     [Fact]
     public async Task CaptureAndRestorePreserveSaveAndGeneratedWorldBytes()
@@ -49,11 +50,8 @@ public sealed class SevenDaysToDieWorldStateTests : IDisposable
             Assert.DoesNotContain(names, name => name.Contains("OtherWorld", StringComparison.OrdinalIgnoreCase));
         }
 
-        var destination = Path.Combine(_root, "prepared", "user-data");
-        var prepared = new PreparedWorld(
-            installation,
-            destination,
-            EmptyEnvironment());
+        var prepared = CreateOwnedPrepared(installation);
+        var destination = prepared.WorkingDirectory;
         await SevenDaysToDieWorldState.RestorePreparedWorldAsync(
             prepared,
             captured.Package,
@@ -132,13 +130,9 @@ public sealed class SevenDaysToDieWorldStateTests : IDisposable
             await WriteEntryAsync(archive, "../escaped.txt", [2]);
         }
 
-        var destination = Path.Combine(_root, "prepared-traversal", "user-data");
-        Directory.CreateDirectory(destination);
+        var prepared = CreateOwnedPrepared(Installation(Path.Combine(_root, "unused")));
+        var destination = prepared.WorkingDirectory;
         await File.WriteAllTextAsync(Path.Combine(destination, "sentinel.txt"), "original");
-        var prepared = new PreparedWorld(
-            Installation(Path.Combine(_root, "unused")),
-            destination,
-            EmptyEnvironment());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             SevenDaysToDieWorldState.RestorePreparedWorldAsync(
@@ -147,7 +141,8 @@ public sealed class SevenDaysToDieWorldStateTests : IDisposable
                 CancellationToken.None));
 
         Assert.Equal("original", await File.ReadAllTextAsync(Path.Combine(destination, "sentinel.txt")));
-        Assert.False(File.Exists(Path.Combine(_root, "prepared-traversal", "escaped.txt")));
+        Assert.False(File.Exists(Path.Combine(Directory.GetParent(destination)!.FullName, "escaped.txt")));
+        Assert.True(Directory.Exists(destination));
     }
 
     [Fact]
@@ -161,13 +156,9 @@ public sealed class SevenDaysToDieWorldStateTests : IDisposable
             await WriteEntryAsync(archive, "GeneratedWorlds/OtherWorld/biomes.png", [2]);
         }
 
-        var destination = Path.Combine(_root, "prepared-wrong-terrain", "user-data");
-        Directory.CreateDirectory(destination);
+        var prepared = CreateOwnedPrepared(Installation(Path.Combine(_root, "unused-2")));
+        var destination = prepared.WorkingDirectory;
         await File.WriteAllTextAsync(Path.Combine(destination, "sentinel.txt"), "original");
-        var prepared = new PreparedWorld(
-            Installation(Path.Combine(_root, "unused-2")),
-            destination,
-            EmptyEnvironment());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             SevenDaysToDieWorldState.RestorePreparedWorldAsync(
@@ -176,18 +167,14 @@ public sealed class SevenDaysToDieWorldStateTests : IDisposable
                 CancellationToken.None));
 
         Assert.Equal("original", await File.ReadAllTextAsync(Path.Combine(destination, "sentinel.txt")));
+        Assert.True(Directory.Exists(destination));
     }
 
     [Fact]
     public async Task FinalizePreservesRecoveryWorkspaceButDeletesDiscardedWorkspace()
     {
-        var preserveRoot = Path.Combine(_root, "preserve");
-        var preserveUserData = Path.Combine(preserveRoot, "user-data");
-        Directory.CreateDirectory(preserveUserData);
-        var preparedPreserve = new PreparedWorld(
-            Installation(Path.Combine(_root, "unused-3")),
-            preserveUserData,
-            EmptyEnvironment());
+        var preparedPreserve = CreateOwnedPrepared(Installation(Path.Combine(_root, "unused-3")));
+        var preserveRoot = preparedPreserve.WorkingDirectory;
 
         await SevenDaysToDieWorldState.FinalizePreparedWorldAsync(
             preparedPreserve,
@@ -195,16 +182,25 @@ public sealed class SevenDaysToDieWorldStateTests : IDisposable
             CancellationToken.None);
         Assert.True(Directory.Exists(preserveRoot));
 
-        var discardRoot = Path.Combine(_root, "discard");
-        var discardUserData = Path.Combine(discardRoot, "user-data");
-        Directory.CreateDirectory(discardUserData);
-        var preparedDiscard = preparedPreserve with { WorkingDirectory = discardUserData };
+        var preparedDiscard = CreateOwnedPrepared(Installation(Path.Combine(_root, "unused-4")));
+        var discardRoot = preparedDiscard.WorkingDirectory;
 
         await SevenDaysToDieWorldState.FinalizePreparedWorldAsync(
             preparedDiscard,
             PreparedWorldDisposition.Discard,
             CancellationToken.None);
+        _ownedWorkspaces.Remove(discardRoot);
         Assert.False(Directory.Exists(discardRoot));
+    }
+
+    private PreparedWorld CreateOwnedPrepared(GameInstallation installation)
+    {
+        var workspace = SevenDaysToDieWorkspaceOwnership.Create();
+        _ownedWorkspaces.Add(workspace);
+        return new PreparedWorld(
+            installation,
+            workspace,
+            EmptyEnvironment());
     }
 
     private static GameInstallation Installation(string userData)
@@ -234,6 +230,20 @@ public sealed class SevenDaysToDieWorldStateTests : IDisposable
 
     public void Dispose()
     {
+        foreach (var workspace in _ownedWorkspaces.ToArray())
+        {
+            try
+            {
+                if (Directory.Exists(workspace))
+                {
+                    SevenDaysToDieWorkspaceOwnership.DeleteOwned(workspace);
+                }
+            }
+            catch
+            {
+            }
+        }
+
         foreach (var package in _packages)
         {
             try

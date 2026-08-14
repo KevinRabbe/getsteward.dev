@@ -125,7 +125,7 @@ public sealed class ProjectZomboidRuntimeManagementConfigurationTests : IDisposa
                     Password,
                     CancellationToken.None));
 
-            Assert.Contains("linked/reparse", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("escapes or links outside the owned SafeWorld workspace", exception.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(source, await File.ReadAllTextAsync(outsideConfiguration));
         }
         finally

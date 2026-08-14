@@ -1,15 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <AssemblyName>SharedWorlds.Cli</AssemblyName>
+    <AssemblyName>SharedWorlds.Cli.Retired</AssemblyName>
     <RootNamespace>SharedWorlds.Cli</RootNamespace>
+    <Description>Retired solution placeholder. SafeWorld has one supported product lifecycle and storage composition surface in Desktop.</Description>
   </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="../SharedWorlds.Core/SharedWorlds.Core.csproj" />
-    <ProjectReference Include="../SharedWorlds.Infrastructure/SharedWorlds.Infrastructure.csproj" />
-    <ProjectReference Include="../SharedWorlds.GameAdapters/Factorio/SharedWorlds.GameAdapters.Factorio.csproj" />
-    <ProjectReference Include="../SharedWorlds.GameAdapters/Palworld/SharedWorlds.GameAdapters.Palworld.csproj" />
-    <ProjectReference Include="../SharedWorlds.GameAdapters/SevenDaysToDie/SharedWorlds.GameAdapters.SevenDaysToDie.csproj" />
-    <ProjectReference Include="../SharedWorlds.GameAdapters/ProjectZomboid/SharedWorlds.GameAdapters.ProjectZomboid.csproj" />
-  </ItemGroup>
 </Project>

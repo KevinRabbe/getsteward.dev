@@ -5,7 +5,7 @@ namespace SharedWorlds.GameAdapters.ProjectZomboid.Tests;
 public sealed class ProjectZomboidRuntimeManagementConfigurationTests : IDisposable
 {
     private const string Password = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
-    private readonly List<string> _operationRoots = [];
+    private readonly List<string> _ownedWorkspaces = [];
     private readonly string _cleanupRoot = Path.Combine(
         Path.GetTempPath(),
         $"sharedworlds-pz-runtime-config-{Guid.NewGuid():N}");
@@ -136,16 +136,12 @@ public sealed class ProjectZomboidRuntimeManagementConfigurationTests : IDisposa
 
     private ProjectZomboidDedicatedServerHostInputs CreateInputs()
     {
-        var operationRoot = Path.Combine(
-            GetExpectedWorkRoot(),
-            Guid.NewGuid().ToString("N"));
-        _operationRoots.Add(operationRoot);
-        var workingDirectory = Path.Combine(operationRoot, "Zomboid");
-        Directory.CreateDirectory(workingDirectory);
+        var workspace = ProjectZomboidWorkspaceOwnership.Create();
+        _ownedWorkspaces.Add(workspace);
         return new ProjectZomboidDedicatedServerHostInputs(
             LaunchPath: Path.Combine(Path.GetTempPath(), "unused-StartServer64.bat"),
             WorkingDirectory: Path.GetTempPath(),
-            CacheDirectory: workingDirectory,
+            CacheDirectory: workspace,
             ServerName: "servertest",
             GameArguments: []);
     }
@@ -166,27 +162,13 @@ public sealed class ProjectZomboidRuntimeManagementConfigurationTests : IDisposa
             "Server",
             inputs.ServerName + ".ini"));
 
-    private static string GetExpectedWorkRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.Combine(localData, "Steward", "workspaces", "project-zomboid");
-    }
-
     public void Dispose()
     {
-        foreach (var operationRoot in _operationRoots)
+        foreach (var workspace in _ownedWorkspaces)
         {
             try
             {
-                if (Directory.Exists(operationRoot))
-                {
-                    Directory.Delete(operationRoot, recursive: true);
-                }
+                ProjectZomboidWorkspaceOwnership.DeleteOwned(workspace);
             }
             catch (IOException)
             {

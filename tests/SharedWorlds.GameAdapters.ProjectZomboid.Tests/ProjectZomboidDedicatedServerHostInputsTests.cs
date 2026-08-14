@@ -8,7 +8,7 @@ public sealed class ProjectZomboidDedicatedServerHostInputsTests : IDisposable
     private readonly string _root = Path.Combine(
         Path.GetTempPath(),
         $"sharedworlds-pz-host-inputs-{Guid.NewGuid():N}");
-    private readonly List<string> _ownedOperationRoots = [];
+    private readonly List<string> _ownedWorkspaces = [];
 
     [Fact]
     public void SingleRestoredBundleProducesIsolatedHostInputs()
@@ -98,7 +98,7 @@ public sealed class ProjectZomboidDedicatedServerHostInputsTests : IDisposable
         var exception = Assert.Throws<InvalidOperationException>(() =>
             ProjectZomboidWorldState.CreateDedicatedServerHostInputs(world));
 
-        Assert.Contains("Refusing to use unrecognized Project Zomboid Steward workspace", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("Refusing unrecognized or linked disposable prepared workspace", exception.Message, StringComparison.Ordinal);
     }
 
     private string CreateServerRoot()
@@ -111,22 +111,10 @@ public sealed class ProjectZomboidDedicatedServerHostInputsTests : IDisposable
 
     private string CreateOwnedWorkspace(string serverName)
     {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        var operationRoot = Path.Combine(
-            localData,
-            "Steward",
-            "workspaces",
-            "project-zomboid",
-            Guid.NewGuid().ToString("N"));
-        _ownedOperationRoots.Add(operationRoot);
-        var workspace = Path.Combine(operationRoot, "Zomboid");
+        var workspace = ProjectZomboidWorkspaceOwnership.Create();
+        _ownedWorkspaces.Add(workspace);
         AddServerBundle(workspace, serverName);
-        return Path.GetFullPath(workspace);
+        return workspace;
     }
 
     private static void AddServerBundle(string workspace, string serverName)
@@ -165,9 +153,18 @@ public sealed class ProjectZomboidDedicatedServerHostInputsTests : IDisposable
 
     public void Dispose()
     {
-        foreach (var operationRoot in _ownedOperationRoots)
+        foreach (var workspace in _ownedWorkspaces)
         {
-            TryDeleteDirectory(operationRoot);
+            try
+            {
+                ProjectZomboidWorkspaceOwnership.DeleteOwned(workspace);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
         }
 
         TryDeleteDirectory(_root);

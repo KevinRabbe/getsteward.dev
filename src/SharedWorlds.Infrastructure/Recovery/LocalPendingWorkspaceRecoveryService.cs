@@ -26,12 +26,28 @@ public sealed class LocalPendingWorkspaceRecoveryService
     private readonly IWorldSessionCoordinator _coordinator;
     private readonly IWorkspaceRecoveryStore _recovery;
     private readonly ManagedWritableSessionGate _managedSessionGate;
+    private readonly PreparedWorldRecoveryResolver? _preparedWorldRecoveryResolver;
 
     public LocalPendingWorkspaceRecoveryService(
         IWorldStorage storage,
         IWorldSessionCoordinator coordinator,
         IWorkspaceRecoveryStore recovery,
         ManagedWritableSessionGate managedSessionGate)
+        : this(
+            storage,
+            coordinator,
+            recovery,
+            managedSessionGate,
+            preparedWorldRecoveryResolver: null)
+    {
+    }
+
+    public LocalPendingWorkspaceRecoveryService(
+        IWorldStorage storage,
+        IWorldSessionCoordinator coordinator,
+        IWorkspaceRecoveryStore recovery,
+        ManagedWritableSessionGate managedSessionGate,
+        PreparedWorldRecoveryResolver? preparedWorldRecoveryResolver)
     {
         ArgumentNullException.ThrowIfNull(storage);
         ArgumentNullException.ThrowIfNull(coordinator);
@@ -41,6 +57,7 @@ public sealed class LocalPendingWorkspaceRecoveryService
         _coordinator = coordinator;
         _recovery = recovery;
         _managedSessionGate = managedSessionGate;
+        _preparedWorldRecoveryResolver = preparedWorldRecoveryResolver;
     }
 
     public async Task<World> RetryAsync(
@@ -119,19 +136,20 @@ public sealed class LocalPendingWorkspaceRecoveryService
                 world,
                 recovery,
                 cancellationToken);
+            var prepared = ResolvePreparedWorld(
+                recovery,
+                adapter,
+                installation,
+                environment.Manifest,
+                world.Name);
 
-            if (!Directory.Exists(recovery.WorkingDirectory))
+            if (!Directory.Exists(prepared.WorkingDirectory))
             {
                 throw new LocalPendingWorkspaceRecoveryException(
                     "WorkspaceMissing",
-                    "The preserved recovery workspace is missing, so Steward cannot reconstruct the local candidate safely.");
+                    "The preserved recovery workspace is missing, so SafeWorld cannot reconstruct the local candidate safely.");
             }
 
-            var prepared = new PreparedWorld(
-                installation,
-                recovery.WorkingDirectory,
-                environment.Manifest,
-                world.Name);
             var candidate = await _storage.LoadStateRevisionAsync(
                 worldId,
                 candidateId,
@@ -187,7 +205,7 @@ public sealed class LocalPendingWorkspaceRecoveryService
             var environmentRevisionId = recovery.EnvironmentRevisionId
                 ?? throw new LocalPendingWorkspaceRecoveryException(
                     "EnvironmentUnknown",
-                    "This recovery record predates exact environment journaling. Steward will preserve the workspace rather than create an unlinked candidate.");
+                    "This recovery record predates exact environment journaling. SafeWorld will preserve the workspace rather than create an unlinked candidate.");
             var revision = new StateRevision(
                 candidateId,
                 world.Id,
@@ -222,7 +240,7 @@ public sealed class LocalPendingWorkspaceRecoveryService
             cancellationToken)
             ?? throw new LocalPendingWorkspaceRecoveryException(
                 "CandidateMissing",
-                "The journaled candidate is canonical, but its immutable revision metadata is missing. Steward will preserve the recovery workspace rather than discard its remaining evidence.");
+                "The journaled candidate is canonical, but its immutable revision metadata is missing. SafeWorld will preserve the recovery workspace rather than discard its remaining evidence.");
         EnsureCandidateMatches(candidate, recovery, adapter);
         await VerifyCandidatePackageAsync(worldId, candidateId, cancellationToken);
     }
@@ -249,7 +267,7 @@ public sealed class LocalPendingWorkspaceRecoveryService
         {
             throw new LocalPendingWorkspaceRecoveryException(
                 "CandidatePackageInvalid",
-                $"The journaled candidate '{candidateId}' cannot be verified from local storage: {exception.Message} Steward will preserve the recovery workspace and canonical head.");
+                $"The journaled candidate '{candidateId}' cannot be verified from local storage: {exception.Message} SafeWorld will preserve the recovery workspace and canonical head.");
         }
     }
 
@@ -260,24 +278,67 @@ public sealed class LocalPendingWorkspaceRecoveryService
         GameInstallation installation,
         CancellationToken cancellationToken)
     {
-        if (!Directory.Exists(recovery.WorkingDirectory))
+        // Legacy journals are allowed to prove that their old absolute runtime path has already
+        // disappeared without requiring a recovery resolver. This branch is migration compatibility,
+        // not the permanent recovery model.
+        if (recovery.RecoveryLocation is null &&
+            !Directory.Exists(recovery.WorkingDirectory))
         {
             await RemoveRecoveryRecordAsync(recovery, cancellationToken);
             return;
         }
 
         var environment = await LoadRecordedEnvironmentAsync(world, recovery, cancellationToken);
-        var prepared = new PreparedWorld(
+        var prepared = ResolvePreparedWorld(
+            recovery,
+            adapter,
             installation,
-            recovery.WorkingDirectory,
             environment.Manifest,
             world.Name);
+        if (!Directory.Exists(prepared.WorkingDirectory))
+        {
+            await RemoveRecoveryRecordAsync(recovery, cancellationToken);
+            return;
+        }
+
         await FinalizeWorkspaceAsync(
             world,
             recovery,
             prepared,
             adapter,
             cancellationToken);
+    }
+
+    private PreparedWorld ResolvePreparedWorld(
+        WorkspaceRecoveryRecord recovery,
+        IGameAdapter adapter,
+        GameInstallation installation,
+        SharedWorlds.Core.Environment.EnvironmentManifest environment,
+        string? displayName)
+    {
+        if (_preparedWorldRecoveryResolver is not null)
+        {
+            return _preparedWorldRecoveryResolver.Resolve(
+                recovery,
+                adapter,
+                installation,
+                environment,
+                displayName);
+        }
+
+        if (recovery.RecoveryLocation is not null)
+        {
+            throw new LocalPendingWorkspaceRecoveryException(
+                "RecoveryResolverUnavailable",
+                "This recovery journal uses stable workspace identity, but the current runtime has no configured recovery resolver. SafeWorld will preserve the journal and workspace rather than guess a path.");
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(recovery.WorkingDirectory);
+        return new PreparedWorld(
+            installation,
+            recovery.WorkingDirectory,
+            environment,
+            displayName);
     }
 
     private async Task FinalizeWorkspaceAsync(
@@ -322,7 +383,7 @@ public sealed class LocalPendingWorkspaceRecoveryService
                 $"Canonical recovery and workspace cleanup are complete, but recovery-journal removal failed: {exception.Message}");
             throw new LocalPendingWorkspaceRecoveryException(
                 "CleanupPending",
-                "The recovered World is canonical, but Steward could not clear its cleanup journal.");
+                "The recovered World is canonical, but SafeWorld could not clear its cleanup journal.");
         }
     }
 
@@ -355,12 +416,12 @@ public sealed class LocalPendingWorkspaceRecoveryService
         var environmentId = recovery.EnvironmentRevisionId
             ?? throw new LocalPendingWorkspaceRecoveryException(
                 "EnvironmentUnknown",
-                "This recovery record predates exact environment journaling. Steward will preserve the workspace rather than guess its environment.");
+                "This recovery record predates exact environment journaling. SafeWorld will preserve the workspace rather than guess its environment.");
         if (world.CurrentEnvironmentRevisionId != environmentId)
         {
             throw new LocalPendingWorkspaceRecoveryException(
                 "EnvironmentHeadDiverged",
-                $"The recovery workspace belongs to environment '{environmentId}', but the current World uses '{world.CurrentEnvironmentRevisionId}'. Steward will not combine them automatically.");
+                $"The recovery workspace belongs to environment '{environmentId}', but the current World uses '{world.CurrentEnvironmentRevisionId}'. SafeWorld will not combine them automatically.");
         }
 
         var environment = await _storage.LoadEnvironmentRevisionAsync(
@@ -386,7 +447,7 @@ public sealed class LocalPendingWorkspaceRecoveryService
         {
             throw new LocalPendingWorkspaceRecoveryException(
                 "CanonicalHeadDiverged",
-                $"The recovery candidate was based on '{recovery.BaseStateRevisionId}', but the current canonical state is '{world.CurrentStateRevisionId}'. Steward will not overwrite that different head automatically.");
+                $"The recovery candidate was based on '{recovery.BaseStateRevisionId}', but the current canonical state is '{world.CurrentStateRevisionId}'. SafeWorld will not overwrite that different head automatically.");
         }
 
         if (recovery.EnvironmentRevisionId is { } environmentId &&
@@ -394,7 +455,7 @@ public sealed class LocalPendingWorkspaceRecoveryService
         {
             throw new LocalPendingWorkspaceRecoveryException(
                 "EnvironmentHeadDiverged",
-                $"The recovery workspace belongs to environment '{environmentId}', but the current World uses '{world.CurrentEnvironmentRevisionId}'. Steward will not combine them automatically.");
+                $"The recovery workspace belongs to environment '{environmentId}', but the current World uses '{world.CurrentEnvironmentRevisionId}'. SafeWorld will not combine them automatically.");
         }
     }
 

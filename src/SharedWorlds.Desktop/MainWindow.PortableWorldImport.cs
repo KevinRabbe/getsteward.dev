@@ -202,10 +202,9 @@ public partial class MainWindow
     }
 
     private static string GetPortableWorldImportStagingRoot()
-    {
-        var localDataRoot = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return Path.Combine(localDataRoot, "SharedWorlds", "portable-import-staging");
-    }
+        => Path.Combine(
+            DesktopLocalDataRoot.RequireResolvedRoot(),
+            "portable-import-staging");
 
     private static void EnsurePortableWorldImportDiskCapacity(string stagingRoot, long stateBytes)
     {

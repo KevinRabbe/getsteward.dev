@@ -1,5 +1,6 @@
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Environment;
+using SharedWorlds.Core.Storage;
 
 namespace SharedWorlds.GameAdapters.Terraria;
 
@@ -104,7 +105,10 @@ internal static class TerrariaWorldState
                 $"Terraria World capture requires a .wld file: {fullSourcePath}");
         }
 
-        var packagePath = CreatePackagePath(worldName);
+        var packagePath = DisposableStatePackageStorage.CreatePackagePath(
+            "terraria",
+            worldName,
+            ".wld");
         try
         {
             await CopyFileAsync(fullSourcePath, packagePath, cancellationToken);
@@ -168,36 +172,6 @@ internal static class TerrariaWorldState
             throw new InvalidOperationException(
                 $"{description} must be a regular non-linked file: {path}");
         }
-    }
-
-    private static string CreatePackagePath(string worldName)
-    {
-        var root = GetPackageRoot();
-        Directory.CreateDirectory(root);
-        var safeName = SanitizeFileName(worldName);
-        return Path.Combine(root, $"{safeName}-{Guid.NewGuid():N}.wld");
-    }
-
-    private static string GetPackageRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.Combine(localData, "SharedWorlds", "terraria", "packages");
-    }
-
-    private static string SanitizeFileName(string value)
-    {
-        var result = string.IsNullOrWhiteSpace(value) ? "world" : value;
-        foreach (var invalidCharacter in Path.GetInvalidFileNameChars())
-        {
-            result = result.Replace(invalidCharacter, '_');
-        }
-
-        return string.IsNullOrWhiteSpace(result) ? "world" : result;
     }
 
     private static void TryDeleteFile(string path)

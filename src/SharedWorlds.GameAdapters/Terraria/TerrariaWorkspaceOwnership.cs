@@ -1,66 +1,107 @@
+using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Domain;
+using SharedWorlds.Core.Storage;
+
 namespace SharedWorlds.GameAdapters.Terraria;
 
 internal static class TerrariaWorkspaceOwnership
 {
+    private const string AdapterId = "terraria";
+
+    /// <summary>
+    /// Compatibility scratch for no-context/non-writable preparation only. Writable sessions receive
+    /// an identity-bound managed workspace from Core before adapter materialization begins.
+    /// </summary>
     public static string Create()
+        => DisposablePreparedWorkspaceStorage.Create(AdapterId);
+
+    public static void RequireOwned(PreparedWorld world)
     {
-        var root = GetExpectedWorkRoot();
-        Directory.CreateDirectory(root);
-        var workspace = Path.Combine(root, Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(workspace);
-        return Path.GetFullPath(workspace);
+        ArgumentNullException.ThrowIfNull(world);
+        if (world.RecoveryLocation is not { } location)
+        {
+            RequireOwned(world.WorkingDirectory);
+            return;
+        }
+
+        location.Validate();
+        if (location.Kind != PreparedWorldRecoveryLocationKind.SafeWorldManaged)
+        {
+            throw Refuse(world.WorkingDirectory);
+        }
+
+        RequireRegularManagedTree(world.WorkingDirectory);
     }
 
     public static void RequireOwned(string workingDirectory)
+        => DisposablePreparedWorkspaceStorage.RequireOwned(AdapterId, workingDirectory);
+
+    public static void DeleteOwned(PreparedWorld world)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
-        var workspace = Path.GetFullPath(workingDirectory);
-        var leaf = Path.GetFileName(Path.TrimEndingDirectorySeparator(workspace));
-        if (!Guid.TryParseExact(leaf, "N", out _))
+        RequireOwned(world);
+        if (!Directory.Exists(world.WorkingDirectory))
         {
-            throw Refuse(workingDirectory);
+            return;
         }
 
-        var ownerRoot = Directory.GetParent(workspace)?.FullName;
-        if (ownerRoot is null || !PathsEqual(ownerRoot, GetExpectedWorkRoot()))
+        if (world.RecoveryLocation is null)
         {
-            throw Refuse(workingDirectory);
+            DisposablePreparedWorkspaceStorage.DeleteOwned(AdapterId, world.WorkingDirectory);
+            return;
         }
 
-        RejectReparsePoint(ownerRoot, workingDirectory);
-        if (Directory.Exists(workspace))
-        {
-            RejectReparsePoint(workspace, workingDirectory);
-        }
+        // Transitional compatibility: normal lifecycle finalization is being moved into Core. Until
+        // every caller uses that coordinator, migrated managed workspaces still require a safe local
+        // delete here. Core independently proves exact WorkspaceId ownership in recovery cleanup.
+        RequireRegularManagedTree(world.WorkingDirectory);
+        Directory.Delete(world.WorkingDirectory, recursive: true);
     }
 
-    private static string GetExpectedWorkRoot()
+    private static void RequireRegularManagedTree(string workingDirectory)
     {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
+        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
+        var root = Path.GetFullPath(workingDirectory);
+        if (!Directory.Exists(root))
         {
-            localData = Path.GetTempPath();
+            return;
         }
 
-        return Path.GetFullPath(Path.Combine(localData, "Steward", "workspaces", "terraria"));
+        var pending = new Stack<string>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            RejectReparsePoint(current, workingDirectory);
+            foreach (var directory in Directory.EnumerateDirectories(
+                         current,
+                         "*",
+                         SearchOption.TopDirectoryOnly))
+            {
+                RejectReparsePoint(directory, workingDirectory);
+                pending.Push(directory);
+            }
+
+            foreach (var file in Directory.EnumerateFiles(
+                         current,
+                         "*",
+                         SearchOption.TopDirectoryOnly))
+            {
+                if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
+                {
+                    throw Refuse(workingDirectory);
+                }
+            }
+        }
     }
 
     private static void RejectReparsePoint(string path, string originalPath)
     {
-        if (Directory.Exists(path) &&
-            (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
         {
             throw Refuse(originalPath);
         }
     }
 
-    private static bool PathsEqual(string left, string right)
-        => string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), PathComparison);
-
-    private static StringComparison PathComparison => OperatingSystem.IsWindows()
-        ? StringComparison.OrdinalIgnoreCase
-        : StringComparison.Ordinal;
-
     private static InvalidOperationException Refuse(string workingDirectory)
-        => new($"Refusing to use unrecognized Terraria Steward workspace '{workingDirectory}'.");
+        => new($"Refusing to use unrecognized or linked Terraria Safe World workspace '{workingDirectory}'.");
 }

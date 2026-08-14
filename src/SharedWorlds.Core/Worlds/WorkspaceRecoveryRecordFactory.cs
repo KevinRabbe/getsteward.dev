@@ -33,8 +33,8 @@ public static class WorkspaceRecoveryRecordFactory
             StartedBy: startedBy,
             CreatedAt: createdAt,
             UpdatedAt: createdAt,
-            Status: WorkspaceRecoveryStatus.CleanupPending,
-            Reason: "Recovery identity was journaled before prepared runtime materialization; session launch has not begun.",
+            Status: WorkspaceRecoveryStatus.PreparationPending,
+            Reason: "Recovery identity was journaled before prepared runtime materialization. Materialization has not been confirmed, so this record is not cleanup permission.",
             EnvironmentRevisionId: environmentRevisionId,
             RecoveryLocation: recoveryLocation);
     }

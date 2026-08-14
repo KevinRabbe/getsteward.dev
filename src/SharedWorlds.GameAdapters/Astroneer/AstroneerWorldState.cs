@@ -1,4 +1,5 @@
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
 using SharedWorlds.Core.Storage;
 
@@ -26,7 +27,7 @@ internal static class AstroneerWorldState
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(world);
-        AstroneerWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        AstroneerWorkspaceOwnership.RequireOwned(world);
         return CaptureFileAsync(
             GetPreparedWorldPath(world.WorkingDirectory),
             world.DisplayName ?? "world",
@@ -45,6 +46,28 @@ internal static class AstroneerWorldState
             DisplayName: null);
     }
 
+    public static PreparedWorld PrepareEnvironment(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        PreparedWorldPreparationContext preparation)
+    {
+        ArgumentNullException.ThrowIfNull(preparation);
+        AstroneerEnvironment.RequireCompatible(installation, requiredEnvironment);
+        var workspace = Path.GetFullPath(preparation.ManagedWorkingDirectory);
+        if (!Directory.Exists(workspace))
+        {
+            throw new InvalidOperationException(
+                "ASTRONEER managed workspace must be created by Core before adapter materialization.");
+        }
+
+        return new PreparedWorld(
+            installation,
+            workspace,
+            requiredEnvironment,
+            DisplayName: null,
+            RecoveryLocation: PreparedWorldRecoveryLocation.Managed());
+    }
+
     public static async Task RestorePreparedWorldAsync(
         PreparedWorld world,
         StatePackage state,
@@ -53,7 +76,7 @@ internal static class AstroneerWorldState
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(state);
         cancellationToken.ThrowIfCancellationRequested();
-        AstroneerWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        AstroneerWorkspaceOwnership.RequireOwned(world);
 
         var sourcePath = Path.GetFullPath(state.Path);
         RequireRegularWorldFile(sourcePath, "ASTRONEER state package");
@@ -117,13 +140,11 @@ internal static class AstroneerWorldState
     {
         ArgumentNullException.ThrowIfNull(world);
         cancellationToken.ThrowIfCancellationRequested();
-        AstroneerWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        AstroneerWorkspaceOwnership.RequireOwned(world);
 
-        if (disposition == PreparedWorldDisposition.Discard &&
-            Directory.Exists(world.WorkingDirectory))
+        if (disposition == PreparedWorldDisposition.Discard)
         {
-            AstroneerWorkspaceOwnership.RequireOwnedTree(world.WorkingDirectory);
-            Directory.Delete(world.WorkingDirectory, recursive: true);
+            AstroneerWorkspaceOwnership.DeleteOwned(world);
         }
 
         return Task.CompletedTask;
@@ -138,7 +159,10 @@ internal static class AstroneerWorldState
         var fullSourcePath = Path.GetFullPath(sourcePath);
         RequireRegularWorldFile(fullSourcePath, "ASTRONEER World");
 
-        var packagePath = CreatePackagePath(worldName);
+        var packagePath = DisposableStatePackageStorage.CreatePackagePath(
+            "astroneer",
+            worldName,
+            ".savegame");
         try
         {
             await CopyFileAsync(fullSourcePath, packagePath, cancellationToken);
@@ -260,30 +284,6 @@ internal static class AstroneerWorldState
         }
     }
 
-    private static string CreatePackagePath(string worldName)
-    {
-        var root = GetPackageRoot();
-        Directory.CreateDirectory(root);
-        var safeName = SanitizeFileName(worldName);
-        return Path.Combine(root, $"{safeName}-{Guid.NewGuid():N}.savegame");
-    }
-
-    private static string GetPackageRoot()
-        => Path.Combine(
-            DisposableStatePackageStorage.GetAdapterRoot("astroneer"),
-            "packages");
-
-    private static string SanitizeFileName(string value)
-    {
-        var result = string.IsNullOrWhiteSpace(value) ? "world" : value;
-        foreach (var invalidCharacter in Path.GetInvalidFileNameChars())
-        {
-            result = result.Replace(invalidCharacter, '_');
-        }
-
-        return string.IsNullOrWhiteSpace(result) ? "world" : result;
-    }
-
     private static void TryDeleteFile(string path)
     {
         try
@@ -304,44 +304,64 @@ internal static class AstroneerWorldState
 
 internal static class AstroneerWorkspaceOwnership
 {
+    private const string AdapterId = "astroneer";
+
     public static string Create()
+        => DisposablePreparedWorkspaceStorage.Create(AdapterId);
+
+    public static void RequireOwned(PreparedWorld world)
     {
-        var root = GetExpectedWorkRoot();
-        Directory.CreateDirectory(root);
-        var workspace = Path.Combine(root, Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(workspace);
-        return Path.GetFullPath(workspace);
+        ArgumentNullException.ThrowIfNull(world);
+        if (world.RecoveryLocation is not { } location)
+        {
+            _ = DisposablePreparedWorkspaceStorage.RequireOwned(
+                AdapterId,
+                world.WorkingDirectory);
+            return;
+        }
+
+        location.Validate();
+        if (location.Kind != PreparedWorldRecoveryLocationKind.SafeWorldManaged)
+        {
+            throw Refuse(world.WorkingDirectory);
+        }
+
+        RequireRegularManagedTree(world.WorkingDirectory);
     }
 
-    public static void RequireOwned(string workingDirectory)
+    public static void DeleteOwned(PreparedWorld world)
+    {
+        RequireOwned(world);
+        if (!Directory.Exists(world.WorkingDirectory))
+        {
+            return;
+        }
+
+        if (world.RecoveryLocation is null)
+        {
+            DisposablePreparedWorkspaceStorage.DeleteOwned(
+                AdapterId,
+                world.WorkingDirectory);
+            return;
+        }
+
+        // Transitional compatibility until all normal lifecycle finalization is routed through the
+        // Core PreparedWorldFinalizationCoordinator.
+        RequireRegularManagedTree(world.WorkingDirectory);
+        Directory.Delete(world.WorkingDirectory, recursive: true);
+    }
+
+    private static void RequireRegularManagedTree(string workingDirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
-        var workspace = Path.GetFullPath(workingDirectory);
-        var leaf = Path.GetFileName(Path.TrimEndingDirectorySeparator(workspace));
-        if (!Guid.TryParseExact(leaf, "N", out _) ||
-            Directory.GetParent(workspace)?.FullName is not string ownerRoot ||
-            !PathsEqual(ownerRoot, GetExpectedWorkRoot()))
-        {
-            throw Refuse(workingDirectory);
-        }
-
-        RejectReparsePoint(ownerRoot, workingDirectory);
-        if (Directory.Exists(workspace))
-        {
-            RejectReparsePoint(workspace, workingDirectory);
-        }
-    }
-
-    public static void RequireOwnedTree(string workingDirectory)
-    {
-        RequireOwned(workingDirectory);
-        if (!Directory.Exists(workingDirectory))
+        var root = Path.GetFullPath(workingDirectory);
+        if (!Directory.Exists(root))
         {
             return;
         }
 
         var pending = new Stack<string>();
-        pending.Push(Path.GetFullPath(workingDirectory));
+        pending.Push(root);
         while (pending.Count > 0)
         {
             var current = pending.Pop();
@@ -368,43 +388,15 @@ internal static class AstroneerWorkspaceOwnership
         }
     }
 
-    private static string GetExpectedWorkRoot()
+    private static void RejectReparsePoint(string path, string originalPath)
     {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.GetFullPath(Path.Combine(
-            localData,
-            "Steward",
-            "workspaces",
-            "astroneer"));
-    }
-
-    private static void RejectReparsePoint(
-        string path,
-        string originalPath)
-    {
-        if (Directory.Exists(path) &&
-            (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
         {
             throw Refuse(originalPath);
         }
     }
 
-    private static bool PathsEqual(string left, string right)
-        => string.Equals(
-            Path.GetFullPath(left),
-            Path.GetFullPath(right),
-            PathComparison);
-
-    private static StringComparison PathComparison => OperatingSystem.IsWindows()
-        ? StringComparison.OrdinalIgnoreCase
-        : StringComparison.Ordinal;
-
     private static InvalidOperationException Refuse(string path)
         => new(
-            $"Refusing to use unrecognized or linked ASTRONEER Steward workspace '{path}'.");
+            $"Refusing to use unrecognized or linked ASTRONEER Safe World workspace '{path}'.");
 }

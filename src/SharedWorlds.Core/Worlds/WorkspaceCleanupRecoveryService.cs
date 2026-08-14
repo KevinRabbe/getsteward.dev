@@ -17,7 +17,8 @@ public sealed class WorkspaceCleanupRecoveryException : InvalidOperationExceptio
 /// <summary>
 /// Resolves cleanup-only prepared-runtime responsibility after canonical state handling is already
 /// finished. Runtime location is reconstructed from durable recovery identity; legacy absolute paths
-/// are interpreted only inside PreparedWorldRecoveryResolver.
+/// are interpreted only inside PreparedWorldRecoveryResolver. SafeWorld-managed directory deletion is
+/// owned by Core, never by the game adapter.
 /// </summary>
 public sealed class WorkspaceCleanupRecoveryService
 {
@@ -107,7 +108,11 @@ public sealed class WorkspaceCleanupRecoveryService
 
         if (Directory.Exists(prepared.WorkingDirectory))
         {
-            await adapter.FinalizePreparedWorldAsync(
+            var finalization = new PreparedWorldFinalizationCoordinator(
+                _resolver.ManagedWorkspaces);
+            await finalization.FinalizeAsync(
+                record,
+                adapter,
                 prepared,
                 PreparedWorldDisposition.Discard,
                 cancellationToken);

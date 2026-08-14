@@ -1,163 +1,51 @@
+using SharedWorlds.Core.Storage;
+
 namespace SharedWorlds.GameAdapters.ProjectZomboid;
 
 internal static class ProjectZomboidWorkspaceOwnership
 {
-    private const string WorkspaceLeafName = "Zomboid";
+    private const string AdapterId = "project-zomboid";
 
-    public static void RequireOwned(string workingDirectory)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
+    public static string Create()
+        => DisposablePreparedWorkspaceStorage.Create(AdapterId);
 
-        var workspace = Path.GetFullPath(workingDirectory);
-        if (!string.Equals(
-                Path.GetFileName(Path.TrimEndingDirectorySeparator(workspace)),
-                WorkspaceLeafName,
-                PathComparison))
-        {
-            throw Refuse(workingDirectory);
-        }
+    public static string RequireOwned(string workingDirectory)
+        => DisposablePreparedWorkspaceStorage.RequireOwned(
+            AdapterId,
+            workingDirectory);
 
-        var operationRoot = Directory.GetParent(workspace)?.FullName;
-        if (operationRoot is null ||
-            !Guid.TryParseExact(
-                Path.GetFileName(Path.TrimEndingDirectorySeparator(operationRoot)),
-                "N",
-                out _))
-        {
-            throw Refuse(workingDirectory);
-        }
-
-        var ownerRoot = Directory.GetParent(operationRoot)?.FullName;
-        if (ownerRoot is null || !PathsEqual(ownerRoot, GetExpectedWorkRoot()))
-        {
-            throw Refuse(workingDirectory);
-        }
-
-        RejectReparsePoint(operationRoot, workingDirectory);
-        if (Directory.Exists(workspace))
-        {
-            RejectReparsePoint(workspace, workingDirectory);
-        }
-    }
-
-    public static void RequireOwnedPath(
+    public static string RequireOwnedPath(
         string workingDirectory,
         string candidatePath,
         string description)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(candidatePath);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        RequireOwned(workingDirectory);
-
-        var workspace = Path.GetFullPath(workingDirectory);
+        var workspace = RequireOwned(workingDirectory);
         var candidate = Path.GetFullPath(candidatePath);
-        var relative = Path.GetRelativePath(workspace, candidate);
-        if (!IsContainedRelativePath(relative))
+        try
         {
-            throw RefusePath(candidatePath, description);
+            DisposablePreparedWorkspaceStorage.RequireOwnedTree(
+                AdapterId,
+                workspace,
+                candidate);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new InvalidOperationException(
+                $"Project Zomboid {description} escapes or links outside the owned SafeWorld workspace: '{candidatePath}'.",
+                exception);
         }
 
-        if (string.Equals(relative, ".", StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        var current = workspace;
-        foreach (var segment in relative.Split(
-                     new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
-                     StringSplitOptions.RemoveEmptyEntries))
-        {
-            current = Path.Combine(current, segment);
-
-            FileAttributes attributes;
-            try
-            {
-                attributes = File.GetAttributes(current);
-            }
-            catch (FileNotFoundException)
-            {
-                return;
-            }
-            catch (DirectoryNotFoundException)
-            {
-                return;
-            }
-            catch (IOException exception)
-            {
-                throw RefusePath(candidatePath, description, exception);
-            }
-            catch (UnauthorizedAccessException exception)
-            {
-                throw RefusePath(candidatePath, description, exception);
-            }
-
-            if ((attributes & FileAttributes.ReparsePoint) != 0)
-            {
-                throw RefusePath(candidatePath, description);
-            }
-        }
+        return candidate;
     }
 
-    private static bool IsContainedRelativePath(string relativePath)
-    {
-        if (Path.IsPathRooted(relativePath) ||
-            string.Equals(relativePath, "..", StringComparison.Ordinal))
-        {
-            return false;
-        }
+    public static void RequireOwnedTree(string workingDirectory)
+        => DisposablePreparedWorkspaceStorage.RequireOwnedTree(
+            AdapterId,
+            workingDirectory,
+            workingDirectory);
 
-        return !relativePath.StartsWith(
-                   $"..{Path.DirectorySeparatorChar}",
-                   StringComparison.Ordinal) &&
-               !relativePath.StartsWith(
-                   $"..{Path.AltDirectorySeparatorChar}",
-                   StringComparison.Ordinal);
-    }
-
-    private static string GetExpectedWorkRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.GetFullPath(Path.Combine(
-            localData,
-            "Steward",
-            "workspaces",
-            "project-zomboid"));
-    }
-
-    private static void RejectReparsePoint(string path, string originalPath)
-    {
-        if (!Directory.Exists(path))
-        {
-            return;
-        }
-
-        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
-        {
-            throw Refuse(originalPath);
-        }
-    }
-
-    private static bool PathsEqual(string left, string right)
-        => string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), PathComparison);
-
-    private static StringComparison PathComparison => OperatingSystem.IsWindows()
-        ? StringComparison.OrdinalIgnoreCase
-        : StringComparison.Ordinal;
-
-    private static InvalidOperationException Refuse(string workingDirectory)
-        => new(
-            $"Refusing to use unrecognized Project Zomboid Steward workspace '{workingDirectory}'.");
-
-    private static InvalidOperationException RefusePath(
-        string candidatePath,
-        string description,
-        Exception? innerException = null)
-        => new(
-            $"Refusing to use Project Zomboid Steward {description} path '{candidatePath}' because it is outside the owned workspace or contains a linked/reparse path.",
-            innerException);
+    public static void DeleteOwned(string workingDirectory)
+        => DisposablePreparedWorkspaceStorage.DeleteOwned(
+            AdapterId,
+            workingDirectory);
 }

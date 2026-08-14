@@ -211,9 +211,10 @@ public interface IGameAdapter
     }
 
     /// <summary>
-    /// Finalizes adapter-owned prepared workspace resources.
-    /// Discard means the workspace is no longer needed and should be removed where safe.
-    /// PreserveForRecovery means potentially recoverable local state must remain intact.
+    /// Finalizes game-specific prepared-runtime resources. Filesystem ownership is separate from
+    /// game finalization: an adapter may delete only storage that it owns itself. In particular, an
+    /// adapter must never delete the root of a <see cref="PreparedWorldRecoveryLocationKind.SafeWorldManaged"/>
+    /// runtime; Core proves the durable WorkspaceId and performs that deletion after adapter finalization.
     /// </summary>
     Task FinalizePreparedWorldAsync(
         PreparedWorld world,
@@ -274,7 +275,21 @@ public sealed record JoinCapabilityResult(
 
 public enum PreparedWorldDisposition
 {
+    /// <summary>
+    /// Finalize and discard adapter-owned runtime storage. This is used for legacy scratch or native
+    /// locations whose deletion policy belongs to the adapter, not for a SafeWorld-managed root.
+    /// </summary>
     Discard,
+
+    /// <summary>
+    /// Finalize game-specific resources for a runtime whose SafeWorld-managed root will be deleted by
+    /// Core immediately after the adapter returns. The adapter must not delete that managed root.
+    /// </summary>
+    ReleaseForCoreManagedDiscard,
+
+    /// <summary>
+    /// Leave potentially recoverable runtime state intact.
+    /// </summary>
     PreserveForRecovery
 }
 

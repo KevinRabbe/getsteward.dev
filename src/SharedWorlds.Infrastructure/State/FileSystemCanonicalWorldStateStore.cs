@@ -24,23 +24,13 @@ public sealed class FileSystemCanonicalWorldStateStore : ICanonicalWorldStateSto
 
     private readonly string _rootPath;
 
-    public FileSystemCanonicalWorldStateStore(string? rootPath = null)
+    public FileSystemCanonicalWorldStateStore(string rootPath)
     {
-        _rootPath = Path.GetFullPath(rootPath ?? GetDefaultRootPath());
+        ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
+        _rootPath = Path.GetFullPath(rootPath);
     }
 
     public string RootPath => _rootPath;
-
-    public static string GetDefaultRootPath()
-    {
-        var basePath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(basePath))
-        {
-            basePath = Path.GetTempPath();
-        }
-
-        return Path.Combine(basePath, "SharedWorlds", "canonical-state");
-    }
 
     public async Task<CanonicalWorldStateHead?> ReadHeadAsync(
         string worldId,

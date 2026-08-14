@@ -61,7 +61,7 @@ public static class DisposableStatePackageStorage
     private static string RequireSafeExtension(string extension)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(extension);
-        var normalized = extension.StartsWith('.', StringComparison.Ordinal)
+        var normalized = extension.StartsWith(".", StringComparison.Ordinal)
             ? extension
             : $".{extension}";
 

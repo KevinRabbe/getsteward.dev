@@ -134,10 +134,13 @@ public sealed class DesktopLocalDataRootMigrationTests
     }
 
     [Fact]
-    public void DesktopAndPeerStorageNoLongerConstructLegacySharedWorldsPaths()
+    public void DesktopPeerAndLegacyRemoteStateUseOnlyResolvedSafeWorldRoot()
     {
         var mainWindowSource = Read("src/SharedWorlds.Desktop/MainWindow.xaml.cs");
         var peerRuntimeSource = Read("src/SharedWorlds.Desktop/MainWindow.PeerRuntime.cs");
+        var remoteAuthenticationSource = Read(
+            "src/SharedWorlds.Desktop/MainWindow.RemoteAuthentication.cs");
+        var remoteRuntimeSource = Read("src/SharedWorlds.Desktop/MainWindow.RemoteRuntime.cs");
 
         Assert.Contains(
             "DesktopLocalDataRoot.RequireResolvedRoot()",
@@ -145,9 +148,24 @@ public sealed class DesktopLocalDataRootMigrationTests
             StringComparison.Ordinal);
         Assert.DoesNotContain("\"SharedWorlds\"", mainWindowSource, StringComparison.Ordinal);
         Assert.DoesNotContain("GetLocalDataRoot", mainWindowSource, StringComparison.Ordinal);
+
         Assert.Contains("=> new(_storageRoot);", peerRuntimeSource, StringComparison.Ordinal);
         Assert.DoesNotContain("\"SharedWorlds\"", peerRuntimeSource, StringComparison.Ordinal);
         Assert.DoesNotContain("GetLocalDataRoot", peerRuntimeSource, StringComparison.Ordinal);
+
+        Assert.Contains(
+            "DesktopLocalDataRoot.RequireResolvedRoot()",
+            remoteAuthenticationSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("\"SharedWorlds\"", remoteAuthenticationSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetLocalDataRoot", remoteAuthenticationSource, StringComparison.Ordinal);
+
+        Assert.Contains(
+            "DesktopLocalDataRoot.RequireResolvedRoot()",
+            remoteRuntimeSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("\"SharedWorlds\"", remoteRuntimeSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetLocalDataRoot", remoteRuntimeSource, StringComparison.Ordinal);
     }
 
     private static string Read(string relativePath)

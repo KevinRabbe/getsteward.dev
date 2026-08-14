@@ -1,8 +1,58 @@
+using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Domain;
+
 namespace SharedWorlds.GameAdapters.Factorio;
 
 internal static class FactorioWorkspaceOwnership
 {
+    public static void RequireOwned(PreparedWorld world)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+
+        if (world.RecoveryLocation is { } location)
+        {
+            location.Validate();
+            if (location.Kind != PreparedWorldRecoveryLocationKind.SafeWorldManaged)
+            {
+                throw Refuse(world.WorkingDirectory);
+            }
+
+            RequireRegularWorkspaceRoot(world.WorkingDirectory);
+            return;
+        }
+
+        RequireLegacyScratch(world.WorkingDirectory);
+    }
+
+    /// <summary>
+    /// Compatibility check for old no-context preparation only. Current writable workspaces must use
+    /// the PreparedWorld overload so ownership comes from Core's recovery descriptor, not a path root.
+    /// </summary>
     public static void RequireOwned(string workingDirectory)
+        => RequireLegacyScratch(workingDirectory);
+
+    public static void RequireOwnedPath(
+        PreparedWorld world,
+        string candidatePath,
+        string description)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentException.ThrowIfNullOrWhiteSpace(candidatePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        RequireOwned(world);
+        RequireContainedPath(world.WorkingDirectory, candidatePath, description);
+    }
+
+    public static void RequireOwnedPath(
+        string workingDirectory,
+        string candidatePath,
+        string description)
+    {
+        RequireLegacyScratch(workingDirectory);
+        RequireContainedPath(workingDirectory, candidatePath, description);
+    }
+
+    private static void RequireLegacyScratch(string workingDirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
 
@@ -14,11 +64,18 @@ internal static class FactorioWorkspaceOwnership
         }
 
         var ownerRoot = Directory.GetParent(fullPath)?.FullName;
-        if (ownerRoot is null || !PathsEqual(ownerRoot, GetExpectedWorkRoot()))
+        if (ownerRoot is null ||
+            !PathsEqual(ownerRoot, FactorioWorldOperations.GetLegacyScratchRoot()))
         {
             throw Refuse(workingDirectory);
         }
 
+        RequireRegularWorkspaceRoot(fullPath);
+    }
+
+    private static void RequireRegularWorkspaceRoot(string workingDirectory)
+    {
+        var fullPath = Path.GetFullPath(workingDirectory);
         if (Directory.Exists(fullPath) &&
             (File.GetAttributes(fullPath) & FileAttributes.ReparsePoint) != 0)
         {
@@ -26,15 +83,11 @@ internal static class FactorioWorkspaceOwnership
         }
     }
 
-    public static void RequireOwnedPath(
+    private static void RequireContainedPath(
         string workingDirectory,
         string candidatePath,
         string description)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(candidatePath);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        RequireOwned(workingDirectory);
-
         var workspace = Path.GetFullPath(workingDirectory);
         var candidate = Path.GetFullPath(candidatePath);
         var relative = Path.GetRelativePath(workspace, candidate);
@@ -104,17 +157,6 @@ internal static class FactorioWorkspaceOwnership
                    StringComparison.Ordinal);
     }
 
-    private static string GetExpectedWorkRoot()
-    {
-        var basePath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(basePath))
-        {
-            basePath = Path.GetTempPath();
-        }
-
-        return Path.GetFullPath(Path.Combine(basePath, "SharedWorlds", "factorio"));
-    }
-
     private static bool PathsEqual(string left, string right)
         => string.Equals(
             Path.GetFullPath(left),
@@ -125,13 +167,13 @@ internal static class FactorioWorkspaceOwnership
 
     private static InvalidOperationException Refuse(string workingDirectory)
         => new(
-            $"Refusing to use unrecognized Factorio Steward workspace '{workingDirectory}'.");
+            $"Refusing to use unrecognized Factorio Safe World workspace '{workingDirectory}'.");
 
     private static InvalidOperationException RefusePath(
         string candidatePath,
         string description,
         Exception? innerException = null)
         => new(
-            $"Refusing to use Factorio Steward {description} path '{candidatePath}' because it is outside the owned workspace or contains a linked/reparse path.",
+            $"Refusing to use Factorio Safe World {description} path '{candidatePath}' because it is outside the prepared workspace or contains a linked/reparse path.",
             innerException);
 }

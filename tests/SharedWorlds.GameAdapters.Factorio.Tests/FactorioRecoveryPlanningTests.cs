@@ -37,21 +37,37 @@ public sealed class FactorioRecoveryPlanningTests : IDisposable
     [Fact]
     public void ManagedPreparedWorldUsesDescriptorInsteadOfApplicationRootHeuristic()
     {
-        var workspace = Path.Combine(_root, "arbitrary-managed-root", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(workspace);
-        var environment = new EnvironmentManifest(
-            1,
-            "factorio",
-            "1.0",
-            [],
-            new Dictionary<string, string>());
-        var prepared = new PreparedWorld(
-            new GameInstallation("test", _root, "test"),
-            workspace,
-            environment,
-            RecoveryLocation: PreparedWorldRecoveryLocation.Managed());
+        var prepared = CreateManagedPreparedWorld();
 
         FactorioWorkspaceOwnership.RequireOwned(prepared);
+    }
+
+    [Fact]
+    public async Task ManagedReleaseLeavesRootForCoreDeletion()
+    {
+        var prepared = CreateManagedPreparedWorld();
+        var adapter = new FactorioAdapter();
+
+        await adapter.FinalizePreparedWorldAsync(
+            prepared,
+            PreparedWorldDisposition.ReleaseForCoreManagedDiscard);
+
+        Assert.True(Directory.Exists(prepared.WorkingDirectory));
+    }
+
+    [Fact]
+    public async Task DirectManagedDiscardIsRefusedAndPreservesRoot()
+    {
+        var prepared = CreateManagedPreparedWorld();
+        var adapter = new FactorioAdapter();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            adapter.FinalizePreparedWorldAsync(
+                prepared,
+                PreparedWorldDisposition.Discard));
+
+        Assert.Contains("Core owns", exception.Message, StringComparison.Ordinal);
+        Assert.True(Directory.Exists(prepared.WorkingDirectory));
     }
 
     [Fact]
@@ -77,6 +93,26 @@ public sealed class FactorioRecoveryPlanningTests : IDisposable
 
         Assert.Throws<InvalidOperationException>(() =>
             FactorioWorkspaceOwnership.RequireOwned(prepared));
+    }
+
+    private PreparedWorld CreateManagedPreparedWorld()
+    {
+        var workspace = Path.Combine(
+            _root,
+            "arbitrary-managed-root",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(workspace);
+        var environment = new EnvironmentManifest(
+            1,
+            "factorio",
+            "1.0",
+            [],
+            new Dictionary<string, string>());
+        return new PreparedWorld(
+            new GameInstallation("test", _root, "test"),
+            workspace,
+            environment,
+            RecoveryLocation: PreparedWorldRecoveryLocation.Managed());
     }
 
     public void Dispose()

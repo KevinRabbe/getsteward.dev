@@ -61,6 +61,46 @@ public sealed class DesktopLocalDataRootSourceAuditTests
             string.Join(Environment.NewLine, violations));
     }
 
+    [Fact]
+    public void ProductSourcesDoNotRecreateLegacySharedWorldsLocalApplicationDataRoot()
+    {
+        var sourceRoot = FindRepositoryDirectory("src");
+        var violations = new List<string>();
+
+        foreach (var path in Directory.EnumerateFiles(
+                     sourceRoot,
+                     "*.cs",
+                     SearchOption.AllDirectories))
+        {
+            var relativePath = Path.GetRelativePath(sourceRoot, path);
+            if (string.Equals(
+                    relativePath.Replace('\\', '/'),
+                    "SharedWorlds.Desktop/DesktopLocalDataRoot.cs",
+                    StringComparison.Ordinal))
+            {
+                // The migration authority must know the legacy directory name in order to move it and
+                // install the downgrade guard. No other product source may reconstruct that legacy
+                // root from LocalApplicationData.
+                continue;
+            }
+
+            var source = File.ReadAllText(path);
+            if (source.Contains(
+                    "Environment.SpecialFolder.LocalApplicationData",
+                    StringComparison.Ordinal) &&
+                source.Contains("\"SharedWorlds\"", StringComparison.Ordinal))
+            {
+                violations.Add(
+                    $"{relativePath}: reconstructs the legacy SharedWorlds LocalApplicationData root");
+            }
+        }
+
+        Assert.True(
+            violations.Count == 0,
+            "Product legacy LocalApplicationData root violations:" + Environment.NewLine +
+            string.Join(Environment.NewLine, violations));
+    }
+
     private static string FindRepositoryDirectory(string relativePath)
     {
         var workspace = Environment.GetEnvironmentVariable("GITHUB_WORKSPACE");

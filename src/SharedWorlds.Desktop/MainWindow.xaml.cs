@@ -42,11 +42,10 @@ public partial class MainWindow : Window
         InitializeNativeWorldCreationUi();
         InitializeGameTechnicalReadinessUi();
 
-        // Keep the existing local data root for persistence compatibility while the visible product
-        // moves to the Safe World name. The migration publication journal/worker are deliberately not
-        // created here: AppID-only peer startup has no use for them.
-        var sharedWorldsRoot = Path.Combine(GetLocalDataRoot(), "SharedWorlds");
-        _storageRoot = Path.Combine(sharedWorldsRoot, "data");
+        // App resolves/migrates the one durable local root while it owns the desktop single-instance
+        // boundary, before this window can construct any storage/runtime writer.
+        var safeWorldRoot = DesktopLocalDataRoot.RequireResolvedRoot();
+        _storageRoot = Path.Combine(safeWorldRoot, "data");
         var localStorage = new LocalWorldStorage(_storageRoot);
         _storage = new OwnedWorldLocationObservedWorldStorage(
             localStorage,
@@ -61,7 +60,7 @@ public partial class MainWindow : Window
             _localManagedSessionGate,
             CreateDesktopLifecycleObserver());
         _deviceSettingsStore = new DeviceSettingsStore(
-            Path.Combine(sharedWorldsRoot, "settings", "device.json"));
+            Path.Combine(safeWorldRoot, "settings", "device.json"));
 
         Closed += (_, _) =>
         {
@@ -250,16 +249,11 @@ public partial class MainWindow : Window
             ExternalId: Environment.UserName,
             DisplayName: Environment.UserName);
 
-    private static string GetLocalDataRoot()
-    {
-        var path = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return string.IsNullOrWhiteSpace(path) ? Path.GetTempPath() : path;
-    }
-
     private static void ShowError(string title, Exception exception)
     {
-        var diagnosticsRoot = Path.Combine(GetLocalDataRoot(), "SharedWorlds", "logs");
-        var incident = LocalDiagnosticLog.TryWriteException(exception, diagnosticsRoot);
+        var incident = LocalDiagnosticLog.TryWriteException(
+            exception,
+            DesktopLocalDataRoot.GetDiagnosticsRoot());
         var diagnosticReference = incident.LogPath is null
             ? $"Incident ID: {incident.Id}"
             : $"Incident ID: {incident.Id}{Environment.NewLine}Diagnostic log: {incident.LogPath}";

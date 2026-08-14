@@ -81,11 +81,8 @@ public partial class MainWindow
         }
     }
 
-    private static LocalWorldStorage CreatePeerCanonicalStorage()
-        => new(Path.Combine(
-            GetLocalDataRoot(),
-            "SharedWorlds",
-            "data"));
+    private LocalWorldStorage CreatePeerCanonicalStorage()
+        => new(_storageRoot);
 
     private void MainWindow_PeerRuntimeClosed(object? sender, EventArgs e)
         => DisposePeerRuntime();

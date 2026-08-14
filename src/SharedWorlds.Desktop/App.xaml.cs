@@ -36,6 +36,17 @@ public partial class App : Application
             return;
         }
 
+        try
+        {
+            _ = DesktopLocalDataRoot.ResolveAndMigrateForCurrentUser();
+        }
+        catch (Exception exception)
+        {
+            ShowLocalDataStartupFailure(exception);
+            Shutdown();
+            return;
+        }
+
         // Register only as an available per-user handler. Windows remains authoritative over which
         // application is the user's default for .safeworld.
         _ = PortableWorldFileAssociation.TryRegisterCurrentExecutable();
@@ -108,11 +119,30 @@ public partial class App : Application
         base.OnExit(e);
     }
 
+    private static void ShowLocalDataStartupFailure(Exception exception)
+    {
+        var incident = LocalDiagnosticLog.TryWriteException(
+            exception,
+            DesktopLocalDataRoot.GetDiagnosticsRoot());
+        var diagnosticReference = incident.LogPath is null
+            ? $"Incident ID: {incident.Id}"
+            : $"Incident ID: {incident.Id}{Environment.NewLine}Diagnostic log: {incident.LogPath}";
+        MessageBox.Show(
+            "SafeWorld could not safely prepare its local data store and stopped before opening any World." +
+            $"{Environment.NewLine}{Environment.NewLine}" +
+            $"{DesktopErrorMessage.Safe(exception)}{Environment.NewLine}{Environment.NewLine}{diagnosticReference}",
+            "SafeWorld local data migration stopped",
+            MessageBoxButton.OK,
+            MessageBoxImage.Error);
+    }
+
     private static void OnDispatcherUnhandledException(
         object sender,
         DispatcherUnhandledExceptionEventArgs e)
     {
-        var incident = LocalDiagnosticLog.TryWriteException(e.Exception, GetDiagnosticsRoot());
+        var incident = LocalDiagnosticLog.TryWriteException(
+            e.Exception,
+            DesktopLocalDataRoot.GetDiagnosticsRoot());
         var diagnosticReference = incident.LogPath is null
             ? $"Incident ID: {incident.Id}"
             : $"Incident ID: {incident.Id}{Environment.NewLine}Diagnostic log: {incident.LogPath}";
@@ -130,19 +160,9 @@ public partial class App : Application
     {
         if (e.ExceptionObject is Exception exception)
         {
-            _ = LocalDiagnosticLog.TryWriteException(exception, GetDiagnosticsRoot());
+            _ = LocalDiagnosticLog.TryWriteException(
+                exception,
+                DesktopLocalDataRoot.GetDiagnosticsRoot());
         }
-    }
-
-    private static string GetDiagnosticsRoot()
-    {
-        var localDataRoot = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localDataRoot))
-        {
-            localDataRoot = Path.GetTempPath();
-        }
-
-        // Keep the existing storage root until a compatibility migration moves persisted user data.
-        return Path.Combine(localDataRoot, "SharedWorlds", "logs");
     }
 }

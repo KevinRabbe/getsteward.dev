@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using SharedWorlds.Core.Abstractions;
 using SharedWorlds.Core.Environment;
+using SharedWorlds.Core.Storage;
 
 namespace SharedWorlds.GameAdapters.StardewValley;
 
@@ -24,7 +25,9 @@ internal static class StardewValleyWorldState
     {
         ArgumentNullException.ThrowIfNull(world);
         StardewValleyWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
-        return CaptureSaveDirectoryAsync(FindSinglePreparedSaveDirectory(world.WorkingDirectory), cancellationToken);
+        return CaptureSaveDirectoryAsync(
+            FindSinglePreparedSaveDirectory(world.WorkingDirectory),
+            cancellationToken);
     }
 
     public static PreparedWorld PrepareEnvironment(
@@ -60,20 +63,32 @@ internal static class StardewValleyWorldState
         Directory.CreateDirectory(savesRoot);
         var destination = Path.Combine(savesRoot, bundle.SaveName);
         var operationId = Guid.NewGuid().ToString("N");
-        var stagingParent = Path.Combine(world.WorkingDirectory, $".sharedworlds-staging-{operationId}");
+        var stagingParent = Path.Combine(
+            world.WorkingDirectory,
+            $".sharedworlds-staging-{operationId}");
         var staging = Path.Combine(stagingParent, bundle.SaveName);
-        var rollback = Path.Combine(world.WorkingDirectory, $".sharedworlds-rollback-{operationId}");
+        var rollback = Path.Combine(
+            world.WorkingDirectory,
+            $".sharedworlds-rollback-{operationId}");
         var movedExisting = false;
 
         try
         {
             Directory.CreateDirectory(staging);
-            await ExtractEntryAsync(bundle.MainEntry, Path.Combine(staging, bundle.SaveName), cancellationToken);
-            await ExtractEntryAsync(bundle.InfoEntry, Path.Combine(staging, SaveGameInfoFileName), cancellationToken);
+            await ExtractEntryAsync(
+                bundle.MainEntry,
+                Path.Combine(staging, bundle.SaveName),
+                cancellationToken);
+            await ExtractEntryAsync(
+                bundle.InfoEntry,
+                Path.Combine(staging, SaveGameInfoFileName),
+                cancellationToken);
 
             if (Directory.Exists(destination))
             {
-                StardewValleyWorkspaceOwnership.RequireOwnedTree(world.WorkingDirectory, destination);
+                StardewValleyWorkspaceOwnership.RequireOwnedTree(
+                    world.WorkingDirectory,
+                    destination);
                 Directory.Move(destination, rollback);
                 movedExisting = true;
             }
@@ -88,7 +103,9 @@ internal static class StardewValleyWorldState
         catch (Exception restoreException)
         {
             TryDeleteDirectory(stagingParent);
-            if (movedExisting && !Directory.Exists(destination) && Directory.Exists(rollback))
+            if (movedExisting &&
+                !Directory.Exists(destination) &&
+                Directory.Exists(rollback))
             {
                 try
                 {
@@ -116,10 +133,9 @@ internal static class StardewValleyWorldState
         cancellationToken.ThrowIfCancellationRequested();
         StardewValleyWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
 
-        if (disposition == PreparedWorldDisposition.Discard && Directory.Exists(world.WorkingDirectory))
+        if (disposition == PreparedWorldDisposition.Discard)
         {
-            StardewValleyWorkspaceOwnership.RequireOwnedTree(world.WorkingDirectory, world.WorkingDirectory);
-            Directory.Delete(world.WorkingDirectory, recursive: true);
+            StardewValleyWorkspaceOwnership.DeleteOwned(world.WorkingDirectory);
         }
 
         return Task.CompletedTask;
@@ -140,7 +156,10 @@ internal static class StardewValleyWorldState
         RequireRegularFile(mainPath, "Stardew Valley main save file");
         RequireRegularFile(infoPath, "Stardew Valley SaveGameInfo file");
 
-        var packagePath = CreatePackagePath(saveName);
+        var packagePath = DisposableStatePackageStorage.CreatePackagePath(
+            "stardew-valley",
+            saveName,
+            ".zip");
         try
         {
             await using var main = OpenStableSource(mainPath);
@@ -152,15 +171,28 @@ internal static class StardewValleyWorldState
                 FileShare.None,
                 bufferSize: 128 * 1024,
                 useAsync: true);
-            using (var archive = new ZipArchive(package, ZipArchiveMode.Create, leaveOpen: true))
+            using (var archive = new ZipArchive(
+                       package,
+                       ZipArchiveMode.Create,
+                       leaveOpen: true))
             {
-                await WriteEntryAsync(archive, $"{saveName}/{saveName}", main, cancellationToken);
-                await WriteEntryAsync(archive, $"{saveName}/{SaveGameInfoFileName}", info, cancellationToken);
+                await WriteEntryAsync(
+                    archive,
+                    $"{saveName}/{saveName}",
+                    main,
+                    cancellationToken);
+                await WriteEntryAsync(
+                    archive,
+                    $"{saveName}/{SaveGameInfoFileName}",
+                    info,
+                    cancellationToken);
             }
 
             await package.FlushAsync(cancellationToken);
             return new CapturedState(
-                new StatePackage(Path.GetFileNameWithoutExtension(packagePath), packagePath),
+                new StatePackage(
+                    Path.GetFileNameWithoutExtension(packagePath),
+                    packagePath),
                 DateTimeOffset.UtcNow);
         }
         catch
@@ -195,7 +227,9 @@ internal static class StardewValleyWorldState
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var files = archive.Entries.Where(entry => !string.IsNullOrEmpty(entry.Name)).ToArray();
+        var files = archive.Entries
+            .Where(entry => !string.IsNullOrEmpty(entry.Name))
+            .ToArray();
         if (files.Length != 2)
         {
             throw new InvalidDataException(
@@ -217,7 +251,9 @@ internal static class StardewValleyWorldState
                         $"Stardew Valley state package contains a non-canonical path: '{entry.FullName}'.");
                 }
 
-                var segments = entry.FullName.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                var segments = entry.FullName.Split(
+                    '/',
+                    StringSplitOptions.RemoveEmptyEntries);
                 if (segments.Length != 2)
                 {
                     throw new InvalidDataException(
@@ -228,23 +264,29 @@ internal static class StardewValleyWorldState
                 saveName ??= segments[0];
                 if (!string.Equals(saveName, segments[0], StringComparison.Ordinal))
                 {
-                    throw new InvalidDataException("Stardew Valley state package contains more than one save root.");
+                    throw new InvalidDataException(
+                        "Stardew Valley state package contains more than one save root.");
                 }
 
                 if (string.Equals(segments[1], saveName, StringComparison.Ordinal))
                 {
                     if (main is not null)
                     {
-                        throw new InvalidDataException("Stardew Valley state package contains duplicate main save files.");
+                        throw new InvalidDataException(
+                            "Stardew Valley state package contains duplicate main save files.");
                     }
 
                     main = entry;
                 }
-                else if (string.Equals(segments[1], SaveGameInfoFileName, StringComparison.Ordinal))
+                else if (string.Equals(
+                             segments[1],
+                             SaveGameInfoFileName,
+                             StringComparison.Ordinal))
                 {
                     if (info is not null)
                     {
-                        throw new InvalidDataException("Stardew Valley state package contains duplicate SaveGameInfo files.");
+                        throw new InvalidDataException(
+                            "Stardew Valley state package contains duplicate SaveGameInfo files.");
                     }
 
                     info = entry;
@@ -294,10 +336,13 @@ internal static class StardewValleyWorldState
     private static string FindSinglePreparedSaveDirectory(string workingDirectory)
     {
         var savesRoot = Path.Combine(workingDirectory, SaveRootDirectoryName);
-        RequireRegularDirectory(savesRoot, "prepared Stardew Valley Saves directory");
+        RequireRegularDirectory(
+            savesRoot,
+            "prepared Stardew Valley Saves directory");
         var candidates = Directory
             .EnumerateDirectories(savesRoot, "*", SearchOption.TopDirectoryOnly)
-            .Where(path => StardewValleyWorldDiscovery.IsValidCurrentSaveDirectory(path))
+            .Where(path =>
+                StardewValleyWorldDiscovery.IsValidCurrentSaveDirectory(path))
             .Take(2)
             .ToArray();
         if (candidates.Length != 1)
@@ -309,7 +354,9 @@ internal static class StardewValleyWorldState
         return candidates[0];
     }
 
-    private static void EnsureSufficientFreeSpace(string workingDirectory, long declaredBytes)
+    private static void EnsureSufficientFreeSpace(
+        string workingDirectory,
+        long declaredBytes)
     {
         long required;
         try
@@ -318,7 +365,9 @@ internal static class StardewValleyWorldState
         }
         catch (OverflowException exception)
         {
-            throw new InvalidDataException("Stardew Valley state package declares an impossible extraction size.", exception);
+            throw new InvalidDataException(
+                "Stardew Valley state package declares an impossible extraction size.",
+                exception);
         }
 
         var root = Path.GetPathRoot(Path.GetFullPath(workingDirectory));
@@ -345,9 +394,11 @@ internal static class StardewValleyWorldState
     {
         if (string.IsNullOrWhiteSpace(saveName) ||
             saveName is "." or ".." ||
-            saveName.IndexOfAny(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '\0']) >= 0)
+            saveName.IndexOfAny(
+                ['/', '\\', ':', '*', '?', '"', '<', '>', '|', '\0']) >= 0)
         {
-            throw new InvalidDataException($"Stardew Valley state package contains unsafe save name '{saveName}'.");
+            throw new InvalidDataException(
+                $"Stardew Valley state package contains unsafe save name '{saveName}'.");
         }
     }
 
@@ -357,7 +408,8 @@ internal static class StardewValleyWorldState
         if ((attributes & FileAttributes.Directory) == 0 ||
             (attributes & FileAttributes.ReparsePoint) != 0)
         {
-            throw new InvalidOperationException($"{description} must be a regular non-linked directory: {path}");
+            throw new InvalidOperationException(
+                $"{description} must be a regular non-linked directory: {path}");
         }
     }
 
@@ -367,7 +419,8 @@ internal static class StardewValleyWorldState
         if ((attributes & FileAttributes.Directory) != 0 ||
             (attributes & FileAttributes.ReparsePoint) != 0)
         {
-            throw new InvalidOperationException($"{description} must be a regular non-linked file: {path}");
+            throw new InvalidOperationException(
+                $"{description} must be a regular non-linked file: {path}");
         }
     }
 
@@ -378,28 +431,15 @@ internal static class StardewValleyWorldState
             return File.GetAttributes(path);
         }
         catch (Exception exception) when (
-            exception is FileNotFoundException or DirectoryNotFoundException or IOException or UnauthorizedAccessException)
+            exception is FileNotFoundException or
+                DirectoryNotFoundException or
+                IOException or
+                UnauthorizedAccessException)
         {
-            throw new InvalidOperationException($"{description} could not be inspected safely: {path}", exception);
+            throw new InvalidOperationException(
+                $"{description} could not be inspected safely: {path}",
+                exception);
         }
-    }
-
-    private static string CreatePackagePath(string saveName)
-    {
-        var root = GetPackageRoot();
-        Directory.CreateDirectory(root);
-        return Path.Combine(root, $"{saveName}-{Guid.NewGuid():N}.zip");
-    }
-
-    private static string GetPackageRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.Combine(localData, "SharedWorlds", "stardew-valley", "packages");
     }
 
     private static void TryDeleteFile(string path)
@@ -445,98 +485,26 @@ internal static class StardewValleyWorldState
 
 internal static class StardewValleyWorkspaceOwnership
 {
+    private const string AdapterId = "stardew-valley";
+
     public static string Create()
-    {
-        var root = GetExpectedWorkRoot();
-        Directory.CreateDirectory(root);
-        var workspace = Path.Combine(root, Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(workspace);
-        return Path.GetFullPath(workspace);
-    }
+        => DisposablePreparedWorkspaceStorage.Create(AdapterId);
 
     public static void RequireOwned(string workingDirectory)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
-        var workspace = Path.GetFullPath(workingDirectory);
-        var leaf = Path.GetFileName(Path.TrimEndingDirectorySeparator(workspace));
-        if (!Guid.TryParseExact(leaf, "N", out _) ||
-            Directory.GetParent(workspace)?.FullName is not string ownerRoot ||
-            !PathsEqual(ownerRoot, GetExpectedWorkRoot()))
-        {
-            throw Refuse(workingDirectory);
-        }
+        => _ = DisposablePreparedWorkspaceStorage.RequireOwned(
+            AdapterId,
+            workingDirectory);
 
-        RejectReparsePoint(ownerRoot, workingDirectory);
-        if (Directory.Exists(workspace))
-        {
-            RejectReparsePoint(workspace, workingDirectory);
-        }
-    }
+    public static void RequireOwnedTree(
+        string workingDirectory,
+        string treeRoot)
+        => DisposablePreparedWorkspaceStorage.RequireOwnedTree(
+            AdapterId,
+            workingDirectory,
+            treeRoot);
 
-    public static void RequireOwnedTree(string workingDirectory, string treeRoot)
-    {
-        RequireOwned(workingDirectory);
-        var workspace = Path.GetFullPath(workingDirectory);
-        var root = Path.GetFullPath(treeRoot);
-        var prefix = workspace + Path.DirectorySeparatorChar;
-        if (!PathsEqual(root, workspace) && !root.StartsWith(prefix, PathComparison))
-        {
-            throw Refuse(treeRoot);
-        }
-
-        if (!Directory.Exists(root))
-        {
-            return;
-        }
-
-        var pending = new Stack<string>();
-        pending.Push(root);
-        while (pending.Count > 0)
-        {
-            var current = pending.Pop();
-            RejectReparsePoint(current, treeRoot);
-            foreach (var directory in Directory.EnumerateDirectories(current, "*", SearchOption.TopDirectoryOnly))
-            {
-                RejectReparsePoint(directory, treeRoot);
-                pending.Push(directory);
-            }
-
-            foreach (var file in Directory.EnumerateFiles(current, "*", SearchOption.TopDirectoryOnly))
-            {
-                if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
-                {
-                    throw Refuse(treeRoot);
-                }
-            }
-        }
-    }
-
-    private static string GetExpectedWorkRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.GetFullPath(Path.Combine(localData, "Steward", "workspaces", "stardew-valley"));
-    }
-
-    private static void RejectReparsePoint(string path, string originalPath)
-    {
-        if (Directory.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
-        {
-            throw Refuse(originalPath);
-        }
-    }
-
-    private static bool PathsEqual(string left, string right)
-        => string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), PathComparison);
-
-    private static StringComparison PathComparison => OperatingSystem.IsWindows()
-        ? StringComparison.OrdinalIgnoreCase
-        : StringComparison.Ordinal;
-
-    private static InvalidOperationException Refuse(string path)
-        => new($"Refusing to use unrecognized or linked Stardew Valley Steward workspace '{path}'.");
+    public static void DeleteOwned(string workingDirectory)
+        => DisposablePreparedWorkspaceStorage.DeleteOwned(
+            AdapterId,
+            workingDirectory);
 }

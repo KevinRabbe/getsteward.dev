@@ -42,6 +42,8 @@ internal static partial class SevenDaysToDieWorldState
         ArgumentNullException.ThrowIfNull(state);
         cancellationToken.ThrowIfCancellationRequested();
 
+        var destinationRoot = SevenDaysToDieWorkspaceOwnership.RequireOwned(
+            world.WorkingDirectory);
         var packagePath = Path.GetFullPath(state.Path);
         if (!File.Exists(packagePath))
         {
@@ -49,9 +51,6 @@ internal static partial class SevenDaysToDieWorldState
                 "The 7 Days to Die state package does not exist.",
                 packagePath);
         }
-
-        var destinationRoot = Path.GetFullPath(world.WorkingDirectory);
-        Directory.CreateDirectory(destinationRoot);
 
         var operationId = Guid.NewGuid().ToString("N");
         var stagingRoot = Path.Combine(
@@ -157,6 +156,7 @@ internal static partial class SevenDaysToDieWorldState
     {
         ArgumentNullException.ThrowIfNull(world);
         cancellationToken.ThrowIfCancellationRequested();
+        _ = SevenDaysToDieWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
 
         if (disposition == PreparedWorldDisposition.Discard)
         {

@@ -12,13 +12,28 @@ public static class DisposablePreparedWorkspaceStorage
 
     public static string Create(string adapterId)
     {
-        var root = GetAdapterRoot(adapterId);
-        Directory.CreateDirectory(root);
-        RejectReparsePointIfPresent(GetProductRoot(), root);
-        RejectReparsePointIfPresent(GetScratchRoot(), root);
-        RejectReparsePointIfPresent(root, root);
+        var productRoot = GetProductRoot();
+        RejectReparsePointIfPresent(productRoot, productRoot);
+        Directory.CreateDirectory(productRoot);
+        RejectReparsePointIfPresent(productRoot, productRoot);
 
-        var workspace = Path.Combine(root, Guid.NewGuid().ToString("N"));
+        var scratchRoot = GetScratchRoot();
+        RejectReparsePointIfPresent(scratchRoot, scratchRoot);
+        Directory.CreateDirectory(scratchRoot);
+        RejectReparsePointIfPresent(scratchRoot, scratchRoot);
+
+        var adapterRoot = GetAdapterRoot(adapterId);
+        RejectReparsePointIfPresent(adapterRoot, adapterRoot);
+        Directory.CreateDirectory(adapterRoot);
+        RejectReparsePointIfPresent(adapterRoot, adapterRoot);
+
+        var workspace = Path.Combine(adapterRoot, Guid.NewGuid().ToString("N"));
+        if (Directory.Exists(workspace) || File.Exists(workspace))
+        {
+            throw new InvalidOperationException(
+                $"Disposable prepared workspace already exists unexpectedly: {workspace}");
+        }
+
         Directory.CreateDirectory(workspace);
         RejectReparsePointIfPresent(workspace, workspace);
         return Path.GetFullPath(workspace);
@@ -158,7 +173,8 @@ public static class DisposablePreparedWorkspaceStorage
 
         if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
         {
-            throw Refuse("unknown", originalPath);
+            throw new InvalidOperationException(
+                $"Refusing linked disposable prepared workspace path '{originalPath}'.");
         }
     }
 

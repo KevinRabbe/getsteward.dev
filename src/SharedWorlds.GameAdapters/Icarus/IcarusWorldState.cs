@@ -1,5 +1,7 @@
 using SharedWorlds.Core.Abstractions;
+using SharedWorlds.Core.Domain;
 using SharedWorlds.Core.Environment;
+using SharedWorlds.Core.Storage;
 
 namespace SharedWorlds.GameAdapters.Icarus;
 
@@ -25,7 +27,7 @@ internal static class IcarusWorldState
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(world);
-        IcarusWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        IcarusWorkspaceOwnership.RequireOwned(world);
         return CaptureFileAsync(
             GetPreparedWorldPath(world.WorkingDirectory),
             world.DisplayName ?? "world",
@@ -44,6 +46,28 @@ internal static class IcarusWorldState
             DisplayName: null);
     }
 
+    public static PreparedWorld PrepareEnvironment(
+        GameInstallation installation,
+        EnvironmentManifest requiredEnvironment,
+        PreparedWorldPreparationContext preparation)
+    {
+        ArgumentNullException.ThrowIfNull(preparation);
+        IcarusEnvironment.RequireCompatible(installation, requiredEnvironment);
+        var workspace = Path.GetFullPath(preparation.ManagedWorkingDirectory);
+        if (!Directory.Exists(workspace))
+        {
+            throw new InvalidOperationException(
+                "ICARUS managed workspace must be created by Core before adapter materialization.");
+        }
+
+        return new PreparedWorld(
+            installation,
+            workspace,
+            requiredEnvironment,
+            DisplayName: null,
+            RecoveryLocation: PreparedWorldRecoveryLocation.Managed());
+    }
+
     public static async Task RestorePreparedWorldAsync(
         PreparedWorld world,
         StatePackage state,
@@ -52,7 +76,7 @@ internal static class IcarusWorldState
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(state);
         cancellationToken.ThrowIfCancellationRequested();
-        IcarusWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        IcarusWorkspaceOwnership.RequireOwned(world);
 
         var sourcePath = Path.GetFullPath(state.Path);
         RequireRegularWorldFile(sourcePath, "ICARUS state package");
@@ -116,13 +140,20 @@ internal static class IcarusWorldState
     {
         ArgumentNullException.ThrowIfNull(world);
         cancellationToken.ThrowIfCancellationRequested();
-        IcarusWorkspaceOwnership.RequireOwned(world.WorkingDirectory);
+        IcarusWorkspaceOwnership.RequireOwned(world);
 
-        if (disposition == PreparedWorldDisposition.Discard &&
-            Directory.Exists(world.WorkingDirectory))
+        switch (disposition)
         {
-            IcarusWorkspaceOwnership.RequireOwnedTree(world.WorkingDirectory);
-            Directory.Delete(world.WorkingDirectory, recursive: true);
+            case PreparedWorldDisposition.Discard:
+                IcarusWorkspaceOwnership.DeleteAdapterOwned(world);
+                break;
+            case PreparedWorldDisposition.ReleaseForCoreManagedDiscard:
+                IcarusWorkspaceOwnership.RequireManaged(world);
+                break;
+            case PreparedWorldDisposition.PreserveForRecovery:
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(disposition), disposition, null);
         }
 
         return Task.CompletedTask;
@@ -137,7 +168,10 @@ internal static class IcarusWorldState
         var fullSourcePath = Path.GetFullPath(sourcePath);
         RequireRegularWorldFile(fullSourcePath, "ICARUS World");
 
-        var packagePath = CreatePackagePath(worldName);
+        var packagePath = DisposableStatePackageStorage.CreatePackagePath(
+            "icarus",
+            worldName,
+            ".json");
         try
         {
             await CopyFileAsync(fullSourcePath, packagePath, cancellationToken);
@@ -262,40 +296,6 @@ internal static class IcarusWorldState
         }
     }
 
-    private static string CreatePackagePath(string worldName)
-    {
-        var root = GetPackageRoot();
-        Directory.CreateDirectory(root);
-        var safeName = SanitizeFileName(worldName);
-        return Path.Combine(root, $"{safeName}-{Guid.NewGuid():N}.json");
-    }
-
-    private static string GetPackageRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.Combine(
-            localData,
-            "SharedWorlds",
-            "icarus",
-            "packages");
-    }
-
-    private static string SanitizeFileName(string value)
-    {
-        var result = string.IsNullOrWhiteSpace(value) ? "world" : value;
-        foreach (var invalid in Path.GetInvalidFileNameChars())
-        {
-            result = result.Replace(invalid, '_');
-        }
-
-        return string.IsNullOrWhiteSpace(result) ? "world" : result;
-    }
-
     private static void TryDeleteFile(string path)
     {
         try
@@ -316,37 +316,56 @@ internal static class IcarusWorldState
 
 internal static class IcarusWorkspaceOwnership
 {
+    private const string AdapterId = "icarus";
+
     public static string Create()
+        => DisposablePreparedWorkspaceStorage.Create(AdapterId);
+
+    public static void RequireOwned(PreparedWorld world)
     {
-        var root = GetExpectedWorkRoot();
-        Directory.CreateDirectory(root);
-        var workspace = Path.Combine(root, Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(workspace);
-        return Path.GetFullPath(workspace);
+        ArgumentNullException.ThrowIfNull(world);
+        if (world.RecoveryLocation is null)
+        {
+            _ = DisposablePreparedWorkspaceStorage.RequireOwned(
+                AdapterId,
+                world.WorkingDirectory);
+            return;
+        }
+
+        RequireManaged(world);
     }
 
-    public static void RequireOwned(string workingDirectory)
+    public static void RequireManaged(PreparedWorld world)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        var location = world.RecoveryLocation
+            ?? throw Refuse(world.WorkingDirectory);
+        location.Validate();
+        if (location.Kind != PreparedWorldRecoveryLocationKind.SafeWorldManaged)
+        {
+            throw Refuse(world.WorkingDirectory);
+        }
+
+        RequireRegularManagedTree(world.WorkingDirectory);
+    }
+
+    public static void DeleteAdapterOwned(PreparedWorld world)
+    {
+        RequireOwned(world);
+        if (world.RecoveryLocation is not null)
+        {
+            throw new InvalidOperationException(
+                "ICARUS cannot delete a SafeWorld-managed workspace root; Core owns that deletion by durable WorkspaceId.");
+        }
+
+        DisposablePreparedWorkspaceStorage.DeleteOwned(
+            AdapterId,
+            world.WorkingDirectory);
+    }
+
+    private static void RequireRegularManagedTree(string workingDirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
-        var workspace = Path.GetFullPath(workingDirectory);
-        var leaf = Path.GetFileName(Path.TrimEndingDirectorySeparator(workspace));
-        if (!Guid.TryParseExact(leaf, "N", out _) ||
-            Directory.GetParent(workspace)?.FullName is not string ownerRoot ||
-            !PathsEqual(ownerRoot, GetExpectedWorkRoot()))
-        {
-            throw Refuse(workingDirectory);
-        }
-
-        RejectReparsePoint(ownerRoot, workingDirectory);
-        if (Directory.Exists(workspace))
-        {
-            RejectReparsePoint(workspace, workingDirectory);
-        }
-    }
-
-    public static void RequireOwnedTree(string workingDirectory)
-    {
-        RequireOwned(workingDirectory);
         if (!Directory.Exists(workingDirectory))
         {
             return;
@@ -380,21 +399,6 @@ internal static class IcarusWorkspaceOwnership
         }
     }
 
-    private static string GetExpectedWorkRoot()
-    {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localData))
-        {
-            localData = Path.GetTempPath();
-        }
-
-        return Path.GetFullPath(Path.Combine(
-            localData,
-            "Steward",
-            "workspaces",
-            "icarus"));
-    }
-
     private static void RejectReparsePoint(
         string path,
         string originalPath)
@@ -406,15 +410,7 @@ internal static class IcarusWorkspaceOwnership
         }
     }
 
-    private static bool PathsEqual(string left, string right)
-        => string.Equals(
-            Path.GetFullPath(left),
-            Path.GetFullPath(right),
-            OperatingSystem.IsWindows()
-                ? StringComparison.OrdinalIgnoreCase
-                : StringComparison.Ordinal);
-
     private static InvalidOperationException Refuse(string path)
         => new(
-            $"Refusing to use unrecognized or linked ICARUS Steward workspace '{path}'.");
+            $"Refusing to use unrecognized or linked ICARUS SafeWorld workspace '{path}'.");
 }

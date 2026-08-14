@@ -84,13 +84,16 @@ public sealed class SafeWorldSidebarAndDeletionPresentationTests
         var discardBody = recovery[discardStart..nextMethod];
 
         Assert.DoesNotContain("HasAuthoritativeRuntimeForWorld", discardBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("GetReadyInstallationForRecoveryRecordAsync", discardBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("Directory.Exists", discardBody, StringComparison.Ordinal);
-        Assert.Contains("var discard = await decision.PrepareDiscardAsync(world.Id, adapter.Id)", discardBody, StringComparison.Ordinal);
+        Assert.Contains("var discard = await decision.PrepareDiscardAsync(world.Id, adapter)", discardBody, StringComparison.Ordinal);
         Assert.Contains("discard.Status == WorkspaceRecoveryStatus.CleanupPending", discardBody, StringComparison.Ordinal);
+        Assert.Contains("var resolver = CreatePreparedWorldRecoveryResolver();", discardBody, StringComparison.Ordinal);
+        Assert.Contains("ResolveWorkingDirectoryWithoutInstallation", discardBody, StringComparison.Ordinal);
+        Assert.Contains("if (pathWithoutInstallation is null || Directory.Exists(pathWithoutInstallation))", discardBody, StringComparison.Ordinal);
+        Assert.Contains("GetReadyInstallationForRecoveryRecordAsync", discardBody, StringComparison.Ordinal);
+        Assert.Contains("new WorkspaceCleanupRecoveryService", discardBody, StringComparison.Ordinal);
+        Assert.Contains("_workspaceRecoveryStore,\n                            resolver", discardBody, StringComparison.Ordinal);
         Assert.Contains("discard.Status == WorkspaceRecoveryStatus.Abandoned", discardBody, StringComparison.Ordinal);
         Assert.Contains("GetStorageForWorld(world)", discardBody, StringComparison.Ordinal);
-        Assert.Contains("installation: null", discardBody, StringComparison.Ordinal);
         Assert.Contains("no longer blocks other Worlds", discardBody, StringComparison.Ordinal);
     }
 
